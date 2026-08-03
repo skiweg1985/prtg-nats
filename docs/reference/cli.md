@@ -48,8 +48,9 @@ Unchanged, and staying: these need an interactive terminal.
 
 | Command | What it does |
 | --- | --- |
-| `install-mpp [ADMIN@HOST] --nats-user USER` | install or reconfigure a probe over SSH |
-| `probe enroll/list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes |
+| `install-mpp [ADMIN@HOST] [--nats-user USER]` | install or reconfigure a probe over SSH |
+| `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
+| `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes |
 | `probe helper-update USER\|--all` | renew the management helper on the probe |
 | `sensor list/show/deploy/prepare/status/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
@@ -59,6 +60,38 @@ Unchanged, and staying: these need an interactive terminal.
 
 Sensor deployments and probe maintenance are also - and preferably - done in
 the web interface, where they run as jobs with a live log and an audit trail.
+
+### The bootstrap login
+
+`probe enroll` and the first `install-mpp` on a host log in as the
+administrative account named in `ADMIN@HOST`, once, to install the restricted
+key everything afterwards runs over. That login needs the password of the
+account or an SSH key for it, and it opens a single session both commands
+share - so the password is asked for once, not once per file copied. Without
+either, the enrollment stops before it starts:
+
+```text
+ERROR: Could not open a bootstrap session as admin@probe-01.example.com; it
+needs the password of that account or an SSH key for it
+```
+
+### Naming the NATS account
+
+The account is named where it is new, and looked up where it is not: an
+enrolled host has it in its inventory, and the host is part of `ADMIN@HOST`
+anyway.
+
+```bash
+sudo ./prtg-nats probe enroll mpp-probe-01 admin@probe-01.example.com
+sudo ./prtg-nats probe enroll admin@probe-01.example.com --reenroll
+```
+
+The second call reports which account it resolved to before it does anything
+with it. Two probes enrolled at one host are a rollout that went wrong; the
+command says so and asks for the account rather than picking one. The same
+applies to `install-mpp --nats-user`, with one exception: reconfiguring over
+the restricted key passes no `ADMIN@HOST`, so there is no host to look the
+account up by and the option stays required.
 
 ### Renewing the probe helper
 
@@ -78,7 +111,7 @@ command does not help yet:
 | What the probe says | What it needs |
 | --- | --- |
 | a `helper_version` older than this checkout | this command, or "Update helper" in the interface |
-| no `helper_version` at all | one bootstrap run: `probe enroll USER ADMIN@HOST --reenroll`, or a fresh invitation from the interface |
+| no `helper_version` at all | one bootstrap run: `probe enroll ADMIN@HOST --reenroll`, or a fresh invitation from the interface |
 
 The second case is every probe enrolled before signed updates existed: it
 carries no key to check a signature against, and the only path that installs

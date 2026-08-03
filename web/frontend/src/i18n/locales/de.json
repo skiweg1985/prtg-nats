@@ -139,7 +139,7 @@
     "updateHelper": "Helper aktualisieren",
     "helperOutdatedTitle": "Der Probe-Helper ist älter als diese Plattform",
     "helperOutdatedBody": "Er lehnt Anfragen ab, die er noch nicht kennt. „Helper aktualisieren“ ersetzt ihn über den Verwaltungskanal; die Probe prüft die Signatur, bevor sie etwas schreibt.",
-    "helperUnsignedBody": "Diese Probe wurde enrolliert, bevor Helper-Updates signiert wurden, und trägt deshalb keinen Schlüssel, gegen den sie eine Signatur prüfen könnte. Enrolliere sie erneut – auf der Konsole mit „probe enroll USER ADMIN@HOST --reenroll“ oder mit einer neuen Einladung über „Probe hinzufügen“ –, danach wirkt der Knopf unten.",
+    "helperUnsignedBody": "Diese Probe wurde enrolliert, bevor Helper-Updates signiert wurden, und trägt deshalb keinen Schlüssel, gegen den sie eine Signatur prüfen könnte. Enrolliere sie erneut – auf der Konsole mit „probe enroll ADMIN@HOST --reenroll“ oder mit einer neuen Einladung über „Probe hinzufügen“ –, danach wirkt der Knopf unten.",
     "notes": "Notizen",
     "displayName": "Anzeigename",
     "deviationsTitle": "Abweichungen",

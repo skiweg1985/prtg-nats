@@ -122,7 +122,9 @@ _prtg_nats() {
                 candidates="--all $(_prtg_nats_probes "${project_dir}")"
                 ;;
               enroll)
-                candidates="$(_prtg_nats_users "${project_dir}")"
+                # The user may be left out for an enrolled host, so the
+                # option can already stand here.
+                candidates="--reenroll $(_prtg_nats_users "${project_dir}")"
                 ;;
               *)
                 candidates="$(_prtg_nats_probes "${project_dir}")"

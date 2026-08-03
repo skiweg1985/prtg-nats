@@ -139,7 +139,7 @@
     "updateHelper": "Update helper",
     "helperOutdatedTitle": "The probe helper is older than this platform",
     "helperOutdatedBody": "It will refuse requests it does not know yet. \"Update helper\" replaces it over the management channel; the probe checks the signature before it writes anything.",
-    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enrol it again - on the console with \"probe enroll USER ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
+    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enrol it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
