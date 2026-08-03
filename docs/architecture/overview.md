@@ -82,6 +82,12 @@ whose `authorized_keys` entry forces exactly that command. Same key, same
 pinned `known_hosts` as the shell tooling -
 [ADR 0001](decisions/0001-speak-the-probe-protocol-directly.md).
 
+**The helper renews itself over that channel, against a signature.** The
+management key opens the channel; a separate key in `runtime/private/`
+authorises the code that goes through it, and the probe verifies before it
+replaces anything -
+[ADR 0006](decisions/0006-signed-helper-updates.md).
+
 **No broker and no second process.** The job runner is a handful of
 asyncio tasks inside the API process, claiming rows from the job table.
 One server does not need a message queue to keep alive -

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.errors import AppError
+from app.core.errors import AppError, RuntimeStateError
 from app.domain.enums import LogLevel
+from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.probe_helper import ProbeConnection
 from app.workers.context import JobContext
 
@@ -20,6 +21,13 @@ INSTALL_CA_JOB_TYPE = "probe.install_ca"
 
 VALIDATE_STEPS: tuple[str, ...] = ("check_reachable", "collect_state", "evaluate")
 VALIDATE_JOB_TYPE = "probe.validate"
+
+HELPER_UPDATE_STEPS: tuple[str, ...] = ("check_reachable", "send_helper", "verify")
+HELPER_UPDATE_JOB_TYPE = "probe.helper_update"
+
+# The file this platform ships, served from the same path the bootstrap hands
+# out during enrolment - one helper, one source.
+HELPER_ASSET = "libexec/prtg-nats-probe-helper"
 
 
 def _connection(context: JobContext, username: str) -> ProbeConnection:
@@ -52,6 +60,56 @@ async def install_ca(context: JobContext) -> dict[str, Any]:
         params={"probe": username, "ca_sha256": reported or "none"},
     )
     return {"probe": username, "ca_sha256": reported}
+
+
+async def helper_update(context: JobContext) -> dict[str, Any]:
+    """Put the helper this platform ships onto the probe.
+
+    The probe verifies the signature before it writes anything, so a failure
+    here leaves the old helper in place - which is the whole reason this is
+    allowed over the management channel at all.
+    """
+    username: str = context.payload["probe"]
+    connection = _connection(context, username)
+
+    await context.step("check_reachable")
+    before = await context.helper.probe_info(connection)
+    await context.log(
+        "jobs.probe.helper_before",
+        params={
+            "probe": username,
+            "version": before.value("helper_version") or "unknown",
+        },
+    )
+
+    await context.step("send_helper")
+    asset = context.settings.asset_dir / HELPER_ASSET
+    if not asset.is_file():
+        raise RuntimeStateError(
+            params={"path": str(asset)}, details="the probe helper asset is missing"
+        )
+    script = asset.read_text(encoding="utf-8")
+    signature = HelperSigner(context.settings).sign(asset.read_bytes())
+    response = await context.helper.helper_update(connection, script, signature)
+    await context.log(
+        "jobs.probe.helper_sent",
+        params={"probe": username, "version": response.value("version") or "unknown"},
+        raw=response.raw,
+    )
+
+    await context.step("verify")
+    # Asked again rather than believed: the answer above came from the helper
+    # that was replaced, this one comes from the helper that took its place.
+    after = await context.helper.probe_info(connection)
+    version = after.value("helper_version") or "unknown"
+    await context.log(
+        "jobs.probe.helper_updated", params={"probe": username, "version": version}
+    )
+    return {
+        "probe": username,
+        "helper_version": version,
+        "helper_sha256": after.value("helper_sha256"),
+    }
 
 
 async def validate(context: JobContext) -> dict[str, Any]:

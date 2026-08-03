@@ -23,6 +23,18 @@ MPP_REPOSITORY_FILES=(
 MAXIMUM_INPUT_BYTES=65536
 # Sensor scripts are larger than a configuration, but they stay text.
 MAXIMUM_SENSOR_BYTES=262144
+# This file is around 50 KB; the limit leaves room to grow without inviting
+# anyone to push a disk image through the channel.
+MAXIMUM_HELPER_BYTES=524288
+# Raised whenever a request is added or its meaning changes. The platform
+# compares it against what it expects and offers an update when it is behind.
+# An older helper reports no version at all, which is the same answer.
+HELPER_VERSION=1
+# Where enroll-probe.sh puts this script and the key that authorises its
+# replacement. Written here rather than derived from $0: under the forced
+# command $0 is whatever sshd decided to call us.
+HELPER_PATH="/usr/local/sbin/prtg-nats-probe-helper"
+HELPER_SIGNING_KEY="/etc/prtg-nats/helper-signing.pub"
 SENSOR_SCRIPT_DIR="/opt/paessler/share/scripts"
 SENSOR_CONFIG_ROOT="/etc/prtg-nats/sensors"
 SENSOR_WRAPPER_DIR="/usr/local/sbin"
@@ -69,6 +81,16 @@ is_free_of_control_characters() {
       tr -d '[:space:]'
   )"
   [[ "${remaining}" == "0" ]]
+}
+
+# Identifies the running helper down to the byte, which a version number
+# cannot: it also catches a file that was edited on the probe.
+helper_checksum() {
+  [[ -f "${HELPER_PATH}" ]] || {
+    printf 'none'
+    return 0
+  }
+  sha256sum "${HELPER_PATH}" | awk '{print $1}'
 }
 
 read_limited_input() {
@@ -441,6 +463,11 @@ probe_info() {
   printf 'OK probe-info\n'
   printf 'package=%s\n' "$(installed_package_version)"
   printf 'service=%s\n' "${service_state}"
+  # Before the early returns below, so the answer carries it even on a probe
+  # whose configuration is still missing. A helper too old to know these
+  # fields simply omits them, and that absence is what marks it as old.
+  printf 'helper_version=%s\n' "${HELPER_VERSION}"
+  printf 'helper_sha256=%s\n' "$(helper_checksum)"
   # When the probe is connected through its IP, its own host name is the
   # better name-giver than the address.
   printf 'hostname=%s\n' \
@@ -489,6 +516,65 @@ install_ca() {
   install -o root -g root -m 0644 "${staged}" "${CA_PATH}"
   rm -f -- "${staged}"
   printf 'OK ca-installed %s\n' "${CA_PATH}"
+}
+
+# ---------------------------------------------------------------------------
+# Replacing this script
+#
+# The one request that installs root code rather than data, which is why it is
+# the only one that does not trust the channel it arrived on. Holding the
+# management key opens the channel; replacing the helper additionally needs a
+# signature from a key the probe was given during enrollment and that never
+# travels over this channel. Everything else here guards against a well-meant
+# but broken file: a helper that does not parse leaves the probe reachable
+# only from a console.
+# ---------------------------------------------------------------------------
+
+update_helper() {
+  local signature_base64="$1"
+  local staged="${STATE_DIR}/helper-candidate"
+  local signature="${STATE_DIR}/helper-candidate.sig"
+  # In the target directory, because the last step has to be a rename: mv
+  # across filesystems copies, and copying onto the file bash is reading right
+  # now truncates the script mid-execution.
+  local incoming="${HELPER_PATH}.incoming"
+  local version=""
+
+  # The length is a separate condition rather than a bounded repetition in the
+  # pattern: above 255 that does not compile everywhere. A P-256 signature is
+  # 96 characters.
+  [[ "${signature_base64}" =~ ^[A-Za-z0-9+/=]+$ &&
+     ${#signature_base64} -le 255 ]] ||
+    die "helper-update signature is not base64"
+  command -v openssl >/dev/null 2>&1 ||
+    die "openssl is required to verify a helper update"
+  [[ -f "${HELPER_SIGNING_KEY}" ]] ||
+    die "No helper signing key on this probe; it was enrolled before signed updates and has to be enrolled again"
+
+  read_limited_input "${staged}" "${MAXIMUM_HELPER_BYTES}"
+  printf '%s' "${signature_base64}" | openssl base64 -d -A -out "${signature}" ||
+    die "helper-update signature could not be decoded"
+  openssl dgst -sha256 \
+    -verify "${HELPER_SIGNING_KEY}" \
+    -signature "${signature}" \
+    "${staged}" >/dev/null 2>&1 ||
+    die "helper-update signature does not match this probe's signing key"
+
+  [[ "$(head -n 1 "${staged}")" == '#!'*bash* ]] ||
+    die "helper-update payload is not a bash script"
+  bash -n "${staged}" 2>/dev/null ||
+    die "helper-update payload is not syntactically valid"
+  version="$(
+    sed -n 's/^HELPER_VERSION=\([0-9][0-9]*\)$/\1/p' "${staged}" | head -n 1
+  )"
+  [[ -n "${version}" ]] ||
+    die "helper-update payload declares no HELPER_VERSION"
+
+  install -o root -g root -m 0755 "${staged}" "${incoming}"
+  mv -f -- "${incoming}" "${HELPER_PATH}"
+  rm -f -- "${staged}" "${signature}"
+  printf 'OK helper-updated version=%s sha256=%s\n' \
+    "${version}" "$(helper_checksum)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1453,6 +1539,11 @@ case "${command_name}" in
        -z "${argument_three:-}" ]] ||
       die "sensor-remove-profile requires sensor and profile"
     remove_sensor_profile "${argument_one}" "${argument_two}"
+    ;;
+  helper-update)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "helper-update requires one signature"
+    update_helper "${argument_one}"
     ;;
   mpp-uninstall)
     [[ -z "${argument_one:-}" ]] || die "mpp-uninstall takes no arguments"

@@ -391,6 +391,64 @@ check "probe id unchanged" \
     "grep '^PROBE_ID=' ${RUNTIME_MOUNT}/probes/${NATS_USER}.env | cut -d= -f2-")" \
   "${first_id}"
 
+log "Helper update"
+# The one request that replaces the helper while it is running. A sandbox
+# cannot show whether that works: the rename, the signature check against the
+# key the enrolment installed, and the probe still answering afterwards all
+# need a real probe with a real sshd in front of it.
+check "the signing key reached the probe" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    test -f /etc/prtg-nats/helper-signing.pub && printf 'yes')" "yes"
+helper_before="$(
+  docker exec "${PROBE_CONTAINER}" \
+    sha256sum /usr/local/sbin/prtg-nats-probe-helper | cut -d' ' -f1
+)"
+# Changed on the probe, so the update has something to overwrite and the
+# checksum afterwards proves it did.
+docker exec "${PROBE_CONTAINER}" \
+  bash -c "printf '\n# scribble\n' >> /usr/local/sbin/prtg-nats-probe-helper"
+check "the probe now carries a different helper" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    sha256sum /usr/local/sbin/prtg-nats-probe-helper |
+    cut -d' ' -f1 | grep -c "${helper_before}")" "0"
+
+update_output="$(
+  docker exec "${ADMIN_CONTAINER}" \
+    ./prtg-nats probe helper-update "${NATS_USER}" 2>&1
+)"
+check_contains "the update was accepted" "${update_output}" "OK helper-updated"
+check "the helper is back to the one the platform ships" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    sha256sum /usr/local/sbin/prtg-nats-probe-helper | cut -d' ' -f1)" \
+  "${helper_before}"
+check "the probe still answers over the channel" \
+  "$(docker exec "${ADMIN_CONTAINER}" bash -c \
+    "./prtg-nats probe show ${NATS_USER} | grep -c '^  helper_version='")" "1"
+
+# The signature is what makes this safe, so a forged one has to bounce.
+forged_output="$(
+  docker exec "${ADMIN_CONTAINER}" bash -c "
+    openssl ecparam -name prime256v1 -genkey -noout -out /tmp/forged.pem
+    signature=\$(
+      openssl dgst -sha256 -sign /tmp/forged.pem \
+        libexec/prtg-nats-probe-helper | openssl base64 -A
+    )
+    {
+      printf 'helper-update\t%s\n' \"\${signature}\"
+      cat libexec/prtg-nats-probe-helper
+    } | ssh -T -i ${RUNTIME_MOUNT}/private/ssh/prtg-nats-mpp-admin \
+      -o BatchMode=yes -o StrictHostKeyChecking=yes \
+      -o UserKnownHostsFile=${RUNTIME_MOUNT}/private/ssh/known_hosts \
+      prtg-nats-admin@${PROBE_HOSTNAME} 2>&1 || true
+  "
+)"
+check_contains "a foreign signature is refused" "${forged_output}" \
+  "does not match this probe's signing key"
+check "the refused update left the helper alone" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    sha256sum /usr/local/sbin/prtg-nats-probe-helper | cut -d' ' -f1)" \
+  "${helper_before}"
+
 log "Fleet overview"
 # The overview reports findings through the exit code. Under "set -e" a
 # plain assignment would end the test right here, hence if/else.

@@ -91,6 +91,9 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
                 config_path=detail.observed.config_path,
                 probe_id=detail.observed.probe_id,
                 probe_name=detail.observed.probe_name,
+                helper_version=detail.observed.helper_version,
+                helper_sha256=detail.observed.helper_sha256,
+                helper_outdated=detail.observed.helper_outdated,
                 error_code=detail.observed.error_code,
                 error_details=detail.observed.error_details,
             )
@@ -176,6 +179,9 @@ async def refresh_probe(
         config_path=observed.config_path,
         probe_id=observed.probe_id,
         probe_name=observed.probe_name,
+        helper_version=observed.helper_version,
+        helper_sha256=observed.helper_sha256,
+        helper_outdated=observed.helper_outdated,
         error_code=observed.error_code,
         error_details=observed.error_details,
     )
@@ -638,6 +644,53 @@ async def install_ca(
     )
     audit.record(
         action="probe.install_ca",
+        object_type="probe",
+        object_id=record.id,
+        object_label=record.nats_username,
+        job_id=job.id,
+    )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.post(
+    "/{probe_id}/helper-update",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def update_probe_helper(
+    probe_id: str,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    """Renew the management helper on the probe.
+
+    Only reaches probes whose helper already knows the request. One that does
+    not has to be enrolled again - the file is signed, and the key that proves
+    it travels over the bootstrap path alone.
+    """
+    record = await probes.get_record(probe_id)
+    job = await jobs.create(
+        JobRequest(
+            type=probe_actions.HELPER_UPDATE_JOB_TYPE,
+            steps=probe_actions.HELPER_UPDATE_STEPS,
+            resources=(ResourceRef("probe", record.id),),
+            target_type="probe",
+            target_id=record.id,
+            target_label=record.nats_username,
+            payload={"probe": record.nats_username},
+        ),
+        principal,
+    )
+    audit.record(
+        action="probe.helper_update",
         object_type="probe",
         object_id=record.id,
         object_label=record.nats_username,

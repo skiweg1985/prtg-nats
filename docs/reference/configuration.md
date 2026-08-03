@@ -114,6 +114,25 @@ When the volume does not exist yet, the tooling falls back to `runtime/` beside
 the checkout, so the help and `config` still work on a machine that has not
 been set up.
 
+### Keys under `runtime/private/`
+
+Nothing here is configured; the files are listed because a backup that misses
+one of them is a backup that cannot manage the fleet afterwards.
+
+| File | What it is |
+| --- | --- |
+| `ca-key.pem` | the CA that signs the NATS server and client certificates |
+| `ssh/prtg-nats-mpp-admin` | the management key that opens the probe channel |
+| `ssh/known_hosts` | the pinned host keys of every enrolled probe |
+| `helper-signing-key.pem` | signs the probe helper before it is sent over the channel |
+| `helper-signing.pub` | the public half, installed on a probe during enrollment |
+
+The signing pair is created on first use, so an installation from before it
+existed grows one the moment a helper update or an enrollment needs it. Losing
+it means the probes reject every further helper update until they are enrolled
+again - see
+[ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
+
 ## Backend settings
 
 The management API reads its own settings from the environment, prefixed with

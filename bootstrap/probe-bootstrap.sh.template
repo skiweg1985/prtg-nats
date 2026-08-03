@@ -80,9 +80,16 @@ cat > "${STAGE}/management.pub" <<'PRTG_NATS_KEY_EOF'
 @@MANAGEMENT_PUBLIC_KEY@@
 PRTG_NATS_KEY_EOF
 
+# The trust anchor for later helper updates. It travels here and nowhere else:
+# arriving over the management channel it protects would make it worthless.
+cat > "${STAGE}/helper-signing.pub" <<'PRTG_NATS_SIGNING_EOF'
+@@HELPER_SIGNING_KEY@@
+PRTG_NATS_SIGNING_EOF
+
 bash "${STAGE}/enroll-probe.sh" \
   --public-key "${STAGE}/management.pub" \
   --helper "${STAGE}/prtg-nats-probe-helper" \
+  --signing-key "${STAGE}/helper-signing.pub" \
   --source-cidr "${SSH_SOURCE_CIDR}" >/dev/null
 ACCESS_INSTALLED="true"
 say "Management user prtg-nats-admin is ready"

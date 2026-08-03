@@ -753,6 +753,67 @@ else
   printf '  skipped (python3 not installed)\n'
 fi
 
+printf '\n== Helper update ==\n'
+
+# The one request that installs root code on a probe. What keeps it safe is
+# the signature, so the check is that the probe's verification actually says
+# no - to a file signed by a different key, and to a file that was changed
+# after it was signed.
+if command -v openssl >/dev/null 2>&1; then
+  signing_dir="$(mktemp -d)"
+  openssl ecparam -name prime256v1 -genkey -noout \
+    -out "${signing_dir}/key.pem" 2>/dev/null
+  openssl pkey -in "${signing_dir}/key.pem" -pubout \
+    -out "${signing_dir}/key.pub" 2>/dev/null
+  openssl ecparam -name prime256v1 -genkey -noout \
+    -out "${signing_dir}/other.pem" 2>/dev/null
+  cp libexec/prtg-nats-probe-helper "${signing_dir}/payload"
+
+  # The same two commands the helper runs, with the same flags.
+  sign_with() {
+    openssl dgst -sha256 -sign "$1" "${signing_dir}/payload" | openssl base64 -A
+  }
+  verify_signature() {
+    printf '%s' "$1" |
+      openssl base64 -d -A -out "${signing_dir}/sig" &&
+      openssl dgst -sha256 -verify "${signing_dir}/key.pub" \
+        -signature "${signing_dir}/sig" "$2" >/dev/null 2>&1
+  }
+
+  own_signature="$(sign_with "${signing_dir}/key.pem")"
+  check "a signature is one line of base64" \
+    "$(printf '%s' "${own_signature}" | grep -cE '^[A-Za-z0-9+/=]+$')" "1"
+  check "the probe accepts what its own key signed" \
+    "$(verify_signature "${own_signature}" "${signing_dir}/payload" &&
+      printf 'yes')" "yes"
+
+  other_signature="$(sign_with "${signing_dir}/other.pem")"
+  check "a signature from another key is refused" \
+    "$(verify_signature "${other_signature}" "${signing_dir}/payload" ||
+      printf 'refused')" "refused"
+
+  cp "${signing_dir}/payload" "${signing_dir}/tampered"
+  printf '\nrm -rf /\n' >> "${signing_dir}/tampered"
+  check "a payload changed after signing is refused" \
+    "$(verify_signature "${own_signature}" "${signing_dir}/tampered" ||
+      printf 'refused')" "refused"
+
+  # The declared version is what the platform compares against, and what the
+  # helper reads back out of the file it just installed.
+  check "the helper declares exactly one version" \
+    "$(grep -cE '^HELPER_VERSION=[0-9]+$' libexec/prtg-nats-probe-helper)" "1"
+  check "probe-info reports the version" \
+    "$(grep -c "printf 'helper_version=%s" libexec/prtg-nats-probe-helper)" "1"
+  # A copy onto the running file would cut the script off mid-execution.
+  check "the new helper is moved into place, not copied over" \
+    "$(grep -c 'mv -f -- "${incoming}" "${HELPER_PATH}"' \
+      libexec/prtg-nats-probe-helper)" "1"
+
+  rm -rf -- "${signing_dir}"
+else
+  printf '  skipped (openssl not installed)\n'
+fi
+
 printf '\n== Result ==\n'
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

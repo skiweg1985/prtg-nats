@@ -21,6 +21,7 @@ from typing import Protocol
 import asyncssh
 
 from app.core.errors import (
+    ProbeHelperOutdatedError,
     ProbeProtocolError,
     ProbeRejectedError,
     ProbeUnreachableError,
@@ -28,6 +29,7 @@ from app.core.errors import (
 )
 from app.core.logging import get_logger
 from app.infrastructure.probe_helper.protocol import (
+    UNSUPPORTED_REQUEST_MESSAGE,
     HelperCommand,
     HelperRequest,
     HelperResponse,
@@ -41,6 +43,23 @@ MANAGEMENT_USER = "prtg-nats-admin"
 
 # Same shape libexec/common.sh validates before it dials.
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
+
+
+def refusal_error(
+    probe: str, command: HelperCommand, output: str
+) -> ProbeRejectedError | ProbeHelperOutdatedError:
+    """Which error a non-zero exit from the helper deserves.
+
+    Its own refusal messages are precise, so they are kept verbatim in
+    ``details``, where nothing translates them. One of them is not a rejection
+    at all: a helper too old to know the request says so in the same shape, and
+    the way out of it is to renew the helper rather than to fix the request.
+    """
+    reason = output.strip()[:2000]
+    params = {"probe": probe, "command": command.value}
+    if UNSUPPORTED_REQUEST_MESSAGE in reason:
+        return ProbeHelperOutdatedError(params=params, details=reason)
+    return ProbeRejectedError(params=params, details=reason)
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,14 +148,8 @@ class SshHelperTransport:
         stdout = result.stdout if isinstance(result.stdout, str) else ""
         stderr = result.stderr if isinstance(result.stderr, str) else ""
         if result.exit_status != 0:
-            # The helper's own refusal messages are precise; keep them verbatim
-            # in details, where they are not translated.
-            raise ProbeRejectedError(
-                params={
-                    "probe": connection.nats_username,
-                    "command": request.command.value,
-                },
-                details=(stderr or stdout).strip()[:2000],
+            raise refusal_error(
+                connection.nats_username, request.command, (stderr or stdout)
             )
         return stdout
 
@@ -198,7 +211,12 @@ class ProbeHelperClient:
     async def is_reachable(self, connection: ProbeConnection) -> bool:
         try:
             await self.probe_info(connection)
-        except (ProbeUnreachableError, ProbeRejectedError, ProbeProtocolError):
+        except (
+            ProbeUnreachableError,
+            ProbeRejectedError,
+            ProbeProtocolError,
+            ProbeHelperOutdatedError,
+        ):
             return False
         return True
 
@@ -209,6 +227,26 @@ class ProbeHelperClient:
     ) -> HelperResponse:
         return await self._call(
             connection, HelperCommand.INSTALL_CA, payload=ca_pem, timeout=60
+        )
+
+    # --- The helper itself --------------------------------------------------
+
+    async def helper_update(
+        self, connection: ProbeConnection, script: str, signature: str
+    ) -> HelperResponse:
+        """Replace the helper on the probe with the one this platform ships.
+
+        The signature travels as the argument and the script as the payload,
+        because the probe checks the one against the other before it writes
+        anything - the management key opens this channel, but it does not
+        authorise new root code on the far side.
+        """
+        return await self._call(
+            connection,
+            HelperCommand.HELPER_UPDATE,
+            signature,
+            payload=script,
+            timeout=60,
         )
 
     # --- Configuration transaction -----------------------------------------

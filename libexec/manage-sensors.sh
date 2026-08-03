@@ -214,16 +214,6 @@ probes_with_sensor() {
   [[ "${found}" == "true" ]] || printf 'none\n'
 }
 
-enrolled_probes() {
-  local inventory=""
-
-  shopt -s nullglob
-  for inventory in "${PROBE_DIR}"/*.env; do
-    basename -- "${inventory}" .env
-  done
-  shopt -u nullglob
-}
-
 # Rolls a sensor out transactionally: stage every file first, then activate.
 # The self-test on the probe decides whether it worked; if it fails, the helper
 # restores the previous state.

@@ -4,9 +4,12 @@ set -Eeuo pipefail
 
 PUBLIC_KEY_FILE=""
 HELPER_FILE=""
+SIGNING_KEY_FILE=""
 SOURCE_CIDR=""
 MANAGEMENT_USER="prtg-nats-admin"
 MANAGEMENT_HOME="/var/lib/prtg-nats-admin"
+CONFIG_DIR="/etc/prtg-nats"
+SIGNING_KEY_PATH="${CONFIG_DIR}/helper-signing.pub"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -37,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       HELPER_FILE="${2:-}"
       shift 2
       ;;
+    --signing-key)
+      SIGNING_KEY_FILE="${2:-}"
+      shift 2
+      ;;
     --source-cidr)
       SOURCE_CIDR="${2:-}"
       shift 2
@@ -50,6 +57,12 @@ done
 [[ "${EUID}" -eq 0 ]] || die "Enrollment must run as root"
 [[ -f "${PUBLIC_KEY_FILE}" ]] || die "Public key file is missing"
 [[ -f "${HELPER_FILE}" ]] || die "Probe helper file is missing"
+# Required, not optional. This is the only path the signing key travels on -
+# accepting an enrolment without it would leave a probe whose helper can never
+# be renewed except by walking to a console again.
+[[ -f "${SIGNING_KEY_FILE}" ]] || die "Helper signing key file is missing"
+grep -E '^-----BEGIN PUBLIC KEY-----$' "${SIGNING_KEY_FILE}" >/dev/null ||
+  die "Expected a PEM public key for helper signatures"
 validate_source_cidr "${SOURCE_CIDR}" ||
   die "Invalid SSH source CIDR"
 command -v useradd >/dev/null 2>&1 || die "useradd is required"
@@ -70,6 +83,10 @@ passwd -l "${MANAGEMENT_USER}" >/dev/null 2>&1 || true
 
 install -o root -g root -m 0755 \
   "${HELPER_FILE}" /usr/local/sbin/prtg-nats-probe-helper
+install -d -o root -g root -m 0755 "${CONFIG_DIR}"
+# World-readable on purpose: it is a public key, and the helper reads it as
+# root. What matters is that only root can write it.
+install -o root -g root -m 0644 "${SIGNING_KEY_FILE}" "${SIGNING_KEY_PATH}"
 install -d -o root -g root -m 0700 /var/lib/prtg-nats-probe-state
 install -d -o "${MANAGEMENT_USER}" -g "${MANAGEMENT_USER}" -m 0700 \
   "${MANAGEMENT_HOME}/.ssh"

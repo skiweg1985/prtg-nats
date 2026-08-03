@@ -16,6 +16,7 @@ Usage:
   ./prtg-nats probe info USER
   ./prtg-nats probe configure USER [--probe-name NAME]
   ./prtg-nats probe install-ca USER
+  ./prtg-nats probe helper-update USER|--all
   ./prtg-nats probe adopt USER
   ./prtg-nats probe apply USER
   ./prtg-nats probe unenroll USER [--remove-access] [--remove-sensors]
@@ -186,6 +187,7 @@ enroll_probe() {
     die "Invalid MPP_SSH_SOURCE_CIDR: ${MPP_SSH_SOURCE_CIDR}"
 
   ensure_management_ssh_key
+  ensure_helper_signing_key
   confirm_and_pin_host_key "${host}"
   if [[ -n "${BOOTSTRAP_CONTROL_PATH}" ]]; then
     [[ -S "${BOOTSTRAP_CONTROL_PATH}" ]] ||
@@ -215,12 +217,14 @@ enroll_probe() {
     "${SCRIPT_DIR}/enroll-probe.sh" \
     "${SCRIPT_DIR}/prtg-nats-probe-helper" \
     "${SSH_KEY_PATH}.pub" \
+    "${HELPER_SIGNING_PUBLIC_PATH}" \
     "${bootstrap_target}:${remote_stage}/"
   printf -v remote_command \
-    'sudo bash %q --public-key %q --helper %q --source-cidr %q' \
+    'sudo bash %q --public-key %q --helper %q --signing-key %q --source-cidr %q' \
     "${remote_stage}/enroll-probe.sh" \
     "${remote_stage}/prtg-nats-mpp-admin.pub" \
     "${remote_stage}/prtg-nats-probe-helper" \
+    "${remote_stage}/helper-signing.pub" \
     "${MPP_SSH_SOURCE_CIDR}"
   ssh \
     -t \
@@ -523,6 +527,39 @@ install_ca_on_probe() {
     printf 'install-ca\n'
     cat "${CERT_DIR}/ca.pem"
   } | managed_ssh "${username}"
+}
+
+# Hands the probe the helper this checkout ships. The probe verifies the
+# signature against the key it was given during enrollment before it replaces
+# anything, so a probe from before signed updates refuses this and has to be
+# enrolled again - see the message it sends back.
+update_probe_helper() {
+  local username="$1"
+  local helper="${SCRIPT_DIR}/prtg-nats-probe-helper"
+  local signature=""
+
+  [[ -f "${helper}" ]] || die "Probe helper not found: ${helper}"
+  signature="$(sign_helper_file "${helper}")"
+  {
+    printf 'helper-update\t%s\n' "${signature}"
+    cat "${helper}"
+  } | managed_ssh "${username}"
+}
+
+# One failure does not stop the fleet: a probe that is down should not keep
+# every other one on an old helper.
+update_helper_on_all_probes() {
+  local username=""
+  local failures=0
+
+  for username in $(enrolled_probes); do
+    printf '%s: ' "${username}"
+    if ! update_probe_helper "${username}"; then
+      failures=$((failures + 1))
+    fi
+  done
+  [[ "${failures}" -eq 0 ]] ||
+    die "The helper update failed on ${failures} probe(s)"
 }
 
 # Renders the configuration centrally and rolls it out transactionally.
@@ -862,6 +899,15 @@ case "${command_name}" in
     require_username "${1:-}"
     [[ $# -eq 1 ]] || die "Usage: ./prtg-nats probe install-ca USER"
     install_ca_on_probe "$1"
+    ;;
+  helper-update)
+    [[ $# -eq 1 ]] || die "Usage: ./prtg-nats probe helper-update USER|--all"
+    if [[ "$1" == "--all" ]]; then
+      update_helper_on_all_probes
+    else
+      require_username "$1"
+      update_probe_helper "$1"
+    fi
     ;;
   adopt)
     require_username "${1:-}"

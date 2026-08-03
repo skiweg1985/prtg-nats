@@ -39,6 +39,8 @@ class ProbeSummaryOut(ApiModel):
     stale: bool
     running_job_id: str | None = None
     error_code: str | None = None
+    helper_version: int | None = None
+    helper_outdated: bool = False
 
 
 class SensorStateOut(ApiModel):
@@ -85,6 +87,9 @@ class ObservedStateOut(ApiModel):
     config_path: str | None
     probe_id: str | None
     probe_name: str | None
+    helper_version: int | None = None
+    helper_sha256: str | None = None
+    helper_outdated: bool = False
     error_code: str | None = None
     error_details: str | None = None
 

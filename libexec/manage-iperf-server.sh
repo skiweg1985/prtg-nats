@@ -161,16 +161,6 @@ probes_with_iperf() {
   return 0
 }
 
-enrolled_probes() {
-  local inventory=""
-
-  shopt -s nullglob
-  for inventory in "${PROBE_DIR}"/*.env; do
-    basename -- "${inventory}" .env
-  done
-  shopt -u nullglob
-}
-
 # ---------------------------------------------------------------------------
 # SSH to the endpoint
 # ---------------------------------------------------------------------------
