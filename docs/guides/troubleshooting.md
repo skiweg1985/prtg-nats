@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 role: everyone
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 # Troubleshooting
@@ -18,7 +18,7 @@ the probe's own words behind a disclosure control. See
 
 | Message | Usual cause | What to do |
 | --- | --- | --- |
-| CA download unreachable | port `80`, DNS, or the CA container is not available | copy the PEM with `./prtg-nats ca-show`, or check `prtg-nats-ca` |
+| CA download unreachable | port `80`, DNS, or the proxy is not running | copy the PEM with `./prtg-nats ca-show`, or check `prtg-nats-web-proxy` |
 | `tls: unknown certificate authority` | wrong or missing CA, or a wrong `server_ca` path | `./prtg-nats probe install-ca USER`, then `probe configure USER` |
 | Certificate name does not match | an IP instead of the FQDN, or a wrong DNS record | use `nats.example.com` and correct DNS |
 | `Failed to read config file: Permission denied` | `config.yaml` is not readable by the service account | `prtg.mpprobe.service` runs as `paessler_mpprobe`; the file has to belong to that group and be at least `0640` |

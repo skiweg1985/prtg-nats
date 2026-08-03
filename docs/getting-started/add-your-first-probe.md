@@ -21,8 +21,9 @@ sudo ./prtg-nats user add mpp-probe-01
 ```
 
 Pick the account name to match the probe host. Whether created automatically
-or by hand, the random password is shown once and additionally stored in
-`runtime/credentials/mpp-probe-01.env` with mode `0600`.
+or by hand, the random password is stored in the runtime volume under
+`credentials/mpp-probe-01.env` with mode `0600`. Show it again with
+`sudo ./prtg-nats user show mpp-probe-01`.
 
 ## Recommended: clone the repository directly on the new MPP
 
@@ -261,7 +262,7 @@ The runtime configuration is generated from
 | `ACCESS_KEY` | inventory, else the existing configuration, else `UUID-hostname` |
 | `PROBE_NAME` | inventory, else `multi-platform-probe@hostname` |
 | `NATS_HOST`, `NATS_PORT` | `.env`, or `--nats-host`/`--nats-port` |
-| `NATS_USER`, `NATS_PASSWORD` | `runtime/credentials/USER.env` |
+| `NATS_USER`, `NATS_PASSWORD` | `credentials/USER.env` in the runtime volume |
 | `SERVER_CA` | `/etc/paessler/mpprobe/certs/nats-docker-ca.pem` |
 | `CLIENT_NAME` | `prtgmpprobe`, overridable with `--client-name` |
 
@@ -273,14 +274,16 @@ and roll it out again:
 sudo ./prtg-nats probe configure mpp-probe-01
 ```
 
-The rendered configuration can be previewed without changing any system:
+The rendered configuration can be previewed without changing any system. The
+credential file sits in the runtime volume, so ask Docker where that is:
 
 ```bash
+runtime="$(docker volume inspect --format '{{.Mountpoint}}' prtg-nats-runtime)"
 ./install-mpp.sh --render-config \
   --nats-host nats.example.com \
   --nats-user mpp-probe-01 \
   --probe-host probe-01.example.com \
-  --nats-password-file runtime/credentials/mpp-probe-01.env
+  --nats-password-file "${runtime}/credentials/mpp-probe-01.env"
 ```
 
 The official wizard remains as a fallback:
@@ -291,9 +294,9 @@ The official wizard remains as a fallback:
   --wizard
 ```
 
-Probe id and access key are kept per probe in `runtime/probes/USER.env`
-(mode `0600`) and reused on repeated runs. That way no second probe appears
-in PRTG. Show them:
+Probe id and access key are kept per probe in `probes/USER.env` in the runtime
+volume (mode `0600`) and reused on repeated runs. That way no second probe
+appears in PRTG. Show them:
 
 ```bash
 sudo ./prtg-nats probe show mpp-probe-01

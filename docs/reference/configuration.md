@@ -15,7 +15,9 @@ they are read by different things:
 | `runtime/conf/nats-server.conf` | the NATS container | generated, never edited by hand |
 
 The normal way to change `.env` is the dialog, which validates every entry and
-archives the previous file to `runtime/archive/`:
+copies the previous file to `.env.bak-<timestamp>` beside it - `.env` is host
+state that Compose reads from the checkout, and the dialog runs before there is
+necessarily a runtime volume to write into:
 
 ```bash
 sudo ./prtg-nats config --edit
@@ -80,8 +82,6 @@ rollout.
 
 ## Web platform
 
-Only read when the stack is started with `compose.web.yaml` as well.
-
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
 | `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `8443` | no | `8443` |
@@ -90,6 +90,29 @@ Only read when the stack is started with `compose.web.yaml` as well.
 The default for `WEB_FQDN` is right for a single-server installation. Set it
 only when the interface is reached under a different name than the NATS
 endpoint.
+
+## Where the shell tooling looks for the runtime
+
+The installation lives in the `prtg-nats-runtime` volume. `prtg-nats` and the
+scripts under `libexec/` read the volume's mountpoint from Docker, so neither
+of these is normally set. They are environment variables, not `.env` keys: they
+change where a single command looks, which is not a property of the
+installation.
+
+| Name | Description | Type | Default | Required | Example |
+| --- | --- | --- | --- | --- | --- |
+| `PRTG_NATS_RUNTIME_DIR` | Use this directory as the runtime instead of looking the volume up | path | the volume's mountpoint | no | `/srv/prtg-nats/runtime` |
+| `PRTG_NATS_RUNTIME_VOLUME` | Look up a different volume | string | `prtg-nats-runtime` | no | `prtg-nats-runtime-restored` |
+
+`PRTG_NATS_RUNTIME_DIR` is what a nested environment needs: the end-to-end test
+drives `prtg-nats` from inside a container that talks to the host's Docker
+socket, where the host's mountpoint does not resolve. It also serves a restore,
+together with `PRTG_NATS_RUNTIME_VOLUME` - see
+[Operations](../guides/operations.md#restore).
+
+When the volume does not exist yet, the tooling falls back to `runtime/` beside
+the checkout, so the help and `config` still work on a machine that has not
+been set up.
 
 ## Backend settings
 

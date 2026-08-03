@@ -257,6 +257,11 @@ jobs:
       - name: Tear the test environment down safely
         if: always()
         run: |
-          docker rm -f prtg-e2e-probe prtg-e2e-admin prtg-nats prtg-nats-ca \
+          docker rm -f prtg-e2e-probe prtg-e2e-admin prtg-nats \
+            >/dev/null 2>&1 || true
+          # After the containers: the admin container mounts the runtime
+          # volume, and a run that died before its own cleanup leaves an
+          # installation behind that the next "init" would refuse to overwrite.
+          docker volume rm prtg-nats-runtime prtg-nats-data \
             >/dev/null 2>&1 || true
           docker network rm prtg-e2e-net >/dev/null 2>&1 || true

@@ -91,6 +91,68 @@ else
   printf '\n== shellcheck ==\n  skipped (not installed)\n'
 fi
 
+# The shell tooling names things that live in other files: helper scripts under
+# libexec/ and services in compose.yaml. Nothing fails until the command is
+# actually run, which is how a call to the deleted manage-users.sh and a start
+# of the removed ca-download service both survived in here unnoticed.
+printf '\n== Names the tooling refers to ==\n'
+
+while IFS= read -r script_name; do
+  [[ -n "${script_name}" ]] || continue
+  check "libexec/${script_name} exists" \
+    "$([[ -f "${PROJECT_DIR}/libexec/${script_name}" ]] && printf 'yes' ||
+      printf 'no')" \
+    "yes"
+done < <(
+  grep -hoE 'run_internal [a-z-]+\.sh' \
+    "${PROJECT_DIR}/prtg-nats" "${PROJECT_DIR}"/libexec/*.sh 2>/dev/null |
+    awk '{ print $2 }' | sort -u
+)
+
+compose_services="$(
+  awk '
+    /^services:/ { in_services = 1; next }
+    /^[^ ]/ { in_services = 0 }
+    in_services && /^  [a-z][a-z0-9_-]*:[[:space:]]*$/ {
+      sub(/:.*/, ""); sub(/^ +/, ""); print
+    }
+  ' "${PROJECT_DIR}/compose.yaml"
+)"
+compose_containers="$(
+  awk '$1 == "container_name:" { print $2 }' "${PROJECT_DIR}/compose.yaml"
+)"
+
+# "wait_until_healthy CONTAINER SERVICE" names one of each.
+while read -r container_name service_name; do
+  [[ -n "${container_name}" ]] || continue
+  check "container ${container_name} is defined in compose.yaml" \
+    "$(printf '%s\n' "${compose_containers}" | grep -Fxc "${container_name}" ||
+      true)" \
+    "1"
+  check "service ${service_name} is defined in compose.yaml" \
+    "$(printf '%s\n' "${compose_services}" | grep -Fxc "${service_name}" ||
+      true)" \
+    "1"
+done < <(
+  grep -hoE 'wait_until_healthy [a-z0-9-]+ [a-z0-9-]+' "${PROJECT_DIR}/prtg-nats" |
+    sed 's/^wait_until_healthy //' | sort -u
+)
+
+while IFS= read -r service_name; do
+  [[ -n "${service_name}" ]] || continue
+  check "restarted service ${service_name} is defined in compose.yaml" \
+    "$(printf '%s\n' "${compose_services}" | grep -Fxc "${service_name}" ||
+      true)" \
+    "1"
+done < <(
+  grep -hoE '^[[:space:]]*compose restart .*$' "${PROJECT_DIR}/prtg-nats" |
+    sed 's/^[[:space:]]*compose restart //' | tr ' ' '\n' | sort -u
+)
+
+check "no compose file other than compose.yaml is referenced" \
+  "$(grep -c 'compose\.[a-z]*\.yaml' "${PROJECT_DIR}/prtg-nats" || true)" \
+  "0"
+
 printf '\n== Configuration template ==\n'
 # shellcheck source=../libexec/mpp-config.sh
 source "${PROJECT_DIR}/libexec/mpp-config.sh"
@@ -494,11 +556,22 @@ rm -rf -- "${completion_home}"
 printf '\n== Invocation over PATH ==\n'
 
 # A symlink in PATH must not shift the project directory: the script
-# would otherwise look for libexec/ and runtime/ next to the link.
+# would otherwise look for libexec/ next to the link.
+#
+# The runtime directory is pinned for this check. Unpinned it comes from the
+# prtg-nats-runtime volume, so the answer would depend on whether the machine
+# running the checks happens to have an installation on it.
 link_dir="$(mktemp -d)"
 ln -s "${PROJECT_DIR}/prtg-nats" "${link_dir}/prtg-nats"
 check "a symlink finds the repository" \
-  "$("${link_dir}/prtg-nats" ca-path)" \
+  "$(PRTG_NATS_RUNTIME_DIR=/srv/runtime "${link_dir}/prtg-nats" ca-path)" \
+  "/srv/runtime/certs/ca.pem"
+check "an absent volume falls back to the checkout" \
+  "$(
+    PRTG_NATS_RUNTIME_DIR='' \
+      PRTG_NATS_RUNTIME_VOLUME=prtg-nats-no-such-volume \
+      "${PROJECT_DIR}/prtg-nats" ca-path
+  )" \
   "${PROJECT_DIR}/runtime/certs/ca.pem"
 check "the completion finds it over PATH" \
   "$(

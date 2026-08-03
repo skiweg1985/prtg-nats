@@ -1,7 +1,7 @@
 ---
 title: Connect the PRTG core
 role: operator
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 # Connect the PRTG core
@@ -12,10 +12,18 @@ new probe is then approved.
 
 ## 1. Put the CA on the core
 
-On the NATS host the public CA is here:
+The public CA lives in the runtime volume. Ask for it rather than looking for
+a path - on the NATS host:
+
+```bash
+sudo ./prtg-nats ca-show > nats-docker-ca.crt
+```
+
+It is also served over plain HTTP, which is what a probe uses and what works
+from the core without a shell on the NATS host:
 
 ```text
-/opt/prtg-nats-server/runtime/certs/ca.pem
+http://nats.example.com/nats-ca.pem
 ```
 
 Copy the file safely to the PRTG core as a PEM file with a `.crt` extension:
@@ -50,7 +58,7 @@ In PRTG:
 | Hostname of the NATS server | `nats.example.com:23561` |
 | NATS authentication | User name and password |
 | User name for NATS | `prtg-nats` |
-| Password for NATS | from the protected `runtime/credentials/prtg-nats.env` |
+| Password for NATS | `sudo ./prtg-nats user show prtg-nats`, or the accounts page of the web interface |
 | CA handling | Provide the root certificate of the certificate authority |
 | CA root certificate | `nats-docker-ca.crt`, or whichever file name you used |
 | Log level | Info; Debug temporarily and only for diagnosis |
