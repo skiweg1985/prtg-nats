@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import EnrollmentTokenInvalidError, RuntimeStateError
 from app.core.security import hash_session_token
+from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.persistence.models.inventory import EnrollmentToken
 from app.services.auth import Principal
@@ -227,10 +228,11 @@ class EnrollmentService:
     def render_bootstrap(self, record: EnrollmentToken, token: str) -> str:
         """Fill the template for this one invitation.
 
-        The CA and the management public key are embedded rather than fetched.
-        Both are public, both are already implied by the channel this script
-        arrived over, and inlining them means one less thing to fail halfway
-        through on a host with an awkward network.
+        The CA, the management public key and the helper signing key are
+        embedded rather than fetched. All three are public, all three are
+        already implied by the channel this script arrived over, and inlining
+        them means one less thing to fail halfway through on a host with an
+        awkward network.
         """
         template = (
             self._settings.asset_dir / "bootstrap" / "probe-bootstrap.sh.template"
@@ -256,6 +258,9 @@ class EnrollmentService:
             "@@CA_SHA256@@": ca_sha256,
             "@@SSH_SOURCE_CIDR@@": source_cidr,
             "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
+            "@@HELPER_SIGNING_KEY@@": HelperSigner(self._settings)
+            .public_key_pem()
+            .strip(),
             "@@INSTALL_PACKAGE@@": (
                 "true" if record.payload.get("install_package", True) else "false"
             ),

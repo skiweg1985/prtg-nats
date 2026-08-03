@@ -38,6 +38,19 @@ from app.core.errors import ProbeProtocolError
 # of that agreement.
 FIELD_SEPARATOR = "\t"
 
+# HELPER_VERSION in libexec/prtg-nats-probe-helper, and the lowest one this
+# platform is willing to talk to. Raised together with the helper's own number
+# whenever a request is added that something here relies on. A helper from
+# before the number existed reports none at all and counts as older than any
+# of these.
+CURRENT_HELPER_VERSION = 1
+MINIMUM_HELPER_VERSION = 1
+
+# What the helper answers to a request it does not know. Recognised verbatim
+# because it is the one refusal that says "the probe is behind" rather than
+# "the request was wrong", and it deserves its own error.
+UNSUPPORTED_REQUEST_MESSAGE = "Unsupported management request"
+
 
 class HelperCommand(StrEnum):
     """Every request the helper accepts.
@@ -68,6 +81,7 @@ class HelperCommand(StrEnum):
     SENSOR_WRITE_PROFILE = "sensor-write-profile"
     SENSOR_REMOVE_PROFILE = "sensor-remove-profile"
 
+    HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"
     UNENROLL = "unenroll"
 

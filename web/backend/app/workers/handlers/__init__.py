@@ -53,6 +53,12 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=probe_actions.validate,
         permission="probe.read",
     ),
+    probe_actions.HELPER_UPDATE_JOB_TYPE: JobDefinition(
+        type=probe_actions.HELPER_UPDATE_JOB_TYPE,
+        steps=probe_actions.HELPER_UPDATE_STEPS,
+        handler=probe_actions.helper_update,
+        permission="probe.update",
+    ),
     probe_lifecycle.CONFIGURE_JOB_TYPE: JobDefinition(
         type=probe_lifecycle.CONFIGURE_JOB_TYPE,
         steps=probe_lifecycle.CONFIGURE_STEPS,

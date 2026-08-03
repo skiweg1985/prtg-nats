@@ -4,8 +4,12 @@ from app.infrastructure.probe_helper.client import (
     ProbeConnection,
     ProbeHelperClient,
     SshHelperTransport,
+    refusal_error,
 )
 from app.infrastructure.probe_helper.protocol import (
+    CURRENT_HELPER_VERSION,
+    MINIMUM_HELPER_VERSION,
+    UNSUPPORTED_REQUEST_MESSAGE,
     HelperCommand,
     HelperRequest,
     HelperResponse,
@@ -19,8 +23,11 @@ from app.infrastructure.probe_helper.protocol import (
 SENSOR_SLOTS: tuple[str, ...] = ("script", "wrapper", "requirements", "version")
 
 __all__ = [
+    "CURRENT_HELPER_VERSION",
     "MANAGEMENT_USER",
+    "MINIMUM_HELPER_VERSION",
     "SENSOR_SLOTS",
+    "UNSUPPORTED_REQUEST_MESSAGE",
     "HelperCommand",
     "HelperRequest",
     "HelperResponse",
@@ -30,4 +37,5 @@ __all__ = [
     "SshHelperTransport",
     "normalise_optional",
     "parse_response",
+    "refusal_error",
 ]

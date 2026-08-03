@@ -39,8 +39,10 @@ No PyPI dependency, no virtual environment, no package index needed — the
 sensor gets by with the standard library.
 
 Probes enrolled before sensor management existed answer with
-`Unsupported management request`. They need a one-time
-`./prtg-nats probe enroll USER ADMIN@HOST --reenroll`.
+`Unsupported management request`. They need `./prtg-nats probe helper-update
+USER` first, or "Update helper" on the probe page. One that reports no
+`helper_version` at all needs a one-time
+`./prtg-nats probe enroll USER ADMIN@HOST --reenroll` before that works.
 
 ## Set up
 

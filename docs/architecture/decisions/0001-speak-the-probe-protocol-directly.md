@@ -50,3 +50,10 @@ that fails when the two drift.
 
 **Cost.** Bootstrap enrollment still needs an interactive SSH session and
 therefore still goes through the shell. It is on the list.
+
+## Superseded in part
+
+Renewing the helper itself was ruled out here for the reason above: over its
+own channel, the management key would authorise arbitrary root code.
+[ADR 0006](0006-signed-helper-updates.md) allows it against a signature the
+management key cannot produce. The rest of this record stands.

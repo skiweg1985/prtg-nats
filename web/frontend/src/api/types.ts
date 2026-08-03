@@ -91,6 +91,8 @@ export interface ProbeSummary {
   stale: boolean
   running_job_id: string | null
   error_code: string | null
+  helper_version: number | null
+  helper_outdated: boolean
 }
 
 export interface SensorState {
@@ -125,6 +127,9 @@ export interface ObservedState {
   config_path: string | null
   probe_id: string | null
   probe_name: string | null
+  helper_version: number | null
+  helper_sha256: string | null
+  helper_outdated: boolean
   error_code: string | null
   error_details: string | null
 }

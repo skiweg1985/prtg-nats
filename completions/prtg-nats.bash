@@ -21,8 +21,8 @@ _prtg_nats_deprecated='configure rotate-password test-persistence tui'
 
 # The internal probe verbs (internal-*) are deliberately missing here: they
 # are only called by the tool itself.
-_prtg_nats_probe_commands='adopt apply configure enroll info install-ca list
-show status unenroll'
+_prtg_nats_probe_commands='adopt apply configure enroll helper-update info
+install-ca list show status unenroll'
 _prtg_nats_user_commands='add delete list rotate show'
 _prtg_nats_sensor_commands='deploy list prepare profile release remove reserve
 show status'

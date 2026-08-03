@@ -166,6 +166,18 @@ class ProbeRejectedError(AppError):
     http_status = status.HTTP_502_BAD_GATEWAY
 
 
+class ProbeHelperOutdatedError(AppError):
+    """The probe carries a helper that predates the request it was asked.
+
+    Separated from the general refusal because the cause and the way out are
+    entirely different: nothing about the request was wrong, and the fix is to
+    renew the helper rather than to correct anything.
+    """
+
+    code = "probe.helper_outdated"
+    http_status = status.HTTP_502_BAD_GATEWAY
+
+
 class NatsUnavailableError(AppError):
     code = "nats.unavailable"
     http_status = status.HTTP_502_BAD_GATEWAY

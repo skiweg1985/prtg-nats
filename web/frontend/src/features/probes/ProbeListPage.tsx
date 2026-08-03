@@ -55,6 +55,9 @@ export function ProbeListPage() {
         <div className="flex items-center gap-2">
           <ProbeStatusBadge status={row.status} />
           {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
+          {/* Beside the status rather than in its own column: it decides
+              whether the next job on this probe will run at all. */}
+          {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
         </div>
       ),
     },

@@ -61,6 +61,11 @@ IPERF_DIR="${RUNTIME_DIR}/iperf"
 SSH_PRIVATE_DIR="${PRIVATE_DIR}/ssh"
 SSH_KEY_PATH="${SSH_PRIVATE_DIR}/prtg-nats-mpp-admin"
 SSH_KNOWN_HOSTS="${SSH_PRIVATE_DIR}/known_hosts"
+# Signs the probe helper before it travels over the management channel. Its
+# own key rather than the CA: the CA has to stay rotatable without every probe
+# losing the ability to accept an update.
+HELPER_SIGNING_KEY_PATH="${PRIVATE_DIR}/helper-signing-key.pem"
+HELPER_SIGNING_PUBLIC_PATH="${PRIVATE_DIR}/helper-signing.pub"
 
 # State left behind by an installation from before the volume. Worth saying
 # once: the keys are still there, they are simply not the installation any

@@ -18,6 +18,7 @@ import httpx
 
 from app.core.config import Settings
 from app.domain.enums import CertificateKind, CertificateStatus
+from app.infrastructure import helper_signing
 from app.infrastructure.certificates import read_certificate
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.infrastructure.runtime_files import RuntimeFileStore
@@ -95,6 +96,9 @@ class StackVerification:
             self._settings.cert_dir / "server-key.pem",
             self._settings.runtime_dir / "conf" / "nats-server.conf",
             self._settings.ssh_key_path,
+            # Created on first use, so an installation that has not needed it
+            # yet has none - which the loop below skips rather than reports.
+            self._settings.private_dir / helper_signing.KEY_FILE,
         ):
             if not path.exists():
                 continue

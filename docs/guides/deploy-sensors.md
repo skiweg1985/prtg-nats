@@ -115,9 +115,20 @@ The sensor commands are executed on the probe by
 management existed do not know them yet and answer with
 `Unsupported management request`.
 
-The helper is renewed over the bootstrap path - deliberately not over the
-restricted channel, because otherwise the helper could be replaced with
-arbitrary code through its own channel:
+The helper is renewed over the restricted channel, against a signature the
+probe checks first - the management key opens the channel, but it does not
+authorise new code on the far side
+([ADR 0006](../architecture/decisions/0006-signed-helper-updates.md)):
+
+```bash
+./prtg-nats probe helper-update USER
+```
+
+The interface does the same thing with "Update helper" on the probe page.
+
+A probe that reports no `helper_version` at all was enrolled before signed
+updates existed. It carries no key to check a signature against, so it needs
+the bootstrap path exactly once - and from then on the command above works:
 
 ```bash
 ./prtg-nats probe enroll USER ADMIN@HOST --reenroll
@@ -215,8 +226,8 @@ probe brings. With `--all` it runs across the whole fleet; individual
 failures are counted and named at the end.
 
 Both require a probe helper that knows this version of sensor management.
-Older probes answer with `Unsupported management request` and need a one-time
-`--reenroll` (see above).
+Older probes answer with `Unsupported management request` and need
+`probe helper-update` first (see above).
 
 Sensors that get by with the standard library need no `requirements.txt` and
 run on the system Python.

@@ -46,8 +46,10 @@ script's shebang at it.
   network is not supported.
 
 Probes enrolled before sensor management existed answer both with
-`Unsupported management request`. They need a one-time
-`./prtg-nats probe enroll USER ADMIN@HOST --reenroll`.
+`Unsupported management request`. They need `./prtg-nats probe helper-update
+USER` first, or "Update helper" on the probe page. One that reports no
+`helper_version` at all needs a one-time
+`./prtg-nats probe enroll USER ADMIN@HOST --reenroll` before that works.
 
 The sensor needs **no** root privileges and no privileged helper. It runs
 entirely as the probe's service user.

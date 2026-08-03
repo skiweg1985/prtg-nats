@@ -42,6 +42,7 @@ export function ProbeDetailPage() {
   const refresh = useRefreshProbe()
   const installCa = useProbeAction('install-ca')
   const validate = useProbeAction('validate')
+  const updateHelper = useProbeAction('helper-update')
   const configure = useConfigureProbe()
   const unenroll = useUnenrollProbe()
   const [tab, setTab] = useState<Tab>('overview')
@@ -59,6 +60,11 @@ export function ProbeDetailPage() {
   if (!data || !probeId) return null
 
   const { summary, observed } = data
+  // A helper that reports no version at all predates signed updates, so it has
+  // no key to check one against and the channel cannot reach it. Told apart
+  // here because the two cases need different instructions, not a shared
+  // "something is old".
+  const helperUpdatable = observed?.helper_version != null
 
   return (
     <div className="space-y-4">
@@ -107,6 +113,18 @@ export function ProbeDetailPage() {
               disabled={installCa.isPending}
             >
               {t('probes.installCa')}
+            </Button>
+            <Button
+              size="sm"
+              variant={summary.helper_outdated && helperUpdatable ? 'primary' : undefined}
+              onClick={() =>
+                updateHelper.mutate(probeId, {
+                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                })
+              }
+              disabled={updateHelper.isPending || !helperUpdatable}
+            >
+              {t('probes.updateHelper')}
             </Button>
             <Button
               size="sm"
@@ -215,9 +233,17 @@ export function ProbeDetailPage() {
       )}
 
       {refresh.error && <ErrorDetails error={refresh.error} target={summary.nats_username} />}
+      {updateHelper.error && (
+        <ErrorDetails error={updateHelper.error} target={summary.nats_username} />
+      )}
       {observed && !observed.reachable && (
         <Banner tone="danger" title={t('status.probe.unreachable')}>
           {observed.error_details ?? t('errors.probe.unreachable', { probe: summary.nats_username })}
+        </Banner>
+      )}
+      {summary.helper_outdated && (
+        <Banner tone="warn" title={t('probes.helperOutdatedTitle')}>
+          {helperUpdatable ? t('probes.helperOutdatedBody') : t('probes.helperUnsignedBody')}
         </Banner>
       )}
 
@@ -299,6 +325,16 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             <span className="flex items-center gap-2">
               <StateCell kind="ca" value={summary.ca_state} />
               <Mono className="text-ink-3">{shortFingerprint(observed?.ca_sha256)}</Mono>
+            </span>
+          </DetailRow>
+          <DetailRow label={t('probes.helper')}>
+            <span className="flex items-center gap-2">
+              {observed?.helper_version != null
+                ? t('probes.helperVersion', { version: observed.helper_version })
+                : t('probes.helperUnknown')}
+              {summary.helper_outdated && (
+                <Badge tone="warn">{t('probes.helperOutdated')}</Badge>
+              )}
             </span>
           </DetailRow>
           <DetailRow label={t('probes.columns.observed')}>

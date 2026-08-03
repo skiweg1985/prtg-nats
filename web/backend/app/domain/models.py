@@ -19,7 +19,11 @@ from app.domain.enums import (
     ProbeStatus,
     ServiceState,
 )
-from app.infrastructure.probe_helper import HelperResponse, normalise_optional
+from app.infrastructure.probe_helper import (
+    MINIMUM_HELPER_VERSION,
+    HelperResponse,
+    normalise_optional,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,9 +57,27 @@ class ObservedProbeState:
     probe_id: str | None = None
     probe_name: str | None = None
     has_access_key: bool = False
+    # None for a helper from before it reported its version, which is exactly
+    # the probe that cannot be updated over the channel yet.
+    helper_version: int | None = None
+    helper_sha256: str | None = None
     sensors: tuple[InstalledSensor, ...] = ()
     error_code: str | None = None
     error_details: str | None = None
+
+    @property
+    def helper_outdated(self) -> bool:
+        """Whether this probe is behind what the platform expects of it.
+
+        An unreachable probe is not called outdated: nothing was reported, and
+        guessing from silence would put a warning on every probe that happens
+        to be down.
+        """
+        if not self.reachable:
+            return False
+        if self.helper_version is None:
+            return True
+        return self.helper_version < MINIMUM_HELPER_VERSION
 
     def ca_state(self, expected_sha256: str | None) -> CaState:
         if not self.reachable:
@@ -80,6 +102,8 @@ class ObservedProbeState:
             "probe_id": self.probe_id,
             "probe_name": self.probe_name,
             "has_access_key": self.has_access_key,
+            "helper_version": self.helper_version,
+            "helper_sha256": self.helper_sha256,
             "sensors": [
                 {
                     "name": sensor.name,
@@ -115,6 +139,8 @@ class ObservedProbeState:
             probe_id=document.get("probe_id"),
             probe_name=document.get("probe_name"),
             has_access_key=bool(document.get("has_access_key")),
+            helper_version=document.get("helper_version"),
+            helper_sha256=document.get("helper_sha256"),
             sensors=tuple(
                 InstalledSensor(
                     name=entry.get("name", ""),
@@ -146,7 +172,21 @@ def parse_probe_info(
         probe_id=normalise_optional(response.value("id")),
         probe_name=normalise_optional(response.value("name")),
         has_access_key=normalise_optional(response.value("access_key")) is not None,
+        helper_version=_helper_version(response.value("helper_version")),
+        helper_sha256=normalise_optional(response.value("helper_sha256")),
     )
+
+
+def _helper_version(value: str | None) -> int | None:
+    """None for anything that is not a number, including a missing field.
+
+    Both mean the same thing here - the probe did not name a version we can
+    compare - and neither is worth failing a status read over.
+    """
+    text = normalise_optional(value)
+    if text is None or not text.isdigit():
+        return None
+    return int(text)
 
 
 def parse_sensor_list(response: HelperResponse) -> tuple[InstalledSensor, ...]:
@@ -258,3 +298,7 @@ class ProbeSummary:
     stale: bool
     running_job_id: str | None = None
     error_code: str | None = None
+    helper_version: int | None = None
+    # In the row rather than only on the detail page: an operator should see
+    # which probes will refuse the next job before starting it.
+    helper_outdated: bool = False

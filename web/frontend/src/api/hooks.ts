@@ -143,7 +143,7 @@ export function useUpdateProbe() {
   })
 }
 
-export function useProbeAction(action: 'install-ca' | 'validate') {
+export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-update') {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.post<JobAccepted>(`/probes/${id}/${action}`),

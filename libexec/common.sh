@@ -224,6 +224,18 @@ managed_ssh() {
     -- "prtg-nats-admin@${host}"
 }
 
+# Every enrolled probe, one NATS user name per line. The inventory is the
+# list: a probe without a file under PROBE_DIR is not enrolled.
+enrolled_probes() {
+  local inventory=""
+
+  shopt -s nullglob
+  for inventory in "${PROBE_DIR}"/*.env; do
+    basename -- "${inventory}" .env
+  done
+  shopt -u nullglob
+}
+
 read_env_value() {
   local input_file="$1"
   local wanted_key="$2"
@@ -367,6 +379,51 @@ ensure_management_ssh_key() {
   chmod 644 "${SSH_KEY_PATH}.pub"
   touch "${SSH_KNOWN_HOSTS}"
   chmod 600 "${SSH_KNOWN_HOSTS}"
+}
+
+# The key that signs the probe helper. Whoever holds the management SSH key
+# can open the channel; only whoever holds this key can put a new helper - and
+# therefore new root code - through it.
+#
+# P-256 with SHA-256 rather than ed25519: the probe verifies with
+# "openssl dgst -verify", which speaks this everywhere, while raw ed25519
+# verification needs an OpenSSL 3 flag that Debian 11 does not have.
+ensure_helper_signing_key() {
+  create_runtime_directories
+  require_command openssl
+
+  if [[ -f "${HELPER_SIGNING_KEY_PATH}" ]]; then
+    # The public half is derived, so a missing one is regenerated rather than
+    # treated as an error - unlike the SSH pair, where the private half alone
+    # cannot produce the exact file the probes were given.
+    [[ -f "${HELPER_SIGNING_PUBLIC_PATH}" ]] ||
+      openssl pkey \
+        -in "${HELPER_SIGNING_KEY_PATH}" \
+        -pubout \
+        -out "${HELPER_SIGNING_PUBLIC_PATH}"
+  else
+    openssl ecparam \
+      -name prime256v1 \
+      -genkey \
+      -noout \
+      -out "${HELPER_SIGNING_KEY_PATH}"
+    openssl pkey \
+      -in "${HELPER_SIGNING_KEY_PATH}" \
+      -pubout \
+      -out "${HELPER_SIGNING_PUBLIC_PATH}"
+  fi
+  chmod 600 "${HELPER_SIGNING_KEY_PATH}"
+  chmod 644 "${HELPER_SIGNING_PUBLIC_PATH}"
+}
+
+# The signature the probe checks before it replaces its own helper, base64 on
+# a single line so it fits into one protocol argument.
+sign_helper_file() {
+  local file="$1"
+
+  ensure_helper_signing_key
+  openssl dgst -sha256 -sign "${HELPER_SIGNING_KEY_PATH}" "${file}" |
+    openssl base64 -A
 }
 
 nats_container_running() {

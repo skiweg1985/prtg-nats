@@ -98,12 +98,22 @@ password, so fetching it is a disclosure and is audited as one.
 | `POST /probes/{id}/configure` | roll the configuration out → job |
 | `POST /probes/{id}/install-ca` | → job |
 | `POST /probes/{id}/validate` | → job |
+| `POST /probes/{id}/helper-update` | renew the management helper → job |
 | `POST /probes/{id}/sensors/{name}/remove` | remove one sensor → job |
 | `DELETE /probes/{id}` | unenrol the probe → job |
 | `GET /probes/{id}/access-key` | the PRTG access key, audited |
 
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
+
+Every probe reports `helper_version` and `helper_outdated`. `POST
+/probes/{id}/helper-update` sends the helper the platform ships, signed with
+the key in `runtime/private/`; the probe verifies it before it replaces
+anything. A probe that reports no version at all predates signed updates,
+carries no key to verify against and answers this endpoint with
+`probe.helper_outdated` - it has to be enrolled once more over the bootstrap
+path. See
+[ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
 
 `DELETE /probes/{id}` removes the management access and the inventory; the
 probe keeps running and stays connected. Three query parameters clear what it
