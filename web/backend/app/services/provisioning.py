@@ -10,13 +10,20 @@ from __future__ import annotations
 import asyncio
 import gzip
 import hashlib
+import tarfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.config import Settings
-from app.core.errors import ConflictError, RuntimeStateError
+from app.core.errors import (
+    ConflictError,
+    NatsReloadRefusedError,
+    NotFoundError,
+    RuntimeStateError,
+)
 from app.infrastructure.docker import JETSTREAM_VOLUME, DockerAdapter, StackContainer
+from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.infrastructure.pki import Pki
 from app.infrastructure.runtime_files import RuntimeFileStore
@@ -27,6 +34,15 @@ class BackupResult:
     archive: str
     sha256: str
     size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class BackupFile:
+    name: str
+    kind: str  # "runtime" | "jetstream"
+    size_bytes: int
+    created_at: datetime
+    sha256: str | None
 
 
 class ProvisioningService:
@@ -72,6 +88,12 @@ class ProvisioningService:
         self._create_directories()
         self._pki.create_ca(organization=site.ca_organization)
         self._pki.issue_server_certificate(fqdn=site.nats_fqdn, archive=False)
+        # The reverse proxy serves the interface with a certificate from this
+        # same CA, so trusting the CA once covers the browser, the NATS server
+        # and the enrolment channel.
+        self._pki.issue_web_certificate(
+            fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=False
+        )
         self._pki.ensure_management_key(fqdn=site.nats_fqdn)
         # Creates credentials, the auth entry and the server configuration in
         # one step; the password stays in the root-only credential file.
@@ -90,21 +112,24 @@ class ProvisioningService:
             self._settings.sensor_profile_dir,
             self._settings.runtime_dir / "archive",
             self._settings.runtime_dir / "conf",
-            self._settings.runtime_dir / "public",
+            self._settings.public_dir,
+            self._settings.web_cert_dir,
+            self._settings.backup_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
             path.chmod(0o700)
         self._settings.runtime_dir.chmod(0o700)
-        (self._settings.runtime_dir / "public").chmod(0o755)
-        # The NATS container reads conf/ and certs/ through bind mounts; the
-        # directories need the execute bit for the container user. The files
-        # inside stay 0600/0644.
+        self._settings.public_dir.chmod(0o755)
+        # The NATS container mounts conf/ and certs/, the proxy mounts
+        # web-certs/ and public/; the directories need the execute bit for the
+        # container user. The files inside stay 0600/0644.
         (self._settings.runtime_dir / "conf").chmod(0o755)
         self._settings.cert_dir.chmod(0o755)
+        self._settings.web_cert_dir.chmod(0o755)
 
     def publish_public_material(self) -> None:
         """runtime/public/: the CA and the health CGI, world-readable."""
-        public = self._settings.runtime_dir / "public"
+        public = self._settings.public_dir
         public.mkdir(parents=True, exist_ok=True)
         public.chmod(0o755)
 
@@ -115,7 +140,7 @@ class ProvisioningService:
         target.write_bytes(ca.read_bytes())
         target.chmod(0o644)
 
-        cgi_source = self._settings.project_dir / "http" / "cgi-bin" / "nats-health"
+        cgi_source = self._settings.http_asset_dir / "cgi-bin" / "nats-health"
         if cgi_source.is_file():
             cgi_dir = public / "cgi-bin"
             cgi_dir.mkdir(parents=True, exist_ok=True)
@@ -127,13 +152,50 @@ class ProvisioningService:
             cgi_target.write_bytes(cgi_source.read_bytes())
             cgi_target.chmod(0o555)
 
+    def ensure_web_certificate(self) -> bool:
+        """Issue the interface certificate if it is missing. Returns whether it did.
+
+        This exists for the upgrade path. An installation set up before the
+        reverse proxy used the platform's own CA has a complete runtime/ and no
+        web certificate, so the proxy refuses to start - and the interface that
+        would let an operator fix it is behind that proxy. Self-healing at
+        startup turns a locked-out installation into a non-event.
+
+        Silent when there is no CA yet: that is a fresh installation, and the
+        setup job issues the certificate as part of initialisation.
+        """
+        certificate = self._settings.web_cert_dir / "web.pem"
+        if certificate.is_file():
+            return False
+        if not (self._settings.cert_dir / "ca.pem").is_file():
+            return False
+
+        site = self._runtime.site_settings()
+        if not site.web_fqdn:
+            return False
+
+        self._settings.web_cert_dir.mkdir(parents=True, exist_ok=True)
+        self._settings.web_cert_dir.chmod(0o755)
+        self._pki.issue_web_certificate(
+            fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=False
+        )
+        return True
+
     # --- Certificate renewal ------------------------------------------------
 
     def renew_server_certificate(self) -> None:
+        """Renews both leaves: they share a CA, an expiry window and a renewal.
+
+        Leaving the interface certificate behind would mean a browser warning
+        appearing months after a renewal nobody remembers making.
+        """
         site = self._runtime.site_settings()
         if not site.nats_fqdn:
             raise RuntimeStateError(details="NATS_FQDN is not configured")
         self._pki.issue_server_certificate(fqdn=site.nats_fqdn, archive=True)
+        self._pki.issue_web_certificate(
+            fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=True
+        )
 
     # --- Backup -------------------------------------------------------------
 
@@ -145,7 +207,7 @@ class ProvisioningService:
         restart is in a finally block - a failed backup must not leave the
         backbone stopped.
         """
-        backups = self._settings.project_dir / "backups"
+        backups = self._settings.backup_dir
         backups.mkdir(parents=True, exist_ok=True)
         backups.chmod(0o700)
 
@@ -188,6 +250,97 @@ class ProvisioningService:
 
         return BackupResult(archive=str(archive), sha256=checksum, size_bytes=size)
 
+    # --- Runtime export -----------------------------------------------------
+
+    # Excluded from the archive: previous archives (an export of an export
+    # grows without bound) and the certificate snapshots, which are history
+    # rather than state. Everything else goes in, keys included - this is the
+    # copy that makes an installation restorable at all.
+    EXPORT_EXCLUDES = ("backups", "archive")
+
+    def export_runtime(self) -> BackupResult:
+        """Archive runtime/ - the part of the installation nothing can rebuild.
+
+        The JetStream backup covers message data. This covers the CA key, the
+        certificates, the NATS accounts, the probe inventory, the management
+        SSH key and the database. Losing it means re-enrolling every probe and
+        re-pointing the PRTG core at a new CA.
+
+        Written inside runtime/ so the volume keeps holding everything, and
+        downloadable afterwards so it does not only exist there.
+        """
+        runtime = self._settings.runtime_dir
+        if not runtime.is_dir():
+            raise RuntimeStateError(
+                params={"path": str(runtime)}, details="runtime directory is missing"
+            )
+
+        backups = self._settings.backup_dir
+        backups.mkdir(parents=True, exist_ok=True)
+        backups.chmod(0o700)
+
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        archive = backups / f"prtg-nats-runtime-{stamp}.tar.gz"
+
+        try:
+            with tarfile.open(archive, "w:gz", compresslevel=6) as bundle:
+                for entry in sorted(runtime.iterdir()):
+                    if entry.name in self.EXPORT_EXCLUDES:
+                        continue
+                    bundle.add(entry, arcname=f"runtime/{entry.name}")
+            archive.chmod(0o600)
+
+            digest = hashlib.sha256()
+            size = 0
+            with archive.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+                    size += len(chunk)
+
+            checksum = digest.hexdigest()
+            checksum_file = Path(f"{archive}.sha256")
+            checksum_file.write_text(f"{checksum}  {archive.name}\n", encoding="utf-8")
+            checksum_file.chmod(0o600)
+        except BaseException:
+            archive.unlink(missing_ok=True)
+            Path(f"{archive}.sha256").unlink(missing_ok=True)
+            raise
+
+        return BackupResult(archive=str(archive), sha256=checksum, size_bytes=size)
+
+    def list_backups(self) -> list[BackupFile]:
+        """Newest first. Both kinds, because both matter for a restore."""
+        backups = self._settings.backup_dir
+        if not backups.is_dir():
+            return []
+
+        found: list[BackupFile] = []
+        for path in backups.glob("*.tar.gz"):
+            stat = path.stat()
+            checksum_file = Path(f"{path}.sha256")
+            checksum = None
+            if checksum_file.is_file():
+                checksum = checksum_file.read_text(encoding="utf-8").split(" ", 1)[0]
+            found.append(
+                BackupFile(
+                    name=path.name,
+                    kind="runtime" if "-runtime-" in path.name else "jetstream",
+                    size_bytes=stat.st_size,
+                    created_at=datetime.fromtimestamp(stat.st_mtime, UTC),
+                    sha256=checksum,
+                )
+            )
+        return sorted(found, key=lambda item: item.created_at, reverse=True)
+
+    def backup_path(self, name: str) -> Path:
+        """Resolve a backup by name, refusing anything that escapes the folder."""
+        if name != Path(name).name or name.startswith("."):
+            raise NotFoundError.of("backup", name)
+        path = self._settings.backup_dir / name
+        if not path.is_file() or path.suffix != ".gz":
+            raise NotFoundError.of("backup", name)
+        return path
+
     # --- Account changes with server reload ---------------------------------
 
     async def create_account(self, username: str) -> str:
@@ -211,20 +364,51 @@ class ProvisioningService:
         Possible without a container recreate because compose mounts the
         runtime directory rather than the single file - the inode dance the
         shell had to do is gone.
+
+        Verified afterwards, because NATS can accept the signal and refuse the
+        reload: changing the server name is not reloadable, and the refusal
+        goes to the container log where nobody is looking. The Docker API
+        answers 200 either way. Left unchecked, creating an account looks like
+        it worked while the probe that needs it gets "authorization violation"
+        for as long as anyone cares to watch.
         """
         if not self._docker.available:
             # Without the socket the change activates on the next start; the
             # files are already correct. Said in the job log, not hidden.
             return
         state = await self._docker.inspect(StackContainer.NATS)
-        if state.running:
-            await self._docker.reload_config(StackContainer.NATS)
+        if not state.running:
+            return
+
+        before = await self._config_load_time()
+        await self._docker.reload_config(StackContainer.NATS)
+        # NATS applies a reload synchronously, but the signal travels through
+        # the daemon; a short wait avoids reading the old value back.
+        for _ in range(10):
+            await asyncio.sleep(0.2)
+            after = await self._config_load_time()
+            if after is not None and after != before:
+                return
+
+        raise NatsReloadRefusedError(
+            details=(
+                "NATS kept its previous configuration. The usual cause is a "
+                "changed server name, which it cannot apply without a restart."
+            )
+        )
+
+    async def _config_load_time(self) -> str | None:
+        """When NATS last read its configuration, or None if it cannot say."""
+        state = await NatsMonitoringClient(
+            self._settings.nats_monitoring_url
+        ).fetch_state()
+        return state.config_load_time if state.available else None
 
 
 def snapshot_paths(settings: Settings) -> list[str]:
-    """The paths an operator should back up off-machine, for the docs page."""
-    return [
-        str(settings.runtime_dir),
-        str(settings.project_dir / "backups"),
-        str(settings.project_dir / ".env"),
-    ]
+    """The paths an operator should back up off-machine, for the docs page.
+
+    One entry, because runtime/ now holds the backups and the site settings
+    too - a volume to copy rather than a list of host paths to remember.
+    """
+    return [str(settings.runtime_dir)]

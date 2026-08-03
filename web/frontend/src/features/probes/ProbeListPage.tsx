@@ -122,6 +122,13 @@ export function ProbeListPage() {
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-lg">{t('probes.title')}</h1>
         <p className="text-ink-3 text-sm">{t('probes.subtitle')}</p>
+        <div className="ml-auto">
+          <PermissionGate permission="probe.create">
+            <Button variant="primary" size="sm" onClick={() => navigate('/probes/new')}>
+              {t('probes.enroll.action')}
+            </Button>
+          </PermissionGate>
+        </div>
       </header>
 
       <DataTable
@@ -131,6 +138,14 @@ export function ProbeListPage() {
         isLoading={isLoading}
         emptyTitle={t('probes.empty')}
         emptyHint={t('probes.emptyHint')}
+        // An empty fleet is where someone is looking for exactly this.
+        emptyAction={
+          <PermissionGate permission="probe.create">
+            <Button variant="primary" onClick={() => navigate('/probes/new')}>
+              {t('probes.enroll.action')}
+            </Button>
+          </PermissionGate>
+        }
         onRowClick={(row) => navigate(`/probes/${row.id}`)}
         selection={{
           selected,

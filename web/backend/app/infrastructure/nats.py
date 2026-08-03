@@ -42,6 +42,10 @@ class NatsServerState:
     available: bool
     healthy: bool = False
     server_name: str | None = None
+    # When the running server last read its configuration. The only way to
+    # tell a reload that was applied from one the server refused - it answers
+    # the signal either way, and the refusal only reaches the container log.
+    config_load_time: str | None = None
     version: str | None = None
     uptime: str | None = None
     connections: int = 0
@@ -94,6 +98,7 @@ class NatsMonitoringClient:
             available=True,
             healthy=bool(healthz and healthz.get("status") == "ok"),
             server_name=varz.get("server_name"),
+            config_load_time=varz.get("config_load_time"),
             version=varz.get("version"),
             uptime=varz.get("uptime"),
             connections=int(varz.get("connections", 0)),

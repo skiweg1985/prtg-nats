@@ -1,6 +1,40 @@
+# The whole stack: NATS, the management platform, and the proxy in front of it.
+#
+#   docker compose up -d
+#
+# State lives in the prtg-nats-runtime volume, not on a host path. That is what
+# makes an installation portable: the volume is the installation, and moving it
+# is the whole migration. Nothing here needs a checkout on the host - the API
+# image carries the templates, sensors and on-target scripts it hands to a probe.
+#
+# Only the proxy and the NATS port face a network. The API binds to loopback.
+
 name: prtg-nats
 
 services:
+  # Creates the directories the other containers mount by subpath. Without it
+  # they would refuse to start against a fresh volume: a subpath that does not
+  # exist yet is an error, not an empty mount. Runs to completion in well under
+  # a second and gets out of the way. The API sets the final ownership and
+  # modes when it initialises the runtime; these are just placeholders.
+  runtime-init:
+    image: busybox:1.37.0-musl@sha256:222ad6d973c0d198014546a65cd02c5fdedcc172123c5b4c2bf0af636550bd94
+    container_name: prtg-nats-runtime-init
+    command:
+      - sh
+      - -c
+      - mkdir -p /runtime/conf /runtime/certs /runtime/web-certs /runtime/public && chmod 0755 /runtime/conf /runtime/certs /runtime/web-certs /runtime/public
+    volumes:
+      - type: volume
+        source: runtime
+        target: /runtime
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   nats:
     image: nats:2.10.29-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
     container_name: prtg-nats
@@ -8,25 +42,34 @@ services:
       - --config
       - /etc/nats/conf/nats-server.conf
     ports:
-      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - run \"./prtg-nats config --edit\"}:${NATS_PORT:-23561}:${NATS_PORT:-23561}"
+      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - set it in .env}:${NATS_PORT:-23561}:${NATS_PORT:-23561}"
       - "127.0.0.1:8222:8222"
     volumes:
-      # Directory mounts on purpose: they exist before initialisation, so the
-      # container can start, retry, and come up the moment the web setup job
-      # writes the configuration. A file mount would become a directory if the
-      # file did not exist yet. Only conf/ and certs/ are exposed - the
-      # container never sees private keys or credentials.
-      - type: bind
-        source: ./runtime/conf
+      # Two subpath mounts rather than the whole volume, so this container
+      # never sees private keys or credentials - only the configuration it
+      # reads and the certificates it serves. The paths inside are the ones
+      # config/nats-server.conf.template already names.
+      - type: volume
+        source: runtime
         target: /etc/nats/conf
         read_only: true
-      - type: bind
-        source: ./runtime/certs
+        volume:
+          subpath: conf
+      - type: volume
+        source: runtime
         target: /etc/nats/certs
         read_only: true
+        volume:
+          subpath: certs
       - type: volume
         source: nats-data
         target: /data
+    depends_on:
+      runtime-init:
+        condition: service_completed_successfully
+    # No condition on the configuration existing: the container retries until
+    # the setup job writes it, which is what lets an operator bring the stack
+    # up before configuring it.
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -57,48 +100,130 @@ services:
         max-size: 10m
         max-file: "5"
 
-  ca-download:
-    image: busybox:1.37.0-musl@sha256:222ad6d973c0d198014546a65cd02c5fdedcc172123c5b4c2bf0af636550bd94
-    container_name: prtg-nats-ca
-    command:
-      - httpd
-      - -f
-      - -p
-      - "8080"
-      - -h
-      - /www
-    ports:
-      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - run \"./prtg-nats config --edit\"}:${CA_HTTP_PORT:-80}:8080"
+  web-api:
+    build:
+      # The repository root: the image needs config/, sensors/ and the
+      # on-target scripts, which live outside web/backend.
+      context: .
+      dockerfile: web/backend/Dockerfile
+    container_name: prtg-nats-web-api
+    environment:
+      PRTG_NATS_WEB_ENVIRONMENT: production
+      # Loopback only: in the host network namespace, anything else would
+      # expose the plain-HTTP API on a routable address.
+      PRTG_NATS_WEB_HOST: 127.0.0.1
+      PRTG_NATS_WEB_PORT: "8100"
+      # The NATS monitoring endpoint is published on the host's loopback only,
+      # which is why this container joins the host network namespace for it.
+      PRTG_NATS_WEB_NATS_MONITORING_URL: http://127.0.0.1:8222
+      PRTG_NATS_WEB_SESSION_COOKIE_SECURE: "true"
+      # The site settings. These used to be read from a bind-mounted .env;
+      # compose passes them in now, so nothing outside the volume is needed.
+      NATS_FQDN: ${NATS_FQDN:?NATS_FQDN is missing - set it in .env}
+      NATS_PORT: ${NATS_PORT:-23561}
+      NATS_HOST_IP: ${NATS_HOST_IP:?NATS_HOST_IP is missing - set it in .env}
+      CA_HTTP_PORT: ${CA_HTTP_PORT:-80}
+      CA_ORGANIZATION: ${CA_ORGANIZATION:-PRTG NATS}
+      PRTG_CORE_IP: ${PRTG_CORE_IP:-}
+      MPP_SSH_SOURCE_CIDR: ${MPP_SSH_SOURCE_CIDR:-}
+      WEB_FQDN: ${WEB_FQDN:-${NATS_FQDN}}
     volumes:
+      - type: volume
+        source: runtime
+        target: /srv/prtg-nats/runtime
+      # Container lifecycle. Without it the platform still manages every probe
+      # and sensor; only the server actions disappear from the interface.
       - type: bind
-        source: ./runtime/public
-        target: /www
-        read_only: true
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    # Shares the host's loopback so 127.0.0.1:8222 is the NATS monitoring
+    # endpoint and 127.0.0.1:8100 is this API, and so outbound SSH to a probe
+    # leaves from the host address the authorized_keys from= clause expects.
+    network_mode: host
+    depends_on:
+      runtime-init:
+        condition: service_completed_successfully
     restart: unless-stopped
-    read_only: true
-    user: "65534:65534"
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test:
-        - CMD
-        - wget
-        - -q
-        - -O
-        - /dev/null
-        - http://127.0.0.1:8080/nats-ca.pem
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
+    stop_grace_period: 30s
     logging:
       driver: local
       options:
-        max-size: 1m
-        max-file: "2"
+        max-size: 10m
+        max-file: "5"
+
+  web-frontend:
+    build:
+      context: ./web/frontend
+    container_name: prtg-nats-web-frontend
+    # Copies the freshly built static files into the volume the proxy serves,
+    # then exits. The image keeps them in /dist: mounting the volume over the
+    # target path would otherwise hide the new build, and Docker's
+    # copy-on-first-use only fills a volume once.
+    volumes:
+      - web-static:/srv/www
+    command: ["sh", "-c", "rm -rf /srv/www/* && cp -a /dist/. /srv/www/"]
+    restart: "no"
+
+  web-proxy:
+    image: caddy:2.9-alpine
+    container_name: prtg-nats-web-proxy
+    # Host network like the API: the Caddyfile forwards /api to the backend on
+    # the host's loopback, which a bridge-network container cannot reach. The
+    # bind address below keeps the listener on the host IP the rest of the
+    # stack uses; TLS terminates here, the API itself never speaks it.
+    network_mode: host
+    volumes:
+      - type: bind
+        source: ./web/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      # The interface certificate, issued by the same CA as everything else.
+      # Its own directory, not certs/: that one is mounted into the NATS
+      # container, which has no business being able to read this private key.
+      - type: volume
+        source: runtime
+        target: /etc/caddy/certs
+        read_only: true
+        volume:
+          subpath: web-certs
+      # What a probe may fetch before it trusts anything: the CA, over plain
+      # HTTP. This replaces the separate busybox server that used to do it.
+      - type: volume
+        source: runtime
+        target: /srv/public
+        read_only: true
+        volume:
+          subpath: public
+      - web-static:/srv/www:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      WEB_FQDN: ${WEB_FQDN:-${NATS_FQDN}}
+      WEB_BIND_IP: ${NATS_HOST_IP:?NATS_HOST_IP is missing - set it in .env}
+      WEB_HTTPS_PORT: ${WEB_HTTPS_PORT:-8443}
+      CA_HTTP_PORT: ${CA_HTTP_PORT:-80}
+    depends_on:
+      web-frontend:
+        condition: service_completed_successfully
+      runtime-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
 
 volumes:
+  # The installation. Everything else in this file can be rebuilt from the
+  # repository; this cannot.
+  runtime:
+    name: prtg-nats-runtime
   nats-data:
     name: prtg-nats-data
+  web-static:
+    name: prtg-nats-web-static
+  caddy-data:
+    name: prtg-nats-caddy-data
+  caddy-config:
+    name: prtg-nats-caddy-config

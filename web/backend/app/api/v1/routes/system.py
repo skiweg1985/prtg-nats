@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import FileResponse
 
 from app.api.deps.common import (
     AuditDep,
@@ -22,6 +23,7 @@ from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import (
     AlertOut,
     AuditEventOut,
+    BackupFileOut,
     CapabilitiesOut,
     CertificateOut,
     ContainerStateOut,
@@ -37,6 +39,7 @@ from app.core.permissions import Permission
 from app.infrastructure.certificates import CertificateInfo
 from app.infrastructure.nats import NatsServerState
 from app.services.jobs import JobRequest, ResourceRef
+from app.services.provisioning import ProvisioningService
 from app.services.system import SystemService, SystemStatus
 from app.workers.handlers import system_actions
 
@@ -332,6 +335,91 @@ async def create_backup(
         job_id=job.id,
         status=job.status.value,
         events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.post(
+    "/system/export", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def export_runtime(
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        object, Depends(require_permission(Permission.SYSTEM_RESTART))
+    ],
+) -> JobAccepted:
+    """Archive runtime/ - the CA key, the accounts, the inventory, the database.
+
+    Distinct from the JetStream backup, which covers message data. This is the
+    one that decides whether an installation can come back at all, and it is
+    why the runtime volume is not a one-way door.
+    """
+    job = await jobs.create(
+        JobRequest(
+            type=system_actions.EXPORT_JOB_TYPE,
+            steps=system_actions.EXPORT_STEPS,
+            resources=(ResourceRef("runtime", "export"),),
+            target_type="system",
+            target_label="runtime export",
+        ),
+        principal,  # type: ignore[arg-type]
+    )
+    audit.record(action="system.export", object_type="system", job_id=job.id)
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.get("/system/backups", response_model=list[BackupFileOut])
+async def list_backups(
+    settings: SettingsDep,
+    docker: DockerDep,
+    _: Annotated[object, Depends(require_permission(Permission.SYSTEM_READ))],
+) -> list[BackupFileOut]:
+    provisioning = ProvisioningService(settings, docker)
+    return [
+        BackupFileOut(
+            name=item.name,
+            kind=item.kind,
+            size_bytes=item.size_bytes,
+            created_at=item.created_at,
+            sha256=item.sha256,
+            download_url=f"/api/v1/system/backups/{item.name}",
+        )
+        for item in provisioning.list_backups()
+    ]
+
+
+@router.get("/system/backups/{name}")
+async def download_backup(
+    name: str,
+    settings: SettingsDep,
+    docker: DockerDep,
+    audit: AuditDep,
+    _: Annotated[object, Depends(require_permission(Permission.SYSTEM_RESTART))],
+) -> FileResponse:
+    """Hand the archive out.
+
+    Behind system.restart rather than system.read: a runtime export contains
+    the CA key and every NATS password, so downloading one is the same kind of
+    disclosure as revealing a credential - and it is audited like one.
+    """
+    provisioning = ProvisioningService(settings, docker)
+    path = provisioning.backup_path(name)
+    audit.record(
+        action="system.backup_download",
+        object_type="backup",
+        object_id=name,
+        object_label=name,
+        comment="backup archive downloaded",
+    )
+    return FileResponse(
+        path,
+        media_type="application/gzip",
+        filename=name,
+        content_disposition_type="attachment",
     )
 
 

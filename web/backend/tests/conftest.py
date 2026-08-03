@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings, get_settings
 from app.infrastructure.probe_helper import HelperRequest, ProbeConnection
 from app.persistence import session as session_module
-from app.persistence.base import Base
+from app.persistence.models import Base
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture
@@ -34,8 +36,27 @@ def project_dir(tmp_path: Path) -> Path:
         "probes",
         "iperf",
         "sensor-profiles",
+        "conf",
     ):
         (runtime / name).mkdir(parents=True, exist_ok=True)
+
+    # The real templates and on-target scripts, not stand-ins. A hand-written
+    # copy would hide exactly what matters: a placeholder the renderer stopped
+    # filling in, or a script the platform serves but no longer ships.
+    for folder, names in (
+        ("config", ("nats-server.conf.template", "mpprobe-config.yaml.template")),
+        ("bootstrap", ("probe-bootstrap.sh.template",)),
+        ("libexec", ("enroll-probe.sh", "prtg-nats-probe-helper")),
+    ):
+        target = tmp_path / folder
+        target.mkdir(exist_ok=True)
+        for name in names:
+            source = REPO_ROOT / folder / name
+            assert source.is_file(), f"asset moved; conftest needs updating: {source}"
+            (target / name).write_bytes(source.read_bytes())
+    (tmp_path / "install-mpp.sh").write_bytes(
+        (REPO_ROOT / "install-mpp.sh").read_bytes()
+    )
 
     (tmp_path / ".env").write_text(
         "NATS_FQDN=nats.example.test\n"
@@ -47,6 +68,16 @@ def project_dir(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return tmp_path
+
+
+@pytest.fixture
+def template_dir(project_dir: Path) -> Path:
+    """Where project_dir put the real templates from the repository.
+
+    Rendering is tested against what actually ships, not a stand-in. Depend on
+    this fixture to say out loud that a test renders something.
+    """
+    return project_dir / "config"
 
 
 @pytest.fixture
@@ -82,6 +113,10 @@ async def session_factory(
 ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = session_module.init_engine(settings)
     async with engine.begin() as connection:
+        # Base is imported from app.persistence.models, not app.persistence.base:
+        # only the package imports every model module, and metadata holds just
+        # the models that have been imported. Taking it from base builds the
+        # schema out of whatever a test file happened to import first.
         await connection.run_sync(Base.metadata.create_all)
     yield session_module.get_session_factory()
     await session_module.dispose_engine()

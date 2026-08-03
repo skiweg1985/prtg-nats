@@ -117,9 +117,7 @@ class NatsRuntime:
         hash that does not match its pattern stops the render rather than
         producing a config NATS would reject at 3 a.m.
         """
-        template_path = (
-            self._settings.project_dir / "config" / "nats-server.conf.template"
-        )
+        template_path = self._settings.template_dir / "nats-server.conf.template"
         if not template_path.is_file():
             raise RuntimeStateError(
                 params={"path": str(template_path)},

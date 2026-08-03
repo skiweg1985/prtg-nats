@@ -15,6 +15,7 @@ from app.workers.context import JobContext
 from app.workers.handlers import (
     deploy_sensor,
     probe_actions,
+    probe_enrollment,
     probe_lifecycle,
     sensor_actions,
     system_actions,
@@ -104,6 +105,18 @@ REGISTRY: dict[str, JobDefinition] = {
         type=system_actions.BACKUP_JOB_TYPE,
         steps=system_actions.BACKUP_STEPS,
         handler=system_actions.backup,
+        permission="system.restart",
+    ),
+    probe_enrollment.ENROLL_JOB_TYPE: JobDefinition(
+        type=probe_enrollment.ENROLL_JOB_TYPE,
+        steps=probe_enrollment.ENROLL_STEPS,
+        handler=probe_enrollment.enroll,
+        permission="probe.create",
+    ),
+    system_actions.EXPORT_JOB_TYPE: JobDefinition(
+        type=system_actions.EXPORT_JOB_TYPE,
+        steps=system_actions.EXPORT_STEPS,
+        handler=system_actions.export_runtime,
         permission="system.restart",
     ),
     system_actions.VERIFY_JOB_TYPE: JobDefinition(

@@ -27,10 +27,21 @@ class Settings(BaseSettings):
     environment: str = "production"
     debug: bool = False
 
-    # --- Where the existing stack keeps its state ---------------------------
-    # The project directory of the shell tooling. Everything else is derived
-    # from it, so a single override relocates the whole installation.
+    # --- Where the installation keeps its files -----------------------------
+    # Two roots, because they have different lifetimes. Assets ship with the
+    # image and never change at runtime; runtime state is written constantly
+    # and is the only part worth backing up. Keeping them apart is what lets
+    # the container mount one read-only image layer and one volume.
+    #
+    # project_dir keeps both under a single tree, which is what local
+    # development and the tests want: one override configures everything.
     project_dir: Path = Path("/opt/prtg-nats-server")
+    asset_dir_override: Path | None = Field(
+        default=None, validation_alias="PRTG_NATS_WEB_ASSET_DIR"
+    )
+    runtime_dir_override: Path | None = Field(
+        default=None, validation_alias="PRTG_NATS_WEB_RUNTIME_DIR"
+    )
 
     # --- Database -----------------------------------------------------------
     # Lives inside runtime/ because it holds operational state that belongs to
@@ -43,6 +54,9 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8100
     cors_origins: list[str] = Field(default_factory=list)
+    # Where the reverse proxy answers. Not used to listen - used to tell a
+    # probe where to come back to, so it has to match what compose publishes.
+    web_https_port: int = Field(default=8443, validation_alias="WEB_HTTPS_PORT")
 
     # --- Sessions -----------------------------------------------------------
     session_cookie_name: str = "prtg_nats_session"
@@ -78,14 +92,32 @@ class Settings(BaseSettings):
     def _absolute_project_dir(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    # --- Derived paths ------------------------------------------------------
-    # These mirror libexec/common.sh. They are properties rather than settings
-    # because the shell tooling derives them the same way; making them
-    # configurable would create a second, silently diverging truth.
+    @field_validator("asset_dir_override", "runtime_dir_override", mode="after")
+    @classmethod
+    def _absolute_override(cls, value: Path | None) -> Path | None:
+        return value.expanduser().resolve() if value is not None else None
+
+    # --- The two roots ------------------------------------------------------
+
+    @property
+    def asset_dir(self) -> Path:
+        """Files that ship with the release: templates, sensors, scripts.
+
+        Read-only at runtime. Nothing here is worth backing up - a fresh image
+        brings it all back.
+        """
+        return self.asset_dir_override or self.project_dir
 
     @property
     def runtime_dir(self) -> Path:
-        return self.project_dir / "runtime"
+        """State this installation owns: keys, credentials, inventory, database.
+
+        The only thing worth backing up, and the reason the container mounts a
+        volume rather than a host path.
+        """
+        return self.runtime_dir_override or self.project_dir / "runtime"
+
+    # --- Derived paths ------------------------------------------------------
 
     @property
     def cert_dir(self) -> Path:
@@ -116,12 +148,41 @@ class Settings(BaseSettings):
         return self.runtime_dir / "sensor-profiles"
 
     @property
+    def web_cert_dir(self) -> Path:
+        """The interface certificate, kept out of cert_dir on purpose.
+
+        NATS mounts cert_dir read-only. A private key sitting in there would be
+        readable by the NATS container for no reason - and it is the key that
+        would let someone impersonate the interface.
+        """
+        return self.runtime_dir / "web-certs"
+
+    @property
+    def backup_dir(self) -> Path:
+        """Inside runtime/, so one volume holds everything a restore needs."""
+        return self.runtime_dir / "backups"
+
+    @property
+    def public_dir(self) -> Path:
+        """Served unauthenticated: the CA a probe fetches before it trusts us."""
+        return self.runtime_dir / "public"
+
+    @property
     def sensor_source_dir(self) -> Path:
-        return self.project_dir / "sensors"
+        return self.asset_dir / "sensors"
 
     @property
     def libexec_dir(self) -> Path:
-        return self.project_dir / "libexec"
+        return self.asset_dir / "libexec"
+
+    @property
+    def template_dir(self) -> Path:
+        """nats-server.conf.template and mpprobe-config.yaml.template."""
+        return self.asset_dir / "config"
+
+    @property
+    def http_asset_dir(self) -> Path:
+        return self.asset_dir / "http"
 
     @property
     def ssh_key_path(self) -> Path:

@@ -28,7 +28,7 @@ visible rather than mysterious.
 ## Start it
 
 ```bash
-docker compose -f compose.yaml -f compose.web.yaml up -d
+docker compose up -d
 ```
 
 That builds two images and starts three services:
@@ -84,7 +84,7 @@ care of the rest.
 
 ```bash
 git pull
-docker compose -f compose.yaml -f compose.web.yaml up -d --build
+docker compose up -d --build
 ```
 
 Database migrations run at start-up. The schema is owned by Alembic; a change
@@ -93,7 +93,7 @@ without a matching migration fails in CI rather than on your server.
 ## Turning it off
 
 ```bash
-docker compose -f compose.yaml -f compose.web.yaml down web-api web-proxy web-frontend
+docker compose down web-api web-proxy web-frontend
 ```
 
 Nothing is lost. The platform's own state lives in `runtime/web.db`; the

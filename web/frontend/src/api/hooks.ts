@@ -13,7 +13,10 @@ import type {
   Certificate,
   Dashboard,
   Deployment,
+  Invitation,
+  InvitationRequest,
   IperfEndpoint,
+  IssuedInvitation,
   JobAccepted,
   JobDetail,
   JobEvent,
@@ -50,6 +53,7 @@ export const keys = {
   audit: (filters?: Record<string, unknown>) => ['audit', filters ?? {}] as const,
   certificates: ['certificates'] as const,
   credentials: ['credentials'] as const,
+  invitations: ['probes', 'invitations'] as const,
   iperf: ['iperf'] as const,
   users: ['users'] as const,
 }
@@ -306,6 +310,40 @@ export function useLogout() {
     onSuccess: () => {
       client.clear()
     },
+  })
+}
+
+/**
+ * Open invitations, polled while the wizard waits for a host to report in.
+ *
+ * The wizard watches for its own invitation to leave this list: an invitation
+ * that has been redeemed is no longer open, which is the signal that the host
+ * ran the command. There is nothing to push here - the host talks to the
+ * platform, not to the browser.
+ */
+export function useInvitations(options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: keys.invitations,
+    queryFn: () => api.get<Invitation[]>('/probes/enrollment/tokens'),
+    refetchInterval: options?.refetchInterval ?? false,
+  })
+}
+
+export function useCreateInvitation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: InvitationRequest) =>
+      api.post<IssuedInvitation>('/probes/enrollment/tokens', request),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.invitations }),
+  })
+}
+
+export function useRevokeInvitation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<void>(`/probes/enrollment/tokens/${id}`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.invitations }),
   })
 }
 

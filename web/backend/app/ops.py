@@ -179,7 +179,7 @@ async def _rotate(username: str, *, server_only: bool) -> None:
         nats_password=NatsRuntime(settings).read_password(username),
     )
     rendered = probe_config.render_probe_config(
-        settings.project_dir / "config" / "mpprobe-config.yaml.template", values
+        settings.template_dir / "mpprobe-config.yaml.template", values
     )
 
     helper = ProbeHelperClient(

@@ -14,7 +14,7 @@ Day-to-day administration - deploying sensors, rotating accounts, renewing
 certificates, following jobs - happens in the web interface:
 
 ```bash
-docker compose -f compose.yaml -f compose.web.yaml up -d
+docker compose up -d
 ```
 
 Then open `https://<NATS_FQDN>:8443`. Details in
@@ -140,22 +140,49 @@ creates a SHA-256 checksum and starts the container again. Copy archive and
 checksum from `backups/` into the protected backup storage afterwards. The web
 interface offers the same backup as a job on the system page.
 
-**`runtime/` has to be backed up as well**, independently: it holds the NATS
-passwords, the CA, the probe inventory and the passwords of the iperf3
-measurement endpoints (`runtime/iperf/`). An endpoint stores only the SHA-256
-of its credentials - if `runtime/iperf/` is lost, the only way back is to set
-a new password with
-`./prtg-nats iperf-server install ADMIN@HOST --name NAME --rotate` and update
-every probe that uses it.
+## Runtime export
 
-A restore overwrites live state and is therefore deliberately not automated:
+The JetStream backup covers message data. It does not cover the part that
+cannot be rebuilt: the CA and its key, the certificates, the NATS accounts,
+the probe inventory, the management SSH key, the passwords of the iperf3
+measurement endpoints and the platform database. That is the runtime export,
+and it matters more than the JetStream backup - an endpoint stores only the
+SHA-256 of its credentials, so if `runtime/iperf/` is lost the only way back
+is a new password on every endpoint and every probe that uses it.
 
-1. Confirm the maintenance window and a current backup.
-2. Stop NATS.
-3. Keep the existing volume untouched.
-4. Validate the archive checksum.
-5. Restore into a newly created replacement volume.
-6. Start NATS on the replacement volume and test it completely.
+`runtime/` lives in the `prtg-nats-runtime` volume, not on a host path, so
+"copy the directory" is not the answer any more:
+
+```bash
+curl -sS --cacert nats-ca.pem -b cookies https://HOST:8443/api/v1/system/export -X POST
+```
+
+The system page offers the same as a job. Both write
+`prtg-nats-runtime-<timestamp>.tar.gz` plus its checksum into the volume, and
+`GET /api/v1/system/backups` lists what is there with a download link for
+each. **Download it.** An export that only exists inside the volume it is
+protecting protects nothing.
+
+The download needs `system.restart`, not `system.read`: the archive contains
+the CA key and every NATS password, so fetching one is disclosure and is
+audited as such.
+
+## Restore
+
+A restore overwrites live key material, so it is deliberately manual - there
+is no button for it. Into a replacement volume, never over a running one:
+
+```bash
+docker compose down
+docker volume create prtg-nats-runtime-restored
+docker run --rm -v prtg-nats-runtime-restored:/target -v "$PWD:/source:ro" \
+  busybox:1.37.0-musl sh -c 'tar -xzf /source/ARCHIVE.tar.gz -C /tmp && cp -a /tmp/runtime/. /target/'
+```
+
+Then point the stack at it - either rename the volume or set the source in
+`compose.yaml` - and bring it up. Verify the checksum against the `.sha256`
+file before any of this, and keep the original volume untouched until the
+restored installation has been tested end to end.
 
 The former `test-persistence` command was retired without replacement: the
 container health check already proves JetStream is serving, and the backup

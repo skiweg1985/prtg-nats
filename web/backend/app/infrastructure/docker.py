@@ -38,7 +38,9 @@ class StackContainer(StrEnum):
     """The containers compose.yaml defines. A closed set, by design."""
 
     NATS = "prtg-nats"
-    CA_DOWNLOAD = "prtg-nats-ca"
+    # Serves the interface, and the public CA over plain HTTP - the separate
+    # download container that used to do the latter is gone.
+    WEB_PROXY = "prtg-nats-web-proxy"
 
 
 @dataclass(frozen=True, slots=True)

@@ -107,11 +107,18 @@ what a support case asks about, not because they normally need changing.
 | --- | --- | --- | --- | --- |
 | `PRTG_NATS_WEB_ENVIRONMENT` | `production` or `development`. Production refuses the development sign-in | string | `production` | no |
 | `PRTG_NATS_WEB_DEBUG` | Verbose error output | bool | `false` | no |
-| `PRTG_NATS_WEB_PROJECT_DIR` | Installation directory of the shell tooling. Everything else is derived from it, so one override relocates the whole installation | path | `/opt/prtg-nats-server` | no |
+| `PRTG_NATS_WEB_PROJECT_DIR` | One tree holding both roots below. Setting this alone configures a whole installation, which is what local development and the tests want | path | `/opt/prtg-nats-server` | no |
+| `PRTG_NATS_WEB_ASSET_DIR` | Files that ship with the release: templates, sensors, on-target scripts. Read-only, replaced wholesale by a new image | path | `PROJECT_DIR` | no |
+| `PRTG_NATS_WEB_RUNTIME_DIR` | State this installation owns: keys, credentials, inventory, database. The only part worth backing up | path | `PROJECT_DIR/runtime` | no |
 | `PRTG_NATS_WEB_DATABASE_URL` | Override for the database. Empty means `runtime/web.db` | string | derived | no |
 
-Paths below `runtime/` - certificates, credentials, the probe inventory, the
-management key - are **not** configurable. They are derived exactly the way
+Two roots, because they have different lifetimes. The container image carries
+the assets at `/opt/prtg-nats` and mounts the runtime volume at
+`/srv/prtg-nats/runtime`; `compose.yaml` sets both. They fall together under
+`PROJECT_DIR` when neither is set, which is the shape a checkout has.
+
+Paths below the runtime root - certificates, credentials, the probe inventory,
+the management key - are **not** configurable. They are derived exactly the way
 `libexec/common.sh` derives them, because a second, silently diverging truth is
 worse than an inflexible one.
 

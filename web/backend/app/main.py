@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -32,6 +33,7 @@ from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.base import Base
 from app.persistence.session import dispose_engine, init_engine
 from app.services.events import get_broadcaster
+from app.services.provisioning import ProvisioningService
 from app.workers.inventory_sync import InventorySync
 from app.workers.job_runner import JobRunner
 
@@ -64,6 +66,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     catalog = SensorCatalog(settings.sensor_source_dir)
     nats = NatsMonitoringClient(settings.nats_monitoring_url)
     docker = DockerAdapter(settings.docker_socket)
+
+    # An installation from before the proxy used this CA has a complete
+    # runtime/ and no interface certificate, which stops the proxy from
+    # starting - and the interface that would fix it sits behind that proxy.
+    # Issuing it here makes the upgrade a non-event. Restarting the proxy is
+    # left to compose: it is already in a restart loop waiting for the file.
+    try:
+        if await asyncio.to_thread(
+            ProvisioningService(settings, docker).ensure_web_certificate
+        ):
+            logger.info("issued the missing interface certificate")
+    except Exception:
+        logger.exception("could not issue the interface certificate")
     helper = ProbeHelperClient(
         SshHelperTransport(
             key_path=settings.ssh_key_path,
