@@ -12,6 +12,9 @@
 # Archived Gitea history, kept out of the published tree
 /.backup/
 
+# Scratch checkouts the agent tooling creates
+/.claude/worktrees/
+
 # Python bytecode from the sensor checks
 __pycache__/
 *.pyc
