@@ -267,6 +267,15 @@ def main(argv: list[str] | None = None) -> None:
         asyncio.run(handlers[args.command](args))
     except SystemExit:
         raise
+    except ModuleNotFoundError as exc:
+        # The subcommands import their dependencies lazily, so an interpreter
+        # without them gets this far and would otherwise report a bare
+        # "No module named httpx" - true, and useless to whoever ran setup.
+        _fail(
+            f"the backend dependencies are missing here ({exc.name}). "
+            "These commands run in the prtg-nats-web-api container; "
+            "start the stack, or install web/backend into this interpreter."
+        )
     except Exception as exc:
         details = getattr(exc, "details", None)
         _fail(str(details or exc))

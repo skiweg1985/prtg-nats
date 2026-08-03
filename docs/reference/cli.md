@@ -27,16 +27,20 @@ The values these commands read and write are in
 
 | Command | What it does |
 | --- | --- |
-| `setup` | ask for site settings, prepare `runtime/`, initialise if possible, start the stack |
+| `setup` | ask for site settings, start the stack, initialise the runtime |
 | `config` / `config --edit` | show or rewrite the site settings in `.env` |
 | `status` | container state and certificate validity |
 | `logs` | follow the NATS log |
 | `start` / `stop` / `restart` | stack lifecycle |
 | `update` | pull images and force-recreate the stack |
 
-`setup` initialises the runtime when the Python backend is installed on the
-machine; otherwise it starts the stack and the first visit to the web
-interface finishes the job. Both paths run the same code.
+`setup` starts the stack first and initialises afterwards, because the
+initialisation runs in the `prtg-nats-web-api` container. Nothing has to be
+installed on the host for it, and it cannot be deferred to the web interface:
+the proxy that serves the interface needs the certificate the initialisation
+issues, so until it has run there is no interface to defer to. NATS and the
+proxy restart against the missing state in the meantime and are restarted once
+it is there.
 
 ## Probe rollout
 
@@ -58,8 +62,14 @@ the web interface, where they run as jobs with a live log and an audit trail.
 ## Recovery
 
 These delegate to `python -m app.ops`, which drives the same services the web
-platform uses. They exist for machines without a running platform and for
-scripting; they are not a second implementation.
+platform uses. They exist for the situations the interface cannot cover -
+setting a machine up, scripting, and recovery when the platform itself is what
+broke; they are not a second implementation.
+
+They run in the `prtg-nats-web-api` container whenever it is up, which is where
+the backend and its dependencies live. A checkout that has `web/backend`
+installed into a local virtual environment is the fallback, and what the
+end-to-end test uses.
 
 | Command | What it does |
 | --- | --- |
@@ -110,14 +120,17 @@ so when called. `test-persistence` was retired without replacement: the
 container health check proves JetStream is serving, and `verify` covers the
 authenticated login. The `check` alias is gone.
 
-**Migration note for existing installations:** the server configuration moved
-from `runtime/nats-server.conf` to `runtime/conf/nats-server.conf`, because
-Compose now mounts directories instead of single files. `setup` and `start`
-move the file automatically; after that, recreate the NATS container once:
+**Migration note for existing installations:** `runtime/` moved out of the
+checkout and into the `prtg-nats-runtime` volume. Every command reads the
+volume now; a `runtime/` directory left beside the repository is no longer the
+installation, and `status` and `setup` say so when they find one. It still
+holds the old CA key, so put it somewhere safe or remove it - do not leave it
+lying next to the checkout.
 
-```bash
-sudo ./prtg-nats restart
-```
+To work on a runtime somewhere else - the end-to-end test does, from inside a
+container where the host's mountpoint does not exist - set
+`PRTG_NATS_RUNTIME_DIR` to the path, or `PRTG_NATS_RUNTIME_VOLUME` to a
+different volume name.
 
 ## What not to run
 

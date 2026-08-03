@@ -22,14 +22,19 @@ its own.
 
 ## Container health checks
 
-Both containers carry a health check, so Docker restarts what has genuinely
-stopped serving rather than what merely looks idle
+NATS carries a health check, so Docker restarts what has genuinely stopped
+serving rather than what merely looks idle
 ([compose.yaml](../../compose.yaml)).
 
 | Container | Check | Interval | Healthy means |
 | --- | --- | --- | --- |
 | `prtg-nats` | `GET /healthz?js-enabled-only=true` on `127.0.0.1:8222` | 15 s, 5 retries | NATS is up **and** JetStream is enabled |
-| `prtg-nats-ca` | `GET /nats-ca.pem` on `127.0.0.1:8080` | 30 s, 3 retries | the public CA is being served |
+
+`prtg-nats-web-proxy` has none and needs none: it refuses to start without the
+interface certificate, so a proxy that is running is a proxy that is serving.
+Both containers restart in a loop on an uninitialised runtime, which is what
+lets the stack come up before it is configured - `./prtg-nats setup` ends that
+state.
 
 `js-enabled-only=true` is deliberate. A NATS that answers but has lost
 JetStream would pass a plain liveness check while every persistent stream is
@@ -152,8 +157,8 @@ API is in [the REST API reference](../reference/api.md#observability).
 | MPP probe | `sudo journalctl -u prtg.mpprobe.service -n 300 --no-pager` |
 | PRTG core | `C:\ProgramData\Paessler\PRTG Network Monitor\Logs\probeadapter` |
 
-Both containers cap their logs locally - 10 MB × 5 files for NATS, 1 MB × 2 for
-the CA container - so a loop cannot fill the disk.
+NATS, the API and the proxy cap their logs locally at 10 MB × 5 files each, so
+a restart loop cannot fill the disk.
 
 The web platform keeps its own history: every job carries a structured log with
 the step that failed and the probe's own words, and every administrative action

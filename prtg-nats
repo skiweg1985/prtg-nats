@@ -18,14 +18,14 @@ usage() {
 PRTG-NATS bootstrap and deployment tooling
 
 Regular administration happens in the web interface:
-  docker compose -f compose.yaml -f compose.web.yaml up -d
+  docker compose up -d
   https://<NATS_FQDN>:8443
 
 Usage:
   ./prtg-nats <command> [options]
 
 First deployment:
-  setup                 Ask for site settings, prepare runtime/, start the stack
+  setup                 Ask for site settings, start the stack, initialise it
   config [--edit]       Show the site settings; --edit asks and rewrites .env
 
 Stack lifecycle:
@@ -69,50 +69,46 @@ run_internal() {
   "${LIBEXEC_DIR}/${script_name}" "$@"
 }
 
-web_platform_present() {
-  docker ps -a --format '{{.Names}}' 2>/dev/null |
-    grep -qx 'prtg-nats-web-api'
-}
-
 compose() {
-  # Once the web platform has been started, its services belong to the same
-  # compose project. Loading only compose.yaml would then report them as
-  # orphans - and "update", which passes --remove-orphans, would silently
-  # delete the running web interface.
-  if web_platform_present; then
-    docker compose --project-directory "${PROJECT_DIR}" \
-      -f "${PROJECT_DIR}/compose.yaml" -f "${PROJECT_DIR}/compose.web.yaml" \
-      "$@"
-  else
-    docker compose --project-directory "${PROJECT_DIR}" "$@"
-  fi
+  docker compose --project-directory "${PROJECT_DIR}" "$@"
 }
 
-# The services a lifecycle verb addresses: only the NATS pair by default, the
-# whole stack once the web platform exists - start and stop should then mean
-# the installation, not half of it.
-stack_services() {
-  if web_platform_present; then
-    printf ''
-  else
-    printf 'nats ca-download'
-  fi
+API_CONTAINER="prtg-nats-web-api"
+
+api_container_running() {
+  [[ "$(
+    docker inspect --format '{{.State.Running}}' "${API_CONTAINER}" 2>/dev/null ||
+      true
+  )" == "true" ]]
 }
 
 # --- Recovery commands delegate to the Python operations module -------------
 #
 # One implementation for certificates, accounts and verification: the same
-# services the web platform runs. This function finds a Python that can import
-# them - the backend venv first, then the system interpreter.
+# services the web platform runs.
+#
+# The API container is the first choice, because it is the one place the
+# backend is guaranteed to be installed and already mounts the runtime volume.
+# Nothing has to be installed on the host for "setup" to work - and it has to
+# work there, because the interface that would otherwise finish the setup sits
+# behind a proxy that cannot start until the runtime exists.
+#
+# A local interpreter is the fallback for a checkout that has the backend in a
+# venv, which is what the end-to-end test uses.
 ops_python() {
   local candidate=""
 
   for candidate in \
     "${PROJECT_DIR}/web/backend/.venv/bin/python" \
     python3; do
+    # Importing app.ops proves nothing: its heavy imports are deferred into
+    # the subcommands, so an interpreter without the dependencies passes and
+    # then fails inside the command with a bare "No module named httpx".
+    # Importing what a subcommand actually reaches for is the honest check.
     if PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
       PYTHONPATH="${PROJECT_DIR}/web/backend" \
-      "${candidate}" -c 'import app.ops' >/dev/null 2>&1; then
+      "${candidate}" -c 'import app.ops, app.infrastructure.docker' \
+      >/dev/null 2>&1; then
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -123,10 +119,17 @@ ops_python() {
 run_ops() {
   local interpreter=""
 
+  if api_container_running; then
+    docker exec "${API_CONTAINER}" python -m app.ops "$@"
+    return
+  fi
+
   interpreter="$(ops_python)" ||
     {
-      printf 'The Python backend is not installed on this machine.\n' >&2
-      printf 'Either use the web interface, or install it once:\n' >&2
+      printf 'The management API is not running and this machine has no backend.\n' >&2
+      printf 'Start the stack, which is where these commands run:\n' >&2
+      printf '  sudo ./prtg-nats start\n' >&2
+      printf 'For a checkout without the stack, install the backend once:\n' >&2
       printf '  python3 -m venv web/backend/.venv\n' >&2
       printf '  web/backend/.venv/bin/pip install -e web/backend\n' >&2
       return 1
@@ -306,10 +309,13 @@ configure_environment() {
       ;;
   esac
 
+  # Beside the file rather than in the runtime archive: .env is host state that
+  # compose reads from the checkout, and this runs before there is a stack - so
+  # there is not necessarily a runtime volume to write into yet. ".env.*" is
+  # ignored by Git, so the copy cannot be committed by accident.
   if [[ -f "${ENVIRONMENT_FILE}" ]]; then
-    install -d -m 700 "${PROJECT_DIR}/runtime/archive"
     cp -p "${ENVIRONMENT_FILE}" \
-      "${PROJECT_DIR}/runtime/archive/env.$(date -u +%Y%m%dT%H%M%SZ)"
+      "${ENVIRONMENT_FILE}.bak-$(date -u +%Y%m%dT%H%M%SZ)"
   fi
   temporary="$(mktemp "${PROJECT_DIR}/.env.XXXXXX")"
   {
@@ -411,36 +417,22 @@ ensure_environment() {
   if [[ ! -f "${ENVIRONMENT_FILE}" ]]; then
     printf 'Not configured yet.\n'
   else
-    printf 'In %s fehlen: %s\n' "${ENVIRONMENT_FILE}" "${missing[*]}"
+    printf 'Missing in %s: %s\n' "${ENVIRONMENT_FILE}" "${missing[*]}"
   fi
   configure_environment
 }
 
-# Compose bind-mounts runtime/conf and runtime/certs as directories, so both
-# have to exist before the first "up" - a missing bind source would appear as
-# an empty root-owned directory with the wrong permissions.
-prepare_runtime_mounts() {
-  install -d -m 700 "${PROJECT_DIR}/runtime"
-  install -d -m 755 "${PROJECT_DIR}/runtime/conf" "${PROJECT_DIR}/runtime/certs"
-
-  # Until v0.1 the server configuration lived at runtime/nats-server.conf and
-  # was file-mounted. Move it once; the container reads conf/ now.
-  if [[ -f "${PROJECT_DIR}/runtime/nats-server.conf" &&
-        ! -f "${PROJECT_DIR}/runtime/conf/nats-server.conf" ]]; then
-    mv "${PROJECT_DIR}/runtime/nats-server.conf" \
-      "${PROJECT_DIR}/runtime/conf/nats-server.conf"
-    printf 'Moved nats-server.conf to runtime/conf/ (directory mount).\n'
-  fi
-}
-
 runtime_state() {
+  # shellcheck source=libexec/runtime-dir.sh
+  source "${LIBEXEC_DIR}/runtime-dir.sh"
+
   local expected_files=(
-    "${PROJECT_DIR}/runtime/conf/nats-server.conf"
-    "${PROJECT_DIR}/runtime/certs/ca.pem"
-    "${PROJECT_DIR}/runtime/certs/server.pem"
-    "${PROJECT_DIR}/runtime/certs/server-key.pem"
-    "${PROJECT_DIR}/runtime/private/ca-key.pem"
-    "${PROJECT_DIR}/runtime/credentials/prtg-nats.env"
+    "${RUNTIME_DIR}/conf/nats-server.conf"
+    "${CERT_DIR}/ca.pem"
+    "${CERT_DIR}/server.pem"
+    "${CERT_DIR}/server-key.pem"
+    "${PRIVATE_DIR}/ca-key.pem"
+    "${CREDENTIAL_DIR}/prtg-nats.env"
   )
   local present_count=0
   local expected_file
@@ -477,17 +469,30 @@ ensure_public_ca() {
 }
 
 start_stack() {
-  local services
-  read -r -a services <<< "$(stack_services)"
-  prepare_runtime_mounts
-  compose up -d "${services[@]}"
+  compose up -d
   if [[ "$(runtime_state)" == "complete" ]]; then
     wait_until_healthy prtg-nats nats
-    wait_until_healthy prtg-nats-ca ca-download
   else
-    printf 'The runtime is not initialised yet; the NATS container waits for it.\n'
-    printf 'Initialise it in the web interface, or run: sudo ./prtg-nats init\n'
+    # Both restart in a loop until the configuration and the certificates are
+    # there - that is what lets the stack come up before it is configured, and
+    # it is also why the interface cannot be the place this gets fixed.
+    printf 'The runtime is not initialised yet; NATS and the proxy wait for it.\n'
+    printf 'Initialise it with: sudo ./prtg-nats init\n'
   fi
+}
+
+# After an initialisation both containers are still restarting against what
+# was missing a moment ago. Without this they sit out their backoff first.
+#
+# "init" is also run on a machine where the stack is not up at all, so the
+# containers have to exist before there is anything to restart. Existence, not
+# health: mid-backoff a container is "restarting", which is exactly the state
+# this is here to end.
+activate_initialised_runtime() {
+  docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'prtg-nats' ||
+    return 0
+  compose restart nats web-proxy
+  wait_until_healthy prtg-nats nats
 }
 
 print_mpp_info() {
@@ -603,7 +608,7 @@ report_kept_install_state() {
     printf '  ./prtg-nats probe unenroll %s --remove-access\n' \
       "${INSTALL_SELECTED_USER}" >&2
   [[ "${INSTALL_AUTO_CREATED_USER}" != "true" ]] ||
-    printf '  ./prtg-nats user delete %s --yes\n' "${INSTALL_SELECTED_USER}" >&2
+    printf '  ./prtg-nats user delete %s\n' "${INSTALL_SELECTED_USER}" >&2
 }
 
 cleanup_install_session() {
@@ -661,9 +666,9 @@ cleanup_install_session() {
     printf '\nRolling back the automatically created NATS user %s.\n' \
       "${INSTALL_SELECTED_USER}" >&2
     if [[ -f "${credentials}" && -f "${auth_user}" ]] &&
-      ! run_internal manage-users.sh delete "${INSTALL_SELECTED_USER}" --yes; then
+      ! run_ops user delete "${INSTALL_SELECTED_USER}"; then
       printf 'WARNING: Automatic NATS-user rollback failed. Remove it manually with:\n' >&2
-      printf '  ./prtg-nats user delete %s --yes\n' \
+      printf '  ./prtg-nats user delete %s\n' \
         "${INSTALL_SELECTED_USER}" >&2
     elif [[ -e "${credentials}" || -e "${auth_user}" ]]; then
       printf 'WARNING: Automatic NATS-user rollback found incomplete state:\n' >&2
@@ -1467,33 +1472,49 @@ case "${command_name}" in
     ;;
   setup)
     ensure_environment
-    prepare_runtime_mounts
+    # The stack comes up before the initialisation, not after it. The runtime
+    # lives in a volume the containers own, and the initialisation runs in the
+    # API container - so there has to be a stack for it to run in. NATS and the
+    # proxy restart against the missing state until "init" writes it.
+    printf 'Starting the stack...\n'
+    compose up -d
+    # After the volume exists, so the comparison is against the real runtime
+    # rather than against the fallback path.
+    # shellcheck source=libexec/runtime-dir.sh
+    source "${LIBEXEC_DIR}/runtime-dir.sh"
+    warn_about_legacy_runtime
     case "$(runtime_state)" in
       missing)
+        printf '\nInitialising the runtime...\n'
         if run_ops init; then
           # shellcheck source=libexec/common.sh
           source "${LIBEXEC_DIR}/common.sh"
           ensure_public_ca
+          activate_initialised_runtime
         else
-          printf '\nContinuing without initialisation. The stack starts and\n'
-          printf 'waits; finish the setup in the web interface.\n'
+          printf '\nThe initialisation did not run. The stack is up, but NATS and\n' >&2
+          printf 'the web interface stay down until it does - the proxy needs the\n' >&2
+          printf 'certificate the initialisation issues. Retry with:\n' >&2
+          printf '  sudo ./prtg-nats init\n' >&2
+          exit 1
         fi
         ;;
       complete)
         printf 'Existing runtime state found; initialization skipped.\n'
+        wait_until_healthy prtg-nats nats
         ;;
       partial)
         printf 'Incomplete runtime state found. It was not overwritten.\n' >&2
-        printf 'Restore the missing runtime files or move runtime/ aside explicitly.\n' >&2
+        printf 'Restore the missing files in the %s volume, or remove it\n' \
+          "${RUNTIME_VOLUME:-prtg-nats-runtime}" >&2
+        printf 'explicitly to start over.\n' >&2
         exit 1
         ;;
     esac
-    start_stack
     cat <<'EOF'
 
 The stack is up. Continue in the web interface:
 
-  docker compose -f compose.yaml -f compose.web.yaml up -d
   https://<NATS_FQDN>:8443
 
 The first visit creates the administrator account.
@@ -1514,29 +1535,24 @@ EOF
     ;;
   init)
     ensure_environment
-    prepare_runtime_mounts
     run_ops init "$@"
     # shellcheck source=libexec/common.sh
     source "${LIBEXEC_DIR}/common.sh"
     ensure_public_ca
+    activate_initialised_runtime
     ;;
   start)
     start_stack
     ;;
   stop)
-    read -r -a stack_service_list <<< "$(stack_services)"
-    compose stop "${stack_service_list[@]}"
+    compose stop
     ;;
   restart)
-    prepare_runtime_mounts
     ensure_public_ca
-    read -r -a stack_service_list <<< "$(stack_services)"
-    compose up -d --force-recreate "${stack_service_list[@]}"
+    compose up -d --force-recreate
     wait_until_healthy prtg-nats nats
-    wait_until_healthy prtg-nats-ca ca-download
     ;;
   update)
-    prepare_runtime_mounts
     ensure_public_ca
     printf 'Validating the Compose configuration...\n'
     compose config --quiet
@@ -1545,17 +1561,19 @@ EOF
     printf 'Force-recreating the Compose stack...\n'
     compose up -d --force-recreate --remove-orphans
     wait_until_healthy prtg-nats nats
-    wait_until_healthy prtg-nats-ca ca-download
     printf '\nCompose stack update completed successfully.\n'
     ;;
   status)
     compose ps
-    if [[ -f "${PROJECT_DIR}/runtime/certs/server.pem" ]]; then
+    # shellcheck source=libexec/runtime-dir.sh
+    source "${LIBEXEC_DIR}/runtime-dir.sh"
+    if [[ -f "${CERT_DIR}/server.pem" ]]; then
       printf '\nTLS server certificate:\n'
       openssl x509 \
-        -in "${PROJECT_DIR}/runtime/certs/server.pem" \
+        -in "${CERT_DIR}/server.pem" \
         -noout -subject -issuer -dates
     fi
+    warn_about_legacy_runtime
     ;;
   logs)
     if [[ $# -eq 0 ]]; then
@@ -1644,14 +1662,18 @@ EOF
     print_ca_info
     ;;
   ca-show)
-    cat "${PROJECT_DIR}/runtime/certs/ca.pem"
+    # shellcheck source=libexec/runtime-dir.sh
+    source "${LIBEXEC_DIR}/runtime-dir.sh"
+    cat "${CERT_DIR}/ca.pem"
     ;;
   ca-path)
-    printf '%s\n' "${PROJECT_DIR}/runtime/certs/ca.pem"
+    # shellcheck source=libexec/runtime-dir.sh
+    source "${LIBEXEC_DIR}/runtime-dir.sh"
+    printf '%s\n' "${CERT_DIR}/ca.pem"
     ;;
   tui|rotate-password)
     printf 'The command "%s" moved to the web interface.\n' "${command_name}" >&2
-    printf 'Start it with: docker compose -f compose.yaml -f compose.web.yaml up -d\n' >&2
+    printf 'Start it with: docker compose up -d\n' >&2
     printf 'For the shared account, "user rotate prtg-nats --server-only" still works.\n' >&2
     exit 2
     ;;

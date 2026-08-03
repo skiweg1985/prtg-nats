@@ -18,21 +18,24 @@ NATS server and the tooling around it.
 | `libexec/` | internal shell implementation, not called directly |
 | `install-mpp.sh` | runs on the probe, so it has to stand alone |
 | `sensors/` | monitoring scripts rolled out to probes, one directory each |
-| `config/` | templates rendered into `runtime/` during setup |
+| `config/` | templates rendered into the runtime volume during setup |
 | `http/` | the CGI endpoint that exposes NATS health as PRTG channels |
 | `completions/` | the shell completion installed by `prtg-nats self install` |
 | `web/backend/` | FastAPI management API - Python 3.11, SQLAlchemy, Alembic |
 | `web/frontend/` | the interface - React 19, Vite, Tailwind, i18next |
 | `tests/` | static checks, the end-to-end rollout, sensor checks |
 | `docs/` | the documentation tree, organised by task |
-| `runtime/` | generated state and secrets, never committed |
 
 ## Ground rules
 
-- `runtime/` is the source of truth for credentials, certificates, the probe
+- The runtime is the source of truth for credentials, certificates, the probe
   inventory and the measurement endpoints. SQLite holds only what the
   filesystem has no place for - see
   [ADR 0002](docs/architecture/decisions/0002-runtime-stays-the-source-of-truth.md).
+- It lives in the `prtg-nats-runtime` volume, not beside the checkout. Shell
+  code reaches it through `RUNTIME_DIR` from `libexec/runtime-dir.sh`, never
+  through a path built from `PROJECT_DIR`; the backend uses
+  `PRTG_NATS_WEB_RUNTIME_DIR`.
 - English is the source language for code, comments and documentation.
 - Never commit `.env`, anything under `runtime/`, or real host names,
   addresses and credentials. `.env.example` is the template, and the checks

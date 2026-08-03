@@ -89,9 +89,11 @@ service and prints the PRTG access key.
 
 ## 📖 The web platform
 
-Optional, and the way this project is heading. It reads the same `runtime/`
-directory and speaks the same management protocol to the same probes, so it can
-be used alongside the shell tooling.
+Part of the same stack, and the way this project is heading. It reads the same
+runtime volume and speaks the same management protocol to the same probes, so
+it is used alongside the shell tooling rather than instead of it.
+
+`sudo ./prtg-nats setup` already started it. To bring the stack up by hand:
 
 ```bash
 docker compose up -d
@@ -175,12 +177,16 @@ Conventions, the checks to run per change, and the ground rules are in
 | `libexec/` | the shell implementation behind it, internal on purpose - a new user-facing command belongs in `prtg-nats` |
 | `install-mpp.sh` | runs *on the probe*, so it has to stand alone and be copyable to a host that has nothing yet |
 | `sensors/` | monitoring scripts, one directory each, versioned centrally rather than maintained per probe |
-| `config/` | templates rendered into `runtime/` - a fixed, reviewed default instead of a wizard answer |
+| `config/` | templates rendered into the runtime volume - a fixed, reviewed default instead of a wizard answer |
 | `http/` | the CGI endpoint that turns the NATS monitoring into PRTG channels |
-| `web/` | the optional management platform: FastAPI backend, React frontend, Caddy |
+| `web/` | the management platform: FastAPI backend, React frontend, Caddy |
 | `tests/` | static checks and the end-to-end rollout against a real package |
 | `docs/` | the documentation tree, organised by task |
-| `runtime/` | generated state, certificates and secrets - git-ignored, and the source of truth |
+
+Generated state - certificates, credentials, the probe inventory and the
+platform database - lives in the `prtg-nats-runtime` volume, not in the
+checkout. The volume is the installation, and moving it is the whole
+migration.
 
 ## ❓ Troubleshooting
 

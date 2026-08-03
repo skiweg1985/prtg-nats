@@ -78,6 +78,19 @@ skip() {
   exit "${PRTG_E2E_SKIP_CODE:-1}"
 }
 
+# The named volumes from compose.yaml. Listed here rather than removed with
+# "compose down --volumes" because they have to go after the containers, not
+# with them.
+remove_stack_volumes() {
+  docker volume rm \
+    prtg-nats-runtime \
+    prtg-nats-data \
+    prtg-nats-web-static \
+    prtg-nats-caddy-data \
+    prtg-nats-caddy-config \
+    >/dev/null 2>&1 || true
+}
+
 cleanup() {
   local exit_code="$?"
 
@@ -88,10 +101,14 @@ cleanup() {
   printf '\nCleaning up the test environment...\n'
   if [[ -n "${WORK_DIR}" ]]; then
     docker exec "${ADMIN_CONTAINER}" \
-      docker compose --project-directory "${WORK_DIR}" down --volumes \
+      docker compose --project-directory "${WORK_DIR}" down \
       >/dev/null 2>&1 || true
   fi
   docker rm -f "${PROBE_CONTAINER}" "${ADMIN_CONTAINER}" >/dev/null 2>&1 || true
+  # By name and after the containers: the admin container mounts the runtime
+  # volume, so nothing could remove it while that container still existed. The
+  # next run needs an empty installation - "init" refuses to overwrite one.
+  remove_stack_volumes
   docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
   # The working directory lives on the Docker host and is not
   # necessarily visible from here; it is therefore removed through a
@@ -160,15 +177,25 @@ printf '  %s (on the Docker host)\n' "${WORK_DIR}"
 log "Starting containers"
 docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
 docker network create "${NETWORK_NAME}" >/dev/null
+# A leftover installation from an aborted run would make "init" refuse to
+# overwrite it, and the test would fail on state that is not its own.
+remove_stack_volumes
 docker run -d --name "${PROBE_CONTAINER}" --hostname "${PROBE_HOSTNAME}" \
   --network "${NETWORK_NAME}" --network-alias "${PROBE_HOSTNAME}" \
   --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   prtg-e2e-probe >/dev/null
+# The runtime volume is mounted, not just reachable over the socket: the
+# installation lives in it, and prtg-nats writes the CA, the credentials and
+# the server configuration there for the NATS container to read. Pointing
+# PRTG_NATS_RUNTIME_DIR at the mount is what a nested environment needs - the
+# host mountpoint the tooling would otherwise look up does not exist in here.
 docker run -d --name "${ADMIN_CONTAINER}" --hostname prtg-e2e-admin \
   --network "${NETWORK_NAME}" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "${WORK_DIR}:${WORK_DIR}" -w "${WORK_DIR}" \
+  -v prtg-nats-runtime:/srv/prtg-nats/runtime \
+  -e PRTG_NATS_RUNTIME_DIR=/srv/prtg-nats/runtime \
   prtg-e2e-admin >/dev/null
 
 for _ in $(seq 1 30); do
@@ -240,8 +267,11 @@ docker exec "${ADMIN_CONTAINER}" bash -c "
   ${WORK_DIR}/web/backend/.venv/bin/pip install --quiet ${WORK_DIR}/web/backend
 " || die "The backend installation in the admin container failed"
 docker exec "${ADMIN_CONTAINER}" ./prtg-nats init >/dev/null
+# Only NATS: the proxy that serves the CA over HTTP shares the host network
+# namespace, which this nested test environment does not have, and the rollout
+# copies the CA over the bootstrap session anyway.
 docker exec "${ADMIN_CONTAINER}" \
-  docker compose --project-directory "${WORK_DIR}" up -d nats ca-download \
+  docker compose --project-directory "${WORK_DIR}" up -d nats \
   >/dev/null
 for _ in $(seq 1 30); do
   [[ "$(

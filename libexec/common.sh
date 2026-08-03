@@ -4,20 +4,13 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-RUNTIME_DIR="${PROJECT_DIR}/runtime"
-CERT_DIR="${RUNTIME_DIR}/certs"
-PRIVATE_DIR="${RUNTIME_DIR}/private"
-CREDENTIAL_DIR="${RUNTIME_DIR}/credentials"
-ARCHIVE_DIR="${RUNTIME_DIR}/archive"
-PUBLIC_DIR="${RUNTIME_DIR}/public"
-AUTH_USER_DIR="${RUNTIME_DIR}/auth-users"
-PROBE_DIR="${RUNTIME_DIR}/probes"
-IPERF_DIR="${RUNTIME_DIR}/iperf"
-SSH_PRIVATE_DIR="${PRIVATE_DIR}/ssh"
-SSH_KEY_PATH="${SSH_PRIVATE_DIR}/prtg-nats-mpp-admin"
-SSH_KNOWN_HOSTS="${SSH_PRIVATE_DIR}/known_hosts"
 MPP_CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
 MPP_DEFAULT_CLIENT_NAME="prtgmpprobe"
+
+# RUNTIME_DIR and everything derived from it. Its own file so that the
+# path-only commands can source it without requiring the site settings below.
+# shellcheck source=runtime-dir.sh
+source "${SCRIPT_DIR}/runtime-dir.sh"
 
 # shellcheck source=mpp-config.sh
 source "${SCRIPT_DIR}/mpp-config.sh"
