@@ -109,9 +109,13 @@ sudo ./prtg-nats update
 ```
 
 The command validates the Compose configuration first, then runs `pull`,
-`build --pull` and `up -d --build --force-recreate --remove-orphans`. After
-that it waits for both health checks and verifies TLS, sign-in and
-reachability. The persistent JetStream volume is not deleted.
+`build --pull` and `up -d --force-recreate --remove-orphans`. After that it
+waits for both health checks and verifies TLS, sign-in and reachability. The
+persistent JetStream volume is not deleted.
+
+The build is what carries a change to the web platform into the running
+stack: those images come from this checkout rather than from a registry, so
+recreating the containers without building leaves the old code in place.
 
 Never use `docker compose down --volumes`. That deletes the persistent
 JetStream volume.

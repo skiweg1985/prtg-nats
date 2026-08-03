@@ -37,6 +37,12 @@ logger = get_logger(__name__)
 # a probe out for the rest of the day.
 LOCK_LEASE = timedelta(minutes=30)
 
+# How far down the queue a poll looks for a job it can actually run. A head of
+# the queue blocked on one busy probe must not stop everything behind it.
+CLAIM_CANDIDATES = 20
+
+BLOCKED_RESOURCE_BUSY = "jobs.blocked.resource_busy"
+
 
 @dataclass(frozen=True, slots=True)
 class ResourceRef:
@@ -210,36 +216,83 @@ class JobService:
         )
 
     async def claim_next_queued(self) -> Job | None:
-        """Take ownership of the oldest queued job, or return None.
+        """Take ownership of the oldest runnable queued job, or return None.
 
         The claim is a conditional UPDATE, not a SELECT followed by one: with
         several workers polling the same table, two of them read the same
         queued row before either writes, and the job runs twice. Only the
         worker whose UPDATE matches a row gets to proceed.
+
+        A job whose resources are taken is skipped rather than claimed and
+        handed straight back. Claiming it writes the row twice per poll and
+        per worker, so a job that stays blocked for an hour becomes an hour
+        of pointless writes - and on SQLite one writer at a time means the
+        rest of the platform waits behind it.
         """
-        candidate = await self._db.scalar(
-            select(Job.id)
-            .where(Job.status == JobStatus.QUEUED)
-            .order_by(Job.id)
-            .limit(1)
-        )
-        if candidate is None:
+        candidates = (
+            await self._db.execute(
+                select(
+                    Job.id, Job.payload, Job.blocked_reason_key, Job.blocked_by_job_id
+                )
+                .where(Job.status == JobStatus.QUEUED)
+                .order_by(Job.id)
+                .limit(CLAIM_CANDIDATES)
+            )
+        ).all()
+        if not candidates:
             return None
 
-        claimed = await self._db.execute(
-            update(Job)
-            .where(Job.id == candidate, Job.status == JobStatus.QUEUED)
-            .values(status=JobStatus.RUNNING, started_at=datetime.now(UTC))
-        )
-        if claimed.rowcount != 1:  # type: ignore[attr-defined]
-            # Another worker got there first. Its next poll picks up whatever
-            # is left; there is nothing to wait for here.
-            return None
+        # Columns rather than entities: this runs four times a second per
+        # worker, and loading whole jobs with their steps to look at one
+        # payload field is the kind of cost that only shows up in production.
+        busy = await self._busy_resources()
+        for job_id, payload, reason_key, blocked_by in candidates:
+            blocking_job_id = _blocking_job_id(job_id, payload, busy)
+            if blocking_job_id is not None:
+                if reason_key != BLOCKED_RESOURCE_BUSY or blocked_by != blocking_job_id:
+                    await self._note_blocked(job_id, blocking_job_id)
+                continue
 
-        job: Job | None = await self._db.get(Job, candidate)
-        return job
+            claimed = await self._db.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == JobStatus.QUEUED)
+                .values(status=JobStatus.RUNNING, started_at=datetime.now(UTC))
+            )
+            if claimed.rowcount != 1:  # type: ignore[attr-defined]
+                # Another worker got there first. Try the next candidate; its
+                # own claim decides whether this worker has anything to do.
+                continue
+
+            job: Job | None = await self._db.get(Job, job_id)
+            return job
+        return None
+
+    async def _note_blocked(self, job_id: str, blocking_job_id: str) -> None:
+        """Record what a queued job is waiting for.
+
+        The caller only gets here when the reason changed: every worker sees
+        the same blocked job on every poll, and rewriting the same row would
+        put back exactly the write loop that skipping the job avoids.
+        """
+        job = await self._db.get(Job, job_id)
+        if job is None:
+            return
+        job.blocked_reason_key = BLOCKED_RESOURCE_BUSY
+        job.blocked_by_job_id = blocking_job_id
+        await self._persist()
+        await self._publish_status(job)
 
     # --- Locking ------------------------------------------------------------
+
+    async def _busy_resources(self) -> dict[tuple[str, str], str]:
+        """Every resource currently spoken for, mapped to the job holding it."""
+        now = datetime.now(UTC)
+        locks = await self._db.scalars(select(ResourceLock))
+        return {
+            (lock.resource_type, lock.resource_id): lock.job_id
+            for lock in locks
+            if lock.expires_at > now
+        }
 
     async def try_acquire_locks(self, job: Job) -> str | None:
         """Take every resource the job declared, or none of them.
@@ -327,7 +380,7 @@ class JobService:
         """
         job.status = JobStatus.QUEUED
         job.started_at = None
-        job.blocked_reason_key = "jobs.blocked.resource_busy"
+        job.blocked_reason_key = BLOCKED_RESOURCE_BUSY
         job.blocked_by_job_id = blocking_job_id
         await self._persist()
         await self._publish_status(job)
@@ -464,6 +517,18 @@ class JobService:
         await self._events.publish(
             StreamEvent(topic=JOBS_TOPIC, kind="job.status", payload=payload)
         )
+
+
+def _blocking_job_id(
+    job_id: str, payload: dict[str, Any], busy: dict[tuple[str, str], str]
+) -> str | None:
+    """The job standing in the way, or None if every resource is free."""
+    for entry in payload.get("_resources", []):
+        resource = _parse_resource(entry)
+        holder = busy.get((resource.type, resource.id))
+        if holder is not None and holder != job_id:
+            return holder
+    return None
 
 
 def _parse_resource(entry: str) -> ResourceRef:

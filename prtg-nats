@@ -1590,6 +1590,12 @@ EOF
     compose config --quiet
     printf 'Pulling service images...\n'
     compose pull
+    # The web services are built from this checkout, so recreating containers
+    # is not an update on its own: without this they come back from the image
+    # of whatever the working tree held the last time something built it, and
+    # the update reports success having changed no code at all.
+    printf 'Building service images...\n'
+    compose build --pull
     printf 'Force-recreating the Compose stack...\n'
     compose up -d --force-recreate --remove-orphans
     wait_until_healthy prtg-nats nats
