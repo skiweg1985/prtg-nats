@@ -144,7 +144,17 @@
     "planRestartWarning": "This restarts the probe service. It reconnects afterwards.",
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
-    "unenrollWarning": "This removes the management access and the inventory for {{probe}}. The probe keeps running and stays connected to NATS; its NATS account is not deleted.",
+    "unenrollWarning": "This removes the management access and the inventory for {{probe}}. With nothing else selected, the probe keeps running and stays connected to NATS.",
+    "cleanup": {
+      "legend": "Also clear",
+      "removeSensors": "Remove sensors",
+      "removeSensorsHint": "Takes all {{count}} sensors off the probe: services, sudo rules, configuration and credentials.",
+      "uninstallMpp": "Uninstall probe software",
+      "uninstallMppHint": "Removes the prtgmpprobe package, its configuration including the NATS CA, and the Paessler package source.",
+      "deleteAccount": "Delete NATS account",
+      "deleteAccountHint": "The probe loses its connection immediately and stops reporting to PRTG.",
+      "sensorsSurviveHint": "Without the probe software the sensors stay behind as services nothing calls."
+    },
     "executePlan": "Fix deviations now",
     "enroll": {
       "action": "Add probe",
@@ -295,6 +305,9 @@
       "apply": "Apply",
       "revoke_access": "Revoke access",
       "remove_inventory": "Remove inventory",
+      "remove_sensors": "Remove sensors",
+      "uninstall_mpp": "Uninstall probe software",
+      "delete_account": "Delete NATS account",
       "rotate_server": "Rotate on the server",
       "reconfigure_probe": "Reconfigure probe",
       "bookkeeping": "Bookkeeping",
@@ -332,6 +345,9 @@
         "access_revoked": "{{probe}}: management access revoked",
         "access_revoke_failed": "{{probe}}: could not revoke the management access; the key on the probe remains",
         "unenrolled": "{{probe}}: removed from the inventory",
+        "sensors_removed": "{{probe}}: {{count}} sensors removed",
+        "mpp_uninstalled": "{{probe}}: probe software uninstalled (package {{package}})",
+        "sensors_left_behind": "{{probe}}: {{count}} sensors left behind without the probe software",
         "host_key_pinned": "{{host}}: host key {{fingerprints}} (new: {{new}})",
         "account_created": "NATS account {{username}} created",
         "account_exists": "NATS account {{username}} already exists",
@@ -375,7 +391,8 @@
       },
       "credential": {
         "rotated_server": "Server-side credentials for {{probe}} rotated",
-        "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password"
+        "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password",
+        "deleted": "NATS account {{probe}} deleted"
       }
     }
   },

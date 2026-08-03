@@ -68,6 +68,7 @@ class HelperCommand(StrEnum):
     SENSOR_WRITE_PROFILE = "sensor-write-profile"
     SENSOR_REMOVE_PROFILE = "sensor-remove-profile"
 
+    MPP_UNINSTALL = "mpp-uninstall"
     UNENROLL = "unenroll"
 
 

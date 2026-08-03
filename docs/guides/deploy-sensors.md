@@ -300,6 +300,9 @@ Removes script, helper, systemd units, configuration including profiles, and
 the virtual environment. Reserved test interfaces are handed back to
 NetworkManager.
 
+Taking a whole probe out of service clears all of its sensors in one go -
+see [Retire a probe](operations.md#retire-a-probe).
+
 To take back a single reservation - say, the wrong interface was picked -
 this is enough:
 

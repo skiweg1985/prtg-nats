@@ -217,6 +217,19 @@ class NatsRuntime:
         self.write_server_config()
         return password
 
+    def is_last_account(self, username: str) -> bool:
+        """Whether deleting this account would leave the server without one.
+
+        Public because a caller that deletes an account as the final step of
+        a longer sequence has to be able to ask before it starts - by the
+        time delete_account refuses, the earlier steps have already happened.
+        """
+        return not [
+            account
+            for account in self.list_accounts()
+            if account.username != username and account.has_auth_entry
+        ]
+
     def delete_account(self, username: str) -> None:
         self._require_valid(username)
         if not self.account_exists(username):
@@ -228,12 +241,7 @@ class NatsRuntime:
                 params={"resource": "nats_account", "username": username},
                 details="a probe is still enrolled for this account",
             )
-        remaining = [
-            account
-            for account in self.list_accounts()
-            if account.username != username and account.has_auth_entry
-        ]
-        if not remaining:
+        if self.is_last_account(username):
             raise ConflictError(
                 params={"resource": "nats_account"},
                 details="refusing to remove the last NATS account",

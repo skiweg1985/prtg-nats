@@ -337,6 +337,16 @@ class ProbeHelperClient:
             connection, HelperCommand.SENSOR_REMOVE_PROFILE, sensor, profile
         )
 
+    # --- Retirement ---------------------------------------------------------
+
+    async def mpp_uninstall(self, connection: ProbeConnection) -> HelperResponse:
+        """Remove the probe software, its configuration and the package source.
+
+        The timeout is the generous one: this waits for a package manager that
+        may first have to take a lock from an unattended-upgrade run.
+        """
+        return await self._call(connection, HelperCommand.MPP_UNINSTALL, timeout=900)
+
     async def unenroll(self, connection: ProbeConnection) -> HelperResponse:
         """Remove the management access from the probe side."""
         return await self._call(connection, HelperCommand.UNENROLL)

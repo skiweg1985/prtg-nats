@@ -459,6 +459,57 @@ for connection in data[\"connections\"]:
 done
 check "the probe reconnected after the rotation" "${reconnected}" "${NATS_USER}"
 
+# Deliberately last: this takes the probe apart, so nothing can run after it.
+# It is also the only place the uninstall meets a real package manager - a
+# mocked apt would test the mock, not the removal.
+log "Retirement"
+retirement_output="$(
+  docker exec "${ADMIN_CONTAINER}" \
+    ./prtg-nats probe unenroll "${NATS_USER}" \
+    --remove-sensors --uninstall-mpp --remove-access 2>&1
+)" || printf '  Retirement output:\n%s\n' "${retirement_output}" >&2
+check_contains "the retirement completed" \
+  "${retirement_output}" "Removed probe enrollment"
+check "the package is gone" \
+  "$(
+    docker exec "${PROBE_CONTAINER}" \
+      dpkg-query -W -f '${db:Status-Status}' prtgmpprobe 2>/dev/null || true
+  )" \
+  ""
+check "the configuration and the CA are gone" \
+  "$(
+    docker exec "${PROBE_CONTAINER}" \
+      bash -c 'test -e /etc/paessler/mpprobe && echo present || echo absent'
+  )" \
+  "absent"
+check "the package source is gone" \
+  "$(
+    docker exec "${PROBE_CONTAINER}" \
+      bash -c 'test -e /etc/apt/sources.list.d/paessler.sources &&
+        echo present || echo absent'
+  )" \
+  "absent"
+check "the management access is gone" \
+  "$(
+    docker exec "${PROBE_CONTAINER}" \
+      bash -c 'test -e /etc/sudoers.d/prtg-nats-admin && echo present || echo absent'
+  )" \
+  "absent"
+check "the inventory entry is gone" \
+  "$(
+    docker exec "${ADMIN_CONTAINER}" \
+      bash -c "test -e runtime/probes/${NATS_USER}.env && echo present || echo absent"
+  )" \
+  "absent"
+# The account is a separate decision, and the retirement says so rather than
+# quietly taking it along.
+check "the NATS account survives" \
+  "$(
+    docker exec "${ADMIN_CONTAINER}" \
+      bash -c "test -e runtime/credentials/${NATS_USER}.env && echo present || echo absent"
+  )" \
+  "present"
+
 log "Result"
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

@@ -18,7 +18,8 @@ Usage:
   ./prtg-nats probe install-ca USER
   ./prtg-nats probe adopt USER
   ./prtg-nats probe apply USER
-  ./prtg-nats probe unenroll USER [--remove-access]
+  ./prtg-nats probe unenroll USER [--remove-access] [--remove-sensors]
+                                  [--uninstall-mpp]
 EOF
 }
 
@@ -702,13 +703,65 @@ apply_probe() {
   printf 'Applied current NATS credentials to the probe.\n'
 }
 
+# Every sensor the probe carries, from both sources that know about them.
+#
+# The two can disagree after an interrupted rollout: the inventory knows what
+# we deployed, the probe knows what it actually has. Cleaning up from the
+# bookkeeping alone would leave behind precisely the sensors something already
+# went wrong with.
+carried_sensors() {
+  local username="$1"
+  local assignment=""
+  local listed=""
+
+  assignment="$(probe_sensors_path "${username}")"
+  {
+    [[ ! -f "${assignment}" ]] ||
+      grep -E -v '^[[:space:]]*(#.*)?$' "${assignment}" || true
+    listed="$(printf 'sensor-list\n' | managed_ssh "${username}" || true)"
+    [[ -z "${listed}" ]] ||
+      printf '%s\n' "${listed}" | sed -n 's/^\([A-Za-z0-9][A-Za-z0-9._-]*\)\t.*/\1/p'
+  } | sort -u
+}
+
+remove_every_sensor() {
+  local username="$1"
+  local sensor=""
+  local removed=0
+
+  while IFS= read -r sensor; do
+    [[ -n "${sensor}" ]] || continue
+    "${SCRIPT_DIR}/manage-sensors.sh" remove "${sensor}" "${username}" ||
+      die "Could not remove sensor ${sensor} from ${username}"
+    removed=$((removed + 1))
+  done < <(carried_sensors "${username}")
+  printf 'Removed %s sensor(s) from %s.\n' "${removed}" "${username}"
+}
+
+uninstall_probe_software() {
+  local username="$1"
+  local answer=""
+
+  answer="$(printf 'mpp-uninstall\n' | managed_ssh "${username}")" ||
+    die "The probe could not uninstall its software"
+  printf 'Uninstalled the probe software on %s (%s).\n' \
+    "${username}" "${answer#OK mpp-uninstalled }"
+}
+
 unenroll_probe() {
   local username="$1"
   local remove_access="$2"
+  local remove_sensors="$3"
+  local uninstall_mpp="$4"
   local inventory=""
 
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
+  # Both of these need the management channel, so they happen before the step
+  # that closes it. A failure here stops the unenrollment: a probe that could
+  # not be cleaned up has to stay reachable, or nobody reaches it again.
+  [[ "${remove_sensors}" != "true" ]] || remove_every_sensor "${username}"
+  [[ "${uninstall_mpp}" != "true" ]] || uninstall_probe_software "${username}"
   if [[ "${remove_access}" == "true" ]]; then
     printf 'unenroll\n' | managed_ssh "${username}"
   fi
@@ -717,6 +770,11 @@ unenroll_probe() {
   if [[ "${remove_access}" != "true" ]]; then
     printf 'The restricted remote key remains installed; use --remove-access to revoke it.\n'
   fi
+  # Said rather than done: deleting the account is its own decision, and the
+  # command that does it refuses while an inventory still names the probe -
+  # which is exactly the state that has just ended.
+  printf 'The NATS account %s still exists; remove it with "user delete %s".\n' \
+    "${username}" "${username}"
 }
 
 create_runtime_directories
@@ -825,13 +883,29 @@ case "${command_name}" in
     username="$1"
     shift
     remove_access="false"
-    if [[ "${1:-}" == "--remove-access" ]]; then
-      remove_access="true"
-      shift
-    fi
-    [[ $# -eq 0 ]] ||
-      die "Usage: ./prtg-nats probe unenroll USER [--remove-access]"
-    unenroll_probe "${username}" "${remove_access}"
+    remove_sensors="false"
+    uninstall_mpp="false"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --remove-access)
+          remove_access="true"
+          shift
+          ;;
+        --remove-sensors)
+          remove_sensors="true"
+          shift
+          ;;
+        --uninstall-mpp)
+          uninstall_mpp="true"
+          shift
+          ;;
+        *)
+          die "Usage: ./prtg-nats probe unenroll USER [--remove-access] [--remove-sensors] [--uninstall-mpp]"
+          ;;
+      esac
+    done
+    unenroll_probe \
+      "${username}" "${remove_access}" "${remove_sensors}" "${uninstall_mpp}"
     ;;
   internal-stage)
     require_username "${1:-}"
