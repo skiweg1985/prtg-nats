@@ -33,12 +33,16 @@ flowchart LR
     Web -->|"SSH management channel"| MPP
 ```
 
-Two containers carry the backbone ([compose.yaml](../../compose.yaml)):
-NATS with JetStream, and a read-only HTTP server that publishes nothing
-but `runtime/public/nats-ca.pem`, so a probe can fetch the CA before it
-has any credentials. Three more make up the web platform
-([compose.web.yaml](../../compose.web.yaml)): the API, a build step that
-drops the interface into a volume, and Caddy in front of both.
+One file describes the whole stack ([compose.yaml](../../compose.yaml)):
+NATS with JetStream, the API, a build step that drops the interface into a
+volume, and Caddy in front of both. Caddy also publishes
+`runtime/public/nats-ca.pem` over plain HTTP, so a probe can fetch the CA
+before it has any credentials - that used to be a container of its own.
+
+A short-lived init step runs first and creates the directories the other
+containers mount by subpath. They mount subpaths rather than the whole
+volume so that NATS sees its configuration and certificates but never the
+CA key, the credentials, or the interface's private key.
 
 ## Inside the host
 

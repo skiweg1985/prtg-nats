@@ -1,0 +1,36 @@
+# The build context is the repository root, because the API image carries the
+# templates, sensors and on-target scripts. Everything that is state, history
+# or a local convenience stays out of it.
+
+# Runtime state and secrets - the volume holds these, never an image layer.
+/runtime/
+/backups/
+/.env
+/.env.*
+!/.env.example
+
+.git/
+.gitea/
+/.claude/
+/.backup/
+
+# Local dependencies and build output.
+/web/frontend/node_modules/
+/web/frontend/dist/
+/web/backend/.venv/
+/web/backend/*.egg-info/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tests and documentation do not belong in a runtime image.
+/tests/
+/docs/
+/web/backend/tests/
+
+.DS_Store
+*.swp
+*.tmp

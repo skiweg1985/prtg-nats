@@ -53,7 +53,7 @@ def _connection(context: JobContext, username: str) -> ProbeConnection:
     )
 
 
-async def _run_config_transaction(
+async def run_config_transaction(
     context: JobContext, username: str, *, probe_name: str | None
 ) -> dict[str, str]:
     """Render the configuration and roll it out transactionally.
@@ -96,7 +96,7 @@ async def _run_config_transaction(
         nats_password=nats.read_password(username),
     )
     rendered = probe_config.render_probe_config(
-        context.settings.project_dir / "config" / "mpprobe-config.yaml.template",
+        context.settings.template_dir / "mpprobe-config.yaml.template",
         values,
     )
     await context.log(
@@ -168,7 +168,7 @@ async def _run_config_transaction(
 async def configure(context: JobContext) -> dict[str, Any]:
     username: str = context.payload["probe"]
     probe_name: str | None = context.payload.get("probe_name")
-    return await _run_config_transaction(context, username, probe_name=probe_name)
+    return await run_config_transaction(context, username, probe_name=probe_name)
 
 
 async def reconcile(context: JobContext) -> dict[str, Any]:
@@ -231,7 +231,7 @@ async def reconcile(context: JobContext) -> dict[str, Any]:
         elif action.kind in {"configure", "restart_service"}:
             # The configuration transaction activates and restarts the service,
             # which covers both kinds in one honest operation.
-            await _run_config_transaction(
+            await run_config_transaction(
                 context, username, probe_name=desired.probe_name
             )
         elif action.kind == "deploy_sensor":
@@ -304,7 +304,7 @@ async def rotate_credential(context: JobContext) -> dict[str, Any]:
     has_probe = (context.settings.probe_dir / f"{username}.env").is_file()
     if has_probe:
         await context.step("reconfigure_probe")
-        await _run_config_transaction(context, username, probe_name=None)
+        await run_config_transaction(context, username, probe_name=None)
     else:
         await context.log(
             "jobs.credential.manual_followup",

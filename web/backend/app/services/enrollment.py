@@ -1,0 +1,290 @@
+"""Enrolling a host by invitation.
+
+The shell tooling opened an SSH session to the target as its administrator and
+worked from there. That needs a stranger's root password to travel through
+this process, and it needs the platform to be able to reach the host at the
+moment of enrolment.
+
+This turns the direction around. The platform mints a single-use token and
+prints a command; an operator runs that command on the host; the host installs
+the restricted management access itself and reports back. What crosses the
+wire is a secret this platform issued and can revoke - not a standing
+administrator credential - and the host proves it is the intended one by being
+where the operator typed the command.
+
+After that, nothing changes: the management channel is the same restricted
+SSH forced command it always was, and the same libexec/enroll-probe.sh
+installs it. That script is served, not reimplemented.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import secrets
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import Settings
+from app.core.errors import EnrollmentTokenInvalidError, RuntimeStateError
+from app.core.security import hash_session_token
+from app.infrastructure.runtime_files import RuntimeFileStore
+from app.persistence.models.inventory import EnrollmentToken
+from app.services.auth import Principal
+
+# Long enough that guessing is not a strategy, short enough to retype from a
+# screen if copy and paste is not available.
+TOKEN_BYTES = 32
+
+# The window an operator needs to walk to a console and paste a command. Long
+# enough to be practical, short enough that a forgotten invitation expires on
+# its own rather than waiting to be found.
+DEFAULT_TTL_MINUTES = 60
+
+PROBE = "probe"
+IPERF = "iperf"
+
+# What the bootstrap script is allowed to fetch. A closed set, because the
+# request that fetches these carries a valid token but no identity beyond it.
+PROBE_ASSETS: dict[str, str] = {
+    "enroll-probe.sh": "libexec/enroll-probe.sh",
+    "prtg-nats-probe-helper": "libexec/prtg-nats-probe-helper",
+    "install-mpp.sh": "install-mpp.sh",
+}
+_IPERF_ENDPOINT_DIR = "sensors/iperf-throughput/endpoint"
+IPERF_ASSETS: dict[str, str] = {
+    "setup-iperf3-endpoint.sh": f"{_IPERF_ENDPOINT_DIR}/setup-iperf3-endpoint.sh",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class IssuedToken:
+    """The cleartext token, which exists only in this return value."""
+
+    token: str
+    record: EnrollmentToken
+
+
+@dataclass(frozen=True, slots=True)
+class EnrolmentTarget:
+    """What the caller asked to create, resolved against the site settings."""
+
+    kind: str
+    payload: dict[str, Any]
+    expected_host: str | None
+    ttl_minutes: int
+
+
+class EnrollmentService:
+    def __init__(self, db: AsyncSession, settings: Settings) -> None:
+        self._db = db
+        self._settings = settings
+        self._runtime = RuntimeFileStore(settings)
+
+    # --- Issuing ------------------------------------------------------------
+
+    async def issue(
+        self, target: EnrolmentTarget, principal: Principal | None
+    ) -> IssuedToken:
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+        record = EnrollmentToken(
+            kind=target.kind,
+            token_hash=hash_session_token(token),
+            payload=dict(target.payload),
+            expected_host=target.expected_host,
+            expires_at=datetime.now(UTC) + timedelta(minutes=target.ttl_minutes),
+            created_by_id=getattr(principal, "user_id", None),
+            created_by_name=getattr(principal, "username", None),
+        )
+        self._db.add(record)
+        await self._db.flush()
+        return IssuedToken(token=token, record=record)
+
+    async def list_open(self, kind: str) -> list[EnrollmentToken]:
+        """Invitations that could still be used, newest first."""
+        now = datetime.now(UTC)
+        result = await self._db.execute(
+            select(EnrollmentToken)
+            .where(
+                EnrollmentToken.kind == kind,
+                EnrollmentToken.redeemed_at.is_(None),
+                EnrollmentToken.revoked_at.is_(None),
+                EnrollmentToken.expires_at > now,
+            )
+            .order_by(EnrollmentToken.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def revoke(self, token_id: str) -> EnrollmentToken:
+        record = await self._db.get(EnrollmentToken, token_id)
+        if record is None:
+            raise EnrollmentTokenInvalidError()
+        if record.revoked_at is None and record.redeemed_at is None:
+            record.revoked_at = datetime.now(UTC)
+        return record
+
+    # --- Redeeming ----------------------------------------------------------
+
+    async def resolve(self, token: str, *, kind: str | None = None) -> EnrollmentToken:
+        """Find a usable token, or refuse without saying which rule it broke.
+
+        Looked up by hash, so a database dump does not hand out live
+        invitations, and the lookup is a plain equality on a unique column -
+        no comparison of the caller's secret against a stored one.
+        """
+        result = await self._db.execute(
+            select(EnrollmentToken).where(
+                EnrollmentToken.token_hash == hash_session_token(token)
+            )
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            raise EnrollmentTokenInvalidError()
+        if kind is not None and record.kind != kind:
+            raise EnrollmentTokenInvalidError()
+        if record.revoked_at is not None or record.redeemed_at is not None:
+            raise EnrollmentTokenInvalidError()
+        if record.expires_at <= datetime.now(UTC):
+            raise EnrollmentTokenInvalidError()
+        return record
+
+    async def redeem(
+        self,
+        record: EnrollmentToken,
+        *,
+        source_ip: str | None,
+        reported: dict[str, Any],
+    ) -> None:
+        """Mark the invitation used. Single use is the whole point."""
+        record.redeemed_at = datetime.now(UTC)
+        record.source_ip = source_ip
+        record.reported = reported
+
+    # --- What the host fetches ----------------------------------------------
+
+    def asset_path(self, kind: str, name: str) -> Path:
+        """Resolve a named asset, never a caller-supplied path.
+
+        The lookup is a dictionary rather than a join against asset_dir: the
+        request carries a valid token, but a token is not a reason to let the
+        caller name a file.
+        """
+        table = PROBE_ASSETS if kind == PROBE else IPERF_ASSETS
+        relative = table.get(name)
+        if relative is None:
+            raise EnrollmentTokenInvalidError()
+        path = self._settings.asset_dir / relative
+        if not path.is_file():
+            raise RuntimeStateError(
+                params={"path": str(path)}, details=f"asset is missing: {name}"
+            )
+        return path
+
+    # --- The rendered script ------------------------------------------------
+
+    def base_url(self) -> str:
+        """Where the host reaches this platform, over TLS.
+
+        The name, not the address: it is the name in the certificate the probe
+        just learned to trust.
+        """
+        site = self._runtime.site_settings()
+        if not site.web_fqdn:
+            raise RuntimeStateError(details="NATS_FQDN is not configured")
+        return f"https://{site.web_fqdn}:{self._settings.web_https_port}"
+
+    def ca_material(self) -> tuple[str, str]:
+        """The CA and its fingerprint, as the probe will see them."""
+        ca_path = self._settings.cert_dir / "ca.pem"
+        if not ca_path.is_file():
+            raise RuntimeStateError(
+                params={"path": str(ca_path)},
+                details="CA is missing; initialise the runtime first",
+            )
+        pem = ca_path.read_text(encoding="utf-8").strip()
+        digest = hashlib.sha256(ca_path.read_bytes()).hexdigest()
+        return pem, digest
+
+    def render_bootstrap(self, record: EnrollmentToken, token: str) -> str:
+        """Fill the template for this one invitation.
+
+        The CA and the management public key are embedded rather than fetched.
+        Both are public, both are already implied by the channel this script
+        arrived over, and inlining them means one less thing to fail halfway
+        through on a host with an awkward network.
+        """
+        template = (
+            self._settings.asset_dir / "bootstrap" / "probe-bootstrap.sh.template"
+        )
+        if not template.is_file():
+            raise RuntimeStateError(
+                params={"path": str(template)}, details="bootstrap template is missing"
+            )
+
+        site = self._runtime.site_settings()
+        source_cidr = site.ssh_source_cidr
+        if not source_cidr:
+            raise RuntimeStateError(
+                details="MPP_SSH_SOURCE_CIDR is not configured and NATS_HOST_IP "
+                "is unset; the management key would be valid from anywhere"
+            )
+
+        ca_pem, ca_sha256 = self.ca_material()
+        values = {
+            "@@BASE_URL@@": self.base_url(),
+            "@@TOKEN@@": token,
+            "@@CA_PEM@@": ca_pem,
+            "@@CA_SHA256@@": ca_sha256,
+            "@@SSH_SOURCE_CIDR@@": source_cidr,
+            "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
+            "@@INSTALL_PACKAGE@@": (
+                "true" if record.payload.get("install_package", True) else "false"
+            ),
+        }
+
+        script = template.read_text(encoding="utf-8")
+        for placeholder, value in values.items():
+            script = script.replace(placeholder, value)
+
+        remaining = re.findall(r"@@[A-Z_]+@@", script)
+        if remaining:
+            raise RuntimeStateError(
+                params={"placeholders": ", ".join(sorted(set(remaining)))},
+                details="bootstrap template has placeholders nothing filled in",
+            )
+        return script
+
+    def one_liner(self, token: str) -> str:
+        """The command an operator pastes on the probe.
+
+        Fetches the CA over plain HTTP first, checks it against a fingerprint
+        that came through the browser, and only then speaks TLS. That is the
+        same ceremony install-mpp.sh has always used - no --insecure anywhere.
+        """
+        site = self._runtime.site_settings()
+        _, ca_sha256 = self.ca_material()
+        host = site.web_fqdn
+        ca_port = "" if site.ca_http_port == 80 else f":{site.ca_http_port}"
+        ca_url = f"http://{host}{ca_port}/nats-ca.pem"
+        return (
+            f"curl -fsSL {ca_url} -o /tmp/prtg-nats-ca.pem \\\n"
+            f'  && echo "{ca_sha256}  /tmp/prtg-nats-ca.pem" | sha256sum -c - \\\n'
+            f"  && curl -fsSL --cacert /tmp/prtg-nats-ca.pem \\\n"
+            f"       {self.base_url()}/enroll/{token}/bootstrap.sh | sudo sh"
+        )
+
+    def management_public_key(self) -> str:
+        # Same spelling as pki.py: the key has no extension, so with_suffix()
+        # would be wrong the moment someone renames it to contain a dot.
+        path = Path(f"{self._settings.ssh_key_path}.pub")
+        if not path.is_file():
+            raise RuntimeStateError(
+                params={"path": str(path)},
+                details="management key is missing; initialise the runtime first",
+            )
+        return path.read_text(encoding="utf-8").strip()

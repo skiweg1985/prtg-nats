@@ -210,3 +210,41 @@ class Setting(Base, TimestampMixin):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class EnrollmentToken(Base, IdMixin, TimestampMixin):
+    """An invitation for one host to enrol itself, once, before it expires.
+
+    Deliberately here and not in runtime/, which is otherwise the source of
+    truth: a file would outlive the token's validity and quietly become a
+    standing credential. A single-use secret with a lifetime is exactly the
+    kind of state ADR 0002 carves out for the database.
+
+    Like a session, only the hash is stored. A database dump must not hand out
+    the right to enrol a host into the fleet.
+    """
+
+    __tablename__ = "enrollment_token"
+    __table_args__ = (Index("ix_enrollment_token_expires_at", "expires_at"),)
+
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # probe | iperf
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # What the finished host should become: NATS account, probe name, endpoint
+    # name and port. Never a secret - those live in runtime/ where they belong.
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # Set when the operator knows the address; otherwise the callback's source
+    # address is the suggestion, which is wrong exactly when the host is
+    # behind NAT.
+    expected_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    redeemed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    # Where the host answered from, and what it told us about itself - its
+    # host keys above all, which is what gets pinned.
+    source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reported: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    job_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
+    created_by_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
+    created_by_name: Mapped[str | None] = mapped_column(String(64), nullable=True)

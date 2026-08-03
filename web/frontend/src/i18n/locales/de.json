@@ -98,7 +98,7 @@
     "title": "Probes",
     "subtitle": "Die Systeme, auf denen die Überwachungsskripte laufen",
     "empty": "Es ist noch keine Probe eingebunden.",
-    "emptyHint": "Eine Probe wird auf dem Server mit „prtg-nats install-mpp“ hinzugefügt. Der geführte Ablauf folgt mit der Onboarding-Phase.",
+    "emptyHint": "Es ist noch nichts angemeldet. Eine Probe hinzuzufügen kostet einen Befehl, ausgeführt auf der Probe selbst.",
     "columns": {
       "name": "Probe",
       "host": "Host",
@@ -145,7 +145,59 @@
     "configure": "Konfiguration anwenden",
     "unenroll": "Ausbinden",
     "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Die Probe läuft weiter und bleibt mit NATS verbunden; ihr NATS-Konto wird nicht gelöscht.",
-    "executePlan": "Abweichungen jetzt beheben"
+    "executePlan": "Abweichungen jetzt beheben",
+    "enroll": {
+      "action": "Probe hinzufügen",
+      "title": "Probe hinzufügen",
+      "subtitle": "Die Probe meldet sich selbst an; Sie führen einen Befehl auf ihr aus.",
+      "step1": {
+        "title": "1. Was aus dieser Probe wird",
+        "intro": "Bis hierher passiert auf der Probe nichts. Es geht nur um den Namen, den sie tragen wird, und das NATS-Konto, mit dem sie sich verbindet.",
+        "submit": "Befehl erzeugen",
+        "creating": "Wird erzeugt…"
+      },
+      "step2": {
+        "title": "2. Diesen Befehl auf der Probe ausführen",
+        "intro": "Kopieren Sie den Befehl und führen Sie ihn auf dem Host aus, als Benutzer mit sudo-Recht. Er holt die CA, vergleicht sie mit dem Fingerabdruck unten, installiert den eingeschränkten Verwaltungszugang und meldet zurück.",
+        "copy": "Kopieren",
+        "account": "NATS-Konto",
+        "caFingerprint": "CA-Fingerabdruck",
+        "expires": "Gültig noch",
+        "expired": "Abgelaufen",
+        "secretTitle": "Behandeln Sie den Befehl wie ein Geheimnis",
+        "secretBody": "Er enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host unter diesem Konto anmelden.",
+        "waiting": "Warten auf die Probe",
+        "waitingHint": "Diese Seite geht von selbst weiter, sobald der Host sich meldet.",
+        "revoke": "Einladung zurückziehen"
+      },
+      "step3": {
+        "title": "3. Die Plattform übernimmt",
+        "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
+        "doneTitle": "Die Probe ist angemeldet",
+        "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
+        "failedTitle": "Die Anmeldung wurde nicht fertig",
+        "failedBody": "Das Protokoll unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederholen Sie den Auftrag; muss der Host den Befehl erneut ausführen, erstellen Sie eine neue Einladung.",
+        "toProbes": "Zur Probenliste",
+        "toJob": "Auftrag öffnen",
+        "reportedBy": "Host"
+      },
+      "fields": {
+        "account": "NATS-Konto",
+        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird angelegt, falls es noch nicht existiert.",
+        "probeName": "Probenname (optional)",
+        "probeNameHint": "Was PRTG anzeigt. Wird aus dem Hostnamen abgeleitet, wenn leer. Keine Leerzeichen.",
+        "host": "Adresse (optional)",
+        "hostHint": "Worüber die Plattform die Probe danach erreicht. Bleibt das Feld leer, wird die Adresse verwendet, von der aus der Host sich meldet - die ist hinter NAT falsch.",
+        "installPackage": "Paket prtgmpprobe installieren",
+        "installPackageHint": "Eingeschaltet lassen, außer das Paket ist bereits installiert und wird anderweitig gepflegt."
+      },
+      "errors": {
+        "accountTaken": "Dieses Konto gibt es bereits. Wählen Sie einen anderen Namen, oder melden Sie die Probe erneut an, die es benutzt.",
+        "accountShape": "Nur Kleinbuchstaben, Ziffern und Bindestriche, mindestens zwei Zeichen.",
+        "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen.",
+        "hostTaken": "Diese Adresse ist bereits als „{{probe}}\" angemeldet. Melden Sie sie erneut unter diesem Konto an, oder entfernen Sie sie zuerst, um ihr ein anderes zu geben."
+      }
+    }
   },
   "sensors": {
     "title": "Sensoren",
@@ -246,7 +298,12 @@
       "deploy_profiles": "Zugangsdaten-Profile ausrollen",
       "initialise": "Initialisieren",
       "start_containers": "Container starten",
-      "remove": "Entfernen"
+      "remove": "Entfernen",
+      "pin_host_key": "Hostschlüssel hinterlegen",
+      "ensure_account": "NATS-Konto",
+      "verify_access": "Verwaltungszugang prüfen",
+      "write_inventory": "Inventar schreiben",
+      "export": "Laufzeitstand archivieren"
     },
     "events": {
       "started": "Job gestartet: {{type}}",
@@ -271,7 +328,14 @@
         "configured": "{{probe}}: Konfiguration ist aktiv",
         "access_revoked": "{{probe}}: Management-Zugang entzogen",
         "access_revoke_failed": "{{probe}}: Management-Zugang ließ sich nicht entziehen; der Schlüssel auf der Probe bleibt zurück",
-        "unenrolled": "{{probe}}: aus dem Inventar entfernt"
+        "unenrolled": "{{probe}}: aus dem Inventar entfernt",
+        "host_key_pinned": "{{host}}: Hostschlüssel {{fingerprints}} (neu: {{new}})",
+        "account_created": "NATS-Konto {{username}} angelegt",
+        "account_exists": "NATS-Konto {{username}} existiert bereits",
+        "access_verified": "{{host}} hat über den Verwaltungskanal geantwortet, Paket {{package}}, Dienst {{service}}",
+        "inventory_written": "{{username}} als {{probe_name}} ins Inventar geschrieben",
+        "enrolled": "{{username}} ist auf {{host}} angemeldet",
+        "enroll_incomplete": "Dieser Lauf hat hinterlassen: Hostschlüssel hinterlegt {{pinned_host_key}}, Konto angelegt {{created_account}}, Inventar geschrieben {{wrote_inventory}}"
       },
       "sensor": {
         "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
@@ -297,7 +361,8 @@
         "check": "Prüfung {{check}}: {{ok}}",
         "runtime_initialised": "Laufzeit initialisiert: CA, Serverzertifikat, Management-Schlüssel und gemeinsames Konto erzeugt",
         "docker_unavailable_note": "Der Docker-Socket ist nicht eingebunden; Container übernehmen die Änderung beim nächsten Start",
-        "backup_checksum": "Sicherungs-Prüfsumme {{sha256}}"
+        "backup_checksum": "Sicherungs-Prüfsumme {{sha256}}",
+        "export_created": "Laufzeitstand nach {{archive}} archiviert ({{bytes}} Bytes)"
       },
       "reconcile": {
         "planned": "{{probe}}: {{actions}} Aktion(en) geplant",
@@ -480,10 +545,19 @@
       "protocol_error.action": "Den Probe-Helper auf dem Zielsystem aktualisieren.",
       "request_rejected": "Die Probe hat die Anfrage „{{command}}“ abgelehnt.",
       "request_rejected.cause": "Die Probe hat die Anfrage geprüft und zurückgewiesen. Die technischen Details enthalten ihre eigene Meldung.",
-      "request_rejected.action": "Die technischen Details lesen, die Ursache beheben, dann den Job erneut ausführen."
+      "request_rejected.action": "Die technischen Details lesen, die Ursache beheben, dann den Job erneut ausführen.",
+      "host_key_mismatch": "Der Host \"{{host}}\" hat einen anderen SSH-Hostschlüssel vorgezeigt als den hinterlegten.",
+      "host_key_mismatch.cause": "Entweder wurde der Host neu aufgesetzt und hat neue Schlüssel, oder unter dieser Adresse antwortet etwas anderes. Hinterlegt: {{pinned}}. Vorgezeigt: {{offered}}.",
+      "host_key_mismatch.action": "Klären Sie über einen vertrauenswürdigen Kanal, ob der Host neu aufgesetzt wurde. Wenn ja, entfernen Sie den alten Eintrag bewusst und melden Sie ihn erneut an; wenn nein, brechen Sie ab und gehen Sie der Sache nach.",
+      "host_already_enrolled": "Die Adresse „{{host}}\" ist bereits als „{{probe}}\" angemeldet.",
+      "host_already_enrolled.cause": "Der Verwaltungszugang liegt auf dem Host, nicht im Inventareintrag. Ein zweiter Eintrag für dieselbe Adresse würde ihn mitbenutzen, und das Entfernen eines der beiden würde ihn für beide zurückziehen - übrig bliebe eine Probe, die am NATS verbunden und zugleich nicht erreichbar ist.",
+      "host_already_enrolled.action": "Melden Sie diesen Host erneut unter „{{probe}}\" an, wenn Sie das meinten. Soll er ein anderes Konto bekommen, entfernen Sie zuerst „{{probe}}\" - damit wird auch der Verwaltungszugang auf dem Host zurückgezogen, den die nächste Anmeldung neu einrichtet."
     },
     "nats": {
-      "unavailable": "Der NATS-Server hat nicht geantwortet."
+      "unavailable": "Der NATS-Server hat nicht geantwortet.",
+      "reload_refused": "NATS hat seine bisherige Konfiguration behalten.",
+      "reload_refused.cause": "Manche Einstellungen lassen sich ohne Neustart nicht übernehmen - allen voran ein geänderter Servername. Die Änderung steht auf der Platte und ist noch nicht aktiv.",
+      "reload_refused.action": "Starten Sie den NATS-Server auf der Systemseite neu. Danach verbinden sich alle Probes und der PRTG-Core neu."
     },
     "docker": {
       "unavailable": "Die Containersteuerung steht in dieser Installation nicht zur Verfügung.",
@@ -510,6 +584,11 @@
     },
     "network": {
       "unreachable": "Die Management-API ist nicht erreichbar."
+    },
+    "enrollment": {
+      "token_invalid": "Diese Einladung zur Anmeldung lässt sich nicht verwenden.",
+      "token_invalid.cause": "Sie ist unbekannt, abgelaufen, bereits verbraucht oder wurde zurückgezogen. Eine Einladung gilt für einen Host, einmal.",
+      "token_invalid.action": "Erstellen Sie eine neue Einladung und führen Sie den angezeigten Befehl auf dem Host aus."
     }
   },
   "validation": {

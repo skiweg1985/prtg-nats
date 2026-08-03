@@ -13,6 +13,7 @@ import {
   NotFoundPage,
   SettingsPage,
 } from '@/features/misc/Pages'
+import { EnrollWizard } from '@/features/probes/EnrollWizard'
 import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { ProbeListPage } from '@/features/probes/ProbeListPage'
 import { SensorDetailPage, SensorListPage } from '@/features/sensors/SensorPages'
@@ -31,6 +32,8 @@ export function AppRoutes() {
           <Route index element={<DashboardPage />} />
 
           <Route path="probes" element={<ProbeListPage />} />
+          {/* Before the :probeId route, or "new" would be read as an id. */}
+          <Route path="probes/new" element={<EnrollWizard />} />
           <Route path="probes/:probeId" element={<ProbeDetailPage />} />
 
           <Route path="sensors" element={<SensorListPage />} />

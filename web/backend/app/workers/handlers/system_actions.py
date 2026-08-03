@@ -25,6 +25,9 @@ RENEW_CERTIFICATE_JOB_TYPE = "certificate.renew"
 BACKUP_STEPS: tuple[str, ...] = ("backup", "verify")
 BACKUP_JOB_TYPE = "system.backup"
 
+EXPORT_STEPS: tuple[str, ...] = ("export", "verify")
+EXPORT_JOB_TYPE = "system.export"
+
 VERIFY_STEPS: tuple[str, ...] = ("verify",)
 VERIFY_JOB_TYPE = "system.verify"
 
@@ -63,7 +66,10 @@ async def setup_runtime(context: JobContext) -> dict[str, Any]:
 
     await context.step("start_containers")
     if context.docker.available:
-        for container in (StackContainer.NATS, StackContainer.CA_DOWNLOAD):
+        # The proxy as well as NATS: initialisation is what creates the
+        # interface certificate, and Caddy has been failing to start without
+        # it. Both pick up their files on this restart.
+        for container in (StackContainer.NATS, StackContainer.WEB_PROXY):
             state = await context.docker.inspect(container)
             if state.exists:
                 await context.docker.restart(container)
@@ -105,11 +111,18 @@ async def renew_certificate(context: JobContext) -> dict[str, Any]:
 
     await context.step("restart")
     if context.docker.available:
-        await context.docker.restart(StackContainer.NATS)
-        await context.log(
-            "jobs.system.container_restarted",
-            params={"container": StackContainer.NATS.value},
-        )
+        # Both leaves were renewed, so both consumers have to re-read them.
+        # Leaving the proxy alone would serve the old interface certificate
+        # until something else happened to restart it.
+        for container in (StackContainer.NATS, StackContainer.WEB_PROXY):
+            state = await context.docker.inspect(container)
+            if not state.exists:
+                continue
+            await context.docker.restart(container)
+            await context.log(
+                "jobs.system.container_restarted",
+                params={"container": container.value},
+            )
         await context.docker.wait_healthy(StackContainer.NATS)
     else:
         await context.log("jobs.system.docker_unavailable_note", level=LogLevel.WARNING)
@@ -129,6 +142,33 @@ async def backup(context: JobContext) -> dict[str, Any]:
     result = await provisioning.backup_jetstream()
     await context.log(
         "jobs.system.backup_created",
+        params={"archive": result.archive, "bytes": result.size_bytes},
+    )
+
+    await context.step("verify")
+    await context.log("jobs.system.backup_checksum", params={"sha256": result.sha256})
+    return {
+        "archive": result.archive,
+        "sha256": result.sha256,
+        "size_bytes": result.size_bytes,
+    }
+
+
+async def export_runtime(context: JobContext) -> dict[str, Any]:
+    """Archive runtime/ so the installation exists somewhere other than here.
+
+    The JetStream backup covers message data; this covers the CA key, the
+    accounts, the inventory and the database - the parts that cannot be
+    rebuilt from the repository. Runs without touching NATS: reading files is
+    consistent enough for state that only this process writes.
+    """
+    provisioning = ProvisioningService(context.settings, context.docker)
+
+    await context.step("export")
+    # Compressing the whole runtime is disk-bound work; keep it off the loop.
+    result = await asyncio.to_thread(provisioning.export_runtime)
+    await context.log(
+        "jobs.system.export_created",
         params={"archive": result.archive, "bytes": result.size_bytes},
     )
 

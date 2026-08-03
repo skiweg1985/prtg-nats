@@ -98,7 +98,7 @@
     "title": "Probes",
     "subtitle": "The systems that run the monitoring scripts",
     "empty": "No probe is enrolled yet.",
-    "emptyHint": "A probe is added on the server with \"prtg-nats install-mpp\". The guided workflow arrives with the onboarding phase.",
+    "emptyHint": "Nothing is enrolled yet. Adding a probe takes one command, run on the probe itself.",
     "columns": {
       "name": "Probe",
       "host": "Host",
@@ -145,7 +145,59 @@
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
     "unenrollWarning": "This removes the management access and the inventory for {{probe}}. The probe keeps running and stays connected to NATS; its NATS account is not deleted.",
-    "executePlan": "Fix deviations now"
+    "executePlan": "Fix deviations now",
+    "enroll": {
+      "action": "Add probe",
+      "title": "Add probe",
+      "subtitle": "The probe enrols itself; you run one command on it.",
+      "step1": {
+        "title": "1. What this probe becomes",
+        "intro": "Nothing reaches the probe yet. This only decides the name it will carry and the NATS account it will connect with.",
+        "submit": "Create the command",
+        "creating": "Creating…"
+      },
+      "step2": {
+        "title": "2. Run this on the probe",
+        "intro": "Copy the command and run it on the host, as a user who can sudo. It fetches the CA, compares it against the fingerprint below, installs the restricted management access, and reports back.",
+        "copy": "Copy",
+        "account": "NATS account",
+        "caFingerprint": "CA fingerprint",
+        "expires": "Valid for",
+        "expired": "Expired",
+        "secretTitle": "Treat the command as a secret",
+        "secretBody": "It carries a single-use invitation. Anyone who can read it can enrol a host under this account until it is used or expires.",
+        "waiting": "Waiting for the probe",
+        "waitingHint": "This page continues on its own as soon as the host reports in.",
+        "revoke": "Cancel invitation"
+      },
+      "step3": {
+        "title": "3. The platform takes over",
+        "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
+        "doneTitle": "The probe is enrolled",
+        "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
+        "failedTitle": "The enrolment did not finish",
+        "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
+        "toProbes": "To the probe list",
+        "toJob": "Open the job",
+        "reportedBy": "Host"
+      },
+      "fields": {
+        "account": "NATS account",
+        "accountHint": "Lower-case letters, digits and hyphens. Created if it does not exist yet.",
+        "probeName": "Probe name (optional)",
+        "probeNameHint": "What PRTG shows. Derived from the host name if left empty. No spaces.",
+        "host": "Address (optional)",
+        "hostHint": "How the platform reaches the probe afterwards. Left empty, the address the host reports from is used - which is wrong if it sits behind NAT.",
+        "installPackage": "Install the prtgmpprobe package",
+        "installPackageHint": "Leave this on unless the package is already installed and managed elsewhere."
+      },
+      "errors": {
+        "accountTaken": "This account already exists. Pick another name, or enrol the probe that uses it again.",
+        "accountShape": "Lower-case letters, digits and hyphens only, at least two characters.",
+        "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
+        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enrol it again under that account, or remove it first to give it a different one."
+      }
+    }
   },
   "sensors": {
     "title": "Sensors",
@@ -246,7 +298,12 @@
       "deploy_profiles": "Deploy credential profiles",
       "initialise": "Initialise",
       "start_containers": "Start containers",
-      "remove": "Remove"
+      "remove": "Remove",
+      "pin_host_key": "Pin the host key",
+      "ensure_account": "NATS account",
+      "verify_access": "Check management access",
+      "write_inventory": "Write the inventory",
+      "export": "Archive the runtime"
     },
     "events": {
       "started": "Job started: {{type}}",
@@ -271,7 +328,14 @@
         "configured": "{{probe}}: configuration is live",
         "access_revoked": "{{probe}}: management access revoked",
         "access_revoke_failed": "{{probe}}: could not revoke the management access; the key on the probe remains",
-        "unenrolled": "{{probe}}: removed from the inventory"
+        "unenrolled": "{{probe}}: removed from the inventory",
+        "host_key_pinned": "{{host}}: host key {{fingerprints}} (new: {{new}})",
+        "account_created": "NATS account {{username}} created",
+        "account_exists": "NATS account {{username}} already exists",
+        "access_verified": "{{host}} answered over the management channel, package {{package}}, service {{service}}",
+        "inventory_written": "{{username}} written to the inventory as {{probe_name}}",
+        "enrolled": "{{username}} is enrolled at {{host}}",
+        "enroll_incomplete": "This run left behind: host key pinned {{pinned_host_key}}, account created {{created_account}}, inventory written {{wrote_inventory}}"
       },
       "sensor": {
         "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
@@ -297,7 +361,8 @@
         "check": "Check {{check}}: {{ok}}",
         "runtime_initialised": "Runtime initialised: CA, server certificate, management key and shared account created",
         "docker_unavailable_note": "The Docker socket is not mounted; containers pick the change up on their next start",
-        "backup_checksum": "Backup checksum {{sha256}}"
+        "backup_checksum": "Backup checksum {{sha256}}",
+        "export_created": "Runtime archived to {{archive}} ({{bytes}} bytes)"
       },
       "reconcile": {
         "planned": "{{probe}}: {{actions}} action(s) planned",
@@ -480,10 +545,19 @@
       "protocol_error.action": "Update the probe helper on the target system.",
       "request_rejected": "The probe refused the request \"{{command}}\".",
       "request_rejected.cause": "The probe validated the request and declined it. The technical details carry its own message.",
-      "request_rejected.action": "Read the technical details, correct the cause, then run the job again."
+      "request_rejected.action": "Read the technical details, correct the cause, then run the job again.",
+      "host_key_mismatch": "The host \"{{host}}\" presented a different SSH host key than the one on record.",
+      "host_key_mismatch.cause": "Either the host was rebuilt and has new keys, or something else is answering at that address. Pinned: {{pinned}}. Offered: {{offered}}.",
+      "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enrol again; if it was not, stop and investigate.",
+      "host_already_enrolled": "The address \"{{host}}\" is already enrolled as \"{{probe}}\".",
+      "host_already_enrolled.cause": "The management access lives on the host, not in an inventory entry. A second entry for the same address would share it, and retiring either one would revoke it for both - leaving a probe that is connected to NATS and unreachable at the same time.",
+      "host_already_enrolled.action": "Enrol this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrolment installs again."
     },
     "nats": {
-      "unavailable": "The NATS server did not answer."
+      "unavailable": "The NATS server did not answer.",
+      "reload_refused": "NATS kept its previous configuration.",
+      "reload_refused.cause": "Some settings cannot be applied without a restart - a changed server name above all. The change is written to disk and is not active yet.",
+      "reload_refused.action": "Restart the NATS server from the system page. Every probe and the PRTG core reconnect afterwards."
     },
     "docker": {
       "unavailable": "Container control is not available in this installation.",
@@ -510,6 +584,11 @@
     },
     "network": {
       "unreachable": "The management API cannot be reached."
+    },
+    "enrollment": {
+      "token_invalid": "This enrolment invitation cannot be used.",
+      "token_invalid.cause": "It is unknown, expired, already used, or was revoked. An invitation is good for one host, once.",
+      "token_invalid.action": "Create a new invitation and run the command it gives you on the host."
     }
   },
   "validation": {

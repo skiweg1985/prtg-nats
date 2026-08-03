@@ -426,6 +426,38 @@ export interface JobAccepted {
   events_url: string
 }
 
+/** An open invitation for one host to enrol itself. Never carries the token. */
+export interface Invitation {
+  id: string
+  kind: string
+  nats_username: string | null
+  probe_name: string | null
+  expected_host: string | null
+  expires_at: string
+  created_by_name: string | null
+  redeemed_at: string | null
+  source_ip: string | null
+  job_id: string | null
+}
+
+/**
+ * What creating an invitation returns. The token is in here once and is never
+ * retrievable again - it is not stored in the clear, only its hash is.
+ */
+export interface IssuedInvitation extends Invitation {
+  token: string
+  command: string
+  ca_sha256: string
+}
+
+export interface InvitationRequest {
+  nats_username: string
+  probe_name?: string | null
+  expected_host?: string | null
+  install_package?: boolean
+  ttl_minutes?: number
+}
+
 export interface WebUser {
   id: string
   username: string

@@ -1,9 +1,15 @@
 # The management API.
 #
-# Runs as root and mounts runtime/ plus the Docker socket, which makes it a
-# highly privileged component by design - the same privilege the shell tooling
-# has when an operator runs it under sudo. docs/security/threat-model.md says
-# so plainly rather than pretending otherwise.
+# Runs as root and mounts the runtime volume plus the Docker socket, which
+# makes it a highly privileged component by design - the same privilege the
+# shell tooling had when an operator ran it under sudo.
+# docs/security/threat-model.md says so plainly rather than pretending
+# otherwise.
+#
+# Built from the repository root, not from this directory: the image carries
+# the templates, sensors and on-target scripts the platform hands to a probe.
+# Those used to arrive through a bind mount of the whole checkout, which is
+# also how runtime state ended up pinned to a host path.
 
 FROM python:3.11-slim-bookworm AS base
 
@@ -20,13 +26,25 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies first, so a code change does not reinstall the world.
-COPY pyproject.toml ./
+COPY web/backend/pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
-COPY app ./app
-COPY alembic.ini ./
-COPY alembic ./alembic
+COPY web/backend/app ./app
+COPY web/backend/alembic.ini ./
+COPY web/backend/alembic ./alembic
+
+# The assets: read-only at runtime, replaced wholesale by a new image. Kept
+# apart from /srv/prtg-nats/runtime, which is the volume nobody can rebuild.
+COPY config /opt/prtg-nats/config
+COPY http /opt/prtg-nats/http
+COPY sensors /opt/prtg-nats/sensors
+COPY libexec /opt/prtg-nats/libexec
+COPY bootstrap /opt/prtg-nats/bootstrap
+COPY install-mpp.sh /opt/prtg-nats/
+
+ENV PRTG_NATS_WEB_ASSET_DIR=/opt/prtg-nats \
+    PRTG_NATS_WEB_RUNTIME_DIR=/srv/prtg-nats/runtime
 
 EXPOSE 8100
 

@@ -1,19 +1,28 @@
 """Authorisation is enforced on the server, on every route.
 
-The first test here is structural: it walks the router and fails if any route
-lacks a permission dependency. That is the check that survives a new endpoint
-written in a hurry.
+The first three tests here are structural. One fails if a router is never
+mounted, one fails if a mounted route lacks a permission dependency, and one
+fails if the introspection those two rely on stops seeing the routing table.
+Together they survive a new endpoint written in a hurry - in either direction.
 """
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
+from fastapi import APIRouter
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.v1 import routes as routes_package
 from app.api.v1.router import api_router
 from app.core.permissions import ROLE_PERMISSIONS, Permission, RoleName
+from app.main import create_app
 from app.workers.handlers import REGISTRY
 
 PASSWORD = "correct-horse-battery"
@@ -31,20 +40,140 @@ UNGUARDED: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/auth/me"): "the caller's own identity",
     ("POST", "/api/v1/auth/change-password"): "changing one's own password",
     ("GET", "/api/v1/system/capabilities"): "what the interface may render at all",
+    # A host being enrolled has no identity yet. The invitation token is its
+    # whole authorisation, which is why it is single-use, expiring and
+    # revocable - and why these three routes hand out nothing that is not
+    # already public or already implied by holding the token.
+    (
+        "GET",
+        "/api/v1/enroll/{token}/bootstrap.sh",
+    ): "the host cannot authenticate before it is enrolled",
+    (
+        "GET",
+        "/api/v1/enroll/{token}/asset/{name}",
+    ): "the scripts the bootstrap runs, by fixed name",
+    (
+        "POST",
+        "/api/v1/enroll/{token}/callback",
+    ): "where the host reports in and spends its invitation",
 }
 
 
-def _iter_routes() -> list[APIRoute]:
-    return [route for route in api_router.routes if isinstance(route, APIRoute)]
+def _walk(
+    router: APIRouter, prefix: str = ""
+) -> Iterator[tuple[str, APIRoute, tuple[Any, ...]]]:
+    """Yield (full path, route, dependencies inherited from the include).
+
+    Has to recurse. FastAPI resolves included routers lazily since 0.141:
+    api_router.routes holds opaque include markers rather than APIRoute
+    objects, so looking only at the top level finds nothing at all - which is
+    exactly how a guard test can pass while guarding nothing. Both shapes are
+    handled here, and test_route_introspection_sees_every_route below fails
+    loudly if a future version grows a third one.
+    """
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            yield prefix + route.path, route, ()
+            continue
+        # The lazy include marker: private, hence the guarded attribute access.
+        included = getattr(route, "original_router", None)
+        context = getattr(route, "include_context", None)
+        if not isinstance(included, APIRouter) or context is None:
+            continue
+        inherited = tuple(getattr(context, "dependencies", ()) or ())
+        for path, sub, deps in _walk(included, prefix + getattr(context, "prefix", "")):
+            yield path, sub, inherited + deps
 
 
-def _guards_a_permission(route: APIRoute) -> bool:
+def _iter_routes() -> list[tuple[str, APIRoute, tuple[Any, ...]]]:
+    return list(_walk(api_router))
+
+
+def _openapi_keys() -> set[tuple[str, str]]:
+    """Every versioned method/path pair a request can reach, per FastAPI itself.
+
+    Scoped to the API prefix: /health and /ready hang off the application
+    directly and never pass through api_router.
+    """
+    paths = create_app().openapi().get("paths", {})
+    return {
+        (method.upper(), path)
+        for path, operations in paths.items()
+        if path.startswith(api_router.prefix)
+        for method in operations
+    }
+
+
+def test_route_introspection_sees_every_route() -> None:
+    """Guards the guards.
+
+    Both structural tests below walk FastAPI internals. If those internals
+    change again, the walk quietly returns less and the tests keep passing
+    while checking nothing. Comparing against the OpenAPI document - a public
+    API built from the same routing table - turns that silence into a failure.
+    """
+    walked = {
+        (method, path)
+        for path, route, _ in _iter_routes()
+        for method in route.methods or set()
+    }
+    assert walked >= _openapi_keys(), (
+        "route introspection no longer finds every route; _walk() needs to "
+        f"learn the current FastAPI routing shape. Missing: "
+        f"{sorted(_openapi_keys() - walked)}"
+    )
+
+
+def test_every_route_module_is_mounted() -> None:
+    """A router that is never included is invisible to every other check here.
+
+    Not hypothetical: routes/credentials.py was fully implemented and called by
+    the interface while api_router never included it. Every route module in
+    this package is mounted without an extra prefix, so the reachable path of
+    one of its routes is the API prefix plus the route's own path.
+    """
+    reachable = _openapi_keys()
+    missing: list[str] = []
+    for module_info in pkgutil.iter_modules(routes_package.__path__):
+        module = importlib.import_module(
+            f"{routes_package.__name__}.{module_info.name}"
+        )
+        router = getattr(module, "router", None)
+        if not isinstance(router, APIRouter):
+            continue
+        missing.extend(
+            f"{module_info.name}: {method} {api_router.prefix + route.path}"
+            for route in router.routes
+            if isinstance(route, APIRoute)
+            for method in sorted(route.methods or set())
+            if (method, api_router.prefix + route.path) not in reachable
+        )
+
+    assert not missing, (
+        "these routes exist but no request can reach them; include the router "
+        f"in app/api/v1/router.py: {sorted(missing)}"
+    )
+
+
+def _guards_a_permission(route: APIRoute, inherited: tuple[Any, ...] = ()) -> bool:
     """A route is guarded when require_permission() appears in its dependants."""
+
+    def names(dependency: Any) -> str:
+        # Dependant objects expose .call; a bare Depends exposes .dependency.
+        call = getattr(dependency, "call", None) or getattr(
+            dependency, "dependency", None
+        )
+        return getattr(call, "__qualname__", "")
+
+    if any(
+        names(dependency).startswith("require_permission") for dependency in inherited
+    ):
+        return True
     return any(
-        getattr(dependency.call, "__qualname__", "").startswith("require_permission")
+        names(dependency).startswith("require_permission")
         for dependency in route.dependant.dependencies
     ) or any(
-        getattr(sub.call, "__qualname__", "").startswith("require_permission")
+        names(sub).startswith("require_permission")
         for dependency in route.dependant.dependencies
         for sub in dependency.dependencies
     )
@@ -52,12 +181,12 @@ def _guards_a_permission(route: APIRoute) -> bool:
 
 def test_every_route_is_guarded_or_listed_as_an_exception() -> None:
     unguarded: list[str] = []
-    for route in _iter_routes():
+    for path, route, inherited in _iter_routes():
         for method in sorted(route.methods or set()):
-            if (method, route.path) in UNGUARDED:
+            if (method, path) in UNGUARDED:
                 continue
-            if not _guards_a_permission(route):
-                unguarded.append(f"{method} {route.path}")
+            if not _guards_a_permission(route, inherited):
+                unguarded.append(f"{method} {path}")
 
     assert not unguarded, (
         "these routes have no permission dependency; add one or document the "

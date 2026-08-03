@@ -25,21 +25,6 @@ from app.infrastructure.nats_runtime import (
 from app.infrastructure.pki import Pki
 from app.infrastructure.runtime_files import RuntimeFileStore
 
-
-@pytest.fixture
-def template_dir(project_dir: Path) -> Path:
-    """The real templates from the repository, so rendering is tested against
-    what actually ships."""
-    config = project_dir / "config"
-    config.mkdir(exist_ok=True)
-    repo_config = Path(__file__).resolve().parents[4] / "config"
-    for name in ("nats-server.conf.template", "mpprobe-config.yaml.template"):
-        (config / name).write_text(
-            (repo_config / name).read_text(encoding="utf-8"), encoding="utf-8"
-        )
-    return config
-
-
 # --- PKI ---------------------------------------------------------------------
 
 
@@ -97,6 +82,82 @@ def test_a_second_ca_is_refused(settings: Settings) -> None:
     pki.create_ca(organization="Example Org")
     with pytest.raises(ConflictError):
         pki.create_ca(organization="Example Org")
+
+
+def test_the_interface_certificate_comes_from_the_same_ca(
+    settings: Settings, template_dir: Path
+) -> None:
+    """One anchor for everything.
+
+    A probe compares the CA fingerprint out of band, then fetches its enrolment
+    script over HTTPS from this certificate. If the proxy served a self-signed
+    certificate of its own, that fetch would need --insecure and the comparison
+    would have bought nothing.
+    """
+    pki = Pki(settings)
+    pki.create_ca(organization="Example Org")
+    pki.issue_web_certificate(
+        fqdn="nats.example.test", host_ip="192.0.2.10", archive=False
+    )
+
+    ca = x509.load_pem_x509_certificate((settings.cert_dir / "ca.pem").read_bytes())
+    web = x509.load_pem_x509_certificate(
+        (settings.web_cert_dir / "web.pem").read_bytes()
+    )
+    web.verify_directly_issued_by(ca)
+
+    san = web.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    assert san.value.get_values_for_type(x509.DNSName) == ["nats.example.test"]
+    # The bare address too: an internal installation often has no DNS entry,
+    # and a browser pointed at the IP would otherwise fail the handshake.
+    assert [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)] == [
+        "192.0.2.10"
+    ]
+    assert (settings.web_cert_dir / "web-key.pem").stat().st_mode & 0o077 == 0
+
+    # Not in cert_dir: the NATS container mounts that one read-only, and this
+    # is the key that would let someone impersonate the interface.
+    assert not (settings.cert_dir / "web-key.pem").exists()
+    assert not settings.web_cert_dir.is_relative_to(settings.cert_dir)
+
+
+def test_the_interface_certificate_gets_an_address_san_too(
+    settings: Settings, template_dir: Path
+) -> None:
+    """The same rule as the server certificate, on the other leaf.
+
+    test_a_bare_ip_host_becomes_an_ip_san covers the NATS side; this is the
+    one a browser and the enrolment one-liner verify, and it shares nothing
+    with that path but the helper.
+    """
+    pki = Pki(settings)
+    pki.create_ca(organization="Example Org")
+    pki.issue_web_certificate(fqdn="192.0.2.79", host_ip="192.0.2.79", archive=False)
+
+    web = x509.load_pem_x509_certificate(
+        (settings.web_cert_dir / "web.pem").read_bytes()
+    )
+    san = web.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    assert [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)] == [
+        "192.0.2.79"
+    ]
+    assert san.value.get_values_for_type(x509.DNSName) == []
+
+
+def test_an_interface_certificate_without_a_host_address(
+    settings: Settings, template_dir: Path
+) -> None:
+    """A deployment with DNS and no fixed address still gets a certificate."""
+    pki = Pki(settings)
+    pki.create_ca(organization="Example Org")
+    pki.issue_web_certificate(fqdn="nats.example.test", host_ip=None, archive=False)
+
+    web = x509.load_pem_x509_certificate(
+        (settings.web_cert_dir / "web.pem").read_bytes()
+    )
+    san = web.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    assert san.value.get_values_for_type(x509.DNSName) == ["nats.example.test"]
+    assert san.value.get_values_for_type(x509.IPAddress) == []
 
 
 def test_renewal_archives_the_previous_certificate(
@@ -294,3 +355,53 @@ def test_verification_renders_config_check(
     check = verification._check_server_config_renders()
     assert not check.ok
     assert "broken" in check.detail
+
+
+# --- Inventory lookups -------------------------------------------------------
+
+
+def test_an_address_is_traced_back_to_the_probe_that_claims_it(
+    settings: Settings, project_dir: Path
+) -> None:
+    """The management access belongs to the host, not to the entry.
+
+    Two entries for one address share it, so retiring either one revokes it
+    for both. Finding the existing claimant is what lets the platform refuse
+    the second entry instead of creating that situation.
+    """
+    from tests.conftest import write_probe_inventory
+
+    write_probe_inventory(project_dir, "mpp-berlin", host="192.0.2.10")
+    write_probe_inventory(project_dir, "mpp-hamburg", host="192.0.2.11")
+    store = RuntimeFileStore(settings)
+
+    assert store.probe_username_for_host("192.0.2.10") == "mpp-berlin"
+    assert store.probe_username_for_host("192.0.2.11") == "mpp-hamburg"
+    assert store.probe_username_for_host("192.0.2.12") is None
+
+    # Case and stray whitespace do not make it a different host.
+    write_probe_inventory(project_dir, "mpp-koeln", host="Probe.Example.Test")
+    assert store.probe_username_for_host("probe.example.test ") == "mpp-koeln"
+
+
+def test_a_probe_does_not_find_itself(settings: Settings, project_dir: Path) -> None:
+    """Re-enrolling a rebuilt probe under its own account has to stay possible."""
+    from tests.conftest import write_probe_inventory
+
+    write_probe_inventory(project_dir, "mpp-berlin", host="192.0.2.10")
+    store = RuntimeFileStore(settings)
+
+    assert store.probe_username_for_host("192.0.2.10", excluding="mpp-berlin") is None
+
+
+def test_an_empty_address_matches_nothing(
+    settings: Settings, project_dir: Path
+) -> None:
+    """An inventory entry with no host must not swallow every lookup."""
+    from tests.conftest import write_probe_inventory
+
+    write_probe_inventory(project_dir, "mpp-berlin", host="192.0.2.10")
+    store = RuntimeFileStore(settings)
+
+    assert store.probe_username_for_host("") is None
+    assert store.probe_username_for_host("   ") is None

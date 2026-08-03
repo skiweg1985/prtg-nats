@@ -11,6 +11,7 @@ either use the probe helper or the legacy adapter - never a stray open().
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -99,7 +100,13 @@ class CertificateFile:
 
 @dataclass(frozen=True, slots=True)
 class SiteSettings:
-    """The values ``.env`` holds, with the defaults libexec/common.sh applies."""
+    """Which NATS server this installation is, and who may reach it.
+
+    Compose supplies these to the container as environment variables. The
+    ``.env`` file beside the project is still read as a fallback so an
+    installation created by the shell tooling keeps working unchanged; the
+    environment wins where both are set.
+    """
 
     nats_fqdn: str | None
     nats_port: int
@@ -108,10 +115,17 @@ class SiteSettings:
     ca_organization: str
     prtg_core_ip: str | None
     ssh_source_cidr: str | None
+    # The interface usually answers on the same name as NATS; a deployment
+    # that splits them sets WEB_FQDN, exactly as the proxy already expects.
+    web_fqdn_override: str | None = None
 
     @property
     def is_configured(self) -> bool:
         return bool(self.nats_fqdn and self.nats_host_ip)
+
+    @property
+    def web_fqdn(self) -> str:
+        return self.web_fqdn_override or self.nats_fqdn or ""
 
     @property
     def nats_endpoint(self) -> str | None:
@@ -136,7 +150,23 @@ class RuntimeFileStore:
     # --- Site settings ------------------------------------------------------
 
     def site_settings(self) -> SiteSettings:
+        # File first, environment on top: a value set in compose overrides the
+        # same key in a leftover .env rather than silently losing to it.
         values = read_env_file(self._settings.project_dir / ".env")
+        for key in (
+            "NATS_FQDN",
+            "NATS_PORT",
+            "NATS_HOST_IP",
+            "CA_HTTP_PORT",
+            "CA_ORGANIZATION",
+            "PRTG_CORE_IP",
+            "MPP_SSH_SOURCE_CIDR",
+            "WEB_FQDN",
+        ):
+            from_environment = os.environ.get(key)
+            if from_environment:
+                values[key] = from_environment
+
         host_ip = values.get("NATS_HOST_IP") or None
         return SiteSettings(
             nats_fqdn=values.get("NATS_FQDN") or None,
@@ -149,6 +179,7 @@ class RuntimeFileStore:
                 values.get("MPP_SSH_SOURCE_CIDR")
                 or (f"{host_ip}/32" if host_ip else None)
             ),
+            web_fqdn_override=values.get("WEB_FQDN") or None,
         )
 
     # --- Runtime completeness ----------------------------------------------
@@ -213,6 +244,34 @@ class RuntimeFileStore:
                 self._settings.probe_dir / f"{username}.iperf"
             ),
         )
+
+    def probe_username_for_host(
+        self, host: str, *, excluding: str | None = None
+    ) -> str | None:
+        """Which enrolled probe already claims this address, if any.
+
+        Two inventory entries for one host share a management access, because
+        that access belongs to the host and not to the entry. Retiring either
+        one revokes it, and the survivor goes unreachable while still happily
+        connected to NATS - observed exactly that way.
+
+        Compared as written, lower-cased. A name and the address behind it are
+        not recognised as the same host: resolving one to the other would be a
+        DNS lookup whose answer can change between the check and the write.
+        """
+        wanted = host.strip().lower()
+        if not wanted:
+            return None
+        for username in self.list_probe_usernames():
+            if username == excluding:
+                continue
+            try:
+                inventory = self.read_probe(username)
+            except NotFoundError:
+                continue
+            if inventory.ssh_host.strip().lower() == wanted:
+                return username
+        return None
 
     def read_all_probes(self) -> list[ProbeInventory]:
         probes = []

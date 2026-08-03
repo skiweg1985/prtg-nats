@@ -35,7 +35,7 @@ from more places than a root shell is.
 
 ### The Docker socket is optional
 
-Leave the mount out of `compose.web.yaml` and the platform still manages every
+Leave the mount out of `compose.yaml` and the platform still manages every
 probe, sensor, certificate and measurement endpoint. What disappears is the
 server lifecycle: restarting NATS, taking a JetStream backup.
 

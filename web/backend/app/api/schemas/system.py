@@ -66,6 +66,17 @@ class NatsStateOut(ApiModel):
     error_details: str | None = None
 
 
+class BackupFileOut(ApiModel):
+    """An archive sitting in the runtime volume, and how to get it out."""
+
+    name: str
+    kind: str  # "runtime" | "jetstream"
+    size_bytes: int
+    created_at: datetime
+    sha256: str | None = None
+    download_url: str
+
+
 class CertificateOut(ApiModel):
     kind: CertificateKind
     path: str

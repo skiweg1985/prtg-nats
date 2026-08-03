@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import shutil
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -123,14 +124,9 @@ class Pki:
             ca_cert_path, certificate.public_bytes(serialization.Encoding.PEM)
         )
 
-    # --- Server certificate -------------------------------------------------
+    # --- Leaf certificates ---------------------------------------------------
 
-    def issue_server_certificate(self, *, fqdn: str, archive: bool) -> None:
-        """Issue (or renew) the NATS server certificate.
-
-        With ``archive`` the previous pair is kept under runtime/archive/, the
-        way the retired renew script did - a rollback is a copy, not a mystery.
-        """
+    def _load_ca(self) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
         ca_key_path = self._settings.private_dir / "ca-key.pem"
         ca_cert_path = self._settings.cert_dir / "ca.pem"
         if not ca_key_path.is_file() or not ca_cert_path.is_file():
@@ -138,30 +134,39 @@ class Pki:
                 params={"path": str(ca_key_path)},
                 details="CA state is missing; initialise the runtime first",
             )
-
         ca_key = serialization.load_pem_private_key(
             ca_key_path.read_bytes(), password=None
         )
         assert isinstance(ca_key, rsa.RSAPrivateKey)  # noqa: S101 - we created it
-        ca_cert = x509.load_pem_x509_certificate(ca_cert_path.read_bytes())
+        return ca_key, x509.load_pem_x509_certificate(ca_cert_path.read_bytes())
 
-        server_cert_path = self._settings.cert_dir / "server.pem"
-        server_key_path = self._settings.cert_dir / "server-key.pem"
+    def _issue_leaf(
+        self,
+        *,
+        common_name: str,
+        sans: Sequence[x509.GeneralName],
+        cert_path: Path,
+        key_path: Path,
+        archive: bool,
+    ) -> None:
+        ca_key, ca_cert = self._load_ca()
 
-        if archive and server_cert_path.exists():
+        if archive and cert_path.exists():
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             archive_dir = self._settings.runtime_dir / "archive" / stamp
             archive_dir.mkdir(parents=True, exist_ok=True)
             archive_dir.chmod(0o700)
-            shutil.copy2(server_cert_path, archive_dir / "server.pem")
-            if server_key_path.exists():
-                shutil.copy2(server_key_path, archive_dir / "server-key.pem")
+            shutil.copy2(cert_path, archive_dir / cert_path.name)
+            if key_path.exists():
+                shutil.copy2(key_path, archive_dir / key_path.name)
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=SERVER_KEY_BITS)
         now = datetime.now(UTC)
         certificate = (
             x509.CertificateBuilder()
-            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, fqdn)]))
+            .subject_name(
+                x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+            )
             .issuer_name(ca_cert.subject)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
@@ -187,9 +192,7 @@ class Pki:
             .add_extension(
                 x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
             )
-            .add_extension(
-                x509.SubjectAlternativeName([_host_san(fqdn)]), critical=False
-            )
+            .add_extension(x509.SubjectAlternativeName(sans), critical=False)
             .add_extension(
                 x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
                 critical=False,
@@ -203,11 +206,53 @@ class Pki:
             .sign(ca_key, hashes.SHA256())
         )
 
-        _write_private(server_key_path, _key_pem(key))
-        _write_public(
-            server_cert_path, certificate.public_bytes(serialization.Encoding.PEM)
+        _write_private(key_path, _key_pem(key))
+        _write_public(cert_path, certificate.public_bytes(serialization.Encoding.PEM))
+
+    # --- Server certificate -------------------------------------------------
+
+    def issue_server_certificate(self, *, fqdn: str, archive: bool) -> None:
+        """Issue (or renew) the NATS server certificate.
+
+        With ``archive`` the previous pair is kept under runtime/archive/, the
+        way the retired renew script did - a rollback is a copy, not a mystery.
+        """
+        self._issue_leaf(
+            common_name=fqdn,
+            sans=[_host_san(fqdn)],
+            cert_path=self._settings.cert_dir / "server.pem",
+            key_path=self._settings.cert_dir / "server-key.pem",
+            archive=archive,
         )
         self.verify_server_pair(fqdn=fqdn)
+
+    # --- Interface certificate ----------------------------------------------
+
+    def issue_web_certificate(
+        self, *, fqdn: str, host_ip: str | None, archive: bool
+    ) -> None:
+        """Issue the certificate the reverse proxy serves the interface with.
+
+        Signed by the same CA as everything else, and that is the whole point:
+        an operator who compared the CA fingerprint once trusts the interface,
+        the NATS server and the enrolment channel with that single decision.
+        Caddy's own internal CA would be a second anchor nobody can verify -
+        and the enrolment one-liner would need --insecure to get past it.
+
+        The bare host address is a SAN because the interface answers on it too:
+        an internal installation often has no DNS entry yet.
+        """
+        sans: list[x509.GeneralName] = [_host_san(fqdn)]
+        if host_ip and host_ip != fqdn:
+            sans.append(_host_san(host_ip))
+
+        self._issue_leaf(
+            common_name=fqdn,
+            sans=sans,
+            cert_path=self._settings.web_cert_dir / "web.pem",
+            key_path=self._settings.web_cert_dir / "web-key.pem",
+            archive=archive,
+        )
 
     def verify_server_pair(self, *, fqdn: str) -> None:
         """The checks verify_certificate_pair() used to make, natively."""

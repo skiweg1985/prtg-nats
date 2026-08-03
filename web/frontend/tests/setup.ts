@@ -12,6 +12,9 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 })
 
+// Nor scrollIntoView, which the live log calls to follow the newest line.
+Element.prototype.scrollIntoView = () => {}
+
 // Neither does it implement EventSource, which the live log subscribes to.
 class StubEventSource {
   close() {}

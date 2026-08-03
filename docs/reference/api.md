@@ -69,10 +69,20 @@ nothing.
 | `POST /system/setup` | initialise `runtime/` on a fresh installation → job |
 | `POST /system/verify` | run the stack verification → job |
 | `POST /system/backup` | JetStream backup → job |
+| `POST /system/export` | archive `runtime/` → job |
+| `GET /system/backups` | the archives in the volume, newest first |
+| `GET /system/backups/{name}` | download one, audited |
 | `POST /system/restart` | restart NATS → job |
 
 `GET /dashboard` is one call on purpose. A dashboard assembled from eight
 parallel requests is eight chances to show a half-drawn page.
+
+The JetStream backup and the runtime export cover different things, and the
+second one matters more: message data can be lost, a CA key cannot. The export
+holds the CA and its key, the certificates, the accounts, the inventory, the
+management SSH key and the database. Downloading one therefore needs
+`system.restart` rather than `system.read` - the archive carries every NATS
+password, so fetching it is a disclosure and is audited as one.
 
 ### Probes
 
@@ -94,6 +104,45 @@ parallel requests is eight chances to show a half-drawn page.
 
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
+
+### Enrolling a probe
+
+A probe enrols itself. The platform mints a single-use invitation and returns
+the command to run on the host; the host installs the restricted management
+access and reports back. No administrator password of the target ever passes
+through this API, and nothing outbound happens until the host has answered.
+
+| | |
+| --- | --- |
+| `POST /probes/enrollment/tokens` | mint an invitation, returns the command |
+| `GET /probes/enrollment/tokens` | invitations that could still be used |
+| `DELETE /probes/enrollment/tokens/{id}` | revoke one |
+
+The token is in the creation response and nowhere else - only its SHA-256 is
+stored, the same way sessions are kept. `expected_host` is optional: without
+it the address the host reports from is used, which is right on a flat network
+and wrong behind NAT. Either way an address that another probe already claims
+is refused with `probe.host_already_enrolled`, because the management access
+belongs to the host and retiring one entry would revoke it for both.
+
+These three are reached by the host being enrolled, which has no session:
+
+| | |
+| --- | --- |
+| `GET /enroll/{token}/bootstrap.sh` | the rendered script, no auth |
+| `GET /enroll/{token}/asset/{name}` | one of a fixed set of scripts, no auth |
+| `POST /enroll/{token}/callback` | the host reports in, no auth |
+
+The token is the whole authorisation, which is why it is single-use, expiring
+and revocable. Fetching the script does not spend it - a run that fails
+halfway has to be retryable - and the callback does. An invitation that is
+unknown, expired, spent or revoked answers the same `enrollment.token_invalid`
+either way: the caller is unauthenticated, and a distinct "expired" would
+confirm that the token existed.
+
+The reverse proxy publishes these under `/enroll/*` and rewrites them onto the
+API prefix. That URL is typed into a one-liner and lands in runbooks, so it
+carries no API version.
 
 ### Sensors and deployments
 
@@ -126,11 +175,6 @@ list slow, and every row reports its own freshness.
 | `POST /credentials/{username}/rotate` | rotate server and probe together → job |
 | `DELETE /credentials/{username}` | delete an account - refused while a probe is enrolled on it |
 | `GET /credentials/{username}/reveal` | the cleartext password, audited |
-
-> [!WARNING]
-> These routes are implemented in `app/api/v1/routes/credentials.py` but the
-> router is not registered in `app/api/v1/router.py`, so they currently answer
-> `404`. The credentials page of the web interface depends on them.
 
 ### Infrastructure and audit
 

@@ -1,0 +1,149 @@
+#!/bin/sh
+#
+# Runs on the probe, as root, once. Rendered per invitation by
+# app/services/enrollment.py, which fills in the double-at placeholders below
+# and refuses to serve the script if any of them is left over - an unrendered
+# placeholder would reach a root shell.
+#
+# What it does, in the order it matters:
+#   1. installs the CA, so everything after this is verified
+#   2. installs the restricted management access (libexec/enroll-probe.sh,
+#      fetched and executed, never reimplemented here)
+#   3. installs the prtgmpprobe package
+#   4. reports back: this host's SSH host keys, so the platform can pin them
+#
+# It deliberately does not write the probe configuration. That arrives over the
+# management channel afterwards, which is the channel that has to work anyway -
+# doing it here would mean testing it twice and trusting it once.
+
+set -eu
+
+BASE_URL="@@BASE_URL@@"
+TOKEN="@@TOKEN@@"
+CA_SHA256="@@CA_SHA256@@"
+SSH_SOURCE_CIDR="@@SSH_SOURCE_CIDR@@"
+INSTALL_PACKAGE="@@INSTALL_PACKAGE@@"
+CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
+
+STAGE=""
+ACCESS_INSTALLED="false"
+PACKAGE_INSTALLED="false"
+
+say() { printf '  %s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+cleanup() {
+  [ -n "${STAGE}" ] && rm -rf "${STAGE}"
+  return 0
+}
+trap cleanup EXIT INT TERM
+
+[ "$(id -u)" -eq 0 ] || die "This has to run as root - prefix it with sudo."
+for tool in curl sha256sum install id; do
+  command -v "${tool}" >/dev/null 2>&1 || die "${tool} is required but missing."
+done
+
+umask 077
+STAGE="$(mktemp -d /tmp/prtg-nats-enroll.XXXXXX)"
+
+printf '\n== PRTG NATS enrolment ==\n\n'
+
+# --- 1. The CA -------------------------------------------------------------
+# Embedded rather than fetched: this script arrived over TLS verified against
+# this very certificate, so it is already as trusted as the channel. Writing it
+# out here also means the fingerprint the operator compared is the one that
+# ends up on the probe.
+say "Installing the CA"
+install -d -m 0755 /etc/paessler/mpprobe/certs
+cat > "${STAGE}/nats-ca.pem" <<'PRTG_NATS_CA_EOF'
+@@CA_PEM@@
+PRTG_NATS_CA_EOF
+
+actual="$(sha256sum "${STAGE}/nats-ca.pem" | cut -d' ' -f1)"
+[ "${actual}" = "${CA_SHA256}" ] || die "CA fingerprint mismatch: ${actual}"
+install -o root -g root -m 0644 "${STAGE}/nats-ca.pem" "${CA_PATH}"
+say "CA fingerprint ${CA_SHA256}"
+
+fetch() {
+  curl -fsSL --cacert "${CA_PATH}" "${BASE_URL}/enroll/${TOKEN}/asset/$1" -o "$2" \
+    || die "Could not fetch $1 from ${BASE_URL}"
+}
+
+# --- 2. The management access ----------------------------------------------
+# enroll-probe.sh is served by the platform and run unchanged. The from=,
+# restrict and forced-command rules that make this access safe are defined in
+# that one file and nowhere else.
+say "Installing the restricted management access"
+fetch enroll-probe.sh "${STAGE}/enroll-probe.sh"
+fetch prtg-nats-probe-helper "${STAGE}/prtg-nats-probe-helper"
+cat > "${STAGE}/management.pub" <<'PRTG_NATS_KEY_EOF'
+@@MANAGEMENT_PUBLIC_KEY@@
+PRTG_NATS_KEY_EOF
+
+bash "${STAGE}/enroll-probe.sh" \
+  --public-key "${STAGE}/management.pub" \
+  --helper "${STAGE}/prtg-nats-probe-helper" \
+  --source-cidr "${SSH_SOURCE_CIDR}" >/dev/null
+ACCESS_INSTALLED="true"
+say "Management user prtg-nats-admin is ready"
+
+# --- 3. The package --------------------------------------------------------
+# --no-config on purpose: the configuration arrives over the management
+# channel, so the channel is exercised before anything depends on it.
+if [ "${INSTALL_PACKAGE}" = "true" ]; then
+  if command -v prtgmpprobe >/dev/null 2>&1 || [ -f /opt/paessler/mpprobe/mpprobe ]; then
+    say "prtgmpprobe is already installed - keeping it"
+    PACKAGE_INSTALLED="true"
+  else
+    say "Installing prtgmpprobe (this fetches from packages.paessler.com)"
+    fetch install-mpp.sh "${STAGE}/install-mpp.sh"
+    if bash "${STAGE}/install-mpp.sh" \
+        --ca-file "${CA_PATH}" \
+        --ca-sha256 "${CA_SHA256}" \
+        --accept-ca \
+        --no-config; then
+      PACKAGE_INSTALLED="true"
+    else
+      say "Package installation failed - reporting back anyway so the platform"
+      say "can show what happened; the management access is already in place."
+    fi
+  fi
+fi
+
+# --- 4. Report back --------------------------------------------------------
+# The host keys are read from disk rather than scanned over the network: this
+# is the host itself, so there is nothing to be in the middle of. They travel
+# over the token-authenticated channel, which is what makes pinning them
+# better than a blind scan from the platform.
+say "Reporting back to the platform"
+
+keys=""
+for pub in /etc/ssh/ssh_host_*_key.pub; do
+  [ -f "${pub}" ] || continue
+  line="$(cut -d' ' -f1,2 < "${pub}")"
+  [ -n "${keys}" ] && keys="${keys},"
+  keys="${keys}\"${line}\""
+done
+[ -n "${keys}" ] || die "No SSH host keys found - is sshd installed?"
+
+ssh_port="$(
+  awk '/^[Pp]ort[ \t]+[0-9]+/ { print $2; exit }' /etc/ssh/sshd_config 2>/dev/null
+)"
+[ -n "${ssh_port:-}" ] || ssh_port=22
+
+payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"package_installed":%s}' \
+  "$(hostname -f 2>/dev/null || hostname)" "${ssh_port}" "${keys}" \
+  "${ACCESS_INSTALLED}" "${PACKAGE_INSTALLED}")"
+
+printf '%s' "${payload}" > "${STAGE}/callback.json"
+curl -fsS --cacert "${CA_PATH}" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@${STAGE}/callback.json" \
+  "${BASE_URL}/enroll/${TOKEN}/callback" > "${STAGE}/answer" \
+  || die "The platform did not accept the report. The management access is
+installed; retry with a fresh invitation from the interface."
+
+printf '\n== Done ==\n\n'
+say "The platform is now configuring this probe."
+say "Watch it finish in the web interface."
+printf '\n'

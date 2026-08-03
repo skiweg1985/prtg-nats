@@ -186,6 +186,54 @@ class RuntimeStateError(AppError):
     http_status = status.HTTP_503_SERVICE_UNAVAILABLE
 
 
+class EnrollmentTokenInvalidError(AppError):
+    """One answer for unknown, expired, revoked and already used.
+
+    Deliberately undifferentiated: the caller is unauthenticated, and a
+    distinct "expired" would confirm that the token existed. There is nothing
+    an honest host does with the difference that it cannot do with a retry.
+    """
+
+    code = "enrollment.token_invalid"
+    http_status = status.HTTP_404_NOT_FOUND
+
+
+class NatsReloadRefusedError(AppError):
+    """NATS took the signal and kept its old configuration.
+
+    Not reloadable means not reloadable: a changed server name, port or TLS
+    setting needs a restart. Raised rather than logged because the caller
+    just wrote an account nobody can use yet.
+    """
+
+    code = "nats.reload_refused"
+    http_status = status.HTTP_409_CONFLICT
+
+
+class HostAlreadyEnrolledError(AppError):
+    """Another probe already claims this address.
+
+    The management access on a host belongs to the host, not to an inventory
+    entry. A second entry for the same address shares it, and retiring either
+    one revokes it for both - leaving a probe that is connected to NATS and
+    unreachable at the same time.
+    """
+
+    code = "probe.host_already_enrolled"
+    http_status = status.HTTP_409_CONFLICT
+
+
+class HostKeyMismatchError(AppError):
+    """A pinned host presented a different key than the one on record.
+
+    Never resolved by overwriting. Either the host was rebuilt - then the old
+    entry is removed deliberately - or something is answering in its place.
+    """
+
+    code = "probe.host_key_mismatch"
+    http_status = status.HTTP_409_CONFLICT
+
+
 # --- FastAPI wiring ---------------------------------------------------------
 
 

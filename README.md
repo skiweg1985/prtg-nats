@@ -94,7 +94,7 @@ directory and speaks the same management protocol to the same probes, so it can
 be used alongside the shell tooling.
 
 ```bash
-docker compose -f compose.yaml -f compose.web.yaml up -d
+docker compose up -d
 ```
 
 Then open `https://<NATS_FQDN>:8443`. The first visit asks you to create the
