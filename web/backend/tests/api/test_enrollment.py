@@ -342,6 +342,34 @@ async def test_the_script_carries_the_ca_and_the_management_key(
     assert 'SSH_SOURCE_CIDR="192.0.2.10/32"' in script
 
 
+async def test_the_script_hands_the_installer_a_nats_endpoint(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """The bootstrap runs from a pipe, so it cannot answer a prompt.
+
+    install-mpp.sh has no default for the NATS host and asks for it at a
+    terminal; without one it refuses before touching a package manager. The
+    bootstrap used to omit it, which nobody noticed because every probe that
+    ever reached that branch already carried the package. On the first host
+    that did not, the installation died with "--nats-host is required without
+    an interactive terminal" and the enrolment failed four steps later over a
+    missing systemd unit.
+    """
+    await _sign_in(client)
+    await _initialise(project_dir)
+    issued = await _invite(client)
+
+    script = (await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")).text
+
+    assert 'NATS_HOST="nats.example.test"' in script
+    assert 'NATS_PORT="23561"' in script
+    # And they reach the installer rather than only sitting in a variable.
+    assert '--nats-host "${NATS_HOST}"' in script
+    assert '--nats-port "${NATS_PORT}"' in script
+
+
 async def test_the_callback_spends_the_invitation_exactly_once(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
