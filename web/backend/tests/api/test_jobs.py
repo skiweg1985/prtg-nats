@@ -8,12 +8,16 @@ loudly when any link in it changes.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.v1.routes import jobs as jobs_route
 from app.core.config import Settings
 from app.core.errors import ProbeRejectedError, ProbeUnreachableError
 from app.domain.enums import JobStatus, JobStepStatus
@@ -23,7 +27,7 @@ from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import Deployment
 from app.persistence.models.jobs import Job, JobEvent, ResourceLock
-from app.services.events import get_broadcaster
+from app.services.events import StreamEvent, get_broadcaster, job_topic
 from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.workers.job_runner import JobRunner
 from tests.conftest import ScriptedTransport, write_probe_inventory, write_sensor
@@ -720,3 +724,146 @@ async def test_a_failed_rollout_reports_a_code_and_marks_the_step(
         assert job.error_code == "jobs.all_targets_failed"
         # The steps after the failure must not read as succeeded.
         assert not all(step.status is JobStepStatus.SUCCEEDED for step in job.steps)
+
+
+# --- The live stream --------------------------------------------------------
+
+
+class OpenStream:
+    """One event stream, driven over ASGI instead of through the test client.
+
+    httpx's ASGITransport collects the whole response before it hands one back,
+    which never happens for a stream that stays open - so a test that watches an
+    event arrive has to speak ASGI itself.
+    """
+
+    def __init__(self, app: object, path: str, cookie: str) -> None:
+        self._app = app
+        self._path = path
+        self._cookie = cookie
+        self._chunks: asyncio.Queue[bytes] = asyncio.Queue()
+        self._disconnect = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+        self.status: int | None = None
+        self.received = b""
+
+    async def __aenter__(self) -> OpenStream:
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": self._path,
+            "raw_path": self._path.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", b"testserver"),
+                (b"cookie", self._cookie.encode()),
+                (b"accept", b"text/event-stream"),
+            ],
+            "client": ("127.0.0.1", 123),
+            "server": ("testserver", 80),
+        }
+
+        async def receive() -> dict[str, object]:
+            await self._disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                self.status = message["status"]
+            elif message["type"] == "http.response.body":
+                await self._chunks.put(bytes(message.get("body", b"")))
+
+        self._task = asyncio.create_task(self._app(scope, receive, send))  # type: ignore[operator]
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self._disconnect.set()
+        assert self._task is not None
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+
+    async def read_until(self, marker: bytes, *, timeout: float = 5.0) -> None:
+        """Collect chunks until the marker shows up, or fail the test."""
+        while marker not in self.received:
+            self.received += await asyncio.wait_for(self._chunks.get(), timeout=timeout)
+
+
+async def open_stream(app: object, client: AsyncClient, job_id: str) -> OpenStream:
+    cookie = f"prtg_nats_session={client.cookies['prtg_nats_session']}"
+    return OpenStream(app, f"/api/v1/jobs/{job_id}/events", cookie)
+
+
+async def queued_job(session_factory: async_sessionmaker[AsyncSession]) -> str:
+    async with session_factory() as db:
+        job = await JobService(db, get_broadcaster()).create(
+            JobRequest(type="probe.validate", steps=("check",))
+        )
+        job_id: str = job.id
+        await db.commit()
+    return job_id
+
+
+async def test_the_live_stream_survives_an_idle_keepalive(
+    app: Any,
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quiet interval must not take the subscription down with it.
+
+    The keepalive used to cancel the wait for the next line, which ran the
+    subscription's cleanup and closed it for good; the line after that ended the
+    response with "async generator raised StopAsyncIteration", and the operator
+    watched a job that had stopped logging.
+    """
+    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    await sign_in(client)
+    job_id = await queued_job(session_factory)
+
+    async with await open_stream(app, client, job_id) as stream:
+        await stream.read_until(b": keepalive")
+        assert stream.status == 200
+
+        await get_broadcaster().publish(
+            StreamEvent(
+                topic=job_topic(job_id),
+                kind="job.event",
+                payload={"sequence": 1, "code": "jobs.started"},
+            )
+        )
+        await stream.read_until(b"jobs.started")
+
+
+async def test_an_open_stream_does_not_hold_the_sqlite_write_lock(
+    app: Any,
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SQLite has one writer, and a stream lasts as long as the page is open.
+
+    Authenticating the request slides the login session's last_seen_at forward,
+    so a request session left open for the length of the response held the write
+    lock for exactly that long: every worker's claim then failed with "database
+    is locked" until the operator closed the tab.
+    """
+    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    await sign_in(client)
+    job_id = await queued_job(session_factory)
+
+    async with await open_stream(app, client, job_id) as stream:
+        # Past the first keepalive the route body has finished and the stream is
+        # all that is left of the request.
+        await stream.read_until(b": keepalive")
+
+        async with session_factory() as db:
+            claimed = await JobService(db, get_broadcaster()).claim_next_queued()
+            assert claimed is not None
+            assert claimed.id == job_id
+            # With the lock held this waits out the busy timeout and raises.
+            await asyncio.wait_for(db.commit(), timeout=3)

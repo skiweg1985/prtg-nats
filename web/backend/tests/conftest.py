@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -131,11 +132,9 @@ async def db(
         await session.commit()
 
 
-@pytest_asyncio.fixture
-async def client(
-    settings: Settings, session_factory: async_sessionmaker[AsyncSession]
-) -> AsyncIterator[AsyncClient]:
-    """An API client without the background workers.
+@pytest.fixture
+def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> Any:
+    """The API without the background workers.
 
     create_app() is not used: its lifespan starts the job runner and the
     inventory sync, and an API test should not depend on either.
@@ -151,12 +150,16 @@ async def client(
         validation_error_handler,
     )
 
-    app = FastAPI()
-    app.include_router(api_router)
-    app.add_exception_handler(AppError, app_error_handler)
-    app.add_exception_handler(RequestValidationError, validation_error_handler)
-    app.add_exception_handler(Exception, unhandled_error_handler)
+    application = FastAPI()
+    application.include_router(api_router)
+    application.add_exception_handler(AppError, app_error_handler)
+    application.add_exception_handler(RequestValidationError, validation_error_handler)
+    application.add_exception_handler(Exception, unhandled_error_handler)
+    return application
 
+
+@pytest_asyncio.fixture
+async def client(app: Any) -> AsyncIterator[AsyncClient]:
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://testserver",
