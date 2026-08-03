@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { ApiError } from '@/api/client'
 import {
   useCreateInvitation,
-  useInvitations,
+  useInvitation,
   useJob,
   useJobLog,
   useNatsAccounts,
@@ -36,7 +36,7 @@ import { JobStatusBadge } from '@/components/ui/status'
  * the wizard is three states, not three forms: describe the probe, show the
  * command, watch what happens.
  *
- * The waiting step polls the invitation list rather than the probe. There is
+ * The waiting step polls the invitation rather than the probe. There is
  * nothing to ask the probe - it has no management access until the command has
  * run, which is the whole point of doing it this way.
  */
@@ -55,23 +55,20 @@ export function EnrollWizard() {
   const [issued, setIssued] = useState<IssuedInvitation | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
 
-  // Only while an invitation is out. Polling an empty list forever is noise.
-  const invitations = useInvitations({
-    refetchInterval: issued && !jobId ? 3000 : false,
+  // Only while an invitation is out and has not started a job yet. Once the
+  // job exists there is nothing left to ask about the invitation.
+  const invitation = useInvitation(issued && !jobId ? issued.id : null, {
+    refetchInterval: 3000,
   })
 
-  // The invitation leaving the open list is the host reporting in. The list
-  // carries the job it started, which is what there is to watch from here.
+  // Redeeming the invitation is what writes the job id, so the job id
+  // appearing is the host reporting in. Watched on the invitation itself and
+  // not on the open list: redemption takes it out of that list in the same
+  // request, which would drop the record exactly when it becomes interesting.
   useEffect(() => {
-    if (!issued || jobId) return
-    const mine = invitations.data?.find((entry) => entry.id === issued.id)
-    if (mine === undefined && invitations.data !== undefined) {
-      // Gone from the open list: redeemed, revoked or expired. The job id
-      // comes from a fresh read below; until then, the wizard keeps waiting.
-      void invitations.refetch()
-    }
-    if (mine?.job_id) setJobId(mine.job_id)
-  }, [invitations.data, issued, jobId, invitations])
+    const started = invitation.data?.job_id
+    if (started) setJobId(started)
+  }, [invitation.data])
 
   if (accounts.error) {
     return <ErrorDetails error={accounts.error} onRetry={() => void accounts.refetch()} />
@@ -103,10 +100,12 @@ export function EnrollWizard() {
       {issued && !jobId && (
         <CommandStep
           invitation={issued}
+          revoked={invitation.data?.revoked_at != null}
           onCancel={() => {
             revokeInvitation.mutate(issued.id)
             setIssued(null)
           }}
+          onRestart={() => setIssued(null)}
         />
       )}
 
@@ -267,13 +266,21 @@ function InvitationForm({
 
 function CommandStep({
   invitation,
+  revoked,
   onCancel,
+  onRestart,
 }: {
   invitation: IssuedInvitation
+  revoked: boolean
   onCancel: () => void
+  onRestart: () => void
 }) {
   const { t } = useTranslation()
   const remaining = useCountdown(invitation.expires_at)
+  // Expired here, revoked elsewhere - either way the command on screen would
+  // be refused, and waiting for a host that can no longer report in is the
+  // wrong thing to show.
+  const dead = remaining === null || revoked
 
   return (
     <div className="space-y-4">
@@ -307,25 +314,38 @@ function CommandStep({
         </div>
       </Card>
 
-      <Card>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span
-              className="border-accent size-4 animate-spin rounded-full border-2 border-t-transparent"
-              aria-hidden
-            />
-            <div>
-              <p className="text-ink text-sm font-medium">
-                {t('probes.enroll.step2.waiting')}
-              </p>
-              <p className="text-ink-3 text-xs">{t('probes.enroll.step2.waitingHint')}</p>
-            </div>
+      {dead ? (
+        <Banner tone="warn" title={t('probes.enroll.step2.deadTitle')}>
+          <div className="space-y-2">
+            <p>{t('probes.enroll.step2.deadBody')}</p>
+            <Button variant="primary" size="sm" onClick={onRestart}>
+              {t('probes.enroll.step2.restart')}
+            </Button>
           </div>
-          <Button variant="ghost" onClick={onCancel}>
-            {t('probes.enroll.step2.revoke')}
-          </Button>
-        </div>
-      </Card>
+        </Banner>
+      ) : (
+        <Card>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span
+                className="border-accent size-4 animate-spin rounded-full border-2 border-t-transparent"
+                aria-hidden
+              />
+              <div>
+                <p className="text-ink text-sm font-medium">
+                  {t('probes.enroll.step2.waiting')}
+                </p>
+                <p className="text-ink-3 text-xs">
+                  {t('probes.enroll.step2.waitingHint')}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" onClick={onCancel}>
+              {t('probes.enroll.step2.revoke')}
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

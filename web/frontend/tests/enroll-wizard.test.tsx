@@ -26,6 +26,7 @@ const INVITATION = {
   expires_at: new Date(Date.now() + 3_600_000).toISOString(),
   created_by_name: 'admin',
   redeemed_at: null,
+  revoked_at: null,
   source_ip: null,
   job_id: null,
 }
@@ -37,6 +38,15 @@ const ISSUED = {
   ca_sha256: 'e7b40c61ca52b201eb3a6b7d57083067283d42a9265c828cebea574796df35a2',
 }
 
+/**
+ * The server's view of the one invitation, which is not the open list.
+ *
+ * The callback redeems the invitation and writes its job id in one request:
+ * the record leaves the open list exactly when it gains the job. So the
+ * handlers below keep the two apart - a redeemed invitation is readable by id
+ * and absent from the list, the way the API actually behaves.
+ */
+let invitation: Record<string, unknown> | null = null
 let openInvitations: unknown[] = []
 let createdBodies: Record<string, unknown>[] = []
 
@@ -76,8 +86,17 @@ const server = setupServer(
   http.get('/api/v1/probes/enrollment/tokens', () =>
     HttpResponse.json(openInvitations),
   ),
+  http.get('/api/v1/probes/enrollment/tokens/:id', () =>
+    invitation === null
+      ? HttpResponse.json(
+          { error: { code: 'enrollment.token_invalid' } },
+          { status: 404 },
+        )
+      : HttpResponse.json(invitation),
+  ),
   http.post('/api/v1/probes/enrollment/tokens', async ({ request }) => {
     createdBodies.push((await request.json()) as Record<string, unknown>)
+    invitation = { ...INVITATION }
     openInvitations = [INVITATION]
     return HttpResponse.json(ISSUED, { status: 201 })
   }),
@@ -98,6 +117,7 @@ beforeAll(() => {
 })
 afterEach(() => {
   server.resetHandlers()
+  invitation = null
   openInvitations = []
   createdBodies = []
 })
@@ -158,13 +178,43 @@ describe('EnrollWizard', () => {
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(/waiting for the probe/i)
 
-    // The host ran the command: the invitation is spent and carries a job.
-    openInvitations = [{ ...INVITATION, job_id: 'JOB1' }]
+    // The host ran the command: the invitation is spent, carries the job it
+    // started, and is out of the open list - which is where the wizard used
+    // to look, and why this page waited forever on a real installation.
+    invitation = {
+      ...INVITATION,
+      redeemed_at: new Date().toISOString(),
+      job_id: 'JOB1',
+    }
+    openInvitations = []
 
     await waitFor(
       () => expect(screen.getByText(/the platform takes over/i)).toBeInTheDocument(),
       { timeout: 6000 },
     )
+  })
+
+  it('stops waiting once the invitation can no longer be used', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    await screen.findByText(/waiting for the probe/i)
+
+    // Cancelled from somewhere else - a second operator, a second tab. The
+    // command on screen would be refused, so a spinner is the wrong thing to
+    // keep showing.
+    invitation = { ...INVITATION, revoked_at: new Date().toISOString() }
+    openInvitations = []
+
+    await waitFor(
+      () =>
+        expect(screen.getByText(/no longer be used/i)).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    expect(screen.queryByText(/waiting for the probe/i)).not.toBeInTheDocument()
   })
 
   it('warns that the command is a secret', async () => {

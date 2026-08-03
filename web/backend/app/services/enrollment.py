@@ -120,10 +120,24 @@ class EnrollmentService:
         )
         return list(result.scalars().all())
 
-    async def revoke(self, token_id: str) -> EnrollmentToken:
+    async def get(self, token_id: str, *, kind: str | None = None) -> EnrollmentToken:
+        """One invitation by id, in whatever state it is in.
+
+        Deliberately unfiltered, unlike list_open(). Redeeming an invitation
+        and writing the job id it started happen in the same request, so an
+        invitation leaves the open list at the very moment it gains the job
+        id - anything watching only that list loses the record exactly when
+        the interesting part appears.
+        """
         record = await self._db.get(EnrollmentToken, token_id)
         if record is None:
             raise EnrollmentTokenInvalidError()
+        if kind is not None and record.kind != kind:
+            raise EnrollmentTokenInvalidError()
+        return record
+
+    async def revoke(self, token_id: str) -> EnrollmentToken:
+        record = await self.get(token_id)
         if record.revoked_at is None and record.redeemed_at is None:
             record.revoked_at = datetime.now(UTC)
         return record

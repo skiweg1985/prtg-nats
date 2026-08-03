@@ -436,6 +436,7 @@ export interface Invitation {
   expires_at: string
   created_by_name: string | null
   redeemed_at: string | null
+  revoked_at: string | null
   source_ip: string | null
   job_id: string | null
 }

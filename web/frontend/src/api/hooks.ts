@@ -54,6 +54,7 @@ export const keys = {
   certificates: ['certificates'] as const,
   credentials: ['credentials'] as const,
   invitations: ['probes', 'invitations'] as const,
+  invitation: (id: string) => ['probes', 'invitations', id] as const,
   iperf: ['iperf'] as const,
   users: ['users'] as const,
 }
@@ -314,17 +315,22 @@ export function useLogout() {
 }
 
 /**
- * Open invitations, polled while the wizard waits for a host to report in.
+ * One invitation, polled while the wizard waits for a host to report in.
  *
- * The wizard watches for its own invitation to leave this list: an invitation
- * that has been redeemed is no longer open, which is the signal that the host
- * ran the command. There is nothing to push here - the host talks to the
- * platform, not to the browser.
+ * By id and not through the list above: the list holds open invitations, and
+ * redeeming an invitation is what writes the job id the wizard is waiting for
+ * - so following the list would lose the record at exactly the wrong moment.
+ * There is nothing to push here, the host talks to the platform, not to the
+ * browser.
  */
-export function useInvitations(options?: { refetchInterval?: number | false }) {
+export function useInvitation(
+  id: string | null,
+  options?: { refetchInterval?: number | false },
+) {
   return useQuery({
-    queryKey: keys.invitations,
-    queryFn: () => api.get<Invitation[]>('/probes/enrollment/tokens'),
+    queryKey: keys.invitation(id ?? ''),
+    queryFn: () => api.get<Invitation>(`/probes/enrollment/tokens/${id}`),
+    enabled: id !== null,
     refetchInterval: options?.refetchInterval ?? false,
   })
 }
