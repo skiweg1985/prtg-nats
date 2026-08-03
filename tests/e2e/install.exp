@@ -1,7 +1,7 @@
 #!/usr/bin/expect -f
-# Beantwortet die beiden interaktiven Rueckfragen des Erstlaufs:
-# die Host-Key-Frage von OpenSSH und die Fingerprint-Bestaetigung des
-# Enrollments. Siehe Issue #16 zur doppelten Abfrage.
+# Answers the two interactive questions of the first run: OpenSSH's
+# host-key question and the fingerprint confirmation of the enrollment.
+# See issue #16 on the duplicate prompt.
 set timeout 1800
 log_user 1
 set nats_user [lindex $argv 0]
@@ -11,7 +11,7 @@ expect {
   -re "continue connecting \\(yes/no"  { send "yes\r"; exp_continue }
   -re "Continue\\? \\\[y/N\\\]"        { send "y\r";   exp_continue }
   -re "trust this CA\\? \\\[y/N\\\]"   { send "y\r";   exp_continue }
-  timeout { puts "\nZEITUEBERSCHREITUNG beim Installationslauf"; exit 99 }
+  timeout { puts "\nTIMEOUT during the installation run"; exit 99 }
   eof
 }
 catch wait result

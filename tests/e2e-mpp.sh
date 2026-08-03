@@ -48,8 +48,8 @@ check() {
     passed=$((passed + 1))
   else
     printf '  FAIL  %s\n' "${description}" >&2
-    printf '        erwartet: %s\n' "${expected}" >&2
-    printf '        erhalten: %s\n' "${actual}" >&2
+    printf '        expected: %s\n' "${expected}" >&2
+    printf '        received: %s\n' "${actual}" >&2
     failed=$((failed + 1))
   fi
 }

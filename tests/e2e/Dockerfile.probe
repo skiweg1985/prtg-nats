@@ -1,19 +1,19 @@
-# Wegwerf-Zielsystem: Debian mit systemd und SSH, wie eine frische MPP-VM.
+# Throwaway target system: Debian with systemd and SSH, like a fresh MPP VM.
 FROM debian:12
 ENV DEBIAN_FRONTEND=noninteractive
-# python3 gehoert dazu, damit der Endpunkttest hier seine TLS-Stufe wirklich
-# ausfuehrt statt sie zu ueberspringen.
+# python3 belongs here so the endpoint test really runs its TLS stage
+# instead of skipping it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       systemd systemd-sysv dbus \
       openssh-server sudo curl ca-certificates openssl procps iproute2 \
       python3 \
     && rm -rf /var/lib/apt/lists/*
-# Nur fuer diesen Test: Root-Login. Der Schluessel wird zur Laufzeit hinterlegt.
+# For this test only: root login. The key is placed there at run time.
 RUN mkdir -p /run/sshd \
     && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' \
          /etc/ssh/sshd_config \
     && systemctl enable ssh
-# Units, die im Container nicht laufen koennen
+# Units that cannot run inside the container
 RUN rm -f /lib/systemd/system/multi-user.target.wants/systemd-logind.service \
     && systemctl mask systemd-udevd systemd-modules-load \
          systemd-journald-audit.socket

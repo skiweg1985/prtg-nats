@@ -383,7 +383,7 @@ def check_internet_speed_output():
     completed = run_script(script, "--totally-unknown\n")
     check("an unknown parameter yields exit code 0", completed.returncode, 0)
     document = json.loads(completed.stdout)
-    check("unbekannter Parameter meldet einen Sensorfehler",
+    check("an unknown parameter reports a sensor failure",
           document.get("status"), "error")
     # The parameters are typed into a text field in PRTG and checked by
     # nothing there. The first sensor run is the only place a typo can
@@ -1214,7 +1214,7 @@ def check_link_quality_output():
     completed = run_script(script, "--totally-unknown\n")
     check("an unknown parameter yields exit code 0", completed.returncode, 0)
     document = json.loads(completed.stdout)
-    check("unbekannter Parameter meldet einen Sensorfehler",
+    check("an unknown parameter reports a sensor failure",
           document.get("status"), "error")
     # The parameters are typed into a text field in PRTG and checked by
     # nothing there. The first sensor run is the only place a typo can
@@ -1525,7 +1525,7 @@ def check_link_quality_helper():
             code = "no failure"
         except module.Unusable as problem:
             code = problem.code
-        check("%s wird als Ziel abgelehnt" % address, code, "bad-address")
+        check("%s is rejected as a target" % address, code, "bad-address")
 
     # An unresolvable name must not discard the whole run: a typo in one
     # of five targets would otherwise take the other four's measurement

@@ -103,9 +103,9 @@ validate_configuration_payload() {
   done
 }
 
-# Meldet die Version nur, wenn das Paket wirklich installiert ist. Nach
-# "apt-get remove" ohne "purge" bleibt es mit Status "config-files" samt
-# Versionsangabe registriert, obwohl die Programmdateien fehlen.
+# Reports the version only if the package is really installed. After
+# "apt-get remove" without "purge" it stays registered with status
+# "config-files" and a version, although the program files are gone.
 installed_package_version() {
   local version=""
 
@@ -735,7 +735,7 @@ sensor_system_package() {
   esac
 }
 
-# Zieht das Systempaket eines Sensors nach, falls es fehlt.
+# Installs a sensor's system package afterwards, in case it is missing.
 #
 # A failure deliberately does not abort the deployment transaction: the
 # sensor's self-test reports a missing tool anyway, and activation then
@@ -821,8 +821,8 @@ install_sensor_files() {
       "${name}" "${transaction}/slot-requirements" "${service_user}")"
   fi
 
-  # Erst der Helfer und seine sudo-Regel, dann die Metadaten, zuletzt das
-  # Skript: der Einstiegspunkt soll nie ohne seinen Unterbau dastehen.
+  # The helper and its sudo rule first, then the metadata, the script last:
+  # the entry point should never stand there without its foundation.
   if [[ -f "${transaction}/slot-wrapper" ]]; then
     install -o root -g root -m 0755 \
       "${transaction}/slot-wrapper" "$(sensor_slot_target "${name}" wrapper)"
@@ -1101,7 +1101,7 @@ write_sensor_nm_configuration() {
   fi
 }
 
-# Reserviert ein WLAN-Interface als Testinterface.
+# Reserves a Wi-Fi interface as the test interface.
 #
 # The check deliberately allows an interface that still carries a default
 # route - that is exactly how NetworkManager hands it over. It refuses only
@@ -1186,8 +1186,8 @@ release_sensor_interface() {
   else
     rm -f -- "${allowed}"
   fi
-  # Erst die Datei, dann NetworkManager: Die Konfiguration wird aus allen
-  # verbliebenen Reservierungen neu erzeugt.
+  # The file first, then NetworkManager: the configuration is regenerated
+  # from whatever reservations are left.
   write_sensor_nm_configuration
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device set "${interface}" managed yes >/dev/null 2>&1 || true
