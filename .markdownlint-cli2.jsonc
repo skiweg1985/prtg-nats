@@ -6,12 +6,18 @@
     // Every documentation page carries YAML front matter with a `title:`.
     // Without this, the rule reads that as a first heading and calls the
     // actual H1 a duplicate.
-    "MD025": { "front_matter_title": "" }
+    "MD025": { "front_matter_title": "" },
+    // Long reference tables that most readers scroll past are collapsed. Only
+    // the elements that needs - nothing that styles or lays out a page.
+    "MD033": { "allowed_elements": ["details", "summary", "code"] }
   },
   "globs": ["**/*.md"],
   "ignores": [
     "web/frontend/node_modules/**",
     "web/frontend/dist/**",
-    "web/backend/.venv/**"
+    "web/backend/.venv/**",
+    // Local agent scratch checkouts. Git-ignored, never published, and
+    // check-static.sh skips them for the same reason.
+    ".claude/worktrees/**"
   ]
 }

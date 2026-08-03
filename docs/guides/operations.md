@@ -1,3 +1,9 @@
+---
+title: Operations and maintenance
+role: operator
+updated: 2026-08-03
+---
+
 # Operations and maintenance
 
 Every regular task runs through `./prtg-nats` or the web interface.
@@ -118,48 +124,10 @@ dedicated command for it any more, because it added nothing:
 docker compose --project-directory /opt/prtg-nats-server config
 ```
 
-## PRTG HTTP sensor
+## Monitoring the stack
 
-The existing HTTP container provides an endpoint for the PRTG sensor type
-**HTTP Data (Advanced)** at
-
-```text
-http://nats.example.com/cgi-bin/nats-health
-```
-
-On every call the endpoint internally queries `/healthz?js-enabled-only=true`
-and `/jsz` of the NATS server. It delivers these channels:
-
-- `NATS Health`
-- `JetStream Streams`
-- `JetStream Consumers`
-- `Stored Messages`
-- `JetStream Memory`
-- `JetStream File Storage`
-- `JetStream API Errors`
-
-`JetStream API Errors` is emitted as a difference counter and carries a PRTG
-warning limit on new errors. On a NATS, JetStream or evaluation error the
-endpoint returns a PRTG error message and HTTP 503. The unauthenticated NATS
-monitoring port `8222` stays reachable only on the container network and the
-host loopback.
-
-Create the sensor in PRTG:
-
-1. Add **HTTP Data (Advanced)** on the desired device.
-2. Enter `/cgi-bin/nats-health` as the URL. The full URL from above works as
-   well.
-3. Select request method `GET` and the desired scanning interval.
-4. After the first scan, `NATS Health` has to show `1` and PRTG has to have
-   created all seven channels.
-
-For RTT, CPU, general NATS memory usage, traffic, connections, subscriptions
-and slow consumers, additionally use the native PRTG sensor
-**NATS Server Overview**. The HTTP sensor complements it with JetStream object
-and API error counters.
-
-The HTTP port still has to be restricted by the host firewall to the required
-MPP, PRTG and administration networks.
+Container health checks, the PRTG sensors that watch NATS and JetStream, the
+fleet check and the log paths are collected in [Monitoring](monitoring.md).
 
 ## JetStream backup
 
@@ -274,31 +242,11 @@ sudo ./prtg-nats probe show mpp-probe-01
 sudo ./prtg-nats probe status --all
 ```
 
-```text
-NATS USER                HOST                           SERVICE    PACKAGE    CA          NATS
-mpp-probe-01           probe-01.example.com          active     3.10.0-1   ok          connected
-mpp-probe-02           probe-02.example.com          inactive   3.10.0-1   ok          disconnected
-mpp-probe-03           probe-03.example.com          -          -          -           - (unreachable)
-
-2 of 3 probes without findings.
-```
-
 The columns come straight from the probes: `SERVICE` and `PACKAGE` from their
 self-report, `CA` compares the fingerprint installed there with the active
-runtime CA, `NATS` checks the actual sign-in against the NATS monitoring.
-
-An unreachable probe does not block the run; it appears as its own line with
-the reason. The exit code is `0` only when **every** probe is reachable and
-active, carries the expected CA and is signed in to NATS. That makes the call
-usable unchanged for cron or a custom PRTG sensor:
-
-```bash
-sudo ./prtg-nats probe status --all --format json
-```
-
-If the NATS monitoring is not reachable, the output says explicitly that the
-`NATS` column is unusable - instead of falsely reporting the whole fleet as
-disconnected.
+runtime CA, `NATS` checks the actual sign-in against the NATS monitoring. The
+output, the exit code and the JSON form are described in
+[Monitoring](monitoring.md#the-fleet).
 
 ## Roll out the MPP configuration centrally
 
@@ -384,27 +332,8 @@ An image update is its own reviewed change. Do not bump version and digest in
 ## Classifying failures
 
 Symptoms, causes and measures are collected in
-[TROUBLESHOOTING.md](troubleshooting.md).
-
-### Relevant logs
-
-NATS:
-
-```bash
-sudo ./prtg-nats logs --since=30m
-```
-
-MPP:
-
-```bash
-sudo journalctl -u prtg.mpprobe.service -n 300 --no-pager
-```
-
-PRTG core:
-
-```text
-C:\ProgramData\Paessler\PRTG Network Monitor\Logs\probeadapter
-```
+[Troubleshooting](troubleshooting.md); the log paths of NATS, the probes and
+the PRTG core are in [Monitoring](monitoring.md#logs).
 
 ## Rollback
 

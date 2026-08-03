@@ -7,7 +7,7 @@ updated: 2026-08-02
 # Troubleshooting
 
 Sorted by symptom - when something is broken, nobody goes looking by
-responsibility. The log paths are in [Operations](operations.md#relevant-logs).
+responsibility. The log paths are in [Monitoring](monitoring.md#logs).
 
 If the web platform is running, its job log answers most of this for you: every
 failure names the step it happened in, the likely cause and what to do, with

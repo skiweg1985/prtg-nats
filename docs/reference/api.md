@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 # REST API
@@ -26,6 +26,20 @@ Content-Type: application/json
 account exists at all, whether this caller is signed in, and who they are - so
 the interface never guesses between the login screen, the setup wizard and the
 application.
+
+| | |
+| --- | --- |
+| `GET /auth/state` | account present, signed in, who |
+| `POST /auth/setup` | create the first administrator - refused once one exists |
+| `POST /auth/login` | sign in, sets the session cookie |
+| `POST /auth/logout` | end the session |
+| `GET /auth/me` | the signed-in principal and its permissions |
+| `POST /auth/change-password` | change one's own password |
+
+Repeated failures are throttled with a lockout that doubles per attempt; the
+bounds are `login_max_attempts`, `login_lockout_base_seconds` and
+`login_lockout_max_seconds` in
+[the configuration reference](configuration.md#sign-in-throttling).
 
 ## Actions return a job
 
@@ -52,6 +66,7 @@ nothing.
 | `GET /system` | site settings, NATS state, containers, certificates |
 | `GET /system/capabilities` | what this installation can do |
 | `GET /dashboard` | everything the landing page needs, in one request |
+| `POST /system/setup` | initialise `runtime/` on a fresh installation → job |
 | `POST /system/verify` | run the stack verification → job |
 | `POST /system/backup` | JetStream backup → job |
 | `POST /system/restart` | restart NATS → job |
@@ -70,8 +85,11 @@ parallel requests is eight chances to show a half-drawn page.
 | `GET`/`PUT /probes/{id}/desired-state` | what should be true |
 | `GET /probes/{id}/deviations` | what differs |
 | `POST /probes/{id}/reconcile?dry_run=true` | the plan, before anything runs |
+| `POST /probes/{id}/configure` | roll the configuration out → job |
 | `POST /probes/{id}/install-ca` | → job |
 | `POST /probes/{id}/validate` | → job |
+| `POST /probes/{id}/sensors/{name}/remove` | remove one sensor → job |
+| `DELETE /probes/{id}` | unenrol the probe → job |
 | `GET /probes/{id}/access-key` | the PRTG access key, audited |
 
 `GET /probes` never contacts a probe. An unreachable host must not make the
@@ -86,6 +104,7 @@ list slow, and every row reports its own freshness.
 | `GET /sensors/{name}/parameter-schema` | the form definition |
 | `POST /sensors/{name}/render-parameters` | the line to paste into PRTG |
 | `GET`/`POST /deployments` | rollouts and their outcome per probe |
+| `GET /deployments/{id}` | one rollout with its per-probe result |
 
 ### Jobs
 
@@ -98,6 +117,21 @@ list slow, and every row reports its own freshness.
 | `POST /jobs/{id}/retry` | a new job with the same inputs |
 | `POST /jobs/{id}/cancel` | ask it to stop |
 
+### NATS accounts
+
+| | |
+| --- | --- |
+| `GET /credentials` | the accounts, and what each one is used by |
+| `POST /credentials` | create an account with a random password |
+| `POST /credentials/{username}/rotate` | rotate server and probe together → job |
+| `DELETE /credentials/{username}` | delete an account - refused while a probe is enrolled on it |
+| `GET /credentials/{username}/reveal` | the cleartext password, audited |
+
+> [!WARNING]
+> These routes are implemented in `app/api/v1/routes/credentials.py` but the
+> router is not registered in `app/api/v1/router.py`, so they currently answer
+> `404`. The credentials page of the web interface depends on them.
+
 ### Infrastructure and audit
 
 | | |
@@ -107,10 +141,11 @@ list slow, and every row reports its own freshness.
 | `GET /iperf-endpoints` | measurement endpoints and who holds credentials |
 | `GET /audit-events` | filter by actor, action, object, result, time |
 
-### Accounts
+### Web accounts
 
-`GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`, and `POST /auth/setup` for
-the first administrator - which is refused once one exists.
+`GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`. The first administrator is
+created through `POST /auth/setup` instead, which is refused once one exists.
+Which role may call what is in [Roles and permissions](../web/roles.md).
 
 ## Errors
 
@@ -121,7 +156,7 @@ One envelope, always:
   "error": {
     "code": "probe.unreachable",
     "message_key": "errors.probe.unreachable",
-    "params": { "probe": "berlin-probe-01" },
+    "params": { "probe": "mpp-probe-01" },
     "fields": [],
     "details": "ssh: connect to host … port 22: Connection timed out",
     "correlation_id": "01JC…",

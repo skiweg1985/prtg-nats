@@ -16,8 +16,11 @@ NATS server and the tooling around it.
 | --- | --- |
 | `prtg-nats` | the only shell entry point; every command is dispatched here |
 | `libexec/` | internal shell implementation, not called directly |
+| `install-mpp.sh` | runs on the probe, so it has to stand alone |
 | `sensors/` | monitoring scripts rolled out to probes, one directory each |
 | `config/` | templates rendered into `runtime/` during setup |
+| `http/` | the CGI endpoint that exposes NATS health as PRTG channels |
+| `completions/` | the shell completion installed by `prtg-nats self install` |
 | `web/backend/` | FastAPI management API - Python 3.11, SQLAlchemy, Alembic |
 | `web/frontend/` | the interface - React 19, Vite, Tailwind, i18next |
 | `tests/` | static checks, the end-to-end rollout, sensor checks |
@@ -96,7 +99,11 @@ catches a key that exists in one language only.
 
 **Markdown.** Documentation pages carry YAML front matter with `title`, `role`
 and `updated`. Prose is wrapped by hand at 79 columns; tables and links are
-not wrapped.
+not wrapped. A change to behaviour updates the page that documents it in the
+same commit - a new setting belongs in
+[docs/reference/configuration.md](docs/reference/configuration.md), a new
+command in [docs/reference/cli.md](docs/reference/cli.md), a new endpoint in
+[docs/reference/api.md](docs/reference/api.md).
 
 **Comments.** Explain why something is the way it is, not what the line does.
 The existing comments in `ci.yaml` and `prtg-nats` set the tone.

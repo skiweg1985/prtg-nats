@@ -1,15 +1,21 @@
+---
+title: Manual probe install
+role: deployer
+updated: 2026-08-03
+---
+
 # Install a probe by hand
 
 This path is the fallback for when `install-mpp.sh` does not run - say, the
 host cannot reach the repository, or the package format changed. **The normal
 path is the automated one** in
-[NEW-MPP.md](../getting-started/add-your-first-probe.md); it is tested and a
-lot shorter.
+[Add your first probe](../getting-started/add-your-first-probe.md); it is
+tested and a lot shorter.
 
 The steps here lead up to a running probe. After that, continue in
-[NEW-MPP.md](../getting-started/add-your-first-probe.md) with entering the
-access key and approving the probe in PRTG - those two steps are identical
-for both paths.
+[Add your first probe](../getting-started/add-your-first-probe.md) with
+entering the access key and approving the probe in PRTG - those two steps are
+identical for both paths.
 
 ## Manual fallback
 

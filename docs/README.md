@@ -1,15 +1,14 @@
 ---
 title: Documentation
 role: everyone
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 # PRTG-NATS documentation
 
-English is the source language of this documentation. Every page carries
-front matter with a `title`, the `role` it is written for, and the date it was
-last reviewed, so a translation can be added later without restructuring
-anything.
+English is the source language of this documentation. Every page carries front
+matter with a `title`, the `role` it is written for, and the date it was last
+reviewed, so a translation can be added later without restructuring anything.
 
 ## Where do I start?
 
@@ -22,6 +21,8 @@ anything.
 | get monitoring scripts onto probes | Deployer | [Deploy sensors](guides/deploy-sensors.md) |
 | set up an iperf3 measurement endpoint | Deployer | [Deploy sensors](guides/deploy-sensors.md#measurement-endpoints) |
 | operate, back up, rotate passwords | Operator | [Operations](guides/operations.md) |
+| watch the stack from PRTG | Operator | [Monitoring](guides/monitoring.md) |
+| look up a setting | Operator | [Configuration reference](reference/configuration.md) |
 | install a probe by hand | Deployer | [Manual probe install](guides/manual-probe-install.md) |
 | work out what went wrong | Everyone | [Troubleshooting](guides/troubleshooting.md) |
 | see how the parts fit together | Developer | [Architecture overview](architecture/overview.md) |
@@ -44,37 +45,37 @@ be used side by side during the migration.
 | Long-term | the regular way | recovery and scripting only |
 
 New functionality is built in the web platform. The shell tooling is not being
-extended, and the pages under [reference/cli.md](reference/cli.md) describe it
-as it stands.
+extended, and [the command reference](reference/cli.md) describes it as it
+stands.
 
 ## Sections
 
-- **[getting-started/](getting-started/)** — first installation, in order.
-- **[guides/](guides/)** — recurring tasks.
-- **[reference/](reference/)** — commands, API, sensors, PRTG lookups.
-- **[security/](security/)** — what is protected and how, and what is trusted.
-- **[web/](web/)** — the management platform: install, roles, jobs.
-- **[architecture/](architecture/)** — the [overview](architecture/overview.md)
+- **[getting-started/](getting-started/)** - first installation, in order:
+  [the server](getting-started/install-the-server.md),
+  [the PRTG core](getting-started/connect-prtg-core.md),
+  [the first probe](getting-started/add-your-first-probe.md).
+- **[guides/](guides/)** - recurring tasks:
+  [operations](guides/operations.md), [monitoring](guides/monitoring.md),
+  [sensors](guides/deploy-sensors.md),
+  [manual install](guides/manual-probe-install.md),
+  [troubleshooting](guides/troubleshooting.md).
+- **[reference/](reference/)** - [commands](reference/cli.md),
+  [configuration](reference/configuration.md), [REST API](reference/api.md),
+  [PRTG lookups](reference/lookups.md).
+- **[security/](security/)** - [what is protected and how](security/model.md),
+  and [what is trusted](security/threat-model.md).
+- **[web/](web/)** - the management platform: [install](web/install.md),
+  [roles](web/roles.md), [jobs](web/jobs.md), [languages](web/i18n.md).
+- **[architecture/](architecture/)** - the [overview](architecture/overview.md)
   of how the parts fit together, and [decisions/](architecture/decisions/):
   why the platform is built the way it is. One record per decision, kept even
   when superseded.
 
+Sensors document themselves next to their code, one `README.md` per directory
+under [sensors/](../sensors/).
+
 ## A note on language
 
-The repository is English. The web interface ships English and German and is
-built so a third language is a translation file, not a code change - see
-[web/i18n.md](web/i18n.md).
-
-### Pages still to be translated
-
-The move to English is in progress. These pages have been restructured and
-renamed but are still German, and are listed here rather than left to be
-discovered:
-
-- [guides/operations.md](guides/operations.md)
-- [guides/deploy-sensors.md](guides/deploy-sensors.md)
-- [guides/manual-probe-install.md](guides/manual-probe-install.md)
-- [getting-started/add-your-first-probe.md](getting-started/add-your-first-probe.md)
-- [reference/lookups.md](reference/lookups.md)
-
-Everything else on this page is English.
+The repository is English - code, comments and documentation. The web interface
+ships English and German and is built so a third language is a translation
+file, not a code change; see [Languages and translation](web/i18n.md).

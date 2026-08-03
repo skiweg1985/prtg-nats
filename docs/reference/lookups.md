@@ -1,9 +1,15 @@
+---
+title: PRTG lookups
+role: developer
+updated: 2026-08-03
+---
+
 # PRTG lookups for reference
 
 The lookup files shipped with PRTG, so that while building a sensor you can
 check which ones exist and which state they trigger. **This repository does
 not deploy them** - there is no mechanism for it, and PRTG brings them along
-anyway. They live here as reference material under [lookups/](lookups/).
+anyway. They live here as reference material under [lookups/](../lookups/).
 
 Installation-specific lookups are deliberately absent: the overview is meant
 to hold for any PRTG installation, not for a particular one.

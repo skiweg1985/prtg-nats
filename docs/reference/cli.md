@@ -20,6 +20,9 @@ What remains on the command line, and why. Regular administration happens in
 ./prtg-nats help          # the full list, from the tool itself
 ```
 
+The values these commands read and write are in
+[the configuration reference](configuration.md).
+
 ## Bootstrap
 
 | Command | What it does |
@@ -75,6 +78,30 @@ web/backend/.venv/bin/pip install -e web/backend
 
 Without it, every recovery command explains exactly that instead of failing
 cryptically.
+
+## Shell integration
+
+| Command | What it does |
+| --- | --- |
+| `self install [SHELL]` | link `prtg-nats` into `/usr/local/bin` and set up completion |
+| `self uninstall` | remove both again |
+| `completion [bash\|zsh]` | print the completion script to standard output |
+
+`setup` offers the installation at the end on its own. Restrict it to one half
+with `--link-only` or `--completion-only`; if one half fails, the other is
+still set up and the failure is reported at the end.
+
+Completion covers commands, subcommands and options - and the created NATS
+accounts and enrolled probes, read from `runtime/credentials/` and
+`runtime/probes/`. Both directories belong to root with mode `0700`, so without
+root privileges the commands still complete but the names stay empty.
+
+What gets linked and sourced is always the repository, never a copy, so a
+`git pull` takes effect without re-running the setup. Under `sudo` the command
+deliberately targets the startup file of the **calling** user, not root's. The
+full behaviour, including where the completion is written on which
+distribution, is in
+[Operations](../guides/operations.md#set-up-the-command-line).
 
 ## Retired
 
