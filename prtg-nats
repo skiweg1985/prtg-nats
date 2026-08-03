@@ -728,12 +728,19 @@ ensure_nats_user_for_install() {
 # The session itself is opened by the shared helper; the installer keeps its
 # own names for it because its cleanup runs long after the enrollment has
 # returned and has more to take back than the session.
+# No host-key options: this runs before anything is pinned, so the master has
+# to fall back to the known_hosts of the invoking account. The enrollment that
+# follows pins into the runtime file and opens its session against that.
 open_bootstrap_session() {
   local ssh_target="$1"
+  local status=0
 
-  open_bootstrap_control_session "${ssh_target}" || return 1
+  open_bootstrap_control_session "${ssh_target}" || status=$?
+  # Taken over on failure as well: the control directory exists from the first
+  # line of the helper, and only cleanup_install_session ever removes it.
   INSTALL_CONTROL_DIR="${BOOTSTRAP_CONTROL_DIR}"
   INSTALL_CONTROL_PATH="${BOOTSTRAP_CONTROL_PATH}"
+  [[ "${status}" -eq 0 ]] || return 1
 }
 
 # Copies the installer, the CA and the render library, and runs the package

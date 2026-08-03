@@ -872,6 +872,20 @@ else
   printf '  skipped (no SSH client installed)\n'
 fi
 
+# The master settles the host-key check for the whole run: every later call is
+# multiplexed over its ControlPath, so its own UserKnownHostsFile is never
+# looked at. The enrollment pins the key first and has to point the session at
+# that file, or the pinning decides nothing and the operator is asked twice.
+check "the enrollment session uses the pinned host key" \
+  "$(grep -A2 'open_bootstrap_control_session "${bootstrap_target}"' \
+    libexec/manage-probes.sh |
+    grep -c 'UserKnownHostsFile="${SSH_KNOWN_HOSTS}"')" "1"
+# install-mpp opens its session before anything is pinned, so it must not be
+# pointed at the runtime file - there would be nothing in it to match.
+check "the installer session is not" \
+  "$(grep -A2 'open_bootstrap_control_session "${ssh_target}"' prtg-nats |
+    grep -c 'UserKnownHostsFile' || true)" "0"
+
 printf '\n== Result ==\n'
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

@@ -195,8 +195,16 @@ enroll_probe() {
   # through the environment; called directly this is the only place that can
   # open one, and without it the enrollment fails at the first connection with
   # nothing but "Permission denied".
+  #
+  # The session is pointed at the key that was pinned a moment ago. It settles
+  # the host-key question for everything that follows, because the calls below
+  # are multiplexed over its ControlPath and their own UserKnownHostsFile never
+  # comes into it: without this the master would ask a second time, against
+  # whatever known_hosts the invoking account happens to have.
   if [[ -z "${BOOTSTRAP_CONTROL_PATH}" ]]; then
-    open_bootstrap_control_session "${bootstrap_target}" ||
+    open_bootstrap_control_session "${bootstrap_target}" \
+      -o StrictHostKeyChecking=yes \
+      -o UserKnownHostsFile="${SSH_KNOWN_HOSTS}" ||
       die "Could not open a bootstrap session as ${bootstrap_target}; it needs the password of that account or an SSH key for it"
     own_bootstrap_session="true"
   fi
