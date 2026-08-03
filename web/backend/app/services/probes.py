@@ -266,10 +266,13 @@ class ProbeService:
         the table with an empty cell instead.
         """
         inventory = self._runtime.read_probe(nats_username)
-        record = await self.ensure_record(nats_username)
         connection = self.connection_for(inventory)
         now = datetime.now(UTC)
 
+        # The probe is asked before anything is written. ensure_record flushes,
+        # which opens SQLite's single write transaction - held across the helper
+        # call it would lock out every other writer for as long as an
+        # unreachable host takes to time out.
         try:
             info = await self._helper.probe_info(connection)
             observed = parse_probe_info(nats_username, info, now)
@@ -292,6 +295,7 @@ class ProbeService:
                 error_details=str(getattr(exc, "details", None) or exc)[:2000],
             )
 
+        record = await self.ensure_record(nats_username)
         await self._store_observed(record, observed)
         return observed
 
