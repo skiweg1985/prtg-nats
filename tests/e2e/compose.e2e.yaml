@@ -1,0 +1,20 @@
+# What the end-to-end test changes about the stack - nothing else.
+#
+# compose.yaml publishes the NATS monitoring on a fixed 127.0.0.1:8222. That
+# is right for a server that runs one installation and wrong for a developer
+# machine, where anything else may already hold the port and the test would
+# fail on a collision that has nothing to do with what it checks. The rest of
+# the test already picks its ports at run time for exactly that reason.
+#
+# The mapping is not needed here: the test reaches the monitoring over the
+# Docker network, through the socat forwarder in e2e-mpp.sh, the same way the
+# probe reaches NATS. Only the NATS port itself stays published, so the test
+# keeps proving that NATS_PORT takes effect everywhere.
+#
+# "!override" replaces the list rather than merging into it - without it
+# Compose would append and the fixed mapping would survive.
+
+services:
+  nats:
+    ports: !override
+      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - set it in .env}:${NATS_PORT:-23561}:${NATS_PORT:-23561}"
