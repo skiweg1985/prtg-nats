@@ -203,24 +203,33 @@ registered_iperf_servers() {
 BOOTSTRAP_CONTROL_DIR="${BOOTSTRAP_CONTROL_DIR:-}"
 BOOTSTRAP_CONTROL_PATH="${BOOTSTRAP_CONTROL_PATH:-}"
 
+#
+# Options after the target are passed to the master. The host-key check is
+# the reason they exist: the master decides it for the whole run, because
+# every later call is multiplexed over its ControlPath and its own
+# UserKnownHostsFile is never looked at.
 open_bootstrap_control_session() {
   local ssh_target="$1"
+  shift
+  local ssh_options=()
 
   BOOTSTRAP_CONTROL_DIR="$(mktemp -d /tmp/prtg-nats-ssh.XXXXXX)"
   chmod 0700 "${BOOTSTRAP_CONTROL_DIR}"
   BOOTSTRAP_CONTROL_PATH="${BOOTSTRAP_CONTROL_DIR}/master"
+  ssh_options=(
+    -M
+    -S "${BOOTSTRAP_CONTROL_PATH}"
+    -o ControlMaster=yes
+    -o ControlPersist=no
+    -o BatchMode=no
+    -N
+    -f
+    "$@"
+  )
 
   printf 'Establishing one bootstrap SSH session to %s...\n' "${ssh_target}"
   printf 'Authenticate with an existing SSH key or the bootstrap user password.\n'
-  ssh \
-    -M \
-    -S "${BOOTSTRAP_CONTROL_PATH}" \
-    -o ControlMaster=yes \
-    -o ControlPersist=no \
-    -o BatchMode=no \
-    -N \
-    -f \
-    -- "${ssh_target}"
+  ssh "${ssh_options[@]}" -- "${ssh_target}"
   [[ -S "${BOOTSTRAP_CONTROL_PATH}" ]] ||
     {
       printf 'Bootstrap SSH control session was not created.\n' >&2
