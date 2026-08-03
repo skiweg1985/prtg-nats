@@ -301,7 +301,7 @@ def default_name(host: str, mode: str, port) -> str:
 
 
 def collect_targets(args: dict[str, Any]) -> list[dict[str, Any]]:
-    """Alle konfigurierten Ziele, extern zuerst, mit ihren Kanalnummern."""
+    """All configured targets, external first, with their channel numbers."""
     groups = (
         ("external", args["target"], EXTERNAL_BASE, MAX_EXTERNAL, "external"),
         ("internal", args["internal_target"], INTERNAL_BASE, MAX_INTERNAL,
@@ -364,7 +364,7 @@ def is_literal_address(value: str) -> bool:
 
 
 def call_helper(job: dict[str, Any], timeout: int) -> dict[str, Any]:
-    """Den privilegierten Dienst beauftragen und sein Ergebnis einlesen."""
+    """Task the privileged service and read back its result."""
     payload = json.dumps(job).encode("utf-8")
     answer = bytearray()
 
@@ -581,7 +581,7 @@ def target_channels(targets: list[dict[str, Any]],
 
 def present(targets: list[dict[str, Any]], results: list[dict[str, Any]],
             duration_ms: int, code: str, message: str) -> dict[str, Any]:
-    """Das Ergebnis in die Form bringen, die PRTG erwartet."""
+    """Bring the result into the shape PRTG expects."""
     merged = merge_results(targets, results)
     summary = aggregate(merged)
     by_name = {entry.get("name"): entry for entry in merged}
@@ -637,8 +637,9 @@ def describe(summary: dict[str, Any], results: list[dict[str, Any]],
 
     unreachable = [entry for entry in results if not entry.get("reachable")]
     if unreachable:
-        # Die Namen der ausgefallenen Ziele stehen vorn: Wer die Meldung in
-        # einer Benachrichtigung liest, will zuerst wissen, was weg ist.
+        # The names of the failed targets come first: whoever reads the
+        # message in a notification wants to know what is gone before
+        # anything else.
         summary_text = "%d of %d targets unreachable: %s" % (
             len(unreachable), summary["target_count"],
             ", ".join("%s (%s)" % (entry.get("name"), entry.get("code", "?"))

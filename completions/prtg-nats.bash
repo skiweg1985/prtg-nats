@@ -13,14 +13,14 @@ _prtg_nats_commands='backup ca-info ca-path ca-show completion config help init
 install-mpp iperf-server logs mpp-info probe renew-certificate restart
 self sensor setup ssh-key start status stop update user verify'
 
-# Alt-Namen: werden noch angenommen, aber nicht mehr vorgeschlagen. Sie stehen
-# hier, damit die Drift-Pruefung in tests/check-static.sh sie kennt und nicht
-# faelschlich ein fehlendes Kommando meldet.
-# shellcheck disable=SC2034  # nur von der Pruefung gelesen
+# Old names: still accepted, but no longer suggested. They stand here so the
+# drift check in tests/check-static.sh knows them and does not wrongly report
+# a missing command.
+# shellcheck disable=SC2034  # only read by the check
 _prtg_nats_deprecated='configure rotate-password test-persistence tui'
 
-# Interne probe-Verben (internal-*) fehlen hier bewusst: Sie werden nur vom
-# Werkzeug selbst aufgerufen.
+# The internal probe verbs (internal-*) are deliberately missing here: they
+# are only called by the tool itself.
 _prtg_nats_probe_commands='adopt apply configure enroll info install-ca list
 show status unenroll'
 _prtg_nats_user_commands='add delete list rotate show'
@@ -53,7 +53,7 @@ _prtg_nats_project_dir() {
   (cd -- "${resolved%/*}" 2>/dev/null && pwd) || printf '%s\n' "${PWD}"
 }
 
-# Namen der *.env-Dateien eines Laufzeitverzeichnisses ohne Endung.
+# Names of the *.env files in a runtime directory, without the extension.
 _prtg_nats_names() {
   local directory="$1"
   local entry=""
@@ -144,7 +144,7 @@ _prtg_nats() {
                 candidates="--format"
                 ;;
             esac
-            # Der Wert von --format ist eine feste Auswahl.
+            # The value of --format is a fixed choice.
             [[ "${COMP_WORDS[COMP_CWORD - 1]}" != "--format" ]] ||
               candidates="text json"
             ;;
@@ -204,8 +204,8 @@ _prtg_nats() {
                 candidates=""
                 ;;
               install)
-                # Das SSH-Ziel ist frei einzugeben; nur die Optionen sind
-                # vorschlagbar, und die kommen erst danach.
+                # The SSH target is typed freely; only the options can be
+                # suggested, and those come afterwards.
                 candidates=""
                 ;;
               *)

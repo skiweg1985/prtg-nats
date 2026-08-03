@@ -200,8 +200,8 @@ def parse_reply(family, packet, identifier):
         _, _, _, embedded_id, sequence = struct.unpack("!BBHHH", body[:8])
         if embedded_id != identifier:
             return None
-        # Die Kennung im Nutzdatenteil ist die zweite Schranke: Eine fremde
-        # An answer with a coincidentally equal id drops out here.
+        # The marker in the payload is the second barrier: a foreign
+        # answer with a coincidentally equal id drops out here.
         if MAGIC not in body[8:]:
             return None
         return sequence, "echo"
@@ -392,10 +392,10 @@ class IcmpRun:
                 self.sockets[target["family"]].sendto(packet,
                                                       (target["address"], 0))
             except OSError:
-                # Ein nicht absetzbares Paket ist ein verlorenes Paket. Kein
-                # Grund, den Lauf zu beenden -- ein zeitweise volles
-                # Sendefenster oder eine fehlende Route sind genau das, was
-                # der Sensor sichtbar machen soll.
+                # A packet that cannot be sent is a lost packet. No reason
+                # to end the run -- a temporarily full send window or a
+                # missing route is exactly what the sensor is meant to
+                # make visible.
                 self.sent[index] += 1
                 self.failures.setdefault(index, "send-failed")
                 continue
@@ -403,7 +403,7 @@ class IcmpRun:
             self.sent[index] += 1
 
     def collect(self, until):
-        """Bis zum angegebenen Zeitpunkt Antworten einsammeln."""
+        """Collect answers until the given point in time."""
         handles = list(self.sockets.values())
         while True:
             remaining = until - time.monotonic()
@@ -660,8 +660,8 @@ def perform(job):
         try:
             outcomes[target["index"]] = measure_tcp(target, job)
         except Exception:
-            # Der Auftrag darf an einem einzelnen Ziel nicht scheitern; ein
-            # unerwarteter Fehler wird zu einem unerreichbaren Ziel.
+            # The task must not fail over a single target; an unexpected
+            # error turns into an unreachable target.
             outcomes[target["index"]] = summarize(target, [], job["packets"],
                                                   "internal-error")
 

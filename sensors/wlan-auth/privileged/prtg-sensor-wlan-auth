@@ -304,7 +304,7 @@ class SupplicantRun:
                 self.events.append((time.monotonic(), line.rstrip("\n")))
 
     def seen(self, needle, since=0.0):
-        """Zeitpunkt der ersten Zeile mit diesem Text, sonst None."""
+        """Point in time of the first line with this text, otherwise None."""
         with self.lock:
             for stamp, line in self.events:
                 if stamp >= since and needle in line:
@@ -312,7 +312,7 @@ class SupplicantRun:
         return None
 
     def failure(self):
-        """Erste Zeile, die eine Ursache benennt."""
+        """The first line that names a cause."""
         with self.lock:
             snapshot = list(self.events)
         for _, line in snapshot:
@@ -351,7 +351,7 @@ def parse_status(text):
 
 
 def collect_link_details(run, result):
-    """Funkdaten der aktuellen Verbindung, soweit noch abfragbar."""
+    """Radio readings of the current connection, as far as still available."""
     status = parse_status(run.control("status"))
     signal_info = parse_status(run.control("signal_poll"))
     for key, value in (
@@ -399,11 +399,11 @@ def run_dhcp(interface, budget):
 
 
 def wait_for_connection(run, deadline):
-    """Auf Assoziation und abgeschlossenen Handshake warten.
+    """Wait for association and a completed handshake.
 
-    Die Zeitpunkte stammen aus dem Ereignisstrom von wpa_supplicant. Sie
-    trennen die Funkstrecke (Assoziation) von der Authentifizierung — bei
-    Enterprise-Netzen ist genau diese Trennung die interessante Aussage.
+    The timestamps come from wpa_supplicant's event stream. They separate
+    the radio link (association) from the authentication - on enterprise
+    networks exactly that separation is the interesting statement.
     """
     associated = None
     while time.monotonic() < deadline:

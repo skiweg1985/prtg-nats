@@ -1,18 +1,18 @@
-# Rolle des NATS-Hauptservers: fuehrt ./prtg-nats aus.
+# The role of the main NATS server: runs ./prtg-nats.
 FROM debian:12
 ENV DEBIAN_FRONTEND=noninteractive
 ARG COMPOSE_VERSION=v2.32.4
-# x86_64 oder aarch64, passend zum Docker-Host
+# x86_64 or aarch64, matching the Docker host
 ARG COMPOSE_ARCH=x86_64
 ARG DOCKER_VERSION=27.4.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-client expect socat openssl curl ca-certificates \
       python3 python3-venv python3-pip procps iproute2 \
     && rm -rf /var/lib/apt/lists/*
-# Bewusst nicht das Debian-Paket docker.io: dessen Client spricht API 1.41 und
-# wird von Docker-Daemons ab Version 25 mit "client version is too old"
-# abgelehnt. Gebraucht wird ohnehin nur die CLI; der Daemon kommt ueber den
-# gemounteten Socket.
+# Deliberately not the Debian package docker.io: its client speaks API 1.41
+# and Docker daemons from version 25 on reject it with "client version is too
+# old". Only the CLI is needed anyway; the daemon comes in over the mounted
+# socket.
 RUN curl -fsSL \
       "https://download.docker.com/linux/static/stable/${COMPOSE_ARCH}/docker-${DOCKER_VERSION}.tgz" \
     | tar -xz -C /usr/local/bin --strip-components=1 docker/docker \

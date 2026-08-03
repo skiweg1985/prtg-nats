@@ -118,7 +118,7 @@ show_sensor() {
   probes_with_sensor "${name}" | sed 's/^/  /'
 }
 
-# Der Pfad einer Slot-Datei im Repository, leer wenn der Sensor sie nicht hat.
+# The path of a slot file in the repository, empty if the sensor has none.
 sensor_slot_source() {
   local directory="$1"
   local slot="$2"
@@ -377,8 +377,8 @@ status_sensors() {
   fi
 }
 
-# Flottenblick, wie "probe status --all". Eine nicht erreichbare Probe ist eine
-# Zeile mit Hinweis, kein Abbruch - sonst verdeckt ein toter Host den Rest.
+# The fleet view, like "probe status --all". An unreachable probe is a line
+# with a note, not an abort - otherwise one dead host hides all the rest.
 status_all_sensors() {
   local username=""
   local assigned=""

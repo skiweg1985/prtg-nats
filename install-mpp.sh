@@ -547,7 +547,7 @@ if [[ -z "${NATS_HOST}" ]]; then
       fi
     done
   elif [[ "${DRY_RUN}" == "true" ]]; then
-    # Reine Anzeige; ohne Terminal gibt es nichts zu fragen.
+    # Display only; without a terminal there is nothing to ask.
     NATS_HOST="nats.example.com"
   else
     die "--nats-host is required without an interactive terminal"
