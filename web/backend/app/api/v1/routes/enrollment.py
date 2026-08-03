@@ -101,6 +101,7 @@ class InvitationOut(ApiModel):
     expires_at: Any
     created_by_name: str | None = None
     redeemed_at: Any = None
+    revoked_at: Any = None
     source_ip: str | None = None
     job_id: str | None = None
 
@@ -136,6 +137,7 @@ def _invitation_out(record: Any) -> InvitationOut:
         expires_at=record.expires_at,
         created_by_name=record.created_by_name,
         redeemed_at=record.redeemed_at,
+        revoked_at=record.revoked_at,
         source_ip=record.source_ip,
         job_id=record.job_id,
     )
@@ -214,6 +216,23 @@ async def list_probe_invitations(
     _: Annotated[object, Depends(require_permission(Permission.PROBE_READ))],
 ) -> list[InvitationOut]:
     return [_invitation_out(record) for record in await enrollment.list_open(PROBE)]
+
+
+@router.get("/probes/enrollment/tokens/{token_id}", response_model=InvitationOut)
+async def read_probe_invitation(
+    token_id: str,
+    enrollment: EnrollmentDep,
+    _: Annotated[object, Depends(require_permission(Permission.PROBE_READ))],
+) -> InvitationOut:
+    """One invitation, open or spent.
+
+    This is what the wizard watches while it waits. The list above carries
+    open invitations only, and the callback below redeems the invitation in
+    the same request that writes its job id - so a caller following the list
+    would see the record disappear rather than gain the job it was waiting
+    for.
+    """
+    return _invitation_out(await enrollment.get(token_id, kind=PROBE))
 
 
 @router.delete(

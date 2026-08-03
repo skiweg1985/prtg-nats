@@ -168,7 +168,10 @@
         "secretBody": "Er enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host unter diesem Konto anmelden.",
         "waiting": "Warten auf die Probe",
         "waitingHint": "Diese Seite geht von selbst weiter, sobald der Host sich meldet.",
-        "revoke": "Einladung zurückziehen"
+        "revoke": "Einladung zurückziehen",
+        "deadTitle": "Diese Einladung ist nicht mehr verwendbar",
+        "deadBody": "Sie ist abgelaufen oder wurde zurückgezogen; der Befehl oben würde abgewiesen. Erstellen Sie eine neue Einladung, um diese Probe anzumelden.",
+        "restart": "Neue Einladung"
       },
       "step3": {
         "title": "3. Die Plattform übernimmt",

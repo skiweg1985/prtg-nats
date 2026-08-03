@@ -500,3 +500,63 @@ async def test_a_revoked_invitation_disappears_from_the_list(
     assert revoked.status_code == 204
 
     assert (await client.get("/api/v1/probes/enrollment/tokens")).json() == []
+    # Still readable by id, which is how the wizard finds out it is over.
+    read = await client.get(f"/api/v1/probes/enrollment/tokens/{issued['id']}")
+    assert read.status_code == 200, read.text
+    assert read.json()["revoked_at"] is not None
+
+
+async def test_a_redeemed_invitation_still_names_the_job_it_started(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """What the wizard waits for, and where it used to lose it.
+
+    The callback redeems the invitation and writes the job id in the same
+    request, so the record leaves the open list at the very moment it gains
+    the job. A caller following only that list waits forever while the
+    enrolment it started runs to completion behind it - observed as a browser
+    stuck on "waiting for the probe" with the probe long since enrolled.
+    """
+    await _sign_in(client)
+    await _initialise(project_dir)
+    issued = await _invite(client)
+
+    callback = await client.post(
+        f"/api/v1/enroll/{issued['token']}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "ssh_port": 22,
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+        },
+    )
+    assert callback.status_code == 200, callback.text
+    job_id = callback.json()["job_id"]
+    assert job_id
+
+    # Out of the open list, because it is spent ...
+    assert (await client.get("/api/v1/probes/enrollment/tokens")).json() == []
+
+    # ... and still readable by id, carrying the job there is to watch.
+    read = await client.get(f"/api/v1/probes/enrollment/tokens/{issued['id']}")
+    assert read.status_code == 200, read.text
+    assert read.json()["job_id"] == job_id
+    assert read.json()["redeemed_at"] is not None
+    # Spent or not, the token itself is never handed out a second time.
+    assert "token" not in read.json()
+
+
+async def test_an_invitation_that_never_existed_reads_as_missing(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    await _sign_in(client)
+    await _initialise(project_dir)
+
+    response = await client.get("/api/v1/probes/enrollment/tokens/01NOTAREALID")
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "enrollment.token_invalid"

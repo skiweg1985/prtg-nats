@@ -168,7 +168,10 @@
         "secretBody": "It carries a single-use invitation. Anyone who can read it can enrol a host under this account until it is used or expires.",
         "waiting": "Waiting for the probe",
         "waitingHint": "This page continues on its own as soon as the host reports in.",
-        "revoke": "Cancel invitation"
+        "revoke": "Cancel invitation",
+        "deadTitle": "This invitation can no longer be used",
+        "deadBody": "It expired or was cancelled, and the command above would be refused. Create a new invitation to enrol this probe.",
+        "restart": "New invitation"
       },
       "step3": {
         "title": "3. The platform takes over",

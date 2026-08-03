@@ -116,6 +116,7 @@ through this API, and nothing outbound happens until the host has answered.
 | --- | --- |
 | `POST /probes/enrollment/tokens` | mint an invitation, returns the command |
 | `GET /probes/enrollment/tokens` | invitations that could still be used |
+| `GET /probes/enrollment/tokens/{id}` | one invitation, open or spent |
 | `DELETE /probes/enrollment/tokens/{id}` | revoke one |
 
 The token is in the creation response and nowhere else - only its SHA-256 is
@@ -124,6 +125,13 @@ it the address the host reports from is used, which is right on a flat network
 and wrong behind NAT. Either way an address that another probe already claims
 is refused with `probe.host_already_enrolled`, because the management access
 belongs to the host and retiring one entry would revoke it for both.
+
+Watch a pending enrolment on the single invitation, not on the listing. The
+callback below redeems the invitation and writes the `job_id` it started in
+one request, so the record leaves the listing at the same moment it names the
+job - and `job_id` is the signal that the host has reported in and there is a
+job to follow. A spent invitation stays readable by id, with `redeemed_at`,
+`revoked_at` and the job; the token never appears again either way.
 
 These three are reached by the host being enrolled, which has no session:
 
