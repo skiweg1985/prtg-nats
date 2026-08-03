@@ -1,3 +1,9 @@
+---
+title: Add your first probe
+role: deployer
+updated: 2026-08-03
+---
+
 # Roll out a new MPP in about 10 minutes
 
 This guide covers a native PRTG Multi-Platform Probe on Ubuntu, Debian,
@@ -93,7 +99,7 @@ sudo ./install-mpp.sh \
 ```
 
 After a successful run, continue directly with
-[adding the access key in PRTG](#6-add-the-access-key-in-prtg).
+[adding the access key in PRTG](#add-the-access-key-in-prtg).
 
 ## Supported Git installation targets
 
@@ -307,10 +313,10 @@ configuration, no half-finished `config.yaml` is left behind in that case.
 ## If the installer does not run
 
 For the fallback of installing by hand there is a dedicated guide:
-[MANUAL-INSTALL.md](../guides/manual-probe-install.md). The two following
+[Install a probe by hand](../guides/manual-probe-install.md). The two following
 steps apply to both paths.
 
-## 6. Add the access key in PRTG
+## Add the access key in PRTG
 
 In PRTG:
 
@@ -330,7 +336,7 @@ readable part exists only for attribution.
 Keys already handed out stay unchanged even if the probe name is changed
 later - a new key would otherwise have to be updated here as well.
 
-![PRTG access keys for a new MPP](images/prtg-probe-access-key-settings.png)
+![PRTG access keys for a new MPP](../images/prtg-probe-access-key-settings.png)
 
 The screenshot deliberately uses a masked example value. In the production
 configuration, add the complete, unique access key of the new MPP as an
@@ -338,7 +344,7 @@ additional line.
 
 Access keys belong neither in this repository nor in screenshots or tickets.
 
-## 7. Approve the probe in PRTG
+## Approve the probe in PRTG
 
 A new probe connection request appears in PRTG:
 
@@ -381,7 +387,7 @@ sudo ./install-mpp.sh --nats-host nats.example.com --check-only
 
 If it reports a reset during the TLS upgrade, the cause is a firewall along
 the path, not the certificate or the configuration; the details are under
-[connection breaks at the TLS upgrade](../guides/troubleshooting.md#connection-breaks-at-the-tls-upgrade).
+[the connection drops at the TLS upgrade](../guides/troubleshooting.md#the-connection-drops-at-the-tls-upgrade).
 
 If `install-mpp` fails, it asks whether the created NATS account and the
 management access should be rolled back. If you are still looking for the
@@ -390,4 +396,4 @@ nor a new NATS password. For automation there are `--keep-on-failure` and
 `--rollback-on-failure`.
 
 Further symptoms, causes and measures are collected in
-[TROUBLESHOOTING.md](../guides/troubleshooting.md).
+[Troubleshooting](../guides/troubleshooting.md).

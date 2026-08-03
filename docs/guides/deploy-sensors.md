@@ -1,3 +1,9 @@
+---
+title: Deploy sensors
+role: deployer
+updated: 2026-08-03
+---
+
 # Manage sensor scripts centrally
 
 PRTG Multi-Platform Probes run their own monitoring scripts through the
@@ -169,8 +175,8 @@ is meant to explain rather than complain therefore needs a lookup without an
 error state - otherwise the sensor turns red although nothing is broken.
 
 Which ones exist and what they trigger is described in
-[LOOKUPS.md](../reference/lookups.md); the files themselves live under
-[lookups/](lookups/) as reference material. This repository does not deploy
+[PRTG lookups](../reference/lookups.md); the files themselves live under
+[lookups/](../lookups/) as reference material. This repository does not deploy
 custom lookups.
 
 If a sensor needs elevated privileges, they belong in a separate program
