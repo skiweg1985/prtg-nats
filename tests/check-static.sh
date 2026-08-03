@@ -112,11 +112,11 @@ printf '\n== Rendering ==\n'
 # shellcheck disable=SC2034  # read dynamically by mpp_render_config
 set_valid_values() {
   MPP_PROBE_ID="$(mpp_generate_uuid)"
-  MPP_ACCESS_KEY="$(mpp_default_access_key oe-prtg-test)"
-  MPP_PROBE_NAME="$(mpp_default_probe_name oe-prtg-test)"
+  MPP_ACCESS_KEY="$(mpp_default_access_key probe-test)"
+  MPP_PROBE_NAME="$(mpp_default_probe_name probe-test)"
   MPP_NATS_HOST="nats.example.test"
   MPP_NATS_PORT="23561"
-  MPP_NATS_USER="mpp-oe-prtg-test"
+  MPP_NATS_USER="mpp-probe-test"
   MPP_NATS_PASSWORD="$(
     printf '0123456789abcdef%.0s' 1 2 3 4
   )"
@@ -205,13 +205,56 @@ fi
 
 printf '\n== No internal identifiers ==\n'
 # Site names and company identity may appear neither in code nor docs.
-# This check catches an accidental return immediately.
+#
+# The concrete names deliberately do NOT appear here. A deny list in a
+# published repository publishes exactly what it is meant to hide - whoever
+# reads the check learns the host scheme, the domain and the management
+# network. Two layers replace it:
+#
+#   1. the structural rules below, which need no knowledge of any name;
+#   2. an optional local pattern file for the real names of the environment
+#      this grew out of. It is ignored by Git and therefore only present on
+#      a machine that already knows them.
+#
+# If a name ever leaks, the fix belongs in the local file - not here.
+internal_scan_excludes=(
+  --exclude-dir=.git --exclude-dir=runtime --exclude-dir=backups
+  --exclude-dir=.backup --exclude-dir=node_modules --exclude-dir=dist
+  --exclude-dir=.venv --exclude-dir=__pycache__
+  # Paessler ships these; "prtg.standardlookups.lan" is a file name, not a host.
+  --exclude-dir=lookups
+  # Local agent scratch, both Git-ignored and never published. A shared
+  # .claude/settings.json stays in scope on purpose.
+  --exclude-dir=worktrees --exclude=settings.local.json
+  --exclude=internal-identifiers.patterns
+)
+internal_pattern_file="${PROJECT_DIR}/tests/internal-identifiers.patterns"
+
 internal_hits="$(
-  grep -rn -iE 'oe-prtg-0[0-9]|opus\.local|172\.30\.14\.|simplicity' \
-    --exclude-dir=.git --exclude-dir=runtime --exclude-dir=backups \
-    --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.venv \
-    --exclude-dir=__pycache__ . 2>/dev/null |
-    grep -v '^./tests/check-static.sh:' || true
+  {
+    # Address ranges typical of a corporate network. The documentation uses
+    # 192.0.2.0/24 (RFC 5737). 10.x stays allowed on purpose: the sensor
+    # READMEs use it for site examples such as "--internal-target HQ=10.0.0.10".
+    grep -rn -E \
+      '(172\.(1[6-9]|2[0-9]|3[01])|192\.168)\.[0-9]{1,3}\.[0-9]{1,3}' \
+      "${internal_scan_excludes[@]}" . 2>/dev/null || true
+    # Host suffixes that only resolve inside a network. "internal" is left out
+    # deliberately - it collides with the i18n key errors.internal.unexpected.
+    grep -rn -iE '[a-z0-9-]+\.(local|intern|corp|lan)([^a-z0-9-]|$)' \
+      "${internal_scan_excludes[@]}" . 2>/dev/null || true
+    # One pattern per line. Blank lines and comments are stripped first: to
+    # grep -f an empty line is a pattern that matches everything, which would
+    # turn the whole check into noise.
+    if [[ -s "${internal_pattern_file}" ]]; then
+      grep -rn -i -f <(
+        grep -v -e '^[[:space:]]*$' -e '^[[:space:]]*#' \
+          "${internal_pattern_file}"
+      ) "${internal_scan_excludes[@]}" . 2>/dev/null || true
+    fi
+  } |
+    # The check must not trip over its own patterns.
+    grep -v '^./tests/check-static.sh:' |
+    sort -u || true
 )"
 if [[ -z "${internal_hits}" ]]; then
   printf '  ok    no internal names or addresses in the repository\n'
@@ -220,6 +263,13 @@ else
   printf '  FAIL  internal identifiers found:\n' >&2
   printf '%s\n' "${internal_hits}" | sed 's/^/        /' >&2
   failed=$((failed + 1))
+fi
+if [[ -s "${internal_pattern_file}" ]]; then
+  printf '  ok    local pattern file applied\n'
+  passed=$((passed + 1))
+else
+  printf '  note  no local pattern file (%s); structural rules only\n' \
+    "tests/internal-identifiers.patterns"
 fi
 
 printf '\n== Setup dialog ==\n'
@@ -506,17 +556,17 @@ check "the host name is shortened to its short form" \
 # An address must not be cut at the first dot, or all probes of one
 # network would carry the same name.
 check "IPv4 keeps all octets" \
-  "$(mpp_host_label 172.23.106.18)" "172-23-106-18"
+  "$(mpp_host_label 192.0.2.18)" "192-0-2-18"
 check "a probe name from IPv4 stays distinguishable" \
-  "$(mpp_default_probe_name 172.23.106.18)" \
-  "multi-platform-probe@172-23-106-18"
+  "$(mpp_default_probe_name 192.0.2.18)" \
+  "multi-platform-probe@192-0-2-18"
 check "the derived name is valid" \
-  "$(mpp_validate_probe_name "$(mpp_default_probe_name 172.23.106.18)" &&
+  "$(mpp_validate_probe_name "$(mpp_default_probe_name 192.0.2.18)" &&
     printf 'yes')" "yes"
 # The readable part comes first, so the key list in PRTG can be
 # attributed at a glance.
 check "the access key starts with the readable part" \
-  "$(mpp_default_access_key 172.23.106.18 | cut -c1-13)" "172-23-106-18"
+  "$(mpp_default_access_key 192.0.2.18 | cut -c1-10)" "192-0-2-18"
 check "the access key follows the probe name" \
   "$(mpp_default_access_key 'multi-platform-probe@standort-nord' |
     cut -c1-13)" "standort-nord"
@@ -526,7 +576,7 @@ check "the access key keeps the random part" \
     grep -cE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')" \
   "1"
 check "an access key from IPv4 is valid" \
-  "$(mpp_validate_access_key "$(mpp_default_access_key 172.23.106.18)" &&
+  "$(mpp_validate_access_key "$(mpp_default_access_key 192.0.2.18)" &&
     printf 'yes')" "yes"
 check "an access key from a long name is valid" \
   "$(mpp_validate_access_key \
