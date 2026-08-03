@@ -192,6 +192,60 @@ registered_iperf_servers() {
   shopt -u nullglob
 }
 
+# One interactive SSH session that every later step of a rollout borrows. It
+# exists because the bootstrap login is the one place where a password may be
+# asked for: without the shared master every scp and every ssh would ask
+# again, and an operator typing the same password five times stops reading
+# what it is for.
+#
+# BatchMode=no is the whole point here - the callers all run with
+# BatchMode=yes and would never get a prompt of their own.
+BOOTSTRAP_CONTROL_DIR="${BOOTSTRAP_CONTROL_DIR:-}"
+BOOTSTRAP_CONTROL_PATH="${BOOTSTRAP_CONTROL_PATH:-}"
+
+open_bootstrap_control_session() {
+  local ssh_target="$1"
+
+  BOOTSTRAP_CONTROL_DIR="$(mktemp -d /tmp/prtg-nats-ssh.XXXXXX)"
+  chmod 0700 "${BOOTSTRAP_CONTROL_DIR}"
+  BOOTSTRAP_CONTROL_PATH="${BOOTSTRAP_CONTROL_DIR}/master"
+
+  printf 'Establishing one bootstrap SSH session to %s...\n' "${ssh_target}"
+  printf 'Authenticate with an existing SSH key or the bootstrap user password.\n'
+  ssh \
+    -M \
+    -S "${BOOTSTRAP_CONTROL_PATH}" \
+    -o ControlMaster=yes \
+    -o ControlPersist=no \
+    -o BatchMode=no \
+    -N \
+    -f \
+    -- "${ssh_target}"
+  [[ -S "${BOOTSTRAP_CONTROL_PATH}" ]] ||
+    {
+      printf 'Bootstrap SSH control session was not created.\n' >&2
+      return 1
+    }
+}
+
+# Fault tolerant on purpose: this runs from EXIT traps, where a failure would
+# replace the error the operator actually needs to see.
+close_bootstrap_control_session() {
+  local ssh_target="$1"
+
+  if [[ -n "${BOOTSTRAP_CONTROL_PATH}" && -S "${BOOTSTRAP_CONTROL_PATH}" ]]; then
+    ssh \
+      -S "${BOOTSTRAP_CONTROL_PATH}" \
+      -O exit \
+      -- "${ssh_target}" >/dev/null 2>&1 || true
+  fi
+  if [[ "${BOOTSTRAP_CONTROL_DIR}" =~ ^/tmp/prtg-nats-ssh\.[A-Za-z0-9]+$ ]]; then
+    rm -rf -- "${BOOTSTRAP_CONTROL_DIR}"
+  fi
+  BOOTSTRAP_CONTROL_DIR=""
+  BOOTSTRAP_CONTROL_PATH=""
+}
+
 # The restricted management channel to an enrolled probe. On the far side sits
 # a forced command that only accepts the known requests.
 #
@@ -234,6 +288,24 @@ enrolled_probes() {
     basename -- "${inventory}" .env
   done
   shopt -u nullglob
+}
+
+# Every probe whose inventory names this host, one NATS user name per line.
+# For the commands that take ADMIN@HOST instead of the user name: once a probe
+# is enrolled, the host already says which account belongs to it.
+#
+# No answer and several answers are both left to the caller. A host with two
+# inventories is a rollout that went sideways - picking one of them here would
+# bury that in a command that appears to have worked.
+enrolled_users_for_host() {
+  local wanted_host="$1"
+  local username=""
+
+  while read -r username; do
+    [[ "$(read_optional_env_value "$(probe_path "${username}")" SSH_HOST)" \
+      == "${wanted_host}" ]] || continue
+    printf '%s\n' "${username}"
+  done < <(enrolled_probes)
 }
 
 read_env_value() {

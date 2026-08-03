@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  ./prtg-nats probe enroll USER ADMIN@HOST [--reenroll]
+  ./prtg-nats probe enroll [USER] ADMIN@HOST [--reenroll]
   ./prtg-nats probe list
   ./prtg-nats probe show USER
   ./prtg-nats probe status USER
@@ -168,6 +168,7 @@ enroll_probe() {
   local bootstrap_target="$2"
   local allow_existing="${3:-false}"
   local host="${bootstrap_target##*@}"
+  local own_bootstrap_session="false"
   local remote_stage=""
   local remote_command=""
   local bootstrap_options=(
@@ -189,11 +190,33 @@ enroll_probe() {
   ensure_management_ssh_key
   ensure_helper_signing_key
   confirm_and_pin_host_key "${host}"
-  if [[ -n "${BOOTSTRAP_CONTROL_PATH}" ]]; then
-    [[ -S "${BOOTSTRAP_CONTROL_PATH}" ]] ||
-      die "Bootstrap SSH control session is unavailable"
-    bootstrap_options+=(-o "ControlPath=${BOOTSTRAP_CONTROL_PATH}")
+  # Every call below runs with BatchMode=yes, so none of them can ask for a
+  # password. Called from install-mpp the session is already open and inherited
+  # through the environment; called directly this is the only place that can
+  # open one, and without it the enrollment fails at the first connection with
+  # nothing but "Permission denied".
+  if [[ -z "${BOOTSTRAP_CONTROL_PATH}" ]]; then
+    open_bootstrap_control_session "${bootstrap_target}" ||
+      die "Could not open a bootstrap session as ${bootstrap_target}; it needs the password of that account or an SSH key for it"
+    own_bootstrap_session="true"
   fi
+  [[ -S "${BOOTSTRAP_CONTROL_PATH}" ]] ||
+    die "Bootstrap SSH control session is unavailable"
+  bootstrap_options+=(-o "ControlPath=${BOOTSTRAP_CONTROL_PATH}")
+
+  # Armed before the first remote call, because from here on a failure would
+  # otherwise leave the ssh master running. Only a session opened here is
+  # closed here: one inherited from install-mpp is still needed after the
+  # enrollment returns and is cleaned up there.
+  cleanup_remote() {
+    if [[ "${remote_stage}" =~ ^/tmp/prtg-nats-enroll\.[A-Za-z0-9]+$ ]]; then
+      bootstrap_ssh "${bootstrap_target}" \
+        "rm -rf -- '${remote_stage}'" >/dev/null 2>&1 || true
+    fi
+    [[ "${own_bootstrap_session}" != "true" ]] ||
+      close_bootstrap_control_session "${bootstrap_target}"
+  }
+  trap cleanup_remote EXIT
 
   remote_stage="$(
     bootstrap_ssh "${bootstrap_target}" \
@@ -201,14 +224,6 @@ enroll_probe() {
   )"
   [[ "${remote_stage}" =~ ^/tmp/prtg-nats-enroll\.[A-Za-z0-9]+$ ]] ||
     die "Unexpected remote enrollment path"
-
-  cleanup_remote() {
-    if [[ "${remote_stage}" =~ ^/tmp/prtg-nats-enroll\.[A-Za-z0-9]+$ ]]; then
-      bootstrap_ssh "${bootstrap_target}" \
-        "rm -rf -- '${remote_stage}'" >/dev/null 2>&1 || true
-    fi
-  }
-  trap cleanup_remote EXIT
 
   scp \
     -q \
@@ -826,19 +841,57 @@ shift
 
 case "${command_name}" in
   enroll)
-    require_username "${1:-}"
-    enroll_username="$1"
-    enroll_target="${2:-}"
-    [[ -n "${enroll_target}" ]] ||
-      die "Usage: ./prtg-nats probe enroll USER ADMIN@HOST [--reenroll]"
-    shift 2
+    enroll_usage="Usage: ./prtg-nats probe enroll [USER] ADMIN@HOST [--reenroll]"
     enroll_allow_existing="false"
-    if [[ "${1:-}" == "--reenroll" ]]; then
-      enroll_allow_existing="true"
-      shift
-    fi
-    [[ $# -eq 0 ]] ||
-      die "Usage: ./prtg-nats probe enroll USER ADMIN@HOST [--reenroll]"
+    enroll_arguments=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --reenroll)
+          enroll_allow_existing="true"
+          shift
+          ;;
+        -*)
+          die "${enroll_usage}"
+          ;;
+        *)
+          enroll_arguments+=("$1")
+          shift
+          ;;
+      esac
+    done
+    case "${#enroll_arguments[@]}" in
+      2)
+        enroll_username="${enroll_arguments[0]}"
+        enroll_target="${enroll_arguments[1]}"
+        ;;
+      1)
+        # An enrolled host already names its account: the inventory was
+        # written with it. Only the bootstrap target is left to type, and that
+        # one cannot be derived - the admin account is not ours.
+        enroll_target="${enroll_arguments[0]}"
+        [[ "${enroll_target}" == *@* ]] || die "${enroll_usage}"
+        enroll_host="${enroll_target##*@}"
+        mapfile -t enroll_candidates < \
+          <(enrolled_users_for_host "${enroll_host}")
+        case "${#enroll_candidates[@]}" in
+          1)
+            enroll_username="${enroll_candidates[0]}"
+            printf 'Reenrolling %s, the probe enrolled at %s.\n' \
+              "${enroll_username}" "${enroll_host}"
+            ;;
+          0)
+            die "No probe is enrolled at ${enroll_host}; name the NATS user: ./prtg-nats probe enroll USER ${enroll_target}"
+            ;;
+          *)
+            die "Several probes are enrolled at ${enroll_host} (${enroll_candidates[*]}); name the NATS user: ./prtg-nats probe enroll USER ${enroll_target}"
+            ;;
+        esac
+        ;;
+      *)
+        die "${enroll_usage}"
+        ;;
+    esac
+    require_username "${enroll_username}"
     enroll_probe \
       "${enroll_username}" "${enroll_target}" "${enroll_allow_existing}"
     ;;

@@ -814,6 +814,64 @@ else
   printf '  skipped (openssl not installed)\n'
 fi
 
+printf '\n== Probe enrollment ==\n'
+
+# The inventory is what lets a command take ADMIN@HOST instead of the account
+# name. The lookup runs against real inventory files in a throwaway runtime,
+# because that is the only thing it reads.
+enrollment_runtime="$(mktemp -d)"
+mkdir -p "${enrollment_runtime}/probes"
+write_test_inventory() {
+  printf 'NATS_USERNAME=%s\nSSH_HOST=%s\nSSH_PORT=22\n' "$1" "$2" \
+    > "${enrollment_runtime}/probes/$1.env"
+}
+users_for_host() {
+  (
+    export PRTG_NATS_RUNTIME_DIR="${enrollment_runtime}"
+    export NATS_FQDN=nats.example.test
+    export NATS_HOST_IP=192.0.2.10
+    # shellcheck disable=SC1091  # sourced for the helper, not for its output
+    source ./libexec/common.sh
+    enrolled_users_for_host "$1" | tr '\n' ' '
+  )
+}
+
+write_test_inventory mpp-probe-01 probe-01.example.test
+check "an enrolled host names its account" \
+  "$(users_for_host probe-01.example.test)" "mpp-probe-01 "
+check "an unknown host names none" \
+  "$(users_for_host probe-99.example.test)" ""
+# Two inventories on one host: the state a reenroll under a different account
+# leaves behind. It has to stay visible, not be resolved to whichever file the
+# glob returns first.
+write_test_inventory mpp-probe-02 probe-01.example.test
+check "an ambiguous host reports both accounts" \
+  "$(users_for_host probe-01.example.test)" "mpp-probe-01 mpp-probe-02 "
+rm -rf -- "${enrollment_runtime}"
+
+check "the usage names the optional account" \
+  "$(./prtg-nats probe --help | grep -c 'probe enroll \[USER\] ADMIN@HOST')" "1"
+
+# The dispatcher decides what a single argument means before anything touches
+# the network, so its refusals are checkable here - but the command requires
+# an SSH client before it gets that far.
+if command -v ssh >/dev/null 2>&1 && command -v ssh-keygen >/dev/null 2>&1; then
+  enroll_refusal() {
+    PRTG_NATS_RUNTIME_DIR="$(mktemp -d)" \
+      NATS_FQDN=nats.example.test \
+      NATS_HOST_IP=192.0.2.10 \
+      ./prtg-nats probe enroll "$@" 2>&1 || true
+  }
+  check "a single argument without a host is refused" \
+    "$(enroll_refusal mpp-probe-01 |
+      grep -c 'probe enroll \[USER\] ADMIN@HOST')" "1"
+  check "a host with no inventory asks for the account" \
+    "$(enroll_refusal admin@probe-01.example.test |
+      grep -c 'No probe is enrolled at probe-01.example.test')" "1"
+else
+  printf '  skipped (no SSH client installed)\n'
+fi
+
 printf '\n== Result ==\n'
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

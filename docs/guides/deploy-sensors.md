@@ -131,8 +131,12 @@ updates existed. It carries no key to check a signature against, so it needs
 the bootstrap path exactly once - and from then on the command above works:
 
 ```bash
-./prtg-nats probe enroll USER ADMIN@HOST --reenroll
+./prtg-nats probe enroll ADMIN@HOST --reenroll
 ```
+
+The NATS account comes from the inventory of the enrolled host; the bootstrap
+login on `ADMIN@HOST` asks for the password of that account once - see
+[the command reference](../reference/cli.md).
 
 `./prtg-nats sensor status USER` shows where a probe stands.
 

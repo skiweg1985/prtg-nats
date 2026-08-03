@@ -306,6 +306,10 @@ Reconfigure an already installed probe, without bootstrap access:
 sudo ./prtg-nats install-mpp --nats-user mpp-probe-01
 ```
 
+This is the one call where `--nats-user` stays required: without `ADMIN@HOST`
+there is no host whose inventory could name the account. Given a target, the
+option can be left out for a host that is already enrolled.
+
 ## Retire a probe
 
 Unenrolling ends the management relationship: the restricted key and the

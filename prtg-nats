@@ -725,29 +725,15 @@ ensure_nats_user_for_install() {
   run_ops user add "${username}"
 }
 
+# The session itself is opened by the shared helper; the installer keeps its
+# own names for it because its cleanup runs long after the enrollment has
+# returned and has more to take back than the session.
 open_bootstrap_session() {
   local ssh_target="$1"
 
-  INSTALL_CONTROL_DIR="$(mktemp -d /tmp/prtg-nats-ssh.XXXXXX)"
-  chmod 0700 "${INSTALL_CONTROL_DIR}"
-  INSTALL_CONTROL_PATH="${INSTALL_CONTROL_DIR}/master"
-
-  printf 'Establishing one bootstrap SSH session to %s...\n' "${ssh_target}"
-  printf 'Authenticate with an existing SSH key or the bootstrap user password.\n'
-  ssh \
-    -M \
-    -S "${INSTALL_CONTROL_PATH}" \
-    -o ControlMaster=yes \
-    -o ControlPersist=no \
-    -o BatchMode=no \
-    -N \
-    -f \
-    -- "${ssh_target}"
-  [[ -S "${INSTALL_CONTROL_PATH}" ]] ||
-    {
-      printf 'Bootstrap SSH control session was not created.\n' >&2
-      return 1
-    }
+  open_bootstrap_control_session "${ssh_target}" || return 1
+  INSTALL_CONTROL_DIR="${BOOTSTRAP_CONTROL_DIR}"
+  INSTALL_CONTROL_PATH="${BOOTSTRAP_CONTROL_PATH}"
 }
 
 # Copies the installer, the CA and the render library, and runs the package
@@ -848,14 +834,18 @@ EOF
 install_remote_mpp_usage() {
   cat <<'EOF'
 Usage:
-  ./prtg-nats install-mpp [ADMIN@HOST] --nats-user USER [options]
+  ./prtg-nats install-mpp [ADMIN@HOST] [--nats-user USER] [options]
 
 Installs or reconfigures an MPP over SSH. The restricted prtg-nats-admin key
 is tried first; a bootstrap target is only needed for the first run on a host.
 A missing --nats-user account is created automatically.
 
+For a host that is already enrolled the account comes from the inventory, so
+--nats-user is only needed for the first run on it - or without ADMIN@HOST,
+where there is no host to look it up by.
+
 Options:
-  --nats-user USER          NATS account for this probe (required)
+  --nats-user USER          NATS account for this probe
   --probe-name NAME         Probe name in PRTG (derived when omitted)
   --wizard                  Use the official prtgmpprobe wizard
   --no-enroll               Do not enroll central management access
@@ -869,6 +859,9 @@ EOF
 install_remote_mpp() {
   local ssh_target=""
   local selected_user=""
+  local nats_user_given="false"
+  local enrolled_candidates=()
+  local enrolled_host=""
   local enroll_probe="true"
   local installer_dry_run="false"
   local config_mode="generate"
@@ -885,7 +878,6 @@ install_remote_mpp() {
 
   # shellcheck source=libexec/common.sh
   source "${LIBEXEC_DIR}/common.sh"
-  selected_user="${NATS_USERNAME}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -896,6 +888,7 @@ install_remote_mpp() {
             return 2
           }
         selected_user="$2"
+        nats_user_given="true"
         shift 2
         ;;
       --enroll)
@@ -955,6 +948,30 @@ install_remote_mpp() {
     printf 'Invalid SSH target: %s\n' "${ssh_target}" >&2
     return 2
   fi
+  # A host that is already enrolled names its account in the inventory, so
+  # reconfiguring it does not need the option again. Without a target there is
+  # nothing to look it up by, and the option stays the only way to say it.
+  if [[ "${nats_user_given}" != "true" && "${enroll_probe}" == "true" &&
+        -n "${ssh_target}" ]]; then
+    enrolled_host="${ssh_target##*@}"
+    mapfile -t enrolled_candidates < \
+      <(enrolled_users_for_host "${enrolled_host}")
+    case "${#enrolled_candidates[@]}" in
+      1)
+        selected_user="${enrolled_candidates[0]}"
+        printf 'Reusing enrolled NATS user %s.\n' "${selected_user}"
+        ;;
+      0) ;;
+      *)
+        printf 'Several probes are enrolled at %s (%s); name one with --nats-user USER\n' \
+          "${enrolled_host}" "${enrolled_candidates[*]}" >&2
+        return 2
+        ;;
+    esac
+  fi
+  # The shared core account is the fallback, and only useful with --no-enroll:
+  # it is not a probe of its own.
+  [[ -n "${selected_user}" ]] || selected_user="${NATS_USERNAME}"
   validate_nats_username "${selected_user}" ||
     {
       printf 'Invalid NATS username: %s\n' "${selected_user}" >&2
@@ -964,7 +981,7 @@ install_remote_mpp() {
   if [[ "${enroll_probe}" == "true" &&
         "${selected_user}" == "${NATS_USERNAME}" ]]; then
     printf '%s\n' \
-      '--nats-user USER is required for automatic per-probe enrollment; use --no-enroll only for the legacy shared account' >&2
+      '--nats-user USER is required for automatic per-probe enrollment; it is only optional for a host that is already enrolled. Use --no-enroll only for the legacy shared account' >&2
     return 2
   fi
   require_command ssh
