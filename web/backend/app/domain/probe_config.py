@@ -78,7 +78,7 @@ def host_label(host: str) -> str:
     """The short, YAML- and PRTG-safe host part.
 
     A hostname keeps the part before the first dot. An IP address keeps every
-    octet - 172.23.106.18 must not become "172", which would distinguish
+    octet - 192.0.2.18 must not become "192", which would distinguish
     nothing in PRTG.
     """
     if re.match(r"^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$", host):

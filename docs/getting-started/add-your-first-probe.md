@@ -181,7 +181,7 @@ Only when the probe reports no usable host name does the command ask, and it
 suggests a name built from the address. To set the name right away, pass it:
 
 ```bash
-./prtg-nats install-mpp pi@172.23.106.18 \
+./prtg-nats install-mpp pi@192.0.2.18 \
   --nats-user mpp-probe-01 \
   --probe-name multi-platform-probe@site-north
 ```

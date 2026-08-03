@@ -15,6 +15,11 @@
 # Scratch checkouts the agent tooling creates
 /.claude/worktrees/
 
+# Real host names and addresses the static check greps for. Belongs on the
+# machine that knows them, never in the published tree. The name deliberately
+# avoids a ".local" suffix - the check would flag its own ignore entry.
+/tests/internal-identifiers.patterns
+
 # Python bytecode from the sensor checks
 __pycache__/
 *.pyc

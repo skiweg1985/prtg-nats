@@ -66,8 +66,8 @@ mpp_generate_uuid() {
 
 # A short host label that is safe for YAML and for PRTG. For a hostname the
 # short form before the first dot is what is wanted. An IP address must not be
-# treated that way: 172.23.106.18 would become "172" and from that the name
-# "multi-platform-probe@172", which distinguishes nothing in PRTG. Addresses
+# treated that way: 192.0.2.18 would become "192" and from that the name
+# "multi-platform-probe@192", which distinguishes nothing in PRTG. Addresses
 # therefore keep every octet.
 mpp_host_label() {
   local host="$1"

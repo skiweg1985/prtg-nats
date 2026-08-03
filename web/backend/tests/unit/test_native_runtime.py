@@ -79,17 +79,17 @@ def test_a_bare_ip_host_becomes_an_ip_san(
     """
     pki = Pki(settings)
     pki.create_ca(organization="Example Org")
-    pki.issue_server_certificate(fqdn="192.168.177.79", archive=False)
+    pki.issue_server_certificate(fqdn="192.0.2.79", archive=False)
 
     server = x509.load_pem_x509_certificate(
         (settings.cert_dir / "server.pem").read_bytes()
     )
     san = server.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     assert [str(value) for value in san.value.get_values_for_type(x509.IPAddress)] == [
-        "192.168.177.79"
+        "192.0.2.79"
     ]
     assert san.value.get_values_for_type(x509.DNSName) == []
-    pki.verify_server_pair(fqdn="192.168.177.79")
+    pki.verify_server_pair(fqdn="192.0.2.79")
 
 
 def test_a_second_ca_is_refused(settings: Settings) -> None:
@@ -267,10 +267,10 @@ def test_derived_names_follow_the_shell_rules() -> None:
     # Hostname: short form before the first dot.
     assert probe_config.host_label("berlin-probe.example.test") == "berlin-probe"
     # IP address: every octet kept, or nothing distinguishes probes in PRTG.
-    assert probe_config.host_label("172.23.106.18") == "172-23-106-18"
+    assert probe_config.host_label("192.0.2.18") == "192-0-2-18"
     assert (
-        probe_config.default_probe_name("172.23.106.18")
-        == "multi-platform-probe@172-23-106-18"
+        probe_config.default_probe_name("192.0.2.18")
+        == "multi-platform-probe@192-0-2-18"
     )
     # Access key: readable label first, full UUID after.
     key = probe_config.default_access_key("multi-platform-probe@site-north")

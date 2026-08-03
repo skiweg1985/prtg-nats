@@ -22,8 +22,8 @@ WORK_DIR=""
 NETWORK_NAME="prtg-e2e-net"
 PROBE_CONTAINER="prtg-e2e-probe"
 ADMIN_CONTAINER="prtg-e2e-admin"
-PROBE_HOSTNAME="oe-prtg-e2e"
-NATS_USER="mpp-oe-prtg-e2e"
+PROBE_HOSTNAME="probe-e2e"
+NATS_USER="mpp-probe-e2e"
 # Wildcard DNS: resolves to the NATS container over the alias on the
 # Docker network, but to 127.0.0.1 on the host network stack. Both are
 # needed because test_nats_credentials starts the client with
