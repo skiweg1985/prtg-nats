@@ -23,6 +23,11 @@ TOKEN="@@TOKEN@@"
 CA_SHA256="@@CA_SHA256@@"
 SSH_SOURCE_CIDR="@@SSH_SOURCE_CIDR@@"
 INSTALL_PACKAGE="@@INSTALL_PACKAGE@@"
+# install-mpp.sh has no default for these and asks for them at a prompt. This
+# script arrives through a pipe, so there is no prompt to answer: without them
+# the installer refuses before it touches a package manager.
+NATS_HOST="@@NATS_HOST@@"
+NATS_PORT="@@NATS_PORT@@"
 CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
 
 STAGE=""
@@ -128,6 +133,8 @@ if [ "${INSTALL_PACKAGE}" = "true" ]; then
     # failure leaves a marker file behind instead.
     {
       bash "${STAGE}/install-mpp.sh" \
+        --nats-host "${NATS_HOST}" \
+        --nats-port "${NATS_PORT}" \
         --ca-file "${CA_PATH}" \
         --ca-sha256 "${CA_SHA256}" \
         --accept-ca \

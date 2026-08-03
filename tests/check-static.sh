@@ -899,6 +899,8 @@ sed \
   -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
   -e 's|@@CA_SHA256@@|0000|' \
   -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24|' \
+  -e 's|@@NATS_HOST@@|nats.example.test|' \
+  -e 's|@@NATS_PORT@@|23561|' \
   -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
   -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
   -e 's|@@INSTALL_PACKAGE@@|true|' \
@@ -911,6 +913,23 @@ else
   sh -n "${bootstrap_dir}/bootstrap.sh" || true
   failed=$((failed + 1))
 fi
+
+check "the rendered bootstrap leaves no placeholder behind" \
+  "$(grep -c '@@' "${bootstrap_dir}/bootstrap.sh" || true)" "0"
+
+# install-mpp.sh has no default for the NATS endpoint and asks for it at a
+# terminal. The bootstrap arrives through a pipe and has none, so every option
+# the installer insists on without one has to be on that command line. Omitting
+# --nats-host cost an afternoon: the installer refused before it touched a
+# package manager, the bootstrap reported back without the package, and the
+# enrolment died four steps later over a missing systemd unit.
+bootstrap_install_call="$(
+  sed -n '/install-mpp.sh" \\/,/--no-config/p' "${bootstrap_dir}/bootstrap.sh"
+)"
+for option in --nats-host --nats-port --ca-file --ca-sha256 --accept-ca; do
+  check "the installer is called with ${option}" \
+    "$(printf '%s' "${bootstrap_install_call}" | grep -c -- "${option}")" "1"
+done
 
 # What the installer says when it fails is quoted straight into the report, so
 # it has to survive the trip: an unescaped quote or backslash in that text

@@ -47,9 +47,14 @@ finish without them.
 
 `NATS_FQDN` and `NATS_PORT` are the single source for the NATS endpoint. They
 apply at once to the server configuration, the Docker port binding, the check
-commands and every generated probe configuration - changing them is one
-operation, and it belongs in a maintenance window. The details are under
+commands, every generated probe configuration and the bootstrap script an
+invitation hands out - changing them is one operation, and it belongs in a
+maintenance window. The details are under
 [Site settings](../getting-started/install-the-server.md#3-site-settings).
+
+An invitation is refused while `NATS_FQDN` is unset. The bootstrap passes the
+endpoint to `install-mpp.sh`, which has no default for it and would otherwise
+ask at a prompt that a script running from a pipe cannot answer.
 
 > [!NOTE]
 > A generated probe configuration always receives `NATS_FQDN`, never

@@ -249,6 +249,15 @@ class EnrollmentService:
                 details="MPP_SSH_SOURCE_CIDR is not configured and NATS_HOST_IP "
                 "is unset; the management key would be valid from anywhere"
             )
+        # The installer has no default for this and asks at a prompt the
+        # bootstrap cannot answer - it runs from a pipe. Refused here, where an
+        # operator is looking at the answer, rather than on a console halfway
+        # through an installation.
+        if not site.nats_fqdn:
+            raise RuntimeStateError(
+                details="NATS_FQDN is not configured; the probe would have "
+                "nothing to install the package against"
+            )
 
         ca_pem, ca_sha256 = self.ca_material()
         values = {
@@ -257,6 +266,8 @@ class EnrollmentService:
             "@@CA_PEM@@": ca_pem,
             "@@CA_SHA256@@": ca_sha256,
             "@@SSH_SOURCE_CIDR@@": source_cidr,
+            "@@NATS_HOST@@": site.nats_fqdn,
+            "@@NATS_PORT@@": str(site.nats_port),
             "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
             "@@HELPER_SIGNING_KEY@@": HelperSigner(self._settings)
             .public_key_pem()
