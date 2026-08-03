@@ -9,6 +9,9 @@
 # Backup archives
 /backups/
 
+# Archived Gitea history, kept out of the published tree
+/.backup/
+
 # Python bytecode from the sensor checks
 __pycache__/
 *.pyc
