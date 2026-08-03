@@ -178,6 +178,20 @@ class ProbeHelperOutdatedError(AppError):
     http_status = status.HTTP_502_BAD_GATEWAY
 
 
+class ProbePackageMissingError(AppError):
+    """The probe carries no MPP package, so there is nothing to configure.
+
+    Separated from the general refusal because the probe refuses nothing: it
+    has no prtg.mpprobe.service, so every configuration transaction dies in
+    the activate step with a message about a missing systemd unit - true, and
+    no help at all to whoever has to fix it. Enrolment never installs the
+    package; only the bootstrap script does.
+    """
+
+    code = "probe.package_missing"
+    http_status = status.HTTP_409_CONFLICT
+
+
 class NatsUnavailableError(AppError):
     code = "nats.unavailable"
     http_status = status.HTTP_502_BAD_GATEWAY

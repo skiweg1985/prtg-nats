@@ -132,6 +132,14 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
             "service": (observed.service.value if observed.service else "unknown"),
         },
     )
+    # Stopped here rather than four steps later in the configuration, which is
+    # where it used to surface as a refused request. Nothing is in the
+    # inventory yet, so an operator who has to start over is not cleaning up
+    # after this run first. The bootstrap's own words carry the reason the
+    # package never made it, which is otherwise lost by the time it matters.
+    probe_lifecycle.require_package(
+        username, observed, details=payload.get("package_error") or None
+    )
 
     # --- 4. The inventory ---------------------------------------------------
     await context.step("write_inventory")

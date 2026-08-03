@@ -120,6 +120,12 @@ class CallbackIn(ApiModel):
     host_keys: list[str] = Field(min_length=1, max_length=16)
     access_installed: bool = False
     package_installed: bool = False
+    # Why the package never made it, in the installer's own words. The
+    # bootstrap reports back even when that step failed, and without this the
+    # reason dies on a console the operator has already walked away from.
+    # Generous rather than tight: a truncated cause is a cause nobody can act
+    # on, and the bootstrap already caps what it sends.
+    package_error: str | None = Field(default=None, max_length=8192)
 
 
 class CallbackOut(ApiModel):
@@ -337,6 +343,7 @@ async def bootstrap_callback(
                 "host": host,
                 "ssh_port": payload.ssh_port,
                 "host_keys": payload.host_keys,
+                "package_error": payload.package_error,
             },
         ),
         # No principal: the host did this, not a person. The audit record

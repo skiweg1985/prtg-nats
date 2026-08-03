@@ -134,6 +134,11 @@ server refuses to delete one an inventory still points at. Deleting the last
 remaining account is refused before the job is created, not once the probe has
 already lost its access.
 
+`uninstall_mpp=true` decides how the host comes back. Nothing but the
+bootstrap script installs the package, so taking that host on again means a
+fresh invitation and the one-liner on its console - see
+[Enrolling a probe](#enrolling-a-probe) below.
+
 ### Enrolling a probe
 
 A probe enrols itself. The platform mints a single-use invitation and returns
@@ -176,6 +181,21 @@ halfway has to be retryable - and the callback does. An invitation that is
 unknown, expired, spent or revoked answers the same `enrollment.token_invalid`
 either way: the caller is unauthenticated, and a distinct "expired" would
 confirm that the token existed.
+
+The callback reports `package_installed`, and `package_error` when that is
+`false` - the tail of what the installer said, so the reason survives the
+console it was printed on. The bootstrap reports back either way: the
+management access is in place by then, and a host that stayed silent about a
+failed package would be harder to help, not easier.
+
+Enrolment installs no package. It arrives with the bootstrap script and with
+nothing else, so a host without it is refused with `probe.package_missing`
+before the inventory is written, carrying `package_error` as its detail. The
+same refusal guards every configuration - enrol, configure, reconcile and
+rotate alike - because without the package there is no `prtg.mpprobe.service`
+to restart and the transaction can only fail. This is the state a retirement
+with `uninstall_mpp=true` leaves behind: the way back is a fresh invitation,
+not another run of the same job.
 
 The reverse proxy publishes these under `/enroll/*` and rewrites them onto the
 API prefix. That URL is typed into a one-liner and lands in runbooks, so it

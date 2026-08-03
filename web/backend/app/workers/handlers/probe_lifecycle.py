@@ -11,11 +11,16 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.errors import ProbeRejectedError, RuntimeStateError
+from app.core.errors import (
+    ProbePackageMissingError,
+    ProbeRejectedError,
+    RuntimeStateError,
+)
 from app.domain import probe_config
 from app.domain.enums import CertificateKind, LogLevel
 from app.domain.models import (
     DesiredProbeState,
+    ObservedProbeState,
     parse_probe_info,
     parse_sensor_list,
 )
@@ -60,6 +65,29 @@ def _connection(context: JobContext, username: str) -> ProbeConnection:
     )
 
 
+def require_package(
+    username: str, observed: ObservedProbeState, *, details: str | None = None
+) -> None:
+    """Refuse to configure a probe that carries no MPP package.
+
+    Nothing downstream can succeed without it, and the failure it produces
+    names a systemd unit rather than the missing package. The way back is not
+    a retry: the package arrives with the bootstrap script and with nothing
+    else, so a retirement that uninstalled it has to be followed by a fresh
+    invitation, not by another run of the same job.
+    """
+    if observed.package_version:
+        return
+    raise ProbePackageMissingError(
+        params={"probe": username},
+        details=details
+        or (
+            "no prtgmpprobe package on the probe; run the bootstrap command "
+            "from a fresh invitation, or install-mpp.sh on the probe itself"
+        ),
+    )
+
+
 async def run_config_transaction(
     context: JobContext, username: str, *, probe_name: str | None
 ) -> dict[str, str]:
@@ -75,6 +103,16 @@ async def run_config_transaction(
     nats = NatsRuntime(context.settings)
 
     await context.step("resolve_identity")
+    # Asked before anything is staged, and asked here rather than trusted from
+    # a caller: this is the one gate every configuration passes through, so a
+    # probe without the package is turned away once instead of in four
+    # handlers.
+    require_package(
+        username,
+        parse_probe_info(
+            username, await context.helper.probe_info(connection), datetime.now(UTC)
+        ),
+    )
     probe_id = inventory.probe_id or probe_config.generate_probe_id()
     resolved_name = (
         probe_name

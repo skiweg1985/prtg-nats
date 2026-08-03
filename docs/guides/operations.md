@@ -345,6 +345,13 @@ Sensors are removed from both lists, the inventory's and the probe's own. The
 two disagree after an interrupted rollout, and that is precisely when a sensor
 would otherwise be left behind.
 
+`--uninstall-mpp` decides how that host comes back. Only the bootstrap script
+installs the package, so a plain re-enrollment from the interface finds no
+`prtg.mpprobe.service` to start and stops with `probe.package_missing`. Take
+the host on again with a fresh invitation and its one-liner, which installs
+the package before the platform configures anything. Where the package is
+already in place, the bootstrap keeps it.
+
 The NATS account outlives all of this on purpose. Delete it separately once
 the inventory is gone:
 
