@@ -18,10 +18,36 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import Settings
 from app.core.permissions import RoleName
+from app.infrastructure.docker import DockerAdapter
+from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.runtime_files import RuntimeFileStore
+from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import EnrollmentToken
+from app.services.events import get_broadcaster
+from app.workers.job_runner import JobRunner
+from tests.conftest import ScriptedTransport
 
 PASSWORD = "correct-horse-battery"
+
+
+def _build_runner(settings: Settings, transport: ScriptedTransport) -> JobRunner:
+    return JobRunner(
+        settings=settings,
+        broadcaster=get_broadcaster(),
+        runtime=RuntimeFileStore(settings),
+        helper=ProbeHelperClient(transport),
+        catalog=SensorCatalog(settings.sensor_source_dir),
+        docker=DockerAdapter(settings.docker_socket),
+    )
+
+
+async def _drain(runner: JobRunner, *, rounds: int = 12) -> None:
+    """Run the queued enrolment to completion without the polling loop."""
+    for _ in range(rounds):
+        if not await runner._claim_and_run():
+            return
 
 
 async def _sign_in(
@@ -362,6 +388,7 @@ async def test_what_the_host_reported_is_kept(
             "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
             "access_installed": True,
             "package_installed": False,
+            "package_error": "E: Unable to locate package prtgmpprobe",
         },
     )
 
@@ -373,6 +400,9 @@ async def test_what_the_host_reported_is_kept(
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"
         ]
         assert record.reported["package_installed"] is False
+        # Kept with the rest of the report: what the host could not do is as
+        # much a part of it as what it did.
+        assert "Unable to locate package" in record.reported["package_error"]
 
 
 @pytest.mark.parametrize(
@@ -560,3 +590,90 @@ async def test_an_invitation_that_never_existed_reads_as_missing(
     response = await client.get("/api/v1/probes/enrollment/tokens/01NOTAREALID")
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "enrollment.token_invalid"
+
+
+# --- What the host could not do -------------------------------------------
+
+
+async def test_a_probe_without_the_package_is_turned_away_with_the_reason(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The case a retirement with "uninstall MPP" leaves behind.
+
+    Enrolment installs no package - only the bootstrap does - so a host that
+    reports in without one cannot be configured. It used to run on regardless
+    and die in the activate step, where the probe refused a request over a
+    missing systemd unit: true, unrelated to the actual cause, and by then
+    with an account and an inventory entry already left behind.
+    """
+    await _sign_in(client)
+    await _initialise(project_dir)
+    token = (await _invite(client))["token"]
+    # What the probe answers once the package is gone.
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=none\nservice=inactive\n"
+    )
+
+    callback = await client.post(
+        f"/api/v1/enroll/{token}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": False,
+            "package_error": "E: Unable to locate package prtgmpprobe",
+        },
+    )
+    assert callback.status_code == 200, callback.text
+    job_id = callback.json()["job_id"]
+
+    await _drain(_build_runner(settings, transport))
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "failed"
+    assert job["error_code"] == "probe.package_missing"
+    # The installer's own words, carried from the console the operator has
+    # long since walked away from.
+    assert "Unable to locate package" in (job["error_details"] or "")
+    # Nothing was configured, so nothing was staged on the probe either.
+    assert "write-config" not in transport.commands()
+    # And the inventory stayed empty: starting over means a fresh invitation,
+    # not cleaning up after this run first.
+    assert (await client.get("/api/v1/probes")).json() == []
+
+
+async def test_a_probe_that_carries_the_package_enrols_as_before(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The guard above turns away the empty probe and nobody else."""
+    await _sign_in(client)
+    await _initialise(project_dir)
+    token = (await _invite(client))["token"]
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=3.10.0-1\nservice=active\n"
+    )
+
+    callback = await client.post(
+        f"/api/v1/enroll/{token}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+        },
+    )
+    job_id = callback.json()["job_id"]
+
+    await _drain(_build_runner(settings, transport))
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "successful", job.get("error_details")
+    assert "write-config" in transport.commands()

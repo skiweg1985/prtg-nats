@@ -276,6 +276,37 @@ async def test_a_dry_run_touches_nothing(
     assert transport.commands() == ["probe-info"]
 
 
+async def test_configuring_a_probe_without_the_package_stages_nothing(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    """The same guard the enrolment has, on the path everything shares.
+
+    Enrolment is not the only way here - configure, reconcile and a credential
+    rotation all run this transaction, and none of them can succeed while the
+    probe has no prtg.mpprobe.service to restart. Refused before the first
+    file is staged, so there is nothing to roll back.
+    """
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=none\nservice=inactive\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    accepted = await client.post(f"/api/v1/probes/{probe_id}/configure")
+    job_id = accepted.json()["job_id"]
+
+    await drain(build_runner(settings, transport))
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "failed"
+    assert job["error_code"] == "probe.package_missing"
+    assert transport.commands() == ["probe-info"]
+
+
 async def test_a_failed_activation_rolls_back_and_reports(
     client: AsyncClient,
     settings: Settings,

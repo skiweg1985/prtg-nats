@@ -886,6 +886,65 @@ check "the installer session is not" \
   "$(grep -A2 'open_bootstrap_control_session "${ssh_target}"' prtg-nats |
     grep -c 'UserKnownHostsFile' || true)" "0"
 
+printf '\n== Bootstrap report ==\n'
+
+# The template is not valid shell until it is rendered - the placeholders sit
+# where values belong - so the syntax check above skips it and this one fills
+# it in first. It runs as root on somebody else's machine, which is the worst
+# place to find a typo.
+bootstrap_dir="$(mktemp -d)"
+sed \
+  -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
+  -e 's|@@TOKEN@@|token|' \
+  -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
+  -e 's|@@CA_SHA256@@|0000|' \
+  -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24|' \
+  -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
+  -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
+  -e 's|@@INSTALL_PACKAGE@@|true|' \
+  bootstrap/probe-bootstrap.sh.template > "${bootstrap_dir}/bootstrap.sh"
+if sh -n "${bootstrap_dir}/bootstrap.sh" 2>/dev/null; then
+  printf '  ok    the rendered bootstrap is valid POSIX shell\n'
+  passed=$((passed + 1))
+else
+  printf '  FAIL  the rendered bootstrap is valid POSIX shell\n' >&2
+  sh -n "${bootstrap_dir}/bootstrap.sh" || true
+  failed=$((failed + 1))
+fi
+
+# What the installer says when it fails is quoted straight into the report, so
+# it has to survive the trip: an unescaped quote or backslash in that text
+# would leave the platform with a document it cannot parse, and the reason for
+# the failure would be lost exactly when it is needed.
+cat > "${bootstrap_dir}/failure.log" <<'INSTALLER_OUTPUT'
+E: Unable to locate package "prtgmpprobe"
+E: path C:\temp is not a directory
+	indented	with	tabs
+INSTALLER_OUTPUT
+escaped="$(
+  # shellcheck disable=SC1090 - the rendered script is built right above
+  sh -c '
+    . "$1"
+    json_escape_tail "$2"
+  ' _ <(sed -n '/^json_escape_tail()/,/^}/p' "${bootstrap_dir}/bootstrap.sh") \
+    "${bootstrap_dir}/failure.log"
+)"
+if command -v python3 >/dev/null 2>&1; then
+  parsed="$(
+    printf '{"package_error":"%s"}' "${escaped}" |
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["package_error"])'
+  )"
+  check "the installer output survives as one JSON string" \
+    "$(printf '%s' "${parsed}" | grep -c 'Unable to locate package')" "1"
+  check "a backslash in it does not break the document" \
+    "$(printf '%s' "${parsed}" | grep -c 'C:\\temp')" "1"
+  check "tabs are folded rather than left raw" \
+    "$(printf '%s' "${escaped}" | grep -c "$(printf '\t')" || true)" "0"
+else
+  printf '  skipped (python3 not installed)\n'
+fi
+rm -rf -- "${bootstrap_dir}"
+
 printf '\n== Result ==\n'
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

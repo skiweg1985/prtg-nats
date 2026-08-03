@@ -29,6 +29,7 @@ the probe's own words behind a disclosure control. See
 | The probe does not appear | wrong PRTG access key, or the GID was denied | check the access key and `Deny GIDs`, then restart the service |
 | `result_evaluation was not available` | an old, incompatible ping v2 sensor | recreate the sensor in PRTG; this is not a NATS connection error |
 | A job stays on `running` and cancel does nothing | its worker is gone, usually the API container was restarted mid-job | [A job stays on running](#a-job-stays-on-running-and-cancel-does-nothing) |
+| `probe.package_missing`, or `Unit prtg.mpprobe.service not found` while configuring | the probe carries no `prtgmpprobe`, usually after an unenrollment with `--uninstall-mpp` | [Re-enrolling a probe whose package was removed](#re-enrolling-a-probe-whose-package-was-removed) |
 
 The official installation and wizard details are in the
 [Paessler MPP manual](https://manuals.paessler.com/multiplatformprobemanual.pdf).
@@ -101,6 +102,29 @@ Errors such as `ping_group.result_evaluation was not available` only occur
 after a message has been delivered successfully. That is an incompatible old
 sensor, not a rejected duplicate and not a NATS error. Recreate the affected
 sensor in PRTG.
+
+### Re-enrolling a probe whose package was removed
+
+An unenrollment with `--uninstall-mpp`, or the "Uninstall MPP" checkbox in the
+dialog, purges `prtgmpprobe` and the Paessler package source. Taking that host
+on again from the interface alone does not bring either back: the package
+arrives with the bootstrap script and with nothing else. Without it there is no
+`prtg.mpprobe.service` for a configuration to start, and the job stops with
+`probe.package_missing`.
+
+Mint a fresh invitation and run its one-liner on the probe. The bootstrap
+installs the package and only then does the platform configure anything; where
+the package is already in place, it is kept. Alternatively install it directly
+on the probe and start the job again afterwards:
+
+```bash
+sudo ./install-mpp.sh --nats-host nats.example.com --nats-port 23561 --no-config
+```
+
+If the bootstrap itself could not install the package, it reports back anyway
+and the job carries the installer's own words in its technical details - a
+`dpkg` lock, an unreachable `packages.paessler.com`, an interrupted package
+run. Fix what it names, then enrol again.
 
 ### A job stays on running and cancel does nothing
 

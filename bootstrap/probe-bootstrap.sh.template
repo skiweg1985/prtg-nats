@@ -28,9 +28,25 @@ CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
 STAGE=""
 ACCESS_INSTALLED="false"
 PACKAGE_INSTALLED="false"
+PACKAGE_ERROR=""
 
 say() { printf '  %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# The tail of a log file, ready to be pasted between quotes in the report.
+# Quotes and backslashes are escaped, tabs folded to spaces and the remaining
+# control characters dropped, because this text was written by whatever went
+# wrong and still has to arrive as a document the platform can parse. Both the
+# number of lines and their length are capped: the last words of a failure are
+# what explains it, and the platform refuses an oversized report outright.
+json_escape_tail() {
+  tail -n 20 "$1" |
+    tr '\011' ' ' |
+    tr -d '\000-\010\013\014\016-\037\177' |
+    cut -c1-200 |
+    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' |
+    awk '{ printf "%s%s", separator, $0; separator = "\\n" }'
+}
 
 cleanup() {
   [ -n "${STAGE}" ] && rm -rf "${STAGE}"
@@ -104,15 +120,25 @@ if [ "${INSTALL_PACKAGE}" = "true" ]; then
   else
     say "Installing prtgmpprobe (this fetches from packages.paessler.com)"
     fetch install-mpp.sh "${STAGE}/install-mpp.sh"
-    if bash "${STAGE}/install-mpp.sh" \
+    # Teed rather than swallowed or hidden. The operator keeps watching an
+    # installation that takes minutes, and the same words are kept on disk so
+    # a failure can travel back with the report - without them the platform
+    # only ever learned that the package is absent, never why, and the reason
+    # scrolled off a console nobody returns to. sh has no PIPESTATUS, so the
+    # failure leaves a marker file behind instead.
+    {
+      bash "${STAGE}/install-mpp.sh" \
         --ca-file "${CA_PATH}" \
         --ca-sha256 "${CA_SHA256}" \
         --accept-ca \
-        --no-config; then
-      PACKAGE_INSTALLED="true"
-    else
+        --no-config || touch "${STAGE}/install-mpp.failed"
+    } 2>&1 | tee "${STAGE}/install-mpp.log"
+    if [ -e "${STAGE}/install-mpp.failed" ]; then
+      PACKAGE_ERROR="$(json_escape_tail "${STAGE}/install-mpp.log")"
       say "Package installation failed - reporting back anyway so the platform"
       say "can show what happened; the management access is already in place."
+    else
+      PACKAGE_INSTALLED="true"
     fi
   fi
 fi
@@ -138,9 +164,15 @@ ssh_port="$(
 )"
 [ -n "${ssh_port:-}" ] || ssh_port=22
 
-payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"package_installed":%s}' \
+if [ -n "${PACKAGE_ERROR}" ]; then
+  package_error="\"${PACKAGE_ERROR}\""
+else
+  package_error="null"
+fi
+
+payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"package_installed":%s,"package_error":%s}' \
   "$(hostname -f 2>/dev/null || hostname)" "${ssh_port}" "${keys}" \
-  "${ACCESS_INSTALLED}" "${PACKAGE_INSTALLED}")"
+  "${ACCESS_INSTALLED}" "${PACKAGE_INSTALLED}" "${package_error}")"
 
 printf '%s' "${payload}" > "${STAGE}/callback.json"
 curl -fsS --cacert "${CA_PATH}" \
