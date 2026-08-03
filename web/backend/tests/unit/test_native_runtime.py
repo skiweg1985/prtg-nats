@@ -69,6 +69,29 @@ def test_ca_and_server_certificate_match_the_shell_shapes(
     assert (settings.cert_dir / "server-key.pem").stat().st_mode & 0o077 == 0
 
 
+def test_a_bare_ip_host_becomes_an_ip_san(
+    settings: Settings, template_dir: Path
+) -> None:
+    """The NATS client matches a literal address against iPAddress SANs only.
+
+    Written as a dNSName it matches nothing, and every probe drops the
+    connection with "bad certificate" even though the chain verifies.
+    """
+    pki = Pki(settings)
+    pki.create_ca(organization="Example Org")
+    pki.issue_server_certificate(fqdn="192.168.177.79", archive=False)
+
+    server = x509.load_pem_x509_certificate(
+        (settings.cert_dir / "server.pem").read_bytes()
+    )
+    san = server.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    assert [str(value) for value in san.value.get_values_for_type(x509.IPAddress)] == [
+        "192.168.177.79"
+    ]
+    assert san.value.get_values_for_type(x509.DNSName) == []
+    pki.verify_server_pair(fqdn="192.168.177.79")
+
+
 def test_a_second_ca_is_refused(settings: Settings) -> None:
     pki = Pki(settings)
     pki.create_ca(organization="Example Org")

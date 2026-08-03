@@ -75,7 +75,13 @@ def _subject_alt_names(certificate: x509.Certificate) -> tuple[str, ...]:
         return ()
     san = extension.value
     assert isinstance(san, x509.SubjectAlternativeName)  # noqa: S101
-    return tuple(str(value) for value in san.get_values_for_type(x509.DNSName))
+    # An installation reached over a bare IP carries an iPAddress SAN; listing
+    # only dNSName would show such a certificate as having no names at all.
+    return tuple(
+        str(value)
+        for kind in (x509.DNSName, x509.IPAddress)
+        for value in san.get_values_for_type(kind)
+    )
 
 
 def read_certificate(

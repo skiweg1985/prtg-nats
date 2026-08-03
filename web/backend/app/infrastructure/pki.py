@@ -2,12 +2,14 @@
 
 Replaces the openssl(1) calls in the retired init-runtime.sh and
 renew-server-certificate.sh. Same shapes on purpose: CA RSA-4096 for ten
-years, server RSA-3072 for 397 days with the FQDN as its only SAN, and an
-Ed25519 management key - a probe enrolled by the old tooling stays valid.
+years, server RSA-3072 for 397 days with the configured host as its only
+SAN, and an Ed25519 management key - a probe enrolled by the old tooling
+stays valid.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,6 +26,20 @@ CA_VALID_DAYS = 3650
 SERVER_VALID_DAYS = 397
 CA_KEY_BITS = 4096
 SERVER_KEY_BITS = 3072
+
+
+def _host_san(host: str) -> x509.GeneralName:
+    """The SAN entry a TLS client will actually match the host against.
+
+    Go's crypto/tls - the NATS client - compares a literal address against
+    iPAddress entries only and never falls back to dNSName. A bare IP written
+    as a DNS entry therefore matches nothing, and the probe aborts the
+    handshake with "bad certificate" while the chain itself is perfectly fine.
+    """
+    try:
+        return x509.IPAddress(ipaddress.ip_address(host))
+    except ValueError:
+        return x509.DNSName(host)
 
 
 def _write_private(path: Path, content: bytes) -> None:
@@ -172,7 +188,7 @@ class Pki:
                 x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
             )
             .add_extension(
-                x509.SubjectAlternativeName([x509.DNSName(fqdn)]), critical=False
+                x509.SubjectAlternativeName([_host_san(fqdn)]), critical=False
             )
             .add_extension(
                 x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
@@ -204,7 +220,7 @@ class Pki:
         cert.verify_directly_issued_by(ca)
 
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        if fqdn not in san.value.get_values_for_type(x509.DNSName):
+        if _host_san(fqdn) not in san.value:
             raise RuntimeStateError(
                 params={"fqdn": fqdn},
                 details=f"server certificate SAN does not contain {fqdn}",
