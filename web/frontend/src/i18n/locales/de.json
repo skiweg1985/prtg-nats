@@ -1,0 +1,554 @@
+{
+  "app": {
+    "name": "PRTG-NATS",
+    "tagline": "Managementplattform"
+  },
+  "nav": {
+    "dashboard": "Übersicht",
+    "probes": "Probes",
+    "sensors": "Sensoren",
+    "deployments": "Ausrollvorgänge",
+    "jobs": "Jobs",
+    "infrastructure": "Infrastruktur",
+    "nats": "NATS",
+    "iperf": "Messpunkte",
+    "certificates": "Zertifikate",
+    "credentials": "Zugangsdaten",
+    "audit": "Protokoll",
+    "settings": "Einstellungen"
+  },
+  "common": {
+    "search": "Suchen",
+    "filter": "Filtern",
+    "cancel": "Abbrechen",
+    "confirm": "Bestätigen",
+    "close": "Schließen",
+    "save": "Speichern",
+    "retry": "Erneut versuchen",
+    "refresh": "Aktualisieren",
+    "loading": "Wird geladen …",
+    "never": "Nie",
+    "unknown": "Unbekannt",
+    "none": "Keine",
+    "yes": "Ja",
+    "no": "Nein",
+    "of": "von",
+    "selected_one": "{{count}} ausgewählt",
+    "selected_other": "{{count}} ausgewählt",
+    "showAll": "Alle anzeigen",
+    "showTechnicalDetails": "Technische Details anzeigen",
+    "hideTechnicalDetails": "Technische Details verbergen",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "reveal": "Anzeigen",
+    "hidden": "Verborgen",
+    "moreActions": "Weitere Aktionen",
+    "back": "Zurück",
+    "clearFilters": "Filter zurücksetzen",
+    "lastUpdated": "Stand {{time}}",
+    "stale": "Zwischenspeicher, zuletzt geprüft {{time}}"
+  },
+  "auth": {
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "username": "Benutzername",
+    "password": "Kennwort",
+    "currentPassword": "Aktuelles Kennwort",
+    "newPassword": "Neues Kennwort",
+    "changePassword": "Kennwort ändern",
+    "signInTitle": "Anmeldung bei {{name}}",
+    "setupTitle": "Ersten Administrator anlegen",
+    "setupIntro": "Es existiert noch kein Konto. Das hier angelegte Konto verwaltet die Plattform.",
+    "displayName": "Anzeigename",
+    "createAccount": "Konto anlegen",
+    "passwordHint": "Mindestens 12 Zeichen. Länge zählt mehr als Sonderzeichen.",
+    "developmentBanner": "Die Entwicklungsanmeldung ist aktiv. Jede Anfrage läuft ohne Anmeldung mit Administratorrechten.",
+    "mustChangePassword": "Das Kennwort muss geändert werden, bevor es weitergeht."
+  },
+  "dashboard": {
+    "title": "Übersicht",
+    "question": "Ist die Plattform betriebsbereit, und gibt es Handlungsbedarf?",
+    "allClear": "Nichts erfordert eine Reaktion.",
+    "natsServer": "NATS-Server",
+    "jetstream": "JetStream",
+    "probes": "Probes",
+    "healthy": "In Ordnung",
+    "degraded": "Beeinträchtigt",
+    "unreachable": "Nicht erreichbar",
+    "withDeviations": "Mit Abweichungen",
+    "failedJobs": "Fehlgeschlagene Jobs (24 h)",
+    "runningJobs": "Laufende Jobs",
+    "expiringCertificates": "Bald ablaufende Zertifikate",
+    "recentJobs": "Letzte Jobs",
+    "recentActivity": "Letzte administrative Aktionen",
+    "activeWarnings": "Aktive Warnungen",
+    "connections": "Verbindungen",
+    "streams": "Streams",
+    "messages": "Nachrichten",
+    "storage": "Speicher",
+    "endpoint": "Endpunkt",
+    "coreAddress": "PRTG Core",
+    "notConfigured": "Diese Installation ist noch nicht eingerichtet. Zuerst die Einrichtung auf dem Server ausführen.",
+    "natsUnavailable": "Der NATS-Monitoring-Endpunkt hat nicht geantwortet. Containerzustand und Probe-Verbindungen lassen sich nicht ermitteln.",
+    "setupTitle": "Diese Installation ist noch nicht initialisiert",
+    "setupHint": "Standortdaten sind vorhanden, aber Zertifikate, Zugangsdaten und die Serverkonfiguration wurden noch nicht erzeugt. Die Initialisierung läuft als Job und dauert unter einer Minute.",
+    "setupAction": "Jetzt initialisieren"
+  },
+  "probes": {
+    "title": "Probes",
+    "subtitle": "Die Systeme, auf denen die Überwachungsskripte laufen",
+    "empty": "Es ist noch keine Probe eingebunden.",
+    "emptyHint": "Eine Probe wird auf dem Server mit „prtg-nats install-mpp“ hinzugefügt. Der geführte Ablauf folgt mit der Onboarding-Phase.",
+    "columns": {
+      "name": "Probe",
+      "host": "Host",
+      "status": "Status",
+      "service": "Dienst",
+      "version": "Paket",
+      "ca": "CA",
+      "nats": "NATS",
+      "sensors": "Sensoren",
+      "deviations": "Abweichungen",
+      "observed": "Zuletzt geprüft"
+    },
+    "tabs": {
+      "overview": "Übersicht",
+      "sensors": "Sensoren",
+      "configuration": "Konfiguration",
+      "certificates": "Zertifikate",
+      "deployments": "Ausrollvorgänge",
+      "jobs": "Jobs",
+      "audit": "Protokoll",
+      "diagnostics": "Diagnose"
+    },
+    "identity": "Identität",
+    "natsUser": "NATS-Konto",
+    "probeId": "Probe-Id",
+    "probeName": "Probe-Name in PRTG",
+    "accessKey": "PRTG Access Key",
+    "accessKeyHint": "Diesen Wert als neue Zeile in die PRTG-Access-Key-Liste eintragen.",
+    "sshHost": "Management-Host",
+    "caFingerprint": "CA-Fingerabdruck",
+    "installCa": "CA installieren",
+    "validate": "Prüfung starten",
+    "refreshState": "Zustand aktualisieren",
+    "notes": "Notizen",
+    "displayName": "Anzeigename",
+    "deviationsTitle": "Abweichungen",
+    "noDeviations": "Die Probe entspricht dem gewünschten Zustand.",
+    "desiredState": "Gewünschter Zustand",
+    "actualState": "Tatsächlicher Zustand",
+    "fixDeviations": "Abweichungen beheben",
+    "planPreview": "Diese Aktionen würden ausgeführt",
+    "planEmpty": "Nichts zu tun.",
+    "planRestartWarning": "Dabei wird der Probe-Dienst neu gestartet. Er verbindet sich danach wieder.",
+    "configure": "Konfiguration anwenden",
+    "unenroll": "Ausbinden",
+    "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Die Probe läuft weiter und bleibt mit NATS verbunden; ihr NATS-Konto wird nicht gelöscht.",
+    "executePlan": "Abweichungen jetzt beheben"
+  },
+  "sensors": {
+    "title": "Sensoren",
+    "subtitle": "Versionierte Überwachungsskripte, die auf Probes ausgerollt werden",
+    "empty": "In dieser Installation ist kein Sensor vorhanden.",
+    "columns": {
+      "name": "Sensor",
+      "version": "Version",
+      "description": "Beschreibung",
+      "installed": "Installiert auf",
+      "outdated": "Veraltet auf"
+    },
+    "files": "Dateien, die auf die Probe übertragen werden",
+    "needsInterface": "Benötigt ein reserviertes Interface",
+    "privilegedHelper": "Betreibt einen privilegierten Hilfsdienst",
+    "iperfEndpoint": "Misst gegen einen verwalteten iperf-Messpunkt",
+    "deploy": "Ausrollen",
+    "deployTo": "Auf Probes ausrollen",
+    "parameters": "Parameter",
+    "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
+    "parametersResult": "Parameterzeile für PRTG",
+    "noParameterSchema": "Dieser Sensor liefert kein Parameterschema mit. Die Optionen stehen in seiner README.",
+    "installedOn": "Installiert auf diesen Probes",
+    "readme": "Dokumentation",
+    "remove": "Entfernen"
+  },
+  "deployments": {
+    "title": "Ausrollvorgänge",
+    "subtitle": "Sensor-Rollouts und ihr Ergebnis je Probe",
+    "empty": "Es wurde noch nichts ausgerollt.",
+    "create": "Neuer Rollout",
+    "selectSensor": "Sensor",
+    "selectProbes": "Probes",
+    "dryRun": "Probelauf",
+    "dryRunHint": "Meldet, was geschehen würde, ohne die Probe zu verändern.",
+    "start": "Rollout starten",
+    "targets": "Ziele",
+    "columns": {
+      "sensor": "Sensor",
+      "version": "Version",
+      "status": "Status",
+      "targets": "Probes",
+      "started": "Gestartet",
+      "by": "Gestartet von"
+    },
+    "summary": "{{succeeded}} von {{total}} Probes erfolgreich"
+  },
+  "jobs": {
+    "title": "Jobs",
+    "subtitle": "Alles, was dauert oder scheitern kann",
+    "empty": "Es wurde noch kein Job ausgeführt.",
+    "columns": {
+      "type": "Job",
+      "target": "Ziel",
+      "status": "Status",
+      "progress": "Fortschritt",
+      "started": "Gestartet",
+      "duration": "Dauer",
+      "by": "Gestartet von"
+    },
+    "step": "Schritt {{current}} von {{total}}: {{name}}",
+    "log": "Protokoll",
+    "result": "Ergebnis",
+    "rawOutput": "Technische Ausgabe",
+    "cancel": "Job abbrechen",
+    "retry": "Erneut ausführen",
+    "live": "Live",
+    "reconnecting": "Verbindung wird wiederhergestellt …",
+    "disconnected": "Die Live-Verbindung ist abgerissen. Das Protokoll unten ist bis dahin vollständig.",
+    "blocked": {
+      "resource_busy": "Wartet darauf, dass Job {{jobId}} das Ziel freigibt."
+    },
+    "steps": {
+      "resolve_targets": "Ziele bestimmen",
+      "check_reachable": "Erreichbarkeit prüfen",
+      "prepare": "Probe vorbereiten",
+      "stage_files": "Dateien übertragen",
+      "activate": "Installieren und Selbsttest",
+      "commit": "Übernehmen",
+      "verify": "Nachprüfen",
+      "install_ca": "CA installieren",
+      "collect_state": "Zustand erfassen",
+      "evaluate": "Auswerten",
+      "renew": "Zertifikat erneuern",
+      "restart": "Neu starten",
+      "wait_healthy": "Auf Gesundheit warten",
+      "backup": "Sicherung erstellen",
+      "smoke_test": "Rauchtest",
+      "resolve_identity": "Identität bestimmen",
+      "render_config": "Konfiguration rendern",
+      "plan": "Planen",
+      "apply": "Anwenden",
+      "revoke_access": "Zugang entziehen",
+      "remove_inventory": "Inventar entfernen",
+      "rotate_server": "Auf dem Server rotieren",
+      "reconfigure_probe": "Probe neu konfigurieren",
+      "bookkeeping": "Buchführung",
+      "deploy_profiles": "Zugangsdaten-Profile ausrollen",
+      "initialise": "Initialisieren",
+      "start_containers": "Container starten",
+      "remove": "Entfernen"
+    },
+    "events": {
+      "started": "Job gestartet: {{type}}",
+      "finished": "Job abgeschlossen",
+      "finished_partial": "Job mit Fehlern abgeschlossen",
+      "failed": "Job fehlgeschlagen: {{reason}}",
+      "cancelled": "Job abgebrochen",
+      "probe": {
+        "reachable": "{{probe}} hat geantwortet, Paket {{package}}",
+        "unreachable": "{{probe}} hat nicht geantwortet",
+        "prepared": "{{probe}} für Sensoren vorbereitet",
+        "ca_installed": "CA auf {{probe}} installiert",
+        "ca_verified": "{{probe}} meldet jetzt CA {{ca_sha256}}",
+        "state_collected": "{{probe}}: Dienst {{service}}, {{sensors}} Sensoren",
+        "validated": "{{probe}} hat alle Prüfungen bestanden",
+        "finding": "{{probe}}: {{finding}}",
+        "identity_resolved": "{{probe}}: Identität aufgelöst als {{probe_name}}",
+        "config_rendered": "{{probe}}: Konfiguration gerendert",
+        "config_staged": "{{probe}}: Zugangsdaten und Konfiguration bereitgestellt",
+        "config_activated": "{{probe}}: Konfiguration aktiviert, Dienst neu gestartet",
+        "config_rolled_back": "{{probe}}: vorherige Konfiguration wiederhergestellt",
+        "configured": "{{probe}}: Konfiguration ist aktiv",
+        "access_revoked": "{{probe}}: Management-Zugang entzogen",
+        "access_revoke_failed": "{{probe}}: Management-Zugang ließ sich nicht entziehen; der Schlüssel auf der Probe bleibt zurück",
+        "unenrolled": "{{probe}}: aus dem Inventar entfernt"
+      },
+      "sensor": {
+        "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
+        "staged": "{{probe}}: {{slot}} übertragen ({{bytes}} Byte)",
+        "activated": "{{probe}}: {{sensor}} installiert und selbstgetestet",
+        "committed": "{{probe}}: {{sensor}} Version {{version}} ist aktiv",
+        "failed": "{{probe}}: {{sensor}} fehlgeschlagen ({{reason}})",
+        "rolled_back": "{{probe}}: vorheriger Stand wiederhergestellt",
+        "dry_run": "{{probe}}: würde {{sensor}} Version {{version}} installieren ({{slots}})",
+        "removed": "{{probe}}: {{sensor}} entfernt",
+        "profile_deployed": "{{probe}}: Zugangsdaten für Messpunkt {{endpoint}} ausgerollt",
+        "no_endpoints": "Es ist kein Messpunkt registriert; der Sensor meldet credentials-unreadable, bis einer ausgerollt wird"
+      },
+      "system": {
+        "certificate_renewed": "Serverzertifikat erneuert",
+        "container_restarted": "Container {{container}} neu gestartet",
+        "container_state": "Container {{container}}: {{status}}, Gesundheit {{health}}",
+        "verified": "Prüfung bestanden",
+        "verify_failed": "Prüfung fehlgeschlagen",
+        "smoke_test": "Rauchtest bestanden",
+        "smoke_test_failed": "Rauchtest fehlgeschlagen",
+        "backup_created": "Sicherung erstellt",
+        "check": "Prüfung {{check}}: {{ok}}",
+        "runtime_initialised": "Laufzeit initialisiert: CA, Serverzertifikat, Management-Schlüssel und gemeinsames Konto erzeugt",
+        "docker_unavailable_note": "Der Docker-Socket ist nicht eingebunden; Container übernehmen die Änderung beim nächsten Start",
+        "backup_checksum": "Sicherungs-Prüfsumme {{sha256}}"
+      },
+      "reconcile": {
+        "planned": "{{probe}}: {{actions}} Aktion(en) geplant",
+        "nothing_to_do": "{{probe}} entspricht bereits dem gewünschten Zustand",
+        "action": "Führe {{kind}} aus",
+        "applied": "{{probe}}: {{count}} Aktion(en) angewendet"
+      },
+      "credential": {
+        "rotated_server": "Serverseitige Zugangsdaten für {{probe}} rotiert",
+        "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen"
+      }
+    }
+  },
+  "audit": {
+    "title": "Protokoll",
+    "subtitle": "Jede administrative Aktion, der Reihe nach",
+    "empty": "Es wurde noch nichts protokolliert.",
+    "columns": {
+      "time": "Zeitpunkt",
+      "actor": "Benutzer",
+      "action": "Aktion",
+      "object": "Objekt",
+      "result": "Ergebnis",
+      "source": "Quelle"
+    },
+    "before": "Vorher",
+    "after": "Nachher",
+    "immutable": "Protokolleinträge lassen sich nicht ändern und nicht löschen."
+  },
+  "infrastructure": {
+    "natsTitle": "NATS-Server",
+    "certificatesTitle": "Zertifikate",
+    "iperfTitle": "Messpunkte",
+    "iperfSubtitle": "Die Gegenstellen, gegen die der Sensor iperf-throughput misst",
+    "iperfEmpty": "Es ist kein Messpunkt eingerichtet.",
+    "credentialsTitle": "Zugangsdaten",
+    "renewCertificate": "Zertifikat erneuern",
+    "renewWarning": "Beim Erneuern des Serverzertifikats startet der NATS-Container neu. Alle Probes und der PRTG Core verbinden sich erneut.",
+    "expiresIn_one": "Läuft in {{count}} Tag ab",
+    "expiresIn_other": "Läuft in {{count}} Tagen ab",
+    "expired": "Abgelaufen",
+    "fingerprint": "SHA-256-Fingerabdruck",
+    "subjectAltNames": "Alternative Namen",
+    "keyMismatch": "Zertifikat und privater Schlüssel gehören nicht zusammen."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "general": "Allgemein",
+    "users": "Benutzer und Rollen",
+    "language": "Sprache",
+    "languageHint": "Gilt nur für diesen Browser.",
+    "theme": "Darstellung",
+    "themeLight": "Hell",
+    "themeDark": "Dunkel",
+    "themeSystem": "Systemvorgabe",
+    "capabilities": "Fähigkeiten dieser Installation",
+    "dockerAvailable": "Containersteuerung verfügbar",
+    "dockerUnavailable": "Der Docker-Socket ist nicht eingebunden. Aktionen am Serverdienst sind ausgeblendet.",
+    "runtimeState": "Laufzeitzustand",
+    "addUser": "Benutzer hinzufügen",
+    "role": "Rolle",
+    "active": "Aktiv",
+    "lastLogin": "Letzte Anmeldung",
+    "locked": "Gesperrt bis {{time}}",
+    "you": "Du",
+    "deactivate": "Deaktivieren",
+    "activate": "Aktivieren",
+    "roles": "Dein Zugriff",
+    "initialPasswordHint": "Der Benutzer muss es bei der ersten Anmeldung ändern."
+  },
+  "roles": {
+    "viewer": "Betrachter",
+    "operator": "Operator",
+    "administrator": "Administrator",
+    "viewer.description": "Liest Status, Probes, Sensoren, Jobs, Protokolle und Audit-Einträge.",
+    "operator.description": "Rollt zusätzlich Sensoren aus, wendet Konfigurationen an, startet Prüfungen und wiederholt fehlgeschlagene Jobs.",
+    "administrator.description": "Verwaltet zusätzlich Benutzer, Zugangsdaten, Zertifikate, Probes und Systemeinstellungen."
+  },
+  "status": {
+    "probe": {
+      "pending": "Ausstehend",
+      "enrolled": "Eingebunden",
+      "healthy": "In Ordnung",
+      "degraded": "Beeinträchtigt",
+      "unreachable": "Nicht erreichbar",
+      "retired": "Außer Betrieb"
+    },
+    "sensor": {
+      "absent": "Nicht installiert",
+      "current": "Aktuell",
+      "outdated": "Veraltet",
+      "drifted": "Verändert",
+      "failed": "Fehlgeschlagen",
+      "unmanaged": "Nicht verwaltet"
+    },
+    "job": {
+      "queued": "In Warteschlange",
+      "running": "Läuft",
+      "successful": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "partially_successful": "Teilweise erfolgreich"
+    },
+    "certificate": {
+      "valid": "Gültig",
+      "expiring_soon": "Läuft bald ab",
+      "expired": "Abgelaufen",
+      "mismatched": "Schlüssel passt nicht",
+      "missing": "Fehlt"
+    },
+    "service": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "unknown": "Unbekannt"
+    },
+    "ca": {
+      "ok": "Stimmt überein",
+      "missing": "Fehlt",
+      "mismatched": "Abweichend",
+      "unknown": "Unbekannt"
+    },
+    "nats": {
+      "connected": "Verbunden",
+      "disconnected": "Getrennt",
+      "unknown": "Unbekannt"
+    },
+    "audit": {
+      "success": "Erfolgreich",
+      "failure": "Fehlgeschlagen",
+      "denied": "Abgelehnt"
+    }
+  },
+  "deviations": {
+    "sensor_missing": "Sensor {{sensor}} ist nicht installiert",
+    "sensor_outdated": "Sensor {{sensor}} ist veraltet",
+    "sensor_drifted": "Sensor {{sensor}} wurde auf der Probe verändert",
+    "sensor_unmanaged": "Sensor {{sensor}} ist installiert, steht aber nicht im gewünschten Zustand",
+    "profile_missing": "Ein Zugangsdaten-Profil fehlt",
+    "ca_missing": "Das CA-Zertifikat fehlt",
+    "ca_mismatched": "Die Probe trägt eine andere CA",
+    "service_inactive": "Der Probe-Dienst läuft nicht",
+    "probe_name_mismatch": "Der Probe-Name weicht vom gewünschten ab"
+  },
+  "plan": {
+    "restart_service": "Probe-Dienst auf {{probe}} neu starten",
+    "install_ca": "Aktuelle CA auf {{probe}} installieren",
+    "configure": "Konfiguration auf {{probe}} schreiben",
+    "deploy_sensor": "{{sensor}} Version {{version}} auf {{probe}} ausrollen",
+    "risk": {
+      "service_interruption": "Die Probe meldet für wenige Sekunden nichts."
+    }
+  },
+  "errors": {
+    "title": "Etwas ist schiefgelaufen",
+    "whatFailed": "Was ist fehlgeschlagen",
+    "affected": "Betroffenes Ziel",
+    "atStep": "In welchem Schritt",
+    "likelyCause": "Wahrscheinliche Ursache",
+    "recommendedAction": "Empfohlene Aktion",
+    "correlationId": "Korrelations-ID",
+    "common": {
+      "not_found": "{{resource}} „{{id}}“ existiert nicht.",
+      "validation_failed": "Die übermittelten Werte wurden nicht angenommen.",
+      "conflict": "Das steht im Widerspruch zum aktuellen Zustand.",
+      "resource_busy": "Ein anderer Job arbeitet an diesem Objekt. Es wird in Kürze frei."
+    },
+    "auth": {
+      "authentication_required": "Bitte anmelden.",
+      "invalid_credentials": "Benutzername oder Kennwort ist falsch.",
+      "account_locked": "Zu viele Fehlversuche. In {{retry_after_seconds}} Sekunden erneut versuchen.",
+      "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
+      "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen."
+    },
+    "probe": {
+      "unreachable": "Die Probe „{{probe}}“ hat über den Management-Kanal nicht geantwortet.",
+      "unreachable.cause": "Der Host ist aus, der Netzweg ist blockiert, oder der Management-Schlüssel wurde auf der Probe entfernt.",
+      "unreachable.action": "Prüfen, ob der Host erreichbar ist und der SSH-Dienst den Management-Schlüssel annimmt, dann den Job erneut ausführen.",
+      "protocol_error": "Die Probe hat auf eine Weise geantwortet, die das Management-Protokoll nicht zulässt.",
+      "protocol_error.cause": "Der Probe-Helper auf dem Zielsystem ist älter oder neuer als erwartet.",
+      "protocol_error.action": "Den Probe-Helper auf dem Zielsystem aktualisieren.",
+      "request_rejected": "Die Probe hat die Anfrage „{{command}}“ abgelehnt.",
+      "request_rejected.cause": "Die Probe hat die Anfrage geprüft und zurückgewiesen. Die technischen Details enthalten ihre eigene Meldung.",
+      "request_rejected.action": "Die technischen Details lesen, die Ursache beheben, dann den Job erneut ausführen."
+    },
+    "nats": {
+      "unavailable": "Der NATS-Server hat nicht geantwortet."
+    },
+    "docker": {
+      "unavailable": "Die Containersteuerung steht in dieser Installation nicht zur Verfügung.",
+      "unavailable.cause": "Der Docker-Socket ist nicht in den Backend-Container eingebunden.",
+      "unavailable.action": "/var/run/docker.sock einbinden oder diese Aktion auf dem Server ausführen."
+    },
+    "runtime": {
+      "incomplete": "Der Installationszustand unter runtime/ fehlt oder ist unvollständig.",
+      "incomplete.cause": "Der Stack wurde in diesem Verzeichnis nie eingerichtet, oder das Backend kann ihn nicht lesen.",
+      "incomplete.action": "Die Einrichtung auf dem Server ausführen und prüfen, ob runtime/ lesbar eingebunden ist."
+    },
+    "jobs": {
+      "unknown_type": "Diese Job-Art ist der Plattform nicht bekannt.",
+      "orphaned": "Der Worker hat sich nicht zurückgemeldet. Der Job wurde beendet und seine Sperren freigegeben.",
+      "all_targets_failed": "Der Job ist auf allen Zielen fehlgeschlagen.",
+      "all_targets_failed.cause": "Jedes Ziel hat einen eigenen Grund gemeldet; das Protokoll führt sie je Ziel auf.",
+      "all_targets_failed.action": "Das Protokoll lesen, die genannte Ursache beheben, dann den Job erneut ausführen.",
+      "some_targets_failed": "Der Job ist auf {{failed}} seiner Ziele fehlgeschlagen.",
+      "some_targets_failed.cause": "Die übrigen Ziele waren erfolgreich. Nur die fehlgeschlagenen brauchen Aufmerksamkeit.",
+      "some_targets_failed.action": "Das Protokoll der fehlgeschlagenen Ziele lesen, dann den Job erneut ausführen."
+    },
+    "internal": {
+      "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+    },
+    "network": {
+      "unreachable": "Die Management-API ist nicht erreichbar."
+    }
+  },
+  "validation": {
+    "too_short": "Zu kurz.",
+    "surrounding_whitespace": "Leerzeichen am Anfang oder Ende sind nicht erlaubt."
+  },
+  "confirm": {
+    "title": "Aktion bestätigen",
+    "typeToConfirm": "Zum Bestätigen {{value}} eingeben.",
+    "restartNats": "Ein Neustart des NATS-Servers trennt alle Probes und den PRTG Core, bis sie sich neu verbinden.",
+    "deleteUser": "Das Konto wird entfernt und alle zugehörigen Sitzungen enden."
+  },
+  "alerts": {
+    "probe.unreachable": "{{probe}} antwortet nicht",
+    "probe.degraded": "{{probe}} hat {{deviations}} Abweichung(en)",
+    "certificate.expired": "Das Zertifikat {{certificate}} ist abgelaufen",
+    "certificate.expiring_soon": "Das Zertifikat {{certificate}} läuft in {{days_remaining}} Tagen ab",
+    "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel"
+  },
+  "credentials": {
+    "title": "NATS-Konten",
+    "subtitle": "Die Zugangsdaten, mit denen sich Probes und der PRTG Core anmelden",
+    "empty": "Es existiert noch kein Konto.",
+    "columns": {
+      "account": "Konto",
+      "usage": "Verwendet von"
+    },
+    "shared": "Gemeinsam",
+    "usedByCore": "PRTG Core und Alt-Probes",
+    "usedByProbe": "Einer eingebundenen Probe",
+    "unused": "Nicht in Verwendung",
+    "create": "Konto anlegen",
+    "createTitle": "Neues NATS-Konto",
+    "createHint": "Das Kennwort wird erzeugt und in der geschützten Zugangsdatei abgelegt. Anzeigen nur, wenn der PRTG Core es eingetippt braucht.",
+    "rotate": "Rotieren",
+    "delete": "Löschen",
+    "deleteBlockedProbe": "Für dieses Konto ist eine Probe eingebunden.",
+    "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
+    "revealTitle": "Kennwort für {{account}}",
+    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
+  }
+}

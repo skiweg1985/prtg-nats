@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.orchestra.lookup_adapter_state" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Warning" value="-2">
+        Not installed
+      </SingleInt>
+      <SingleInt state="Warning" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="0">
+        Offline
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Online with error
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

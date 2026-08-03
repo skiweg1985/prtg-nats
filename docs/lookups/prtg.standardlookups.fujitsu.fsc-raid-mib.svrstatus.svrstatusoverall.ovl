@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-raid-mib.svrstatus.svrstatusoverall" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Prefailure
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failure
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

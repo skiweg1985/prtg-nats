@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.netapp.sparestate" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <Range  state="Error" from="0" to="0">
+       Node has insufficient spare disks
+      </Range >
+      <Range  state="Warning" from="1" to="1">
+	  Warning
+      </Range >
+	  <Range state="OK" from="2" to="999999">
+	  OK
+	  </Range>
+  </Lookups>
+</ValueLookup>

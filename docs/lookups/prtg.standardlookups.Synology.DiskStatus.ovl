@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.Synology.DiskStatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Normal
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Initialized
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        NotInitialized
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        SystemPartitionFailed
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Crashed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

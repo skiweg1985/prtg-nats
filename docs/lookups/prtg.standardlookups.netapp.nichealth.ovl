@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.netapp.nichealth" desiredValue="0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="1">
+        Healthy
+    </SingleInt>
+    <SingleInt state="Error" value="2">
+        Unhealthy
+    </SingleInt>
+    <SingleInt state="None" value="3">
+        Not Available
+    </SingleInt>
+  </Lookups>
+</ValueLookup>

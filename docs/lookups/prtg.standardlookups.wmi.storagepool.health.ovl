@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="0" id="prtg.standardlookups.wmi.storagepool.health"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Healthy</SingleInt>
+    <SingleInt state="Warning" value="1">Warning</SingleInt>
+    <SingleInt state="Error" value="2">Unhealthy</SingleInt>
+    <SingleInt state="None" value="5">Unknown</SingleInt>
+  </Lookups>
+</ValueLookup>

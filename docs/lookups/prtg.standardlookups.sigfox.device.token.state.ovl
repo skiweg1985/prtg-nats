@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.sigfox.device.token.state" desiredValue="0"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+        <SingleInt state="OK" value="0">
+            Normal
+        </SingleInt>
+        <SingleInt state="Warning" value="1">
+            Off Contract
+        </SingleInt>
+        <SingleInt state="Error" value="2">
+            Not available for API
+        </SingleInt>
+        <SingleInt state="Error" value="3">
+            Invalid Token
+        </SingleInt>
+    </Lookups>
+</ValueLookup>

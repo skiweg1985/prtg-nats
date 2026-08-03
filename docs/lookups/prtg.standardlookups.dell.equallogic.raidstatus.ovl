@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.dell.equallogic.raidstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Ok
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Degraded
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Verifying
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Reconstructing
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Failed
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Catastrophic Loss
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        Expanding
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Mirroring
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

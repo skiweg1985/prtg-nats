@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.truthvalue" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        True
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        False
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

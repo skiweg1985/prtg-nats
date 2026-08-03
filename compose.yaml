@@ -1,0 +1,104 @@
+name: prtg-nats
+
+services:
+  nats:
+    image: nats:2.10.29-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    container_name: prtg-nats
+    command:
+      - --config
+      - /etc/nats/conf/nats-server.conf
+    ports:
+      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - run \"./prtg-nats config --edit\"}:${NATS_PORT:-23561}:${NATS_PORT:-23561}"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      # Directory mounts on purpose: they exist before initialisation, so the
+      # container can start, retry, and come up the moment the web setup job
+      # writes the configuration. A file mount would become a directory if the
+      # file did not exist yet. Only conf/ and certs/ are exposed - the
+      # container never sees private keys or credentials.
+      - type: bind
+        source: ./runtime/conf
+        target: /etc/nats/conf
+        read_only: true
+      - type: bind
+        source: ./runtime/certs
+        target: /etc/nats/certs
+        read_only: true
+      - type: volume
+        source: nats-data
+        target: /data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --output-document=/dev/null
+        - http://127.0.0.1:8222/healthz?js-enabled-only=true
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  ca-download:
+    image: busybox:1.37.0-musl@sha256:222ad6d973c0d198014546a65cd02c5fdedcc172123c5b4c2bf0af636550bd94
+    container_name: prtg-nats-ca
+    command:
+      - httpd
+      - -f
+      - -p
+      - "8080"
+      - -h
+      - /www
+    ports:
+      - "${NATS_HOST_IP:?NATS_HOST_IP is missing - run \"./prtg-nats config --edit\"}:${CA_HTTP_PORT:-80}:8080"
+    volumes:
+      - type: bind
+        source: ./runtime/public
+        target: /www
+        read_only: true
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/nats-ca.pem
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: local
+      options:
+        max-size: 1m
+        max-file: "2"
+
+volumes:
+  nats-data:
+    name: prtg-nats-data

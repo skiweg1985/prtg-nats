@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.cisco.admin_status" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Enabled
+      </SingleInt>
+      <SingleInt state="None" value="2">
+        Disabled
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,554 @@
+{
+  "app": {
+    "name": "PRTG-NATS",
+    "tagline": "Management platform"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "probes": "Probes",
+    "sensors": "Sensors",
+    "deployments": "Deployments",
+    "jobs": "Jobs",
+    "infrastructure": "Infrastructure",
+    "nats": "NATS",
+    "iperf": "iperf endpoints",
+    "certificates": "Certificates",
+    "credentials": "Credentials",
+    "audit": "Audit",
+    "settings": "Settings"
+  },
+  "common": {
+    "search": "Search",
+    "filter": "Filter",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "save": "Save",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "never": "Never",
+    "unknown": "Unknown",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "of": "of",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "showAll": "Show all",
+    "showTechnicalDetails": "Show technical details",
+    "hideTechnicalDetails": "Hide technical details",
+    "copy": "Copy",
+    "copied": "Copied",
+    "reveal": "Reveal",
+    "hidden": "Hidden",
+    "moreActions": "More actions",
+    "back": "Back",
+    "clearFilters": "Clear filters",
+    "lastUpdated": "Last updated {{time}}",
+    "stale": "Cached, last checked {{time}}"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "username": "User name",
+    "password": "Password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "changePassword": "Change password",
+    "signInTitle": "Sign in to {{name}}",
+    "setupTitle": "Create the first administrator",
+    "setupIntro": "No account exists yet. The account you create here administers the platform.",
+    "displayName": "Display name",
+    "createAccount": "Create account",
+    "passwordHint": "At least 12 characters. Length matters more than symbols.",
+    "developmentBanner": "Development authentication is active. Every request runs as an administrator without signing in.",
+    "mustChangePassword": "Your password has to be changed before you continue."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "question": "Is the platform operational, and is there anything to do?",
+    "allClear": "Nothing needs attention.",
+    "natsServer": "NATS server",
+    "jetstream": "JetStream",
+    "probes": "Probes",
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "unreachable": "Unreachable",
+    "withDeviations": "With deviations",
+    "failedJobs": "Failed jobs (24 h)",
+    "runningJobs": "Running jobs",
+    "expiringCertificates": "Expiring certificates",
+    "recentJobs": "Recent jobs",
+    "recentActivity": "Recent administrative actions",
+    "activeWarnings": "Active warnings",
+    "connections": "Connections",
+    "streams": "Streams",
+    "messages": "Messages",
+    "storage": "Storage",
+    "endpoint": "Endpoint",
+    "coreAddress": "PRTG core",
+    "notConfigured": "This installation has not been set up yet. Run the stack setup on the server first.",
+    "natsUnavailable": "The NATS monitoring endpoint did not answer. Container state and probe connections cannot be reported.",
+    "setupTitle": "This installation has not been initialised",
+    "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
+    "setupAction": "Initialise now"
+  },
+  "probes": {
+    "title": "Probes",
+    "subtitle": "The systems that run the monitoring scripts",
+    "empty": "No probe is enrolled yet.",
+    "emptyHint": "A probe is added on the server with \"prtg-nats install-mpp\". The guided workflow arrives with the onboarding phase.",
+    "columns": {
+      "name": "Probe",
+      "host": "Host",
+      "status": "Status",
+      "service": "Service",
+      "version": "Package",
+      "ca": "CA",
+      "nats": "NATS",
+      "sensors": "Sensors",
+      "deviations": "Deviations",
+      "observed": "Last checked"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "sensors": "Sensors",
+      "configuration": "Configuration",
+      "certificates": "Certificates",
+      "deployments": "Deployments",
+      "jobs": "Jobs",
+      "audit": "Audit",
+      "diagnostics": "Diagnostics"
+    },
+    "identity": "Identity",
+    "natsUser": "NATS account",
+    "probeId": "Probe id",
+    "probeName": "Probe name in PRTG",
+    "accessKey": "PRTG access key",
+    "accessKeyHint": "Add this value as a new line in the PRTG access-key list.",
+    "sshHost": "Management host",
+    "caFingerprint": "CA fingerprint",
+    "installCa": "Install CA",
+    "validate": "Run check",
+    "refreshState": "Refresh state",
+    "notes": "Notes",
+    "displayName": "Display name",
+    "deviationsTitle": "Deviations",
+    "noDeviations": "The probe matches the desired state.",
+    "desiredState": "Desired state",
+    "actualState": "Actual state",
+    "fixDeviations": "Fix deviations",
+    "planPreview": "These actions would run",
+    "planEmpty": "Nothing to do.",
+    "planRestartWarning": "This restarts the probe service. It reconnects afterwards.",
+    "configure": "Apply configuration",
+    "unenroll": "Unenroll",
+    "unenrollWarning": "This removes the management access and the inventory for {{probe}}. The probe keeps running and stays connected to NATS; its NATS account is not deleted.",
+    "executePlan": "Fix deviations now"
+  },
+  "sensors": {
+    "title": "Sensors",
+    "subtitle": "Versioned monitoring scripts that are rolled out to probes",
+    "empty": "No sensor is available in this installation.",
+    "columns": {
+      "name": "Sensor",
+      "version": "Version",
+      "description": "Description",
+      "installed": "Installed on",
+      "outdated": "Outdated on"
+    },
+    "files": "Files transferred to the probe",
+    "needsInterface": "Requires a reserved interface",
+    "privilegedHelper": "Runs a privileged helper service",
+    "iperfEndpoint": "Measures against a managed iperf endpoint",
+    "deploy": "Deploy",
+    "deployTo": "Deploy to probes",
+    "parameters": "Parameters",
+    "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
+    "parametersResult": "Parameter line for PRTG",
+    "noParameterSchema": "This sensor does not ship a parameter schema. Its README lists the options.",
+    "installedOn": "Installed on these probes",
+    "readme": "Documentation",
+    "remove": "Remove"
+  },
+  "deployments": {
+    "title": "Deployments",
+    "subtitle": "Sensor rollouts and their outcome per probe",
+    "empty": "No deployment has run yet.",
+    "create": "New deployment",
+    "selectSensor": "Sensor",
+    "selectProbes": "Probes",
+    "dryRun": "Dry run",
+    "dryRunHint": "Reports what would happen without changing anything on the probe.",
+    "start": "Start deployment",
+    "targets": "Targets",
+    "columns": {
+      "sensor": "Sensor",
+      "version": "Version",
+      "status": "Status",
+      "targets": "Probes",
+      "started": "Started",
+      "by": "Started by"
+    },
+    "summary": "{{succeeded}} of {{total}} probes succeeded"
+  },
+  "jobs": {
+    "title": "Jobs",
+    "subtitle": "Everything that takes time or can fail",
+    "empty": "No job has run yet.",
+    "columns": {
+      "type": "Job",
+      "target": "Target",
+      "status": "Status",
+      "progress": "Progress",
+      "started": "Started",
+      "duration": "Duration",
+      "by": "Started by"
+    },
+    "step": "Step {{current}} of {{total}}: {{name}}",
+    "log": "Log",
+    "result": "Result",
+    "rawOutput": "Technical output",
+    "cancel": "Cancel job",
+    "retry": "Run again",
+    "live": "Live",
+    "reconnecting": "Reconnecting…",
+    "disconnected": "The live connection dropped. The log below is complete up to that point.",
+    "blocked": {
+      "resource_busy": "Waiting for job {{jobId}} to release the target."
+    },
+    "steps": {
+      "resolve_targets": "Resolve targets",
+      "check_reachable": "Check reachability",
+      "prepare": "Prepare probe",
+      "stage_files": "Transfer files",
+      "activate": "Install and self-test",
+      "commit": "Commit",
+      "verify": "Verify",
+      "install_ca": "Install CA",
+      "collect_state": "Collect state",
+      "evaluate": "Evaluate",
+      "renew": "Renew certificate",
+      "restart": "Restart",
+      "wait_healthy": "Wait for health",
+      "backup": "Create backup",
+      "smoke_test": "Smoke test",
+      "resolve_identity": "Resolve identity",
+      "render_config": "Render configuration",
+      "plan": "Plan",
+      "apply": "Apply",
+      "revoke_access": "Revoke access",
+      "remove_inventory": "Remove inventory",
+      "rotate_server": "Rotate on the server",
+      "reconfigure_probe": "Reconfigure probe",
+      "bookkeeping": "Bookkeeping",
+      "deploy_profiles": "Deploy credential profiles",
+      "initialise": "Initialise",
+      "start_containers": "Start containers",
+      "remove": "Remove"
+    },
+    "events": {
+      "started": "Job started: {{type}}",
+      "finished": "Job finished",
+      "finished_partial": "Job finished with failures",
+      "failed": "Job failed: {{reason}}",
+      "cancelled": "Job cancelled",
+      "probe": {
+        "reachable": "{{probe}} answered, package {{package}}",
+        "unreachable": "{{probe}} did not answer",
+        "prepared": "{{probe}} prepared for sensors",
+        "ca_installed": "CA installed on {{probe}}",
+        "ca_verified": "{{probe}} now reports CA {{ca_sha256}}",
+        "state_collected": "{{probe}}: service {{service}}, {{sensors}} sensors",
+        "validated": "{{probe}} passed every check",
+        "finding": "{{probe}}: {{finding}}",
+        "identity_resolved": "{{probe}}: identity resolved as {{probe_name}}",
+        "config_rendered": "{{probe}}: configuration rendered",
+        "config_staged": "{{probe}}: credentials and configuration staged",
+        "config_activated": "{{probe}}: configuration activated, service restarted",
+        "config_rolled_back": "{{probe}}: previous configuration restored",
+        "configured": "{{probe}}: configuration is live",
+        "access_revoked": "{{probe}}: management access revoked",
+        "access_revoke_failed": "{{probe}}: could not revoke the management access; the key on the probe remains",
+        "unenrolled": "{{probe}}: removed from the inventory"
+      },
+      "sensor": {
+        "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
+        "staged": "{{probe}}: transferred {{slot}} ({{bytes}} bytes)",
+        "activated": "{{probe}}: {{sensor}} installed and self-tested",
+        "committed": "{{probe}}: {{sensor}} version {{version}} is live",
+        "failed": "{{probe}}: {{sensor}} failed ({{reason}})",
+        "rolled_back": "{{probe}}: previous state restored",
+        "dry_run": "{{probe}}: would install {{sensor}} version {{version}} ({{slots}})",
+        "removed": "{{probe}}: {{sensor}} removed",
+        "profile_deployed": "{{probe}}: credentials for endpoint {{endpoint}} deployed",
+        "no_endpoints": "No measurement endpoint is registered; the sensor reports credentials-unreadable until one is deployed"
+      },
+      "system": {
+        "certificate_renewed": "Server certificate renewed",
+        "container_restarted": "Container {{container}} restarted",
+        "container_state": "Container {{container}}: {{status}}, health {{health}}",
+        "verified": "Verification passed",
+        "verify_failed": "Verification failed",
+        "smoke_test": "Smoke test passed",
+        "smoke_test_failed": "Smoke test failed",
+        "backup_created": "Backup created",
+        "check": "Check {{check}}: {{ok}}",
+        "runtime_initialised": "Runtime initialised: CA, server certificate, management key and shared account created",
+        "docker_unavailable_note": "The Docker socket is not mounted; containers pick the change up on their next start",
+        "backup_checksum": "Backup checksum {{sha256}}"
+      },
+      "reconcile": {
+        "planned": "{{probe}}: {{actions}} action(s) planned",
+        "nothing_to_do": "{{probe}} already matches the desired state",
+        "action": "Running {{kind}}",
+        "applied": "{{probe}}: {{count}} action(s) applied"
+      },
+      "credential": {
+        "rotated_server": "Server-side credentials for {{probe}} rotated",
+        "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password"
+      }
+    }
+  },
+  "audit": {
+    "title": "Audit",
+    "subtitle": "Every administrative action, in order",
+    "empty": "Nothing has been recorded yet.",
+    "columns": {
+      "time": "Time",
+      "actor": "User",
+      "action": "Action",
+      "object": "Object",
+      "result": "Result",
+      "source": "Source"
+    },
+    "before": "Before",
+    "after": "After",
+    "immutable": "Audit records cannot be changed or deleted."
+  },
+  "infrastructure": {
+    "natsTitle": "NATS server",
+    "certificatesTitle": "Certificates",
+    "iperfTitle": "iperf endpoints",
+    "iperfSubtitle": "The counterparts the iperf-throughput sensor measures against",
+    "iperfEmpty": "No measurement endpoint is set up.",
+    "credentialsTitle": "Credentials",
+    "renewCertificate": "Renew certificate",
+    "renewWarning": "Renewing the server certificate restarts the NATS container. Every probe and the PRTG core reconnect.",
+    "expiresIn_one": "Expires in {{count}} day",
+    "expiresIn_other": "Expires in {{count}} days",
+    "expired": "Expired",
+    "fingerprint": "SHA-256 fingerprint",
+    "subjectAltNames": "Subject alternative names",
+    "keyMismatch": "The certificate and its private key do not belong together."
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "users": "Users and roles",
+    "language": "Language",
+    "languageHint": "Applies to this browser only.",
+    "theme": "Appearance",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "Follow system",
+    "capabilities": "Capabilities of this installation",
+    "dockerAvailable": "Container control available",
+    "dockerUnavailable": "The Docker socket is not mounted. Server lifecycle actions are hidden.",
+    "runtimeState": "Runtime state",
+    "addUser": "Add user",
+    "role": "Role",
+    "active": "Active",
+    "lastLogin": "Last sign-in",
+    "locked": "Locked until {{time}}",
+    "you": "You",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "roles": "Your access",
+    "initialPasswordHint": "The user has to change it at first sign-in."
+  },
+  "roles": {
+    "viewer": "Viewer",
+    "operator": "Operator",
+    "administrator": "Administrator",
+    "viewer.description": "Reads status, probes, sensors, jobs, logs and audit records.",
+    "operator.description": "Also deploys sensors, applies configuration, runs checks and retries failed jobs.",
+    "administrator.description": "Also manages users, credentials, certificates, probes and system settings."
+  },
+  "status": {
+    "probe": {
+      "pending": "Pending",
+      "enrolled": "Enrolled",
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "unreachable": "Unreachable",
+      "retired": "Retired"
+    },
+    "sensor": {
+      "absent": "Not installed",
+      "current": "Current",
+      "outdated": "Outdated",
+      "drifted": "Modified",
+      "failed": "Failed",
+      "unmanaged": "Unmanaged"
+    },
+    "job": {
+      "queued": "Queued",
+      "running": "Running",
+      "successful": "Successful",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "partially_successful": "Partly successful"
+    },
+    "certificate": {
+      "valid": "Valid",
+      "expiring_soon": "Expiring soon",
+      "expired": "Expired",
+      "mismatched": "Key mismatch",
+      "missing": "Missing"
+    },
+    "service": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "unknown": "Unknown"
+    },
+    "ca": {
+      "ok": "Matches",
+      "missing": "Missing",
+      "mismatched": "Different",
+      "unknown": "Unknown"
+    },
+    "nats": {
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "unknown": "Unknown"
+    },
+    "audit": {
+      "success": "Succeeded",
+      "failure": "Failed",
+      "denied": "Denied"
+    }
+  },
+  "deviations": {
+    "sensor_missing": "Sensor {{sensor}} is not installed",
+    "sensor_outdated": "Sensor {{sensor}} is outdated",
+    "sensor_drifted": "Sensor {{sensor}} was modified on the probe",
+    "sensor_unmanaged": "Sensor {{sensor}} is installed but not in the desired state",
+    "profile_missing": "A credential profile is missing",
+    "ca_missing": "The CA certificate is missing",
+    "ca_mismatched": "The probe carries a different CA",
+    "service_inactive": "The probe service is not running",
+    "probe_name_mismatch": "The probe name differs from the desired one"
+  },
+  "plan": {
+    "restart_service": "Restart the probe service on {{probe}}",
+    "install_ca": "Install the current CA on {{probe}}",
+    "configure": "Write the configuration on {{probe}}",
+    "deploy_sensor": "Deploy {{sensor}} version {{version}} to {{probe}}",
+    "risk": {
+      "service_interruption": "The probe stops reporting for a few seconds."
+    }
+  },
+  "errors": {
+    "title": "Something went wrong",
+    "whatFailed": "What failed",
+    "affected": "Affected target",
+    "atStep": "At step",
+    "likelyCause": "Likely cause",
+    "recommendedAction": "What to do",
+    "correlationId": "Correlation id",
+    "common": {
+      "not_found": "{{resource}} \"{{id}}\" does not exist.",
+      "validation_failed": "The values submitted were not accepted.",
+      "conflict": "This conflicts with the current state.",
+      "resource_busy": "Another job is working on this object. It will be free shortly."
+    },
+    "auth": {
+      "authentication_required": "Please sign in.",
+      "invalid_credentials": "User name or password is wrong.",
+      "account_locked": "Too many failed attempts. Try again in {{retry_after_seconds}} seconds.",
+      "permission_denied": "This action needs the permission \"{{permission}}\".",
+      "setup_required": "No account exists yet. Create the first administrator."
+    },
+    "probe": {
+      "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",
+      "unreachable.cause": "The host is down, the network path is blocked, or the management key was removed on the probe.",
+      "unreachable.action": "Check that the host is reachable and that the SSH service accepts the management key, then run the job again.",
+      "protocol_error": "The probe answered in a way the management protocol does not allow.",
+      "protocol_error.cause": "The probe helper on the target is older or newer than this platform expects.",
+      "protocol_error.action": "Update the probe helper on the target system.",
+      "request_rejected": "The probe refused the request \"{{command}}\".",
+      "request_rejected.cause": "The probe validated the request and declined it. The technical details carry its own message.",
+      "request_rejected.action": "Read the technical details, correct the cause, then run the job again."
+    },
+    "nats": {
+      "unavailable": "The NATS server did not answer."
+    },
+    "docker": {
+      "unavailable": "Container control is not available in this installation.",
+      "unavailable.cause": "The Docker socket is not mounted into the backend container.",
+      "unavailable.action": "Mount /var/run/docker.sock, or perform this action on the server."
+    },
+    "runtime": {
+      "incomplete": "The installation state under runtime/ is missing or incomplete.",
+      "incomplete.cause": "The stack has not been set up in this directory, or the backend cannot read it.",
+      "incomplete.action": "Run the stack setup on the server and check that runtime/ is mounted readable."
+    },
+    "jobs": {
+      "unknown_type": "This job type is not known to the platform.",
+      "orphaned": "The worker did not report back. The job was ended and its locks were released.",
+      "all_targets_failed": "The job failed on every target.",
+      "all_targets_failed.cause": "Each target reported its own reason; the log lists them per target.",
+      "all_targets_failed.action": "Read the log, fix what it reports, then run the job again.",
+      "some_targets_failed": "The job failed on {{failed}} of its targets.",
+      "some_targets_failed.cause": "The remaining targets succeeded. Only the failed ones need attention.",
+      "some_targets_failed.action": "Read the log for the failed targets, then run the job again."
+    },
+    "internal": {
+      "unexpected": "An unexpected error occurred."
+    },
+    "network": {
+      "unreachable": "The management API cannot be reached."
+    }
+  },
+  "validation": {
+    "too_short": "Too short.",
+    "surrounding_whitespace": "Leading or trailing spaces are not allowed."
+  },
+  "confirm": {
+    "title": "Confirm this action",
+    "typeToConfirm": "Type {{value}} to confirm.",
+    "restartNats": "Restarting the NATS server disconnects every probe and the PRTG core until they reconnect.",
+    "deleteUser": "The account is removed and every session belonging to it ends."
+  },
+  "alerts": {
+    "probe.unreachable": "{{probe}} is not answering",
+    "probe.degraded": "{{probe}} has {{deviations}} deviation(s)",
+    "certificate.expired": "The {{certificate}} certificate has expired",
+    "certificate.expiring_soon": "The {{certificate}} certificate expires in {{days_remaining}} days",
+    "certificate.mismatched": "The {{certificate}} certificate does not match its key"
+  },
+  "credentials": {
+    "title": "NATS accounts",
+    "subtitle": "The credentials probes and the PRTG core sign in with",
+    "empty": "No account exists yet.",
+    "columns": {
+      "account": "Account",
+      "usage": "Used by"
+    },
+    "shared": "Shared",
+    "usedByCore": "PRTG core and legacy probes",
+    "usedByProbe": "An enrolled probe",
+    "unused": "Not in use",
+    "create": "Create account",
+    "createTitle": "New NATS account",
+    "createHint": "The password is generated and stored in the protected credential file. Reveal it only when the PRTG core needs it typed in.",
+    "rotate": "Rotate",
+    "delete": "Delete",
+    "deleteBlockedProbe": "A probe is enrolled for this account.",
+    "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
+    "revealTitle": "Password for {{account}}",
+    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
+  }
+}

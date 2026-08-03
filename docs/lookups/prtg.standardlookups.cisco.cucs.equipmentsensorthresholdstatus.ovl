@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.equipmentsensorthresholdstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Upper Non Recoverable
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Upper Critical
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Upper Non Critical
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Lower Non Critical
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Lower Critical
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Lower Non Recoverable
+      </SingleInt>
+      <SingleInt state="None" value="100">
+        Not Supported
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

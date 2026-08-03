@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+  <ValueLookup id="prtg.standardlookups.hp.blade.power" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Warning" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="None" value="1">
+        Other
+      </SingleInt>      
+      <SingleInt state="OK" value="2">
+        On
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Off
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Power Stagged Off
+      </SingleInt>      
+      <SingleInt state="OK" value="5">
+        Rebooting
+      </SingleInt>         
+    </Lookups>
+  </ValueLookup>

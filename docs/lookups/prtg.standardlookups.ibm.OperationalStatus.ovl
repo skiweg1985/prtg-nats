@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.ibm.OperationalStatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Stressed
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Predictive Failure
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Error
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Non-Recoverable Error
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Starting
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Stopping
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Stopped
+      </SingleInt>
+      <SingleInt state="OK" value="11">
+        In Service
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        No Contact
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Lost Communication
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        Aborted
+      </SingleInt>
+      <SingleInt state="Warning" value="15">
+        Dormant
+      </SingleInt>
+      <SingleInt state="Error" value="16">
+        Supporting Entity in Error
+      </SingleInt>
+      <SingleInt state="OK" value="17">
+        Completed
+      </SingleInt>
+      <SingleInt state="OK" value="18">
+        Power Mode
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

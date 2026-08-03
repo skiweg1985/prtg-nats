@@ -1,0 +1,63 @@
+# The reverse proxy in front of the management platform.
+#
+# Terminates TLS, serves the built interface, and forwards /api to the backend
+# on the host's loopback. The backend never speaks TLS and never listens on a
+# routable address; this file is the only thing an operator has to open up.
+
+{
+	# A local CA by default, matching how the rest of this stack handles TLS.
+	# An installation with a public name can replace this block with an ACME
+	# email and get a real certificate instead.
+	auto_https disable_redirects
+	admin off
+}
+
+# The interface answers on the name and on the bare host address: an internal
+# installation often has no DNS entry yet, and a browser pointed at the IP
+# would otherwise be refused at the TLS handshake with nothing to explain why.
+https://{$WEB_FQDN}:{$WEB_HTTPS_PORT}, https://{$WEB_BIND_IP}:{$WEB_HTTPS_PORT} {
+	# Caddy shares the host network namespace; without this it would listen on
+	# every host address instead of the one the stack publishes.
+	bind {$WEB_BIND_IP}
+
+	# Self-signed unless the operator configures ACME. The fingerprint is shown
+	# by "./prtg-nats web info" so it can be compared over a trusted channel.
+	tls internal
+
+	encode gzip zstd
+
+	# The API. Loopback because web-api joins the host network namespace.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8100 {
+			# Server-sent events must not be buffered or the live job log
+			# arrives all at once when the job is already over.
+			flush_interval -1
+		}
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8100
+	}
+
+	# Everything else is the single-page interface.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# The interface loads nothing from anywhere else, so the policy can be
+		# this strict. connect-src keeps 'self' for the event stream.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

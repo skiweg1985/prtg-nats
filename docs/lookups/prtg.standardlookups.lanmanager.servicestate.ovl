@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.lanmanager.servicestate" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Active
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Continue-Pending
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Pause-Pending
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Paused
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

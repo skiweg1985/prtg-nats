@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.dell.diskstate_idrac" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="1">
+        unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        ready
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        online
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        foreign
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        offline
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        blocked
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        failed
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        non-raid
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        removed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

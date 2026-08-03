@@ -1,0 +1,28 @@
+# Generated runtime state and secrets
+/runtime/
+
+# Local environment overrides
+/.env
+/.env.*
+!/.env.example
+
+# Backup archives
+/backups/
+
+# Python bytecode from the sensor checks
+__pycache__/
+*.pyc
+
+# Editor and operating-system files
+.DS_Store
+*.swp
+*.tmp
+
+# Web platform build output and local dependencies
+/web/frontend/node_modules/
+/web/frontend/dist/
+/web/backend/.venv/
+/web/backend/*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.redfish.lookup_health" desiredValue="2" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Critical
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Warning
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        OK
+      </SingleInt>
+      <SingleInt state="None" value="3">
+        Offline / Absent
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

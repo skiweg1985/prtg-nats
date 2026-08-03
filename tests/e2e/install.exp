@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+# Beantwortet die beiden interaktiven Rueckfragen des Erstlaufs:
+# die Host-Key-Frage von OpenSSH und die Fingerprint-Bestaetigung des
+# Enrollments. Siehe Issue #16 zur doppelten Abfrage.
+set timeout 1800
+log_user 1
+set nats_user [lindex $argv 0]
+set ssh_target [lindex $argv 1]
+spawn ./prtg-nats install-mpp $ssh_target --nats-user $nats_user
+expect {
+  -re "continue connecting \\(yes/no"  { send "yes\r"; exp_continue }
+  -re "Continue\\? \\\[y/N\\\]"        { send "y\r";   exp_continue }
+  -re "trust this CA\\? \\\[y/N\\\]"   { send "y\r";   exp_continue }
+  timeout { puts "\nZEITUEBERSCHREITUNG beim Installationslauf"; exit 99 }
+  eof
+}
+catch wait result
+exit [lindex $result 3]

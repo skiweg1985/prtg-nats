@@ -1,0 +1,211 @@
+name: CI
+
+# Every check runs in pull requests and on merges to dev or main. dev is the
+# default branch and takes the daily work, main holds the released state; both
+# are checked equally strictly.
+#
+# The end-to-end test against a real prtgmpprobe package takes about a minute,
+# pulls the Paessler package over the network and needs privileged containers.
+# It runs in pull requests on purpose: noticing a broken rollout before the
+# merge is considerably more useful than noticing it afterwards.
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # whiptail carries the TUI; without the package check-static.sh skips
+      # the pass through the dialog layer silently.
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq shellcheck openssl expect whiptail >/dev/null
+
+      - name: Check shell syntax, templates and rendering
+        run: ./tests/check-static.sh
+
+      - name: Check Markdown
+        run: |
+          if command -v npx >/dev/null 2>&1; then
+            npx --yes markdownlint-cli2 "**/*.md"
+          else
+            echo "npx is not available; Markdown check skipped"
+          fi
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Render and validate the Compose configuration
+        run: |
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "Docker Compose is not available on this runner; check skipped."
+            exit 0
+          fi
+          # Site settings no longer have a built-in default; the check sets
+          # example values, the way an automated deployment would.
+          cp .env.example .env
+          cat >> .env <<'ENVEOF'
+          NATS_FQDN=nats.example.test
+          NATS_HOST_IP=127.0.0.1
+          PRTG_CORE_IP=127.0.0.1
+          ENVEOF
+          sed -i 's/^ *//' .env
+          docker compose --project-directory . config --quiet
+          echo "The Compose configuration is valid."
+
+          # The web platform is optional, so it is validated as an overlay.
+          docker compose --project-directory . \
+            -f compose.yaml -f compose.web.yaml config --quiet
+          echo "The web overlay is valid."
+
+          # The port from .env has to reach the port binding.
+          sed -i 's/^NATS_PORT=.*/NATS_PORT=24999/' .env
+          docker compose --project-directory . config |
+            grep -q 'published: "24999"' ||
+            { echo "NATS_PORT does not reach the port binding"; exit 1; }
+          echo "NATS_PORT reaches the port binding."
+
+          # A missing required value has to make Compose itself refuse.
+          grep -v '^NATS_HOST_IP' .env > .env.tmp && mv .env.tmp .env
+          if docker compose --project-directory . config --quiet 2>/dev/null; then
+            echo "A missing NATS_HOST_IP went unnoticed"; exit 1
+          fi
+          echo "A missing required value is detected."
+
+  backend:
+    name: Web backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/backend
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type-check
+        run: mypy app
+
+      - name: Test
+        run: pytest -q
+
+      # A schema change without a migration is a deployment that fails on the
+      # customer's machine rather than here.
+      - name: Check that the migrations match the models
+        run: |
+          export PRTG_NATS_WEB_PROJECT_DIR=/tmp/ci-runtime
+          export PRTG_NATS_WEB_DATABASE_URL="sqlite+aiosqlite:////tmp/ci-web.db"
+          mkdir -p /tmp/ci-runtime
+          alembic upgrade head
+          alembic check
+
+  frontend:
+    name: Web frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      # Catches three things that reach a user as an empty label: a key present
+      # in one language only, a placeholder that differs between them, and an
+      # error code the backend can emit with no message on this side.
+      - name: Check the translations
+        run: npm run i18n:check
+
+      - name: Build
+        run: npx vite build
+
+  e2e:
+    name: End-to-end against a real MPP
+    runs-on: ubuntu-latest
+    # Runs in pull requests, on merges to dev or main, and on demand. The
+    # expensive run only pays off once the static checks hold.
+    needs:
+      - static
+    env:
+      # The runners can start privileged containers and reach
+      # packages.paessler.com; run 146 proves it. A skip therefore counts as a
+      # failure: otherwise a later change to the runners would suspend the test
+      # silently and the build would stay green.
+      PRTG_E2E_SKIP_CODE: "1"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Show the prerequisites
+        run: |
+          echo "Architecture: $(uname -m)"
+          docker version --format 'Docker server: {{.Server.Version}}' ||
+            echo "No Docker access"
+
+      - name: Check the rollout against a real prtgmpprobe
+        run: ./tests/e2e-mpp.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Containers ==="
+          docker ps -a --filter name=prtg-e2e --filter name=prtg-nats || true
+          echo "=== Probe journal ==="
+          docker exec prtg-e2e-probe \
+            journalctl -u prtg.mpprobe.service -n 80 --no-pager || true
+          echo "=== NATS logs ==="
+          docker logs --tail 80 prtg-nats || true
+
+      - name: Tear the test environment down safely
+        if: always()
+        run: |
+          docker rm -f prtg-e2e-probe prtg-e2e-admin prtg-nats prtg-nats-ca \
+            >/dev/null 2>&1 || true
+          docker network rm prtg-e2e-net >/dev/null 2>&1 || true

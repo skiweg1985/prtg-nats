@@ -1,0 +1,69 @@
+#!/bin/sh
+
+NATS_MONITOR_URL="${NATS_MONITOR_URL:-http://nats:8222}"
+NATS_HEALTH_URL="${NATS_HEALTH_URL:-${NATS_MONITOR_URL}/healthz?js-enabled-only=true}"
+NATS_JSZ_URL="${NATS_JSZ_URL:-${NATS_MONITOR_URL}/jsz}"
+
+return_error() {
+  printf '%s\r\n' 'Status: 503 Service Unavailable'
+  printf '%s\r\n' 'Content-Type: application/json'
+  printf '%s\r\n' 'Cache-Control: no-store'
+  printf '\r\n'
+  printf '%s\n' \
+    '{"prtg":{"error":1,"text":"NATS or JetStream monitoring failed"}}'
+  exit 0
+}
+
+extract_uint() {
+  field_name="$1"
+  printf '%s\n' "${jsz_response}" |
+    sed -n \
+      "s/^[[:space:]]*\"${field_name}\":[[:space:]]*\\([0-9][0-9]*\\)[,[:space:]]*$/\\1/p" |
+    sed -n '1p'
+}
+
+wget --quiet --output-document=/dev/null "${NATS_HEALTH_URL}" || return_error
+jsz_response="$(wget --quiet --output-document=- "${NATS_JSZ_URL}")" ||
+  return_error
+
+streams="$(extract_uint streams)"
+consumers="$(extract_uint consumers)"
+messages="$(extract_uint messages)"
+memory="$(extract_uint memory)"
+storage="$(extract_uint storage)"
+api_errors="$(extract_uint errors)"
+
+for metric_value in \
+  "${streams}" \
+  "${consumers}" \
+  "${messages}" \
+  "${memory}" \
+  "${storage}" \
+  "${api_errors}"; do
+  case "${metric_value}" in
+    ''|*[!0-9]*)
+      return_error
+      ;;
+  esac
+done
+
+printf '%s\r\n' 'Content-Type: application/json'
+printf '%s\r\n' 'Cache-Control: no-store'
+printf '\r\n'
+printf '%s' '{"prtg":{"result":['
+printf '%s' '{"channel":"NATS Health","value":1,"unit":"Count","showchart":0},'
+printf '{"channel":"JetStream Streams","value":%s,"unit":"Count"},' \
+  "${streams}"
+printf '{"channel":"JetStream Consumers","value":%s,"unit":"Count"},' \
+  "${consumers}"
+printf '{"channel":"Stored Messages","value":%s,"unit":"Count"},' \
+  "${messages}"
+printf '{"channel":"JetStream Memory","value":%s,"unit":"BytesFile"},' \
+  "${memory}"
+printf '{"channel":"JetStream File Storage","value":%s,"unit":"BytesDisk"},' \
+  "${storage}"
+printf '%s' '{"channel":"JetStream API Errors","value":'
+printf '%s' "${api_errors}"
+printf '%s' ',"unit":"Count","mode":"Difference","limitmaxwarning":0,"limitmode":1}'
+printf '],"text":"Healthy, %s streams, %s consumers, %s stored messages"}}\n' \
+  "${streams}" "${consumers}" "${messages}"

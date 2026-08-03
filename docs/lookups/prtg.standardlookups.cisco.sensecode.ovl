@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.sensecode" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Other
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Disconnected
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Over Threshold
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Timeout
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Busy
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Not Connected
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Dropped
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Sequence Error
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Verify Error
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Application Specific
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        DNS Server Timeout
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        TCP Connect Timeout
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        HTTP Transaction Timeout
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        DNS Query Error
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        HTTP Error
+      </SingleInt>
+      <SingleInt state="Error" value="16">
+        Error
+      </SingleInt>
+      <SingleInt state="Error" value="17">
+        mpls Lsp Echo Tx Error
+      </SingleInt>
+      <SingleInt state="Error" value="18">
+        mpls Lsp Unreachable
+      </SingleInt>
+      <SingleInt state="Error" value="19">
+        mpls Lsp Malformed Req
+      </SingleInt>
+      <SingleInt state="Error" value="20">
+        mpls Lsp Reach But Not FEC
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

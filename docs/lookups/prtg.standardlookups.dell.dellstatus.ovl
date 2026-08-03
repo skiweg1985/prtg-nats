@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.dell.dellstatus" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Ok
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Non Critical
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Critical
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Non Recoverable
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

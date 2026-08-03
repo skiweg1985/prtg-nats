@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.microsoft.applicationpoolstate" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="-1">
+        Unavailable for _Total
+      </SingleInt>
+      <SingleInt state="Error" value="0">
+        Unavailable
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Uninitialized
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Initialized
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Running
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Stopping
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Stopped
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Shutdown Pending
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Delete Pending
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

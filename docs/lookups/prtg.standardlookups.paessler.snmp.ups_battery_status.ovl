@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.snmp.ups_battery_status" desiredValue="2" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        Battery Normal
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Battery Low
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Battery Depleted
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

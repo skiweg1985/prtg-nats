@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.nvram_battery" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        Partially Discharged
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Fully Discharged
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Near End-of-life
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Over-charged
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Fully Discharged
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Not Present
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        At End-of-life
+      </SingleInt>
+      <SingleInt state="None" value="9">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

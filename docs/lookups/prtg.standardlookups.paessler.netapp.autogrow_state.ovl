@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.autogrow_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Off
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        Can Grow
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Grow Limit Reached
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

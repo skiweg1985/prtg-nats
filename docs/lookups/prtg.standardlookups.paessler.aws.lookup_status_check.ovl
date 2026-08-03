@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.aws.lookup_status_check" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="Ok" value="0">
+        Passed
+      </Boolean>
+      <Boolean state="Error" value="1">
+        Failed
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

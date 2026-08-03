@@ -1,0 +1,636 @@
+#!/usr/bin/env bash
+
+# Fast checks without Docker and without network access.
+#
+# Covers: shell syntax, the configuration template, rendering of the MPP
+# configuration including value and structure validation. Runs in a few
+# seconds and is therefore the first stage of the CI.
+
+set -Eeuo pipefail
+
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${PROJECT_DIR}"
+
+# The value checks use intervals like {0,63}. Bash 3.2, as macOS ships
+# it, does not support them in [[ =~ ]] and would make every check fail
+# falsely. The target platform is Linux with Bash 4 or newer.
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  printf 'These checks need Bash 4 or newer (found: %s).\n' \
+    "${BASH_VERSION}" >&2
+  printf 'On macOS, for example:\n' >&2
+  printf '  docker run --rm -v "$PWD:/repo:ro" -w /repo debian:12 \\\n' >&2
+  printf '    bash tests/check-static.sh\n' >&2
+  exit 2
+fi
+
+passed=0
+failed=0
+
+check() {
+  local description="$1"
+  local actual="$2"
+  local expected="$3"
+
+  if [[ "${actual}" == "${expected}" ]]; then
+    printf '  ok    %s\n' "${description}"
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  %s\n' "${description}" >&2
+    printf '        expected: %s\n' "${expected}" >&2
+    printf '        received: %s\n' "${actual}" >&2
+    failed=$((failed + 1))
+  fi
+}
+
+expect_failure() {
+  local description="$1"
+  shift
+
+  if "$@" >/dev/null 2>&1; then
+    printf '  FAIL  %s (was falsely accepted)\n' "${description}" >&2
+    failed=$((failed + 1))
+  else
+    printf '  ok    %s\n' "${description}"
+    passed=$((passed + 1))
+  fi
+}
+
+printf '\n== Shell syntax ==\n'
+while IFS= read -r script_path; do
+  if bash -n "${script_path}" 2>/dev/null; then
+    printf '  ok    %s\n' "${script_path}"
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  %s\n' "${script_path}" >&2
+    bash -n "${script_path}" || true
+    failed=$((failed + 1))
+  fi
+done < <(
+  printf '%s\n' prtg-nats install-mpp.sh
+  # sensors/ is included because a sensor can bring along shell scripts
+  # that do not run on a probe - the endpoint setup script of
+  # iperf-throughput, say. Unchecked, a typo in it only strikes whoever
+  # runs it as root on a third-party machine.
+  find libexec tests completions sensors -type f \
+    \( -name '*.sh' -o -name '*.bash' -o -name 'prtg-nats-probe-helper' \) |
+    sort
+)
+
+if command -v shellcheck >/dev/null 2>&1; then
+  printf '\n== shellcheck ==\n'
+  if shellcheck --severity=warning \
+    prtg-nats install-mpp.sh libexec/*.sh libexec/prtg-nats-probe-helper \
+    tests/*.sh completions/*.bash sensors/*/endpoint/*.sh; then
+    printf '  ok    no warnings\n'
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  shellcheck reports warnings\n' >&2
+    failed=$((failed + 1))
+  fi
+else
+  printf '\n== shellcheck ==\n  skipped (not installed)\n'
+fi
+
+printf '\n== Configuration template ==\n'
+# shellcheck source=../libexec/mpp-config.sh
+source "${PROJECT_DIR}/libexec/mpp-config.sh"
+template="$(mpp_config_template_path)"
+check "template found" "$(basename "${template}")" \
+  "mpprobe-config.yaml.template"
+for placeholder in "${MPP_CONFIG_PLACEHOLDERS[@]}"; do
+  if grep -F "@@${placeholder}@@" "${template}" >/dev/null; then
+    printf '  ok    placeholder @@%s@@ present\n' "${placeholder}"
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  placeholder @@%s@@ missing from the template\n' \
+      "${placeholder}" >&2
+    failed=$((failed + 1))
+  fi
+done
+
+printf '\n== Rendering ==\n'
+# shellcheck disable=SC2034  # read dynamically by mpp_render_config
+set_valid_values() {
+  MPP_PROBE_ID="$(mpp_generate_uuid)"
+  MPP_ACCESS_KEY="$(mpp_default_access_key oe-prtg-test)"
+  MPP_PROBE_NAME="$(mpp_default_probe_name oe-prtg-test)"
+  MPP_NATS_HOST="nats.example.test"
+  MPP_NATS_PORT="23561"
+  MPP_NATS_USER="mpp-oe-prtg-test"
+  MPP_NATS_PASSWORD="$(
+    printf '0123456789abcdef%.0s' 1 2 3 4
+  )"
+  MPP_SERVER_CA="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
+  MPP_CLIENT_NAME="prtgmpprobe"
+}
+
+rendered="$(mktemp)"
+trap 'rm -f -- "${rendered}"' EXIT
+set_valid_values
+mpp_render_config > "${rendered}"
+
+check "probe id carried over" \
+  "$(mpp_read_config_field "${rendered}" id)" "${MPP_PROBE_ID}"
+check "access key carried over" \
+  "$(mpp_read_config_field "${rendered}" access_key)" "${MPP_ACCESS_KEY}"
+check "probe name carried over" \
+  "$(mpp_read_config_field "${rendered}" name)" "${MPP_PROBE_NAME}"
+check "NATS user carried over" \
+  "$(mpp_read_config_nats_user "${rendered}")" "${MPP_NATS_USER}"
+check "NATS URL complete" \
+  "$(awk '/^[[:space:]]+url:/ { print $2 }' "${rendered}")" \
+  "tls://${MPP_NATS_HOST}:${MPP_NATS_PORT}"
+check "no placeholders left" \
+  "$(grep -c '@@' "${rendered}" || true)" "0"
+
+if mpp_validate_rendered_config "${rendered}" 2>/dev/null; then
+  printf '  ok    structure check accepts a valid configuration\n'
+  passed=$((passed + 1))
+else
+  printf '  FAIL  structure check rejects a valid configuration\n' >&2
+  failed=$((failed + 1))
+fi
+
+printf '\n== Value checks reject the invalid ==\n'
+reject_value() {
+  local description="$1"
+  local variable="$2"
+  local value="$3"
+
+  (
+    set_valid_values
+    printf -v "${variable}" '%s' "${value}"
+    mpp_validate_values
+  ) >/dev/null 2>&1 &&
+    {
+      printf '  FAIL  %s\n' "${description}" >&2
+      failed=$((failed + 1))
+      return 0
+    }
+  printf '  ok    %s\n' "${description}"
+  passed=$((passed + 1))
+}
+
+reject_value "probe id without UUID shape" MPP_PROBE_ID "not-a-uuid"
+reject_value "password with spaces" MPP_NATS_PASSWORD "with spaces"
+reject_value "probe name starting with @" MPP_PROBE_NAME "@invalid"
+reject_value "relative CA path" MPP_SERVER_CA "relative/ca.pem"
+reject_value "port out of range" MPP_NATS_PORT "99999"
+reject_value "port not numeric" MPP_NATS_PORT "notaport"
+reject_value "empty NATS user" MPP_NATS_USER ""
+
+printf '\n== Structure check rejects the incomplete ==\n'
+incomplete="$(mktemp)"
+printf 'incomplete: true\n' > "${incomplete}"
+expect_failure "configuration without required fields" \
+  mpp_validate_rendered_config "${incomplete}"
+printf 'id: x\na\001b\n' > "${incomplete}"
+expect_failure "configuration with control characters" \
+  mpp_is_free_of_control_characters "${incomplete}"
+rm -f -- "${incomplete}"
+
+printf '\n== Sensors ==\n'
+# The individual messages come from tests/sensor-checks.py; only the
+# overall result counts here.
+if command -v python3 >/dev/null 2>&1; then
+  if python3 "${PROJECT_DIR}/tests/sensor-checks.py"; then
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  sensor checks report failures\n' >&2
+    failed=$((failed + 1))
+  fi
+else
+  printf '  skipped (python3 not installed)\n'
+fi
+
+printf '\n== No internal identifiers ==\n'
+# Site names and company identity may appear neither in code nor docs.
+# This check catches an accidental return immediately.
+internal_hits="$(
+  grep -rn -iE 'oe-prtg-0[0-9]|opus\.local|172\.30\.14\.|simplicity' \
+    --exclude-dir=.git --exclude-dir=runtime --exclude-dir=backups \
+    --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.venv \
+    --exclude-dir=__pycache__ . 2>/dev/null |
+    grep -v '^./tests/check-static.sh:' || true
+)"
+if [[ -z "${internal_hits}" ]]; then
+  printf '  ok    no internal names or addresses in the repository\n'
+  passed=$((passed + 1))
+else
+  printf '  FAIL  internal identifiers found:\n' >&2
+  printf '%s\n' "${internal_hits}" | sed 's/^/        /' >&2
+  failed=$((failed + 1))
+fi
+
+printf '\n== Setup dialog ==\n'
+if command -v expect >/dev/null 2>&1; then
+  configure_dir="$(mktemp -d)"
+  # Throwaway copy, so the own .env stays untouched.
+  tar -C "${PROJECT_DIR}" --exclude=.git --exclude=runtime -cf - \
+    prtg-nats libexec config .env.example 2>/dev/null |
+    tar -C "${configure_dir}" -xf -
+  cat > "${configure_dir}/dialog.exp" <<'EXPECT_SCRIPT'
+set timeout 30
+spawn ./prtg-nats config --edit
+expect -re "FQDN.*: "             { send "nats.example.test\r" }
+expect -re "container ports.*: "  { send "999.999.999.999\r" }
+expect -re "container ports.*: "  { send "192.0.2.10\r" }
+expect -re "PRTG core.*: "        { send "192.0.2.20\r" }
+expect -re "NATS port.*: "        { send "\r" }
+expect -re "CA download.*: "      { send "\r" }
+expect -re "Organisation.*: "     { send "\r" }
+expect -re "Apply.*: "            { send "y\r" }
+expect eof
+catch wait result
+exit [lindex $result 3]
+EXPECT_SCRIPT
+  if (cd "${configure_dir}" && expect dialog.exp) >/dev/null 2>&1; then
+    check "produces NATS_FQDN" \
+      "$(grep '^NATS_FQDN=' "${configure_dir}/.env" || true)" \
+      "NATS_FQDN=nats.example.test"
+    check "rejects an invalid IP and asks again" \
+      "$(grep '^NATS_HOST_IP=' "${configure_dir}/.env" || true)" \
+      "NATS_HOST_IP=192.0.2.10"
+    check "derives the SSH source address" \
+      "$(grep '^MPP_SSH_SOURCE_CIDR=' "${configure_dir}/.env" || true)" \
+      "MPP_SSH_SOURCE_CIDR=192.0.2.10/32"
+    check "writes .env readable for the owner only" \
+      "$(stat -c '%a' "${configure_dir}/.env" 2>/dev/null ||
+        stat -f '%Lp' "${configure_dir}/.env")" "600"
+  else
+    printf '  FAIL  the setup dialog failed\n' >&2
+    failed=$((failed + 1))
+  fi
+  expect_failure "aborts without a terminal" \
+    bash -c "cd '${configure_dir}' && ./prtg-nats config --edit < /dev/null"
+  rm -rf -- "${configure_dir}"
+else
+  printf '  skipped (expect not installed)\n'
+fi
+
+printf '\n== Completion ==\n'
+
+# The suggestion lists are a second truth about the commands. So they do
+# not go stale, they are checked against the dispatchers' actual branches:
+# internal verbs and help aliases stay out.
+dispatch_commands() {
+  awk "/^case \"\\\$\{command_name/,/^esac/" "$1" |
+    grep -oE '^  [a-z][a-z0-9|-]*\)' |
+    tr -d ' )' |
+    tr '|' '\n' |
+    grep -vE '^(internal-|-h$|--help$)' |
+    sort -u |
+    tr '\n' ' '
+}
+
+completion_list() {
+  # shellcheck disable=SC1091  # path is only known at run time
+  source ./completions/prtg-nats.bash
+  printf '%s' "${!1}" | tr -s ' \n' '\n' | sort -u | tr '\n' ' '
+}
+
+# Legacy names stay in the dispatcher but disappear from the
+# suggestions. The check therefore runs against the sum of both.
+check "the command list matches the dispatcher" \
+  "$(
+    # shellcheck disable=SC1091  # path is only known at run time
+    source ./completions/prtg-nats.bash
+    printf '%s %s' "${_prtg_nats_commands}" "${_prtg_nats_deprecated}" |
+      tr -s ' \n' '\n' | sort -u | tr '\n' ' '
+  )" \
+  "$(dispatch_commands ./prtg-nats)"
+check "legacy names are no longer suggested" \
+  "$(completion_list _prtg_nats_commands | grep -cE '\b(check|configure)\b')" "0"
+check "probe subcommands match" \
+  "$(completion_list _prtg_nats_probe_commands)" \
+  "$(dispatch_commands ./libexec/manage-probes.sh)"
+check "sensor subcommands match" \
+  "$(completion_list _prtg_nats_sensor_commands)" \
+  "$(dispatch_commands ./libexec/manage-sensors.sh)"
+check "iperf-server subcommands match" \
+  "$(completion_list _prtg_nats_iperf_server_commands)" \
+  "$(dispatch_commands ./libexec/manage-iperf-server.sh)"
+
+check "the completion command delivers the file" \
+  "$(./prtg-nats completion bash | cmp -s - completions/prtg-nats.bash &&
+    printf 'same')" "same"
+expect_failure "completion with an unknown shell" \
+  ./prtg-nats completion fish
+expect_failure "self without a known subcommand" \
+  ./prtg-nats self nonsense
+expect_failure "self install with an unknown option" \
+  ./prtg-nats self install --something-else
+
+# Help has to work without a configured .env - otherwise it is
+# unreachable exactly when it is needed most.
+check "self without an argument shows the help" \
+  "$(./prtg-nats self | grep -c 'self install')" "1"
+check "probe without an argument shows the help" \
+  "$(./prtg-nats probe | grep -c '^Usage:')" "1"
+check "user --help shows the help" \
+  "$(./prtg-nats user --help | grep -c '^Usage:')" "1"
+check "sensor without an argument shows the help" \
+  "$(./prtg-nats sensor | grep -c '^Usage:')" "1"
+
+# Every reservation has to be revocable without tearing down the whole
+# sensor - otherwise there is no way back from a wrong pick.
+check "reserve has a counterpart" \
+  "$(./prtg-nats sensor | grep -c 'sensor release NAME USER INTERFACE')" "1"
+check "the probe knows the release verb" \
+  "$(grep -c 'sensor-release-interface)' libexec/prtg-nats-probe-helper)" "1"
+
+# A sensor's system packages are pulled in by the probe itself - but
+# only those named in the helper. If the package name came from the
+# manifest, an arbitrary package could be installed over the management
+# channel. The same rule as for the python3-venv package name.
+check "the probe knows the iperf sensor system package" \
+  "$(grep -c 'iperf-throughput)' libexec/prtg-nats-probe-helper)" "1"
+check "it pulls it in during activation" \
+  "$(grep -c 'ensure_sensor_package' libexec/prtg-nats-probe-helper)" "2"
+check "no manifest names a system package" \
+  "$(grep -h 'SENSOR_PACKAGES' sensors/*/manifest.env 2>/dev/null | wc -l | tr -d ' ')" "0"
+
+# Sensors that measure throughput have to share the same lock file.
+# Otherwise one saturates the line while the other checks its target
+# rate - and the alarm fires over a perfectly healthy line. Exactly the
+# deployment both READMEs recommend.
+#
+# There is no shared library and there should not be one: sensors are
+# deployed individually and have to stay runnable on their own. So this
+# check keeps the spellings aligned.
+check "the throughput sensors name the same lock file" \
+  "$(grep -h '^THROUGHPUT_LOCK_PATH' sensors/*/script/*.py | sort -u | wc -l | tr -d ' ')" \
+  "1"
+check "and there are two naming it" \
+  "$(grep -l '^THROUGHPUT_LOCK_PATH' sensors/*/script/*.py | wc -l | tr -d ' ')" "2"
+# A lock named after the sensor would be private again.
+check "no lock hangs on the own cache" \
+  "$(grep -h '"%s.lock" % CACHE_PATH' sensors/*/script/*.py | wc -l | tr -d ' ')" "0"
+check "sensor status knows the fleet view" \
+  "$(./prtg-nats sensor | grep -c 'sensor status USER|--all')" "1"
+
+# The endpoint is the second machine this tool sets up over SSH. What
+# holds for the probe holds for it too: help without a configured
+# environment, and every deploy has a counterpart.
+check "iperf-server without an argument shows the help" \
+  "$(./prtg-nats iperf-server | grep -c '^Usage:')" "1"
+check "deploy has a counterpart" \
+  "$(./prtg-nats iperf-server | grep -c 'iperf-server revoke NAME USER|--all')" "1"
+# The password is created on this server and sent there, not the other
+# way round. Otherwise it could not be read back after the run and would
+# have to be copied off the screen - exactly the manual work this
+# removes.
+check "the help names the direction of the password" \
+  "$(./prtg-nats iperf-server --help |
+    grep -c 'generated here and sent there')" "1"
+# The setup script lives with the sensor and is copied from there. A
+# moved path would otherwise only show up during a real rollout.
+check "the setup script sits where it is expected" \
+  "$(test -f sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh &&
+    printf 'yes')" "yes"
+check "and masters the password change without a key swap" \
+  "$(bash sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh --help |
+    grep -c -- '--force-credentials')" "1"
+# Exactly one sensor declares itself responsible for endpoints; through
+# this field "sensor deploy" learns the credentials belong along.
+check "the iperf sensor declares its endpoints" \
+  "$(grep -h 'SENSOR_IPERF=iperf3' sensors/*/manifest.env |
+    wc -l | tr -d ' ')" "1"
+# The credentials take the path the repository already has. A second
+# channel for the same thing would be a second place to maintain - and
+# the one overlooked at the next permission bug.
+check "the rollout uses the profile mechanism" \
+  "$(grep -c 'manage-sensors.sh" profile' libexec/manage-iperf-server.sh)" "4"
+check "and invents no channel of its own" \
+  "$(grep -c 'sensor-write-iperf' libexec/prtg-nats-probe-helper)" "0"
+# The sensor reads the profile under the names "iperf-server deploy"
+# writes. If they drift apart, it no longer finds the credentials.
+check "profile keys agree between sensor and rollout" \
+  "$(grep -c -E 'IPERF3_(PASSWORD|PUBLIC_KEY_B64)=' \
+    libexec/manage-iperf-server.sh)" "2"
+
+check "install-mpp --help shows the help" \
+  "$(./prtg-nats install-mpp --help | grep -c '^Usage:')" "1"
+check "config --help shows the help" \
+  "$(./prtg-nats config --help | grep -c 'config --edit')" "1"
+
+# The legacy names have to keep working, or scripts break.
+check "configure points at config --edit" \
+  "$(./prtg-nats configure 2>&1 | grep -c 'config --edit')" "1"
+check "config without .env names the way" \
+  "$(cd "$(mktemp -d)" && "${PROJECT_DIR}/prtg-nats" config 2>&1 |
+    grep -c 'Not configured yet')" "1"
+expect_failure "verify with an unknown option" ./prtg-nats verify --nonsense
+
+# Install and remove against a throwaway startup file: the second run
+# must not append twice, and afterwards the file has to look as before.
+completion_home="$(mktemp -d)"
+printf '# own settings\n' > "${completion_home}/.zshrc"
+completion_before="$(cat "${completion_home}/.zshrc")"
+HOME="${completion_home}" SUDO_USER="" USER="" \
+  ./prtg-nats self install --completion-only zsh >/dev/null
+check "install writes one block" \
+  "$(grep -c '>>> prtg-nats completion >>>' "${completion_home}/.zshrc")" "1"
+HOME="${completion_home}" SUDO_USER="" USER="" \
+  ./prtg-nats self install --completion-only zsh >/dev/null
+check "a second install does not append twice" \
+  "$(grep -c '>>> prtg-nats completion >>>' "${completion_home}/.zshrc")" "1"
+HOME="${completion_home}" SUDO_USER="" USER="" \
+  ./prtg-nats self uninstall --completion-only >/dev/null
+check "uninstall restores the file" \
+  "$(cat "${completion_home}/.zshrc")" "${completion_before}"
+rm -rf -- "${completion_home}"
+
+printf '\n== Invocation over PATH ==\n'
+
+# A symlink in PATH must not shift the project directory: the script
+# would otherwise look for libexec/ and runtime/ next to the link.
+link_dir="$(mktemp -d)"
+ln -s "${PROJECT_DIR}/prtg-nats" "${link_dir}/prtg-nats"
+check "a symlink finds the repository" \
+  "$("${link_dir}/prtg-nats" ca-path)" \
+  "${PROJECT_DIR}/runtime/certs/ca.pem"
+check "the completion finds it over PATH" \
+  "$(
+    PATH="${link_dir}:${PATH}"
+    # shellcheck disable=SC1091  # path is only known at run time
+    source ./completions/prtg-nats.bash
+    cd /
+    _prtg_nats_project_dir prtg-nats
+  )" "${PROJECT_DIR}"
+rm -rf -- "${link_dir}"
+
+expect_failure "self install with an unknown argument" \
+  ./prtg-nats self install toomuch
+
+# install sets up both: link and completion. Both targets point into
+# throwaway directories - a test run may touch neither /usr/local/bin
+# nor the setup of the machine it runs on.
+integration_home="$(mktemp -d)"
+integration_bin="$(mktemp -d)"
+integration_completion="$(mktemp -d)"
+printf '# own settings\n' > "${integration_home}/.zshrc"
+self_install() {
+  HOME="${integration_home}" SUDO_USER="" USER="" \
+    PRTG_NATS_LINK_DIR="${integration_bin}" \
+    PRTG_NATS_BASH_COMPLETION_DIR="${integration_completion}" \
+    ./prtg-nats "$@"
+}
+
+self_install self install zsh >/dev/null
+check "install creates the link" \
+  "$(readlink "${integration_bin}/prtg-nats")" "${PROJECT_DIR}/prtg-nats"
+check "install sets up the completion along" \
+  "$(grep -c '>>> prtg-nats completion >>>' "${integration_home}/.zshrc")" "1"
+
+# The system-wide bash path only applies when the directory exists -
+# here one exists, so it has to be taken, not the startup file.
+self_install self install --completion-only bash >/dev/null
+check "bash uses the directory when it exists" \
+  "$(grep -c 'completions/prtg-nats.bash' \
+    "${integration_completion}/prtg-nats")" "1"
+
+self_install self uninstall >/dev/null
+check "uninstall takes the completion out" \
+  "$(grep -c '>>> prtg-nats completion >>>' "${integration_home}/.zshrc")" "0"
+check "uninstall removes the link" \
+  "$(ls "${integration_bin}" | wc -l | tr -d ' ')" "0"
+check "uninstall cleans up the directory too" \
+  "$(ls "${integration_completion}" | wc -l | tr -d ' ')" "0"
+rm -rf -- "${integration_home}" "${integration_bin}" "${integration_completion}"
+
+printf '\n== Name derivation ==\n'
+
+check "the host name is shortened to its short form" \
+  "$(mpp_host_label probe-01.example.com)" "probe-01"
+# An address must not be cut at the first dot, or all probes of one
+# network would carry the same name.
+check "IPv4 keeps all octets" \
+  "$(mpp_host_label 172.23.106.18)" "172-23-106-18"
+check "a probe name from IPv4 stays distinguishable" \
+  "$(mpp_default_probe_name 172.23.106.18)" \
+  "multi-platform-probe@172-23-106-18"
+check "the derived name is valid" \
+  "$(mpp_validate_probe_name "$(mpp_default_probe_name 172.23.106.18)" &&
+    printf 'yes')" "yes"
+# The readable part comes first, so the key list in PRTG can be
+# attributed at a glance.
+check "the access key starts with the readable part" \
+  "$(mpp_default_access_key 172.23.106.18 | cut -c1-13)" "172-23-106-18"
+check "the access key follows the probe name" \
+  "$(mpp_default_access_key 'multi-platform-probe@standort-nord' |
+    cut -c1-13)" "standort-nord"
+check "the access key keeps the random part" \
+  "$(mpp_default_access_key 'multi-platform-probe@standort-nord' |
+    sed 's/^standort-nord-//' |
+    grep -cE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')" \
+  "1"
+check "an access key from IPv4 is valid" \
+  "$(mpp_validate_access_key "$(mpp_default_access_key 172.23.106.18)" &&
+    printf 'yes')" "yes"
+check "an access key from a long name is valid" \
+  "$(mpp_validate_access_key \
+    "$(mpp_default_access_key "probe@$(printf 'x%.0s' $(seq 1 80))")" &&
+    printf 'yes')" "yes"
+
+printf '\n== Endpoint check ==\n'
+
+expect_failure "--check-only without --nats-host" \
+  bash ./install-mpp.sh --check-only
+
+check "the help text names --check-only" \
+  "$(./install-mpp.sh --help | grep -c -- '--check-only')" "1"
+
+# A closed port has to be recognised as a TCP problem, not surface as
+# a connection error later.
+endpoint_output="$(
+  bash ./install-mpp.sh --nats-host 127.0.0.1 --nats-port 24897 \
+    --check-only 2>&1 || true
+)"
+check "a closed port is named" \
+  "$(printf '%s' "${endpoint_output}" |
+    grep -c 'Cannot open a TCP connection')" "1"
+
+# The two cases a plain port scan cannot distinguish: a silent service
+# and a session that is only reset at the TLS upgrade. The second is the
+# pattern of a firewall with application inspection.
+if command -v python3 >/dev/null 2>&1; then
+  endpoint_dir="$(mktemp -d)"
+  cat > "${endpoint_dir}/listener.py" <<'PYTHON'
+import socket
+import struct
+import sys
+import threading
+
+mode = sys.argv[1]
+listener = socket.socket()
+listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+listener.bind(("127.0.0.1", 0))
+listener.listen(5)
+print(listener.getsockname()[1], flush=True)
+
+
+def handle(client):
+    if mode == "silent":
+        # Accepts the connection and stays silent: a TCP proxy looks
+        # like this.
+        import time
+        time.sleep(30)
+        return
+    client.sendall(b'INFO {"server_name":"static-test"}\r\n')
+    client.recv(4096)
+    client.setsockopt(
+        socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+    )
+    client.close()
+
+
+while True:
+    connection, _ = listener.accept()
+    threading.Thread(target=handle, args=(connection,), daemon=True).start()
+PYTHON
+  # The TLS stage loads the CA before the handshake, so the reset case
+  # needs a formally valid file too. EC keeps generation short.
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout "${endpoint_dir}/key.pem" -out "${endpoint_dir}/ca.pem" \
+    -days 1 -nodes -subj '/CN=static-test' >/dev/null 2>&1
+
+  for endpoint_mode in silent reset; do
+    python3 "${endpoint_dir}/listener.py" "${endpoint_mode}" \
+      > "${endpoint_dir}/port.${endpoint_mode}" 2>/dev/null &
+    endpoint_pid=$!
+    endpoint_port=""
+    for _ in $(seq 1 50); do
+      endpoint_port="$(cat "${endpoint_dir}/port.${endpoint_mode}" 2>/dev/null)"
+      [[ -z "${endpoint_port}" ]] || break
+      sleep 0.1
+    done
+    endpoint_output="$(
+      bash ./install-mpp.sh --nats-host 127.0.0.1 \
+        --nats-port "${endpoint_port}" \
+        --ca-file "${endpoint_dir}/ca.pem" --check-only 2>&1 || true
+    )"
+    kill "${endpoint_pid}" 2>/dev/null || true
+    wait "${endpoint_pid}" 2>/dev/null || true
+    if [[ "${endpoint_mode}" == "silent" ]]; then
+      check "a silent service is detected" \
+        "$(printf '%s' "${endpoint_output}" |
+          grep -c 'No NATS greeting')" "1"
+    else
+      check "a reset at the TLS upgrade is detected" \
+        "$(printf '%s' "${endpoint_output}" |
+          grep -c 'reset while upgrading to TLS')" "1"
+      check "the reset message names the firewall as the cause" \
+        "$(printf '%s' "${endpoint_output}" |
+          grep -c 'application inspection')" "1"
+    fi
+  done
+  rm -rf -- "${endpoint_dir}"
+else
+  printf '  skipped (python3 not installed)\n'
+fi
+
+printf '\n== Result ==\n'
+printf '  passed: %s\n' "${passed}"
+printf '  failed: %s\n' "${failed}"
+[[ "${failed}" -eq 0 ]]

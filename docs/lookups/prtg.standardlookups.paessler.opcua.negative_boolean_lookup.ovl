@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.opcua.negative_boolean_lookup" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="Ok" value="0">
+        False
+      </Boolean>
+      <Boolean state="Error" value="1">
+        True
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

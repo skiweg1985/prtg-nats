@@ -1,0 +1,95 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.equipmentoperability" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Warning" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Operable
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Inoperable
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Powered Off
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Power Problem
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Removed
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Voltage Problem
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Thermal Problem
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Performance Problem
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Accessibility Problem
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Identity Unestablishable
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        Bios Post Timeout
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Disabled
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        Malformed Fru
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        Fabric Connection Problem
+      </SingleInt>
+      <SingleInt state="Error" value="52">
+        Fabric Unsupported Connection
+      </SingleInt>
+      <SingleInt state="Error" value="81">
+        Config
+      </SingleInt>
+      <SingleInt state="Error" value="82">
+        Equipment Problem
+      </SingleInt>
+      <SingleInt state="Error" value="83">
+        Decomissioning
+      </SingleInt>
+      <SingleInt state="Error" value="84">
+        Chassis Limit Exceeded
+      </SingleInt>
+      <SingleInt state="Error" value="100">
+        Not Supported
+      </SingleInt>
+      <SingleInt state="Error" value="101">
+        Discovery
+      </SingleInt>
+      <SingleInt state="Error" value="102">
+        Discovery Failed
+      </SingleInt>
+      <SingleInt state="Error" value="103">
+        Identify
+      </SingleInt>
+      <SingleInt state="Error" value="104">
+        Post Failure
+      </SingleInt>
+      <SingleInt state="Error" value="105">
+        Upgrade Problem
+      </SingleInt>
+      <SingleInt state="Error" value="106">
+        Peer Comm Problem
+      </SingleInt>
+      <SingleInt state="OK" value="107">
+        Auto Upgrade
+      </SingleInt>
+      <SingleInt state="Error" value="108">
+        Link Activate Blocked
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.tls.name_check" desiredValue="6" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="None" value="1">
+        Disabled
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        Matches Device Address or SNI
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Does Not Match Device Address or SNI
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

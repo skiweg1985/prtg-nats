@@ -1,0 +1,203 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.paecloud.status_code" desiredValue="100" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="100">
+        Continue
+      </SingleInt>
+      <SingleInt state="Ok" value="101">
+        Switching Protocols
+      </SingleInt>
+      <SingleInt state="Ok" value="102">
+        Processing
+      </SingleInt>
+      <SingleInt state="Ok" value="200">
+        OK
+      </SingleInt>
+      <SingleInt state="Ok" value="201">
+        Created
+      </SingleInt>
+      <SingleInt state="Ok" value="202">
+        Accepted
+      </SingleInt>
+      <SingleInt state="Ok" value="203">
+        Non-Authoritative Information
+      </SingleInt>
+      <SingleInt state="Ok" value="204">
+        No Content
+      </SingleInt>
+      <SingleInt state="Ok" value="205">
+        Reset Content
+      </SingleInt>
+      <SingleInt state="Ok" value="206">
+        Partial Content
+      </SingleInt>
+      <SingleInt state="Ok" value="207">
+        Multi-Status
+      </SingleInt>
+      <SingleInt state="Ok" value="208">
+        Already Reported
+      </SingleInt>
+      <SingleInt state="Ok" value="226">
+        IM Used
+      </SingleInt>
+      <SingleInt state="Warning" value="300">
+        Multiple Choices
+      </SingleInt>
+      <SingleInt state="Warning" value="301">
+        Moved Permanently
+      </SingleInt>
+      <SingleInt state="Warning" value="302">
+        Found
+      </SingleInt>
+      <SingleInt state="Warning" value="303">
+        See Other
+      </SingleInt>
+      <SingleInt state="Warning" value="304">
+        Not Modified
+      </SingleInt>
+      <SingleInt state="Warning" value="305">
+        Use Proxy
+      </SingleInt>
+      <SingleInt state="Warning" value="306">
+        Switch Proxy (deprecated)
+      </SingleInt>
+      <SingleInt state="Warning" value="307">
+        Temporary Redirect
+      </SingleInt>
+      <SingleInt state="Warning" value="308">
+        Permanent Redirect
+      </SingleInt>
+      <SingleInt state="Error" value="400">
+        Bad Request
+      </SingleInt>
+      <SingleInt state="Error" value="401">
+        Unauthorized
+      </SingleInt>
+      <SingleInt state="Error" value="402">
+        Payment Required
+      </SingleInt>
+      <SingleInt state="Error" value="403">
+        Forbidden
+      </SingleInt>
+      <SingleInt state="Error" value="404">
+        Not Found
+      </SingleInt>
+      <SingleInt state="Error" value="405">
+        Method Not Allowed
+      </SingleInt>
+      <SingleInt state="Error" value="406">
+        Not Acceptable
+      </SingleInt>
+      <SingleInt state="Error" value="407">
+        Proxy Authentication Required
+      </SingleInt>
+      <SingleInt state="Error" value="408">
+        Request Time-out
+      </SingleInt>
+      <SingleInt state="Error" value="409">
+        Conflict
+      </SingleInt>
+      <SingleInt state="Error" value="410">
+        Gone
+      </SingleInt>
+      <SingleInt state="Error" value="411">
+        Length Required
+      </SingleInt>
+      <SingleInt state="Error" value="412">
+        Precondition Failed
+      </SingleInt>
+      <SingleInt state="Error" value="413">
+        Request Entity Too Large
+      </SingleInt>
+      <SingleInt state="Error" value="414">
+        Request-URL Too Long
+      </SingleInt>
+      <SingleInt state="Error" value="415">
+        Unsupported Media Type
+      </SingleInt>
+      <SingleInt state="Error" value="416">
+        Requested range not satisfiable
+      </SingleInt>
+      <SingleInt state="Error" value="417">
+        Expectation Failed
+      </SingleInt>
+      <SingleInt state="Error" value="418">
+        I&apos;m a teapot
+      </SingleInt>
+      <SingleInt state="Error" value="420">
+        Policy Not Fulfilled
+      </SingleInt>
+      <SingleInt state="Error" value="421">
+        There are too many connections from your internet address
+      </SingleInt>
+      <SingleInt state="Error" value="422">
+        Unprocessable Entity
+      </SingleInt>
+      <SingleInt state="Error" value="423">
+        Locked
+      </SingleInt>
+      <SingleInt state="Error" value="424">
+        Failed Dependency
+      </SingleInt>
+      <SingleInt state="Error" value="425">
+        Unordered Collection
+      </SingleInt>
+      <SingleInt state="Error" value="426">
+        Upgrade Required
+      </SingleInt>
+      <SingleInt state="Error" value="428">
+        Precondition Required
+      </SingleInt>
+      <SingleInt state="Error" value="429">
+        Too Many Requests
+      </SingleInt>
+      <SingleInt state="Error" value="431">
+        Request Header Fields Too Large
+      </SingleInt>
+      <SingleInt state="Error" value="444">
+        No Response
+      </SingleInt>
+      <SingleInt state="Error" value="449">
+        The request should be retried after doing the appropriate action
+      </SingleInt>
+      <SingleInt state="Error" value="451">
+        Unavailable For Legal Reasons
+      </SingleInt>
+      <SingleInt state="Error" value="500">
+        Internal Server Error
+      </SingleInt>
+      <SingleInt state="Error" value="501">
+        Not Implemented
+      </SingleInt>
+      <SingleInt state="Error" value="502">
+        Bad Gateway
+      </SingleInt>
+      <SingleInt state="Error" value="503">
+        Service Unavailable
+      </SingleInt>
+      <SingleInt state="Error" value="504">
+        Gateway Time-out
+      </SingleInt>
+      <SingleInt state="Error" value="505">
+        HTTP Version not supported
+      </SingleInt>
+      <SingleInt state="Error" value="506">
+        Variant Also Negotiates[13]
+      </SingleInt>
+      <SingleInt state="Error" value="507">
+        Insufficient Storage
+      </SingleInt>
+      <SingleInt state="Error" value="508">
+        Loop Detected
+      </SingleInt>
+      <SingleInt state="Error" value="509">
+        Bandwidth Limit Exceeded
+      </SingleInt>
+      <SingleInt state="Error" value="510">
+        Not Extended
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

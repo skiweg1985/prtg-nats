@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.microsoft365.service_component_state" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="1">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="2">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="3">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="4">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="5">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="6">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="7">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="8">
+        Channel is deprecated
+      </SingleInt>
+      <SingleInt state="None" value="9">
+        Channel is deprecated
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.netapp.notavailable" desiredValue="2147483647" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <Range state="OK" from="0" to="0">
+        Not Available
+      </Range>
+      <Range state="OK" from="1" to="2147483647">
+        Valid
+      </Range>
+      <Range state="OK" from="-2147483648" to="-1">
+        Valid
+      </Range>      
+    </Lookups>
+  </ValueLookup>

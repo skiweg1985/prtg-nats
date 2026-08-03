@@ -1,0 +1,17 @@
+{
+  "config": {
+    // Line length: prose is wrapped by hand at 79 columns, but tables and
+    // links are not, and reflowing them would hurt more than it helps.
+    "MD013": false,
+    // Every documentation page carries YAML front matter with a `title:`.
+    // Without this, the rule reads that as a first heading and calls the
+    // actual H1 a duplicate.
+    "MD025": { "front_matter_title": "" }
+  },
+  "globs": ["**/*.md"],
+  "ignores": [
+    "web/frontend/node_modules/**",
+    "web/frontend/dist/**",
+    "web/backend/.venv/**"
+  ]
+}

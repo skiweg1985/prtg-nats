@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.snmpprinter.coverstate" desiredValue="4" undefinedState="olsNone" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+       <SingleInt state="Warning" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="None" value="2">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Cover Open
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Cover Closed
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Interlock Open
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        Interlock Closed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

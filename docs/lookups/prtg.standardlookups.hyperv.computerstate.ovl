@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hyperv.computerstate" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="0">
+        Adding
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Removing
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Responding
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        NotResponding
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        AccessDenied
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Updating
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Reassociating
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Pending
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        MaintenanceMode
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hp.memorymodulestatus" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Not Present
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Present
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Good
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        Add
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Upgrade
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Missing
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Does Not Match
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Not Supported
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Bad Config
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Degraded
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

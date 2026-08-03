@@ -1,0 +1,260 @@
+"""Domain values shared across services.
+
+Plain dataclasses, no ORM and no HTTP. They are what a service returns and what
+the reconciliation diff compares, which keeps both testable without a database
+and without a probe.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+from app.domain.enums import (
+    CaState,
+    DeviationKind,
+    DeviationSeverity,
+    NatsConnectionState,
+    ProbeStatus,
+    ServiceState,
+)
+from app.infrastructure.probe_helper import HelperResponse, normalise_optional
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledSensor:
+    """One entry of the probe's own ``sensor-list`` answer."""
+
+    name: str
+    version: str | None
+    sha256: str | None
+    interfaces: tuple[str, ...] = ()
+    helper_state: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedProbeState:
+    """What a probe reported, and when.
+
+    ``observed_at`` is not decoration: the probe list shows cached values, and
+    an operator has to be able to tell a healthy probe from one that was
+    healthy twenty minutes ago.
+    """
+
+    nats_username: str
+    observed_at: datetime
+    reachable: bool
+    service: ServiceState = ServiceState.UNKNOWN
+    package_version: str | None = None
+    hostname: str | None = None
+    ca_sha256: str | None = None
+    config_path: str | None = None
+    probe_id: str | None = None
+    probe_name: str | None = None
+    has_access_key: bool = False
+    sensors: tuple[InstalledSensor, ...] = ()
+    error_code: str | None = None
+    error_details: str | None = None
+
+    def ca_state(self, expected_sha256: str | None) -> CaState:
+        if not self.reachable:
+            return CaState.UNKNOWN
+        if self.ca_sha256 is None:
+            return CaState.MISSING
+        if expected_sha256 is None:
+            return CaState.UNKNOWN
+        return CaState.OK if self.ca_sha256 == expected_sha256 else CaState.MISMATCHED
+
+    def sensor(self, name: str) -> InstalledSensor | None:
+        return next((sensor for sensor in self.sensors if sensor.name == name), None)
+
+    def to_document(self) -> dict[str, Any]:
+        """The JSON form stored in probe_observed_state.document."""
+        return {
+            "service": self.service.value,
+            "package_version": self.package_version,
+            "hostname": self.hostname,
+            "ca_sha256": self.ca_sha256,
+            "config_path": self.config_path,
+            "probe_id": self.probe_id,
+            "probe_name": self.probe_name,
+            "has_access_key": self.has_access_key,
+            "sensors": [
+                {
+                    "name": sensor.name,
+                    "version": sensor.version,
+                    "sha256": sensor.sha256,
+                    "interfaces": list(sensor.interfaces),
+                    "helper_state": sensor.helper_state,
+                }
+                for sensor in self.sensors
+            ],
+        }
+
+    @classmethod
+    def from_document(
+        cls,
+        *,
+        nats_username: str,
+        observed_at: datetime,
+        reachable: bool,
+        document: dict[str, Any],
+        error_code: str | None = None,
+        error_details: str | None = None,
+    ) -> ObservedProbeState:
+        return cls(
+            nats_username=nats_username,
+            observed_at=observed_at,
+            reachable=reachable,
+            service=_service_state(document.get("service")),
+            package_version=document.get("package_version"),
+            hostname=document.get("hostname"),
+            ca_sha256=document.get("ca_sha256"),
+            config_path=document.get("config_path"),
+            probe_id=document.get("probe_id"),
+            probe_name=document.get("probe_name"),
+            has_access_key=bool(document.get("has_access_key")),
+            sensors=tuple(
+                InstalledSensor(
+                    name=entry.get("name", ""),
+                    version=entry.get("version"),
+                    sha256=entry.get("sha256"),
+                    interfaces=tuple(entry.get("interfaces") or ()),
+                    helper_state=entry.get("helper_state"),
+                )
+                for entry in document.get("sensors", [])
+            ),
+            error_code=error_code,
+            error_details=error_details,
+        )
+
+
+def parse_probe_info(
+    nats_username: str, response: HelperResponse, observed_at: datetime
+) -> ObservedProbeState:
+    """Turn a ``probe-info`` answer into domain state."""
+    return ObservedProbeState(
+        nats_username=nats_username,
+        observed_at=observed_at,
+        reachable=True,
+        service=_service_state(response.value("service")),
+        package_version=normalise_optional(response.value("package")),
+        hostname=normalise_optional(response.value("hostname")),
+        ca_sha256=normalise_optional(response.value("ca_sha256")),
+        config_path=normalise_optional(response.value("config")),
+        probe_id=normalise_optional(response.value("id")),
+        probe_name=normalise_optional(response.value("name")),
+        has_access_key=normalise_optional(response.value("access_key")) is not None,
+    )
+
+
+def parse_sensor_list(response: HelperResponse) -> tuple[InstalledSensor, ...]:
+    sensors = []
+    for record in response.records:
+        interfaces = normalise_optional(record.get("interfaces"))
+        sensors.append(
+            InstalledSensor(
+                name=record["name"],
+                version=normalise_optional(record.get("version")),
+                sha256=normalise_optional(record.get("sha256")),
+                interfaces=tuple(interfaces.split(",")) if interfaces else (),
+                helper_state=normalise_optional(record.get("helper")),
+            )
+        )
+    return tuple(sensors)
+
+
+def _service_state(value: str | None) -> ServiceState:
+    match (value or "").strip().lower():
+        case "active":
+            return ServiceState.ACTIVE
+        case "inactive":
+            return ServiceState.INACTIVE
+        case _:
+            return ServiceState.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class DesiredSensor:
+    name: str
+    version: str | None = None  # None means "whatever the catalogue ships"
+    profiles: tuple[str, ...] = ()
+    interfaces: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DesiredProbeState:
+    sensors: tuple[DesiredSensor, ...] = ()
+    probe_name: str | None = None
+    ca_required: bool = True
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "sensors": [
+                {
+                    "name": sensor.name,
+                    "version": sensor.version,
+                    "profiles": list(sensor.profiles),
+                    "interfaces": list(sensor.interfaces),
+                }
+                for sensor in self.sensors
+            ],
+            "probe_name": self.probe_name,
+            "ca_required": self.ca_required,
+        }
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> DesiredProbeState:
+        return cls(
+            sensors=tuple(
+                DesiredSensor(
+                    name=entry["name"],
+                    version=entry.get("version"),
+                    profiles=tuple(entry.get("profiles") or ()),
+                    interfaces=tuple(entry.get("interfaces") or ()),
+                )
+                for entry in document.get("sensors", [])
+                if entry.get("name")
+            ),
+            probe_name=document.get("probe_name"),
+            ca_required=bool(document.get("ca_required", True)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Deviation:
+    """One difference between wanted and actual, with the fix attached."""
+
+    kind: DeviationKind
+    severity: DeviationSeverity
+    object_type: str
+    object_ref: str
+    expected: str | None = None
+    actual: str | None = None
+    # The action that resolves it, e.g. "sensor.deploy". The interface turns
+    # this into the button on "fix deviations".
+    remediation: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeSummary:
+    """One row of the probe table."""
+
+    id: str
+    nats_username: str
+    display_name: str | None
+    host: str
+    probe_name: str | None
+    status: ProbeStatus
+    service: ServiceState
+    package_version: str | None
+    ca_state: CaState
+    nats_connection: NatsConnectionState
+    sensor_count: int
+    deviation_count: int
+    observed_at: datetime | None
+    stale: bool
+    running_job_id: str | None = None
+    error_code: str | None = None

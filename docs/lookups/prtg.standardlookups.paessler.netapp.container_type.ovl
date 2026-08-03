@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.container_type" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Aggregate
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Broken
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Foreign
+      </SingleInt>
+      <SingleInt state="Ok" value="4">
+        Labelmaint
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        Maintenance
+      </SingleInt>
+      <SingleInt state="Ok" value="6">
+        Shared
+      </SingleInt>
+      <SingleInt state="Ok" value="7">
+        Spare
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Unassigned
+      </SingleInt>
+      <SingleInt state="Warning" value="9">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="10">
+        Unsupported
+      </SingleInt>
+      <SingleInt state="Ok" value="11">
+        Remote
+      </SingleInt>
+      <SingleInt state="Ok" value="12">
+        Mediator
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

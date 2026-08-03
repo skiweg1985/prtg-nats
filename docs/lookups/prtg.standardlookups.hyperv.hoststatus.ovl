@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hyperv.hoststatus" desiredValue="9" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Adding
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Not Responding
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Reassociating
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Removing
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        Updating
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        Pending
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        MaintenanceMode
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Needs Attention
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="10">
+        Limited
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

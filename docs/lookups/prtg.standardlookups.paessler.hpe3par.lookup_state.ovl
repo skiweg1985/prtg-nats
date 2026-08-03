@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.hpe3par.lookup_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="1">
+        Normal
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+      <SingleInt state="None" value="99">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

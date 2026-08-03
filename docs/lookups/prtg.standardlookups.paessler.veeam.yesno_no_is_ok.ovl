@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.veeam.yesno_no_is_ok" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="None" value="0">
+        No
+      </Boolean>
+      <Boolean state="Ok" value="1">
+        Yes
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

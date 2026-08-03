@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.equipmentpresence" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="None" value="1">
+        Empty
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Equipped
+      </SingleInt>
+      <SingleInt state="Warning" value="11">
+        Missing
+      </SingleInt>
+      <SingleInt state="Warning" value="12">
+        Mismatch
+      </SingleInt>
+      <SingleInt state="OK" value="13">
+        Equipped Not Primary
+      </SingleInt>
+      <SingleInt state="Warning" value="20">
+        Equipped Identity Unestablishable
+      </SingleInt>
+      <SingleInt state="Warning" value="21">
+        Mismatch Identity Unestablishable
+      </SingleInt>
+      <SingleInt state="Error" value="22">
+        Equipped with Malformed Fru
+      </SingleInt>
+      <SingleInt state="Error" value="30">
+        Inaccessible
+      </SingleInt>
+      <SingleInt state="Error" value="40">
+        Unauthorized
+      </SingleInt>
+      <SingleInt state="Error" value="100">
+        Not Supported
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

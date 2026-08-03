@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.veeam.lookup_advanced_status" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Not Run Yet
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Successful
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Warning
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+      <SingleInt state="Ok" value="4">
+        Running
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        None
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

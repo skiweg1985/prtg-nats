@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.netapp.relationshipstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+        <SingleInt state="Warning" value="0">
+            Unknown
+        </SingleInt>
+        <SingleInt state="OK" value="1">
+            Idle
+        </SingleInt>
+        <SingleInt state="OK" value="2">
+            Transferring
+        </SingleInt>
+        <SingleInt state="OK" value="3">
+            Checking
+        </SingleInt>
+        <SingleInt state="OK" value="4">
+            Quiescing
+        </SingleInt>
+        <SingleInt state="OK" value="5">
+            Quiesced
+        </SingleInt>
+        <SingleInt state="OK" value="6">
+            Queued
+        </SingleInt>
+        <SingleInt state="OK" value="7">
+            Preparing
+        </SingleInt>
+        <SingleInt state="OK" value="8">
+            Finalizing
+        </SingleInt>
+        <SingleInt state="OK" value="9">
+            Aborting
+        </SingleInt>
+        <SingleInt state="Warning" value="10">
+            Breaking
+        </SingleInt>
+    </Lookups>
+</ValueLookup>

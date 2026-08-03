@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-raid-mib.svrphysicaldevice.svrphysicaldeviceconfigureddisk" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <Boolean state="None" value="1">
+        False
+      </Boolean>
+      <Boolean state="OK" value="2">
+        True
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

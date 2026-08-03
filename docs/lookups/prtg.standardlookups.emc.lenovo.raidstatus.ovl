@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.emc.lenovo.raidstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Warning" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Normal
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Rebuilding
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        RebuildFS
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Faulted
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

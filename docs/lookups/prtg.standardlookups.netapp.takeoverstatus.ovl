@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.netapp.takeoverstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Up
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

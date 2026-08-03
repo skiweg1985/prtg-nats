@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.oracle.tablespace.onlinestatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        ONLINE
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        SYSTEM
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        RECOVER
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        SYSOFF
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        OFFLINE
+      </SingleInt>
+      <SingleInt state="Error" value="100">
+        UNKNOWN
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

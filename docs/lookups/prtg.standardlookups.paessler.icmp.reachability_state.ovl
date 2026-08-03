@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.icmp.reachability_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="Error" value="0">
+        Unreachable
+      </Boolean>
+      <Boolean state="Ok" value="1">
+        Reachable
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

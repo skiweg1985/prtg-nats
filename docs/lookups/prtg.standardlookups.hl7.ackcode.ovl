@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hl7.ackcode" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Accept
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Error
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Reject
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

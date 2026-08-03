@@ -1,0 +1,1381 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+STATE_DIR="/var/lib/prtg-nats-probe-state"
+TRANSACTION_DIR="${STATE_DIR}/transactions"
+MPP_SERVICE="prtg.mpprobe.service"
+CERT_DIR="/etc/paessler/mpprobe/certs"
+CA_PATH="${CERT_DIR}/nats-docker-ca.pem"
+TOML_CONFIG="/etc/paessler/mpprobe/config.toml"
+YAML_CONFIG="/etc/paessler/mpprobe/config.yaml"
+MAXIMUM_INPUT_BYTES=65536
+# Sensor scripts are larger than a configuration, but they stay text.
+MAXIMUM_SENSOR_BYTES=262144
+SENSOR_SCRIPT_DIR="/opt/paessler/share/scripts"
+SENSOR_CONFIG_ROOT="/etc/prtg-nats/sensors"
+SENSOR_WRAPPER_DIR="/usr/local/sbin"
+SENSOR_SUDOERS_DIR="/etc/sudoers.d"
+SENSOR_UNIT_DIR="/etc/systemd/system"
+SENSOR_VENV_ROOT="/var/lib/prtg-nats-sensors/venv"
+SENSOR_NM_CONFIG="/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf"
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+validate_token() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
+}
+
+active_config() {
+  local found=()
+
+  [[ -f "${TOML_CONFIG}" ]] && found+=("${TOML_CONFIG}")
+  [[ -f "${YAML_CONFIG}" ]] && found+=("${YAML_CONFIG}")
+  [[ "${#found[@]}" -eq 1 ]] ||
+    die "Expected exactly one supported MPP config.toml or config.yaml"
+  printf '%s\n' "${found[0]}"
+}
+
+# Like active_config, but additionally accepts a host that is not yet
+# configured and then names the intended YAML target path.
+target_config() {
+  [[ ! -f "${TOML_CONFIG}" ]] ||
+    die "A legacy config.toml is active; central configuration writes YAML only"
+  printf '%s\n' "${YAML_CONFIG}"
+}
+
+# Allows tab, newline, printable ASCII and UTF-8 continuation bytes, but
+# rejects every other control character.
+is_free_of_control_characters() {
+  local remaining=""
+
+  remaining="$(
+    LC_ALL=C tr -d '\11\12\15\40-\176\200-\377' < "$1" |
+      wc -c |
+      tr -d '[:space:]'
+  )"
+  [[ "${remaining}" == "0" ]]
+}
+
+read_limited_input() {
+  local destination="$1"
+  local limit="${2:-${MAXIMUM_INPUT_BYTES}}"
+
+  head -c "$((limit + 1))" > "${destination}"
+  [[ "$(wc -c < "${destination}")" -le "${limit}" ]] ||
+    die "Transferred payload exceeds ${limit} bytes"
+  [[ -s "${destination}" ]] || die "Transferred payload is empty"
+  is_free_of_control_characters "${destination}" ||
+    die "Transferred payload contains control characters"
+}
+
+# Structural validation at the probe's trust boundary. It is deliberately
+# implemented independently of the renderer on the NATS server, so that even
+# a faulty or malicious caller cannot deposit an arbitrary file.
+validate_configuration_payload() {
+  local payload="$1"
+  local required_pattern=""
+
+  for required_pattern in \
+    '^id:[[:space:]]' \
+    '^access_key:[[:space:]]' \
+    '^name:[[:space:]]' \
+    '^[[:space:]]+url:[[:space:]]+tls://' \
+    '^[[:space:]]+user:[[:space:]]' \
+    '^[[:space:]]+password:[[:space:]]' \
+    '^[[:space:]]+server_ca:[[:space:]]+/'; do
+    [[ "$(grep -c -E "${required_pattern}" "${payload}")" == "1" ]] ||
+      die "Configuration lacks exactly one ${required_pattern} entry"
+  done
+}
+
+# Meldet die Version nur, wenn das Paket wirklich installiert ist. Nach
+# "apt-get remove" ohne "purge" bleibt es mit Status "config-files" samt
+# Versionsangabe registriert, obwohl die Programmdateien fehlen.
+installed_package_version() {
+  local version=""
+
+  if command -v dpkg-query >/dev/null 2>&1; then
+    if [[ "$(
+      dpkg-query -W -f '${db:Status-Status}' prtgmpprobe 2>/dev/null || true
+    )" == "installed" ]]; then
+      version="$(
+        dpkg-query -W -f '${Version}' prtgmpprobe 2>/dev/null || true
+      )"
+    fi
+  fi
+  if [[ -z "${version}" ]] && command -v rpm >/dev/null 2>&1; then
+    version="$(rpm -q --queryformat '%{VERSION}' prtgmpprobe 2>/dev/null || true)"
+  fi
+  printf '%s\n' "${version:-none}"
+}
+
+read_scalar() {
+  local config_path="$1"
+  local field="$2"
+
+  [[ -f "${config_path}" ]] || return 1
+  awk -v field="${field}" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    $0 ~ "^" field "[[:space:]]*:" {
+      value = $0
+      sub("^" field "[[:space:]]*:[[:space:]]*", "", value)
+      value = trim(value)
+      gsub(/^["\047]|["\047]$/, "", value)
+      found = value
+      matches++
+    }
+    END {
+      if (matches != 1 || found == "" || found ~ /[[:cntrl:]]/) {
+        exit 42
+      }
+      print found
+    }
+  ' "${config_path}"
+}
+
+rewrite_toml() {
+  local input_path="$1"
+  local output_path="$2"
+  local username="$3"
+  local password="$4"
+
+  awk -v username="${username}" -v password="${password}" '
+    function leading(value) {
+      match(value, /^[[:space:]]*/)
+      return substr(value, 1, RLENGTH)
+    }
+    /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
+      section = $0
+      gsub(/[[:space:]]/, "", section)
+      in_auth = (section == "[nats.authentication]")
+    }
+    in_auth && /^[[:space:]]*user[[:space:]]*=/ {
+      print leading($0) "user = \"" username "\""
+      users++
+      next
+    }
+    in_auth && /^[[:space:]]*password[[:space:]]*=/ {
+      print leading($0) "password = \"" password "\""
+      passwords++
+      next
+    }
+    { print }
+    END {
+      if (users != 1 || passwords != 1) {
+        exit 42
+      }
+    }
+  ' "${input_path}" > "${output_path}" ||
+    die "Could not locate unique NATS authentication entries in TOML config"
+}
+
+rewrite_yaml() {
+  local input_path="$1"
+  local output_path="$2"
+  local username="$3"
+  local password="$4"
+
+  awk -v username="${username}" -v password="${password}" '
+    function indent_count(value, copy) {
+      copy = value
+      sub(/[^[:space:]].*$/, "", copy)
+      return length(copy)
+    }
+    /^[[:space:]]*authentication:[[:space:]]*$/ {
+      in_auth = 1
+      auth_indent = indent_count($0)
+      print
+      next
+    }
+    in_auth && $0 !~ /^[[:space:]]*$/ &&
+      indent_count($0) <= auth_indent {
+      in_auth = 0
+    }
+    in_auth && /^[[:space:]]*user:[[:space:]]*/ {
+      prefix = $0
+      sub(/user:.*/, "", prefix)
+      print prefix "user: " username
+      users++
+      next
+    }
+    in_auth && /^[[:space:]]*password:[[:space:]]*/ {
+      prefix = $0
+      sub(/password:.*/, "", prefix)
+      print prefix "password: " password
+      passwords++
+      next
+    }
+    { print }
+    END {
+      if (users != 1 || passwords != 1) {
+        exit 42
+      }
+    }
+  ' "${input_path}" > "${output_path}" ||
+    die "Could not locate unique NATS authentication entries in YAML config"
+}
+
+stage_credentials() {
+  local transaction_id="$1"
+  local username="$2"
+  local password="$3"
+  local config_path=""
+  local transaction=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  validate_token "${username}" || die "Invalid NATS username"
+  [[ "${password}" =~ ^[[:xdigit:]]{64}$ ]] || die "Invalid generated password"
+
+  config_path="$(active_config)"
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  [[ ! -e "${transaction}" ]] || die "Transaction already exists"
+  install -d -o root -g root -m 0700 "${TRANSACTION_DIR}" "${transaction}"
+  cp -p "${config_path}" "${transaction}/original"
+  cp -p "${config_path}" "${transaction}/candidate"
+  printf '%s\n' "${config_path}" > "${transaction}/config-path"
+  chmod 0600 "${transaction}/config-path"
+
+  if [[ "${config_path}" == *.toml ]]; then
+    rewrite_toml \
+      "${transaction}/original" \
+      "${transaction}/candidate.new" \
+      "${username}" \
+      "${password}"
+  else
+    rewrite_yaml \
+      "${transaction}/original" \
+      "${transaction}/candidate.new" \
+      "${username}" \
+      "${password}"
+  fi
+  chmod --reference="${transaction}/original" "${transaction}/candidate.new"
+  chown --reference="${transaction}/original" "${transaction}/candidate.new"
+  mv "${transaction}/candidate.new" "${transaction}/candidate"
+  printf 'OK staged %s\n' "${transaction_id}"
+}
+
+# Accepts a complete, centrally rendered configuration. The sequence is the
+# same as for the pure password change, but additionally covers the initial
+# configuration of a not-yet-configured host.
+stage_configuration() {
+  local transaction_id="$1"
+  local config_path=""
+  local transaction=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  config_path="$(target_config)"
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  [[ ! -e "${transaction}" ]] || die "Transaction already exists"
+  install -d -o root -g root -m 0700 "${TRANSACTION_DIR}" "${transaction}"
+
+  read_limited_input "${transaction}/candidate"
+  validate_configuration_payload "${transaction}/candidate"
+  chmod 0600 "${transaction}/candidate"
+
+  if [[ -f "${config_path}" ]]; then
+    cp -p "${config_path}" "${transaction}/original"
+  else
+    : > "${transaction}/original-absent"
+    chmod 0600 "${transaction}/original-absent"
+  fi
+  printf '%s\n' "${config_path}" > "${transaction}/config-path"
+  chmod 0600 "${transaction}/config-path"
+  printf 'OK staged-config %s\n' "${transaction_id}"
+}
+
+transaction_config_path() {
+  local transaction="$1"
+  local config_path=""
+
+  config_path="$(<"${transaction}/config-path")"
+  [[ "${config_path}" == "${TOML_CONFIG}" ||
+     "${config_path}" == "${YAML_CONFIG}" ]] ||
+    die "Unexpected MPP configuration path"
+  printf '%s\n' "${config_path}"
+}
+
+# Installs a file as the configuration. For an already existing
+# configuration, its owner and mode are kept.
+#
+# For an initial configuration the group is decisive: prtg.mpprobe.service
+# does not run as root but under its own service user
+# (User=/Group=paessler_mpprobe on MPP 3.10.0). A file with 0600 root:root is
+# unreadable for it, and the service then aborts with
+# "Failed to read config file: Permission denied". The group of the
+# configuration directory is therefore adopted and 0640 set: root writes,
+# the service user reads, nobody else.
+install_configuration() {
+  local source_path="$1"
+  local config_path="$2"
+  local transaction_id="$3"
+  local temporary_path="${config_path}.prtg-nats-${transaction_id}"
+  local config_directory=""
+  local directory_group=""
+
+  install -o root -g root -m 0600 "${source_path}" "${temporary_path}"
+  if [[ -f "${config_path}" ]]; then
+    chown --reference="${config_path}" "${temporary_path}"
+    chmod --reference="${config_path}" "${temporary_path}"
+  else
+    config_directory="$(dirname -- "${config_path}")"
+    directory_group="$(stat -c '%G' "${config_directory}")"
+    if [[ -n "${directory_group}" && "${directory_group}" != "root" ]]; then
+      chown "root:${directory_group}" "${temporary_path}"
+      chmod 0640 "${temporary_path}"
+    fi
+  fi
+  mv "${temporary_path}" "${config_path}"
+}
+
+restore_previous_configuration() {
+  local transaction="$1"
+  local config_path="$2"
+  local transaction_id="$3"
+
+  if [[ -f "${transaction}/original" ]]; then
+    install_configuration \
+      "${transaction}/original" "${config_path}" "${transaction_id}"
+    systemctl restart "${MPP_SERVICE}" || true
+  else
+    rm -f -- "${config_path}"
+    systemctl stop "${MPP_SERVICE}" || true
+  fi
+}
+
+activate_credentials() {
+  local transaction_id="$1"
+  local transaction="${TRANSACTION_DIR}/${transaction_id}"
+  local config_path=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  [[ -f "${transaction}/candidate" &&
+     -f "${transaction}/config-path" ]] ||
+    die "Unknown or incomplete transaction"
+  [[ -f "${transaction}/original" ||
+     -f "${transaction}/original-absent" ]] ||
+    die "Unknown or incomplete transaction"
+  config_path="$(transaction_config_path "${transaction}")"
+
+  install_configuration \
+    "${transaction}/candidate" "${config_path}" "${transaction_id}"
+  systemctl enable "${MPP_SERVICE}" >/dev/null 2>&1 || true
+  if ! systemctl restart "${MPP_SERVICE}" ||
+    ! systemctl is-active --quiet "${MPP_SERVICE}"; then
+    restore_previous_configuration \
+      "${transaction}" "${config_path}" "${transaction_id}"
+    die "MPP activation failed and the previous state was restored"
+  fi
+  printf 'OK activated %s\n' "${transaction_id}"
+}
+
+rollback_credentials() {
+  local transaction_id="$1"
+  local transaction="${TRANSACTION_DIR}/${transaction_id}"
+  local config_path=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  [[ -f "${transaction}/config-path" ]] ||
+    die "Unknown or incomplete transaction"
+  [[ -f "${transaction}/original" ||
+     -f "${transaction}/original-absent" ]] ||
+    die "Unknown or incomplete transaction"
+  config_path="$(transaction_config_path "${transaction}")"
+  restore_previous_configuration \
+    "${transaction}" "${config_path}" "${transaction_id}"
+  if [[ -f "${transaction}/original" ]]; then
+    systemctl is-active --quiet "${MPP_SERVICE}" ||
+      die "MPP service is inactive after rollback"
+  fi
+  printf 'OK rolled-back %s\n' "${transaction_id}"
+}
+
+commit_credentials() {
+  local transaction_id="$1"
+  local transaction="${TRANSACTION_DIR}/${transaction_id}"
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  [[ "${transaction}" == "${TRANSACTION_DIR}/"* ]] ||
+    die "Unsafe transaction path"
+  [[ -d "${transaction}" ]] || die "Unknown transaction"
+  rm -rf -- "${transaction}"
+  printf 'OK committed %s\n' "${transaction_id}"
+}
+
+status_probe() {
+  local config_path=""
+
+  config_path="$(active_config)"
+  systemctl is-active --quiet "${MPP_SERVICE}" ||
+    die "MPP service is not active"
+  printf 'OK active config=%s\n' "${config_path}"
+}
+
+# Reachability and inventory report. It deliberately does not fail while
+# package or configuration are still missing, so it can serve as a
+# connection test right after enrollment. The NATS password is never
+# printed.
+probe_info() {
+  local config_path=""
+  local service_state="inactive"
+
+  systemctl is-active --quiet "${MPP_SERVICE}" && service_state="active"
+  printf 'OK probe-info\n'
+  printf 'package=%s\n' "$(installed_package_version)"
+  printf 'service=%s\n' "${service_state}"
+  # When the probe is connected through its IP, its own host name is the
+  # better name-giver than the address.
+  printf 'hostname=%s\n' \
+    "$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf 'none')"
+  if [[ -f "${CA_PATH}" ]] && command -v openssl >/dev/null 2>&1; then
+    printf 'ca_sha256=%s\n' "$(
+      openssl x509 -in "${CA_PATH}" -outform DER |
+        openssl dgst -sha256 |
+        awk '{print $NF}'
+    )"
+  else
+    printf 'ca_sha256=none\n'
+  fi
+  if [[ -f "${TOML_CONFIG}" ]]; then
+    printf 'config=%s\n' "${TOML_CONFIG}"
+    return 0
+  fi
+  if [[ ! -f "${YAML_CONFIG}" ]]; then
+    printf 'config=none\n'
+    return 0
+  fi
+  config_path="${YAML_CONFIG}"
+  printf 'config=%s\n' "${config_path}"
+  printf 'id=%s\n' "$(read_scalar "${config_path}" id || printf 'none')"
+  printf 'access_key=%s\n' \
+    "$(read_scalar "${config_path}" access_key || printf 'none')"
+  printf 'name=%s\n' "$(read_scalar "${config_path}" name || printf 'none')"
+}
+
+install_ca() {
+  local staged="${STATE_DIR}/ca-candidate.pem"
+
+  read_limited_input "${staged}"
+  [[ "$(grep -c 'BEGIN CERTIFICATE' "${staged}")" == "1" ]] ||
+    die "CA input must contain exactly one PEM certificate"
+  if command -v openssl >/dev/null 2>&1; then
+    openssl x509 -in "${staged}" -noout >/dev/null 2>&1 ||
+      die "CA input is not a valid PEM certificate"
+    openssl x509 -in "${staged}" -noout -text |
+      grep -F 'CA:TRUE' >/dev/null ||
+      die "Certificate is not a certificate authority"
+    openssl x509 -in "${staged}" -noout -checkend 0 >/dev/null ||
+      die "CA certificate has expired"
+  fi
+  install -d -o root -g root -m 0755 "${CERT_DIR}"
+  install -o root -g root -m 0644 "${staged}" "${CA_PATH}"
+  rm -f -- "${staged}"
+  printf 'OK ca-installed %s\n' "${CA_PATH}"
+}
+
+# ---------------------------------------------------------------------------
+# Sensor scripts
+#
+# Sensors are managed centrally and rolled out over the same restricted
+# channel as the configuration. Only text travels over the channel: the
+# sensor script, its privileged helper and metadata. Everything that grants
+# rights - the sudo rule and the interface reservation - is generated by
+# this helper itself from the sensor name. A faulty or malicious caller
+# cannot smuggle in its own sudo rule that way.
+# ---------------------------------------------------------------------------
+
+SENSOR_SLOTS=(script wrapper requirements version)
+
+# The service user owns the scripts and runs them. On MPP 3.10 that is
+# paessler_mpprobe. If the unit query fails, the group of the script
+# directory serves as the substitute - the package creates it to match.
+sensor_service_user() {
+  local service_user=""
+
+  service_user="$(
+    systemctl show "${MPP_SERVICE}" -p User --value 2>/dev/null || true
+  )"
+  if [[ -z "${service_user}" || "${service_user}" == "root" ]]; then
+    service_user="$(stat -c '%G' "${SENSOR_SCRIPT_DIR}" 2>/dev/null || true)"
+  fi
+  [[ -n "${service_user}" && "${service_user}" != "root" ]] ||
+    die "Could not determine an unprivileged MPP service user"
+  id -u "${service_user}" >/dev/null 2>&1 ||
+    die "The MPP service user does not exist: ${service_user}"
+  printf '%s\n' "${service_user}"
+}
+
+# The target paths are hard-wired and built solely from the validated
+# sensor name. The caller never names a path.
+sensor_slot_target() {
+  local name="$1"
+  local slot="$2"
+
+  case "${slot}" in
+    script)
+      printf '%s/%s.py\n' "${SENSOR_SCRIPT_DIR}" "${name}"
+      ;;
+    wrapper)
+      printf '%s/prtg-sensor-%s\n' "${SENSOR_WRAPPER_DIR}" "${name}"
+      ;;
+    requirements)
+      printf '%s/%s/requirements.txt\n' "${SENSOR_CONFIG_ROOT}" "${name}"
+      ;;
+    version)
+      printf '%s/%s/version\n' "${SENSOR_CONFIG_ROOT}" "${name}"
+      ;;
+    *)
+      die "Unsupported sensor slot: ${slot}"
+      ;;
+  esac
+}
+
+# Syntax check without side effects: compile() compiles in memory only.
+# py_compile is out, because it atomically moves the generated file to its
+# target path and, as root, would even replace a device like /dev/null.
+compile_python() {
+  python3 -c '
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    compile(handle.read(), sys.argv[1], "exec")
+' "$1" >/dev/null 2>&1
+}
+
+validate_sensor_payload() {
+  local slot="$1"
+  local payload="$2"
+
+  case "${slot}" in
+    script|wrapper)
+      head -n 1 "${payload}" |
+        grep -E -x '#!(/usr/bin/env python3|/usr/bin/python3)' >/dev/null ||
+        die "A sensor ${slot} must start with a python3 shebang"
+      compile_python "${payload}" ||
+        die "The transferred sensor ${slot} is not valid Python"
+      ;;
+    requirements)
+      # Simple requirement lines only. Options like --index-url belong in
+      # the probe's pip configuration, not in a transferred file.
+      grep -E -q -v '^[[:space:]]*(#.*)?$|^[A-Za-z0-9][A-Za-z0-9._-]*([<>=!~]=?[A-Za-z0-9._*+-]+)?[[:space:]]*$' \
+        "${payload}" &&
+        die "The requirements file contains unsupported entries"
+      ;;
+    version)
+      [[ "$(wc -l < "${payload}")" -le 1 ]] &&
+        validate_token "$(head -n 1 "${payload}")" ||
+        die "Invalid sensor version"
+      ;;
+  esac
+  return 0
+}
+
+stage_sensor() {
+  local transaction_id="$1"
+  local name="$2"
+  local slot="$3"
+  local transaction=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  validate_token "${name}" || die "Invalid sensor name"
+  sensor_slot_target "${name}" "${slot}" >/dev/null
+
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  install -d -o root -g root -m 0700 "${TRANSACTION_DIR}" "${transaction}"
+  if [[ -f "${transaction}/sensor-name" ]]; then
+    [[ "$(<"${transaction}/sensor-name")" == "${name}" ]] ||
+      die "The transaction already belongs to a different sensor"
+  else
+    printf '%s\n' "${name}" > "${transaction}/sensor-name"
+    chmod 0600 "${transaction}/sensor-name"
+  fi
+  [[ ! -f "${transaction}/slot-${slot}" ]] ||
+    die "Slot ${slot} is already staged in this transaction"
+
+  read_limited_input "${transaction}/slot-${slot}" "${MAXIMUM_SENSOR_BYTES}"
+  validate_sensor_payload "${slot}" "${transaction}/slot-${slot}"
+  chmod 0600 "${transaction}/slot-${slot}"
+  printf 'OK sensor-staged %s %s\n' "${name}" "${slot}"
+}
+
+# The privileged part of a sensor runs as its own service behind a Unix
+# socket, not through sudo.
+#
+# prtg.mpprobe.service sets NoNewPrivileges=yes - the kernel then ignores
+# the setuid bit of sudo, and the vendor means it exactly that way. The
+# socket needs no intervention in that hardening: AF_UNIX is allowed in
+# RestrictAddressFamilies, and the service itself is not subject to the
+# seccomp rules of the MPP unit. Who may reach the socket is decided by its
+# group alone.
+#
+# Accept=yes hands the connection to the program as stdin and stdout. The
+# helper therefore stays an ordinary filter program: JSON in, JSON out -
+# usable on the command line exactly as over the socket.
+write_sensor_units() {
+  local name="$1"
+  local service_user="$2"
+  local service_group=""
+  local socket_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}.socket"
+  local service_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}@.service"
+
+  service_group="$(id -gn "${service_user}")" ||
+    die "Could not determine the group of ${service_user}"
+  install -d -o root -g root -m 0755 "${SENSOR_UNIT_DIR}"
+
+  {
+    printf '# Erzeugt von prtg-nats. Nicht von Hand bearbeiten.\n'
+    printf '[Unit]\n'
+    printf 'Description=Privileged helper socket for the PRTG sensor %s\n\n' \
+      "${name}"
+    printf '[Socket]\n'
+    printf 'ListenStream=/run/prtg-sensor-%s.sock\n' "${name}"
+    printf 'SocketUser=root\n'
+    printf 'SocketGroup=%s\n' "${service_group}"
+    printf 'SocketMode=0660\n'
+    printf 'Accept=yes\n'
+    printf 'MaxConnections=4\n\n'
+    printf '[Install]\n'
+    printf 'WantedBy=sockets.target\n'
+  } > "${socket_unit}.candidate"
+
+  {
+    printf '# Erzeugt von prtg-nats. Nicht von Hand bearbeiten.\n'
+    printf '[Unit]\n'
+    printf 'Description=Privileged helper for the PRTG sensor %s\n\n' "${name}"
+    printf '[Service]\n'
+    printf 'Type=simple\n'
+    printf 'ExecStart=%s/prtg-sensor-%s\n' "${SENSOR_WRAPPER_DIR}" "${name}"
+    printf 'User=root\n'
+    printf 'Group=root\n'
+    printf 'StandardInput=socket\n'
+    printf 'StandardOutput=socket\n'
+    printf 'StandardError=journal\n'
+    # Emergency brake in case a helper hangs despite its own time budgets.
+    printf 'RuntimeMaxSec=600\n'
+  } > "${service_unit}.candidate"
+
+  chmod 0644 "${socket_unit}.candidate" "${service_unit}.candidate"
+  mv "${socket_unit}.candidate" "${socket_unit}"
+  mv "${service_unit}.candidate" "${service_unit}"
+
+  systemctl daemon-reload
+  systemctl enable --now "prtg-sensor-${name}.socket" >/dev/null 2>&1 ||
+    die "Could not activate the privileged helper socket of ${name}"
+
+  # Earlier versions of this repository deployed a sudo rule instead. It
+  # would be ineffective, but it should not be left lying around either.
+  rm -f -- "${SENSOR_SUDOERS_DIR}/prtg-sensor-${name}"
+}
+
+remove_sensor_units() {
+  local name="$1"
+
+  systemctl disable --now "prtg-sensor-${name}.socket" >/dev/null 2>&1 || true
+  rm -f -- \
+    "${SENSOR_UNIT_DIR}/prtg-sensor-${name}.socket" \
+    "${SENSOR_UNIT_DIR}/prtg-sensor-${name}@.service" \
+    "${SENSOR_SUDOERS_DIR}/prtg-sensor-${name}"
+  systemctl daemon-reload
+}
+
+# Debian splits ensurepip into a separate package; without python3-venv,
+# "python3 -m venv" fails with a message that helps nobody. The package name
+# is fixed in the script: the management channel cannot be used to pull in
+# arbitrary packages through it.
+ensure_venv_support() {
+  if python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv \
+      >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y python3 >/dev/null 2>&1 || true
+  fi
+
+  python3 -c 'import ensurepip, venv' >/dev/null 2>&1
+}
+
+# Some sensors need a system program rather than a PyPI package -
+# iperf-throughput measures with iperf3. The mapping is fixed in the script,
+# for the same reason as the package name for python3-venv: the management
+# channel cannot be used to pull in arbitrary packages through it. A new
+# sensor with such a dependency belongs here, not in its manifest.
+#
+# Package name and program name are identical here; were that ever not the
+# case, this table would have to carry both.
+sensor_system_package() {
+  case "$1" in
+    iperf-throughput)
+      printf 'iperf3\n'
+      ;;
+    *)
+      :
+      ;;
+  esac
+}
+
+# Zieht das Systempaket eines Sensors nach, falls es fehlt.
+#
+# A failure deliberately does not abort the deployment transaction: the
+# sensor's self-test reports a missing tool anyway, and activation then
+# restores the previous state. Checking this one place is better than having
+# two places that catch the same thing.
+ensure_sensor_package() {
+  local package="$1"
+
+  [[ -n "${package}" ]] || return 0
+  command -v "${package}" >/dev/null 2>&1 && return 0
+
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${package}" \
+      >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y "${package}" >/dev/null 2>&1 || true
+  fi
+
+  command -v "${package}" >/dev/null 2>&1
+}
+
+# Establishes the prerequisites for sensors with dependencies and reports
+# the state. Without this command, a missing python3-venv would only show up
+# in the middle of a deployment transaction.
+prepare_sensor_host() {
+  local python_version=""
+
+  python_version="$(
+    python3 -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' \
+      2>/dev/null || true
+  )"
+  [[ -n "${python_version}" ]] || die "Python 3 is not installed on this probe"
+  ensure_venv_support ||
+    die "Could not enable Python virtual environments (python3-venv)"
+  printf 'OK sensor-prepared python=%s venv=ready\n' "${python_version}"
+}
+
+create_sensor_venv() {
+  local name="$1"
+  local requirements="$2"
+  local service_user="$3"
+  local venv="${SENSOR_VENV_ROOT}/${name}"
+
+  # Debian blocks system-wide installation since PEP 668. Every sensor
+  # with dependencies therefore gets its own environment. An internal
+  # package mirror is configured on the probe via /etc/pip.conf.
+  ensure_venv_support ||
+    die "Python virtual environments are unavailable; python3-venv is missing"
+  install -d -o root -g root -m 0755 "${SENSOR_VENV_ROOT}"
+  rm -rf -- "${venv}"
+  python3 -m venv "${venv}" >/dev/null 2>&1 ||
+    die "Could not create a virtual environment for ${name}"
+  "${venv}/bin/pip" install \
+    --quiet --disable-pip-version-check --require-virtualenv \
+    --requirement "${requirements}" >/dev/null 2>&1 ||
+    die "Could not install the dependencies of ${name}"
+  # python3 -m venv inherits this helper's umask 077 and creates the whole
+  # environment for root only. The installed script's shebang points at this
+  # interpreter though, and the service user has to start it - without the
+  # following two lines even the self-test fails on missing permissions.
+  # The same split as for the script itself: owned by root, access for the
+  # group, nothing for anyone else. The capital X sets the x bit only where
+  # it already is - directories and programs, not a library.
+  chown -R "root:${service_user}" "${venv}"
+  chmod -R go-w,g+rX "${venv}"
+  printf '%s\n' "${venv}"
+}
+
+install_sensor_files() {
+  local transaction="$1"
+  local name="$2"
+  local service_user="$3"
+  local venv=""
+  local slot=""
+  local prepared="${transaction}/prepared-script"
+
+  install -d -o root -g root -m 0755 \
+    "${SENSOR_CONFIG_ROOT}" "${SENSOR_CONFIG_ROOT}/${name}"
+  ensure_sensor_package "$(sensor_system_package "${name}")" || true
+  if [[ -f "${transaction}/slot-requirements" ]]; then
+    venv="$(create_sensor_venv \
+      "${name}" "${transaction}/slot-requirements" "${service_user}")"
+  fi
+
+  # Erst der Helfer und seine sudo-Regel, dann die Metadaten, zuletzt das
+  # Skript: der Einstiegspunkt soll nie ohne seinen Unterbau dastehen.
+  if [[ -f "${transaction}/slot-wrapper" ]]; then
+    install -o root -g root -m 0755 \
+      "${transaction}/slot-wrapper" "$(sensor_slot_target "${name}" wrapper)"
+    write_sensor_units "${name}" "${service_user}"
+  fi
+  for slot in requirements version; do
+    [[ -f "${transaction}/slot-${slot}" ]] || continue
+    install -o root -g root -m 0644 \
+      "${transaction}/slot-${slot}" "$(sensor_slot_target "${name}" "${slot}")"
+  done
+
+  cp -p "${transaction}/slot-script" "${prepared}"
+  if [[ -n "${venv}" ]]; then
+    sed -i "1s|^#!.*|#!${venv}/bin/python3|" "${prepared}"
+  fi
+  install -o root -g "${service_user}" -m 0750 \
+    "${prepared}" "$(sensor_slot_target "${name}" script)"
+  rm -f -- "${prepared}"
+}
+
+restore_sensor_files() {
+  local transaction="$1"
+  local name="$2"
+  local service_user="$3"
+  local slot=""
+  local target=""
+
+  for slot in "${SENSOR_SLOTS[@]}"; do
+    [[ -f "${transaction}/slot-${slot}" ]] || continue
+    target="$(sensor_slot_target "${name}" "${slot}")"
+    if [[ -f "${transaction}/original-${slot}" ]]; then
+      install -o root -g root -m 0600 \
+        "${transaction}/original-${slot}" "${target}.restore"
+      chown --reference="${transaction}/original-${slot}" "${target}.restore"
+      chmod --reference="${transaction}/original-${slot}" "${target}.restore"
+      mv "${target}.restore" "${target}"
+    else
+      rm -f -- "${target}"
+    fi
+  done
+  if [[ -f "$(sensor_slot_target "${name}" wrapper)" ]]; then
+    write_sensor_units "${name}" "${service_user}"
+  else
+    remove_sensor_units "${name}"
+  fi
+}
+
+# Runs a command the way prtg.mpprobe.service runs its sensor scripts: as
+# the service user and with the same hardening.
+#
+# Without this reproduction the self-test is worthless. A call from the root
+# shell has neither NoNewPrivileges nor the restricted address families - so
+# it passes even when the sensor fails at exactly those limits in the real
+# service context. The properties are read from the running unit, so the
+# reproduction stays faithful even if Paessler changes them later.
+run_like_probe_service() {
+  local service_user="$1"
+  local properties=()
+  local option=""
+  local value=""
+  shift
+
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u "${service_user}" -- "$@"
+      return "$?"
+    fi
+    die "Neither systemd-run nor runuser is available for the self-check"
+  fi
+
+  for option in \
+    NoNewPrivileges \
+    RestrictSUIDSGID \
+    RestrictAddressFamilies \
+    RestrictNamespaces \
+    LockPersonality \
+    PrivateTmp \
+    ProtectHome \
+    ProtectSystem \
+    ProtectKernelModules \
+    ProtectKernelTunables; do
+    value="$(
+      systemctl show "${MPP_SERVICE}" -p "${option}" --value 2>/dev/null || true
+    )"
+    [[ -n "${value}" ]] || continue
+    properties+=(--property="${option}=${value}")
+  done
+
+  systemd-run \
+    --pipe \
+    --quiet \
+    --collect \
+    --wait \
+    --uid="${service_user}" \
+    --gid="$(id -gn "${service_user}")" \
+    "${properties[@]}" \
+    -- "$@"
+}
+
+# The counterpart to "the service starts again": a freshly deployed sensor
+# script has to run under the MPP service's conditions and deliver valid
+# Script v2 JSON. That also proves the whole permission chain up to the
+# privileged helper before the transaction completes.
+sensor_self_check() {
+  local name="$1"
+  local service_user="$2"
+  local script=""
+  local output=""
+
+  script="$(sensor_slot_target "${name}" script)"
+  output="$(
+    printf -- '--self-check\n' |
+      run_like_probe_service "${service_user}" "${script}" 2>/dev/null || true
+  )"
+  [[ -n "${output}" ]] || return 1
+  printf '%s' "${output}" | python3 -c '
+import json
+import sys
+
+try:
+    document = json.loads(sys.stdin.read())
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if document.get("status") == "ok" else 1)
+'
+}
+
+activate_sensor() {
+  local transaction_id="$1"
+  local transaction=""
+  local name=""
+  local service_user=""
+  local slot=""
+  local target=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  [[ -f "${transaction}/sensor-name" ]] ||
+    die "Unknown or incomplete sensor transaction"
+  name="$(<"${transaction}/sensor-name")"
+  validate_token "${name}" || die "Invalid sensor name"
+  [[ -f "${transaction}/slot-script" ]] ||
+    die "A sensor transaction must contain a script"
+  [[ -d "${SENSOR_SCRIPT_DIR}" ]] ||
+    die "The Script v2 directory is missing: ${SENSOR_SCRIPT_DIR}"
+  service_user="$(sensor_service_user)"
+
+  for slot in "${SENSOR_SLOTS[@]}"; do
+    [[ -f "${transaction}/slot-${slot}" ]] || continue
+    target="$(sensor_slot_target "${name}" "${slot}")"
+    if [[ -f "${target}" ]]; then
+      cp -p "${target}" "${transaction}/original-${slot}"
+    else
+      : > "${transaction}/original-${slot}-absent"
+      chmod 0600 "${transaction}/original-${slot}-absent"
+    fi
+  done
+
+  install_sensor_files "${transaction}" "${name}" "${service_user}"
+  if ! sensor_self_check "${name}" "${service_user}"; then
+    restore_sensor_files "${transaction}" "${name}" "${service_user}"
+    die "Sensor ${name} failed its self-check; the previous state was restored"
+  fi
+  printf 'OK sensor-activated %s\n' "${name}"
+}
+
+rollback_sensor() {
+  local transaction_id="$1"
+  local transaction=""
+  local name=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  [[ -f "${transaction}/sensor-name" ]] ||
+    die "Unknown or incomplete sensor transaction"
+  name="$(<"${transaction}/sensor-name")"
+  validate_token "${name}" || die "Invalid sensor name"
+  restore_sensor_files "${transaction}" "${name}" "$(sensor_service_user)"
+  printf 'OK sensor-rolled-back %s\n' "${name}"
+}
+
+list_sensors() {
+  local directory=""
+  local name=""
+  local script=""
+  local version=""
+
+  printf 'OK sensor-list\n'
+  shopt -s nullglob
+  for directory in "${SENSOR_CONFIG_ROOT}"/*/; do
+    name="$(basename -- "${directory}")"
+    validate_token "${name}" || continue
+    script="$(sensor_slot_target "${name}" script)"
+    [[ -f "${script}" ]] || continue
+    version="none"
+    [[ ! -f "${directory}version" ]] || version="$(<"${directory}version")"
+    printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\n' \
+      "${name}" \
+      "${version}" \
+      "$(sha256sum "${script}" | awk '{print $1}')" \
+      "$(sensor_interface_list "${name}")" \
+      "$(sensor_helper_state "${name}")"
+  done
+  shopt -u nullglob
+}
+
+# A sensor without a listening socket only reports in PRTG that it cannot
+# reach its helper. The state therefore belongs in the overview.
+sensor_helper_state() {
+  local name="$1"
+
+  [[ -f "$(sensor_slot_target "${name}" wrapper)" ]] || {
+    printf 'none\n'
+    return 0
+  }
+  if systemctl is-active --quiet "prtg-sensor-${name}.socket"; then
+    printf 'listening\n'
+  else
+    printf 'inactive\n'
+  fi
+}
+
+sensor_interface_list() {
+  local allowed="${SENSOR_CONFIG_ROOT}/$1/allowed-interfaces"
+
+  [[ -f "${allowed}" ]] || {
+    printf 'none\n'
+    return 0
+  }
+  paste -s -d ',' -- "${allowed}" 2>/dev/null || printf 'none\n'
+}
+
+default_route_interfaces() {
+  ip -o route show default 2>/dev/null |
+    awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") print $(i + 1) }' |
+    sort -u
+}
+
+# One shared file for all reserved interfaces. Several files with the same
+# key would displace each other in NetworkManager.
+write_sensor_nm_configuration() {
+  local interfaces=()
+  local entry=""
+  local specification=""
+  local file=""
+  local candidate="${SENSOR_NM_CONFIG}.candidate"
+
+  [[ -d /etc/NetworkManager ]] || return 0
+  shopt -s nullglob
+  for file in "${SENSOR_CONFIG_ROOT}"/*/allowed-interfaces; do
+    while IFS= read -r entry; do
+      [[ -n "${entry}" ]] && interfaces+=("${entry}")
+    done < "${file}"
+  done
+  shopt -u nullglob
+
+  if [[ "${#interfaces[@]}" -eq 0 ]]; then
+    rm -f -- "${SENSOR_NM_CONFIG}"
+  else
+    while IFS= read -r entry; do
+      specification+="interface-name:${entry};"
+    done < <(printf '%s\n' "${interfaces[@]}" | sort -u)
+    install -d -o root -g root -m 0755 "$(dirname -- "${SENSOR_NM_CONFIG}")"
+    {
+      printf '# Generated by prtg-nats. These interfaces are reserved\n'
+      printf '# for sensor tests and are not managed by NetworkManager.\n'
+      printf '# Do not edit by hand.\n'
+      printf '[keyfile]\n'
+      printf 'unmanaged-devices=%s\n' "${specification%;}"
+    } > "${candidate}"
+    chmod 0644 "${candidate}"
+    mv "${candidate}" "${SENSOR_NM_CONFIG}"
+  fi
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli general reload conf >/dev/null 2>&1 || true
+  fi
+}
+
+# Reserviert ein WLAN-Interface als Testinterface.
+#
+# The check deliberately allows an interface that still carries a default
+# route - that is exactly how NetworkManager hands it over. It refuses only
+# when it would be the host's only default route: the reservation would then
+# cut the management path and the probe's connection to the NATS server.
+reserve_sensor_interface() {
+  local name="$1"
+  local interface="$2"
+  local allowed=""
+  local remaining=0
+
+  validate_token "${name}" || die "Invalid sensor name"
+  [[ "${interface}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$ ]] ||
+    die "Invalid interface name"
+  [[ -d "/sys/class/net/${interface}" ]] ||
+    die "Interface does not exist: ${interface}"
+  [[ -e "/sys/class/net/${interface}/wireless" ]] ||
+    die "Interface is not a wireless interface: ${interface}"
+  remaining="$(default_route_interfaces | grep -v -x -- "${interface}" | wc -l)"
+  [[ "${remaining}" -ge 1 ]] ||
+    die "Interface ${interface} carries the only default route of this host"
+
+  install -d -o root -g root -m 0755 \
+    "${SENSOR_CONFIG_ROOT}" "${SENSOR_CONFIG_ROOT}/${name}"
+  allowed="${SENSOR_CONFIG_ROOT}/${name}/allowed-interfaces"
+  touch "${allowed}"
+  if ! grep -q -x -- "${interface}" "${allowed}"; then
+    printf '%s\n' "${interface}" >> "${allowed}"
+  fi
+  sort -u -o "${allowed}" "${allowed}"
+  chmod 0644 "${allowed}"
+  write_sensor_nm_configuration
+
+  # NetworkManager releases the interface but leaves address and route in
+  # place. Both have to go, or the test refuses the interface - and the host
+  # would keep a route over a network that is about to be tested.
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "${interface}" managed no >/dev/null 2>&1 || true
+  fi
+  ip addr flush dev "${interface}" >/dev/null 2>&1 || true
+  ip link set "${interface}" down >/dev/null 2>&1 || true
+  printf 'OK sensor-interface-reserved %s %s\n' "${name}" "${interface}"
+}
+
+release_sensor_interfaces() {
+  local name="$1"
+  local allowed="${SENSOR_CONFIG_ROOT}/${name}/allowed-interfaces"
+  local interface=""
+
+  [[ -f "${allowed}" ]] || return 0
+  while IFS= read -r interface; do
+    [[ -n "${interface}" ]] || continue
+    if command -v nmcli >/dev/null 2>&1; then
+      nmcli device set "${interface}" managed yes >/dev/null 2>&1 || true
+    fi
+  done < "${allowed}"
+  rm -f -- "${allowed}"
+  write_sensor_nm_configuration
+}
+
+# Counterpart to reserve_sensor_interface for a single interface. Without
+# it, an accidental reservation would persist until the whole sensor is
+# removed - and that takes the profiles with it.
+release_sensor_interface() {
+  local name="$1"
+  local interface="$2"
+  local allowed=""
+  local remaining=""
+
+  validate_token "${name}" || die "Invalid sensor name"
+  [[ "${interface}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$ ]] ||
+    die "Invalid interface name"
+  allowed="${SENSOR_CONFIG_ROOT}/${name}/allowed-interfaces"
+  [[ -f "${allowed}" ]] &&
+    grep -q -x -- "${interface}" "${allowed}" ||
+    die "Interface ${interface} is not reserved for ${name}"
+
+  remaining="$(grep -v -x -- "${interface}" "${allowed}" || true)"
+  if [[ -n "${remaining}" ]]; then
+    printf '%s\n' "${remaining}" > "${allowed}"
+    chmod 0644 "${allowed}"
+  else
+    rm -f -- "${allowed}"
+  fi
+  # Erst die Datei, dann NetworkManager: Die Konfiguration wird aus allen
+  # verbliebenen Reservierungen neu erzeugt.
+  write_sensor_nm_configuration
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "${interface}" managed yes >/dev/null 2>&1 || true
+  fi
+  printf 'OK sensor-interface-released %s %s\n' "${name}" "${interface}"
+}
+
+write_sensor_profile() {
+  local name="$1"
+  local profile="$2"
+  local directory=""
+  local candidate=""
+  local mode=""
+  local owner=""
+  local service_user=""
+
+  validate_token "${name}" || die "Invalid sensor name"
+  validate_token "${profile}" || die "Invalid profile name"
+  [[ -f "$(sensor_slot_target "${name}" script)" ]] ||
+    die "Sensor ${name} is not installed"
+
+  # Who may read the file follows from who has to read it.
+  #
+  # A sensor with a privileged helper never reads it itself - the helper
+  # does, as root, and the file stays invisible to the service user. A
+  # sensor without a helper runs as the service user and could not get at
+  # it otherwise; there the file belongs to its group, and to it alone.
+  #
+  # The decision follows what is on disk, not a claim by the caller:
+  # otherwise the management channel could be used to make a secret
+  # readable that is not supposed to be.
+  directory="${SENSOR_CONFIG_ROOT}/${name}/profiles"
+  if [[ -f "$(sensor_slot_target "${name}" wrapper)" ]]; then
+    install -d -o root -g root -m 0700 \
+      "${SENSOR_CONFIG_ROOT}/${name}" "${directory}"
+    mode=0600
+    owner="root:root"
+  else
+    service_user="$(sensor_service_user)"
+    install -d -o root -g root -m 0755 "${SENSOR_CONFIG_ROOT}/${name}"
+    install -d -o root -g "${service_user}" -m 0750 "${directory}"
+    mode=0640
+    owner="root:${service_user}"
+  fi
+  candidate="${directory}/${profile}.env.candidate"
+  read_limited_input "${candidate}" "${MAXIMUM_INPUT_BYTES}"
+  grep -E -q -v '^[[:space:]]*(#.*)?$|^[A-Z][A-Z0-9_]*=' "${candidate}" && {
+    rm -f -- "${candidate}"
+    die "A credential profile accepts only KEY=VALUE lines"
+  }
+  chown "${owner}" "${candidate}"
+  chmod "${mode}" "${candidate}"
+  mv "${candidate}" "${directory}/${profile}.env"
+  printf 'OK sensor-profile-written %s %s\n' "${name}" "${profile}"
+}
+
+remove_sensor_profile() {
+  local name="$1"
+  local profile="$2"
+
+  validate_token "${name}" || die "Invalid sensor name"
+  validate_token "${profile}" || die "Invalid profile name"
+  rm -f -- "${SENSOR_CONFIG_ROOT}/${name}/profiles/${profile}.env"
+  printf 'OK sensor-profile-removed %s %s\n' "${name}" "${profile}"
+}
+
+remove_sensor() {
+  local name="$1"
+
+  validate_token "${name}" || die "Invalid sensor name"
+  release_sensor_interfaces "${name}"
+  remove_sensor_units "${name}"
+  rm -f -- \
+    "$(sensor_slot_target "${name}" script)" \
+    "$(sensor_slot_target "${name}" wrapper)"
+  # The credentials disappear together with the configuration directory.
+  rm -rf -- \
+    "${SENSOR_CONFIG_ROOT:?}/${name}" \
+    "${SENSOR_VENV_ROOT:?}/${name}"
+  printf 'OK sensor-removed %s\n' "${name}"
+}
+
+remove_access() {
+  rm -f -- \
+    /var/lib/prtg-nats-admin/.ssh/authorized_keys \
+    /etc/sudoers.d/prtg-nats-admin
+  printf 'OK management-access-removed\n'
+}
+
+[[ "${EUID}" -eq 0 ]] || die "Helper must run as root through its sudo rule"
+install -d -o root -g root -m 0700 "${STATE_DIR}" "${TRANSACTION_DIR}"
+
+IFS=$'\t' read -r command_name argument_one argument_two argument_three ||
+  die "Missing management request"
+
+case "${command_name}" in
+  status)
+    [[ -z "${argument_one:-}" ]] || die "status takes no arguments"
+    status_probe
+    ;;
+  probe-info)
+    [[ -z "${argument_one:-}" ]] || die "probe-info takes no arguments"
+    probe_info
+    ;;
+  stage)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "stage requires transaction and username"
+    IFS= read -r secret_password || die "stage requires a password on stdin"
+    stage_credentials "${argument_one}" "${argument_two}" "${secret_password}"
+    ;;
+  write-config)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "write-config requires one transaction"
+    stage_configuration "${argument_one}"
+    ;;
+  install-ca)
+    [[ -z "${argument_one:-}" ]] || die "install-ca takes no arguments"
+    install_ca
+    ;;
+  activate)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "activate requires one transaction"
+    activate_credentials "${argument_one}"
+    ;;
+  rollback)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "rollback requires one transaction"
+    rollback_credentials "${argument_one}"
+    ;;
+  commit)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "commit requires one transaction"
+    commit_credentials "${argument_one}"
+    ;;
+  sensor-stage)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -n "${argument_three:-}" ]] ||
+      die "sensor-stage requires transaction, sensor and slot"
+    stage_sensor "${argument_one}" "${argument_two}" "${argument_three}"
+    ;;
+  sensor-activate)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "sensor-activate requires one transaction"
+    activate_sensor "${argument_one}"
+    ;;
+  sensor-rollback)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "sensor-rollback requires one transaction"
+    rollback_sensor "${argument_one}"
+    ;;
+  sensor-commit)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "sensor-commit requires one transaction"
+    commit_credentials "${argument_one}"
+    ;;
+  sensor-list)
+    [[ -z "${argument_one:-}" ]] || die "sensor-list takes no arguments"
+    list_sensors
+    ;;
+  sensor-prepare)
+    [[ -z "${argument_one:-}" ]] || die "sensor-prepare takes no arguments"
+    prepare_sensor_host
+    ;;
+  sensor-remove)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "sensor-remove requires one sensor"
+    remove_sensor "${argument_one}"
+    ;;
+  sensor-reserve-interface)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-reserve-interface requires sensor and interface"
+    reserve_sensor_interface "${argument_one}" "${argument_two}"
+    ;;
+  sensor-release-interface)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-release-interface requires sensor and interface"
+    release_sensor_interface "${argument_one}" "${argument_two}"
+    ;;
+  sensor-write-profile)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-write-profile requires sensor and profile"
+    write_sensor_profile "${argument_one}" "${argument_two}"
+    ;;
+  sensor-remove-profile)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-remove-profile requires sensor and profile"
+    remove_sensor_profile "${argument_one}" "${argument_two}"
+    ;;
+  unenroll)
+    [[ -z "${argument_one:-}" ]] || die "unenroll takes no arguments"
+    remove_access
+    ;;
+  *)
+    die "Unsupported management request"
+    ;;
+esac

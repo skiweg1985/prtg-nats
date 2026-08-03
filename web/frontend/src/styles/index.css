@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Tailwind resolves its utilities from the token layer, so `bg-surface` and
+ * `--color-surface` cannot drift apart. Nothing here introduces a new value.
+ */
+@theme inline {
+  --color-paper: var(--color-paper);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-ink-3: var(--color-ink-3);
+  --color-rule: var(--color-rule);
+  --color-rule-2: var(--color-rule-2);
+  --color-accent: var(--color-accent);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-ok: var(--color-ok);
+  --color-ok-soft: var(--color-ok-soft);
+  --color-warn: var(--color-warn);
+  --color-warn-soft: var(--color-warn-soft);
+  --color-danger: var(--color-danger);
+  --color-danger-soft: var(--color-danger-soft);
+  --color-neutral: var(--color-neutral);
+  --color-neutral-soft: var(--color-neutral-soft);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-inset: var(--radius-inset);
+
+  --ease-out: var(--ease-out);
+  --ease-in: var(--ease-in);
+  --ease-in-out: var(--ease-in-out);
+}
+
+/* Dark mode follows a class on <html>, set by the theme store. The OS
+ * preference seeds it; an explicit choice always wins and is remembered.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    font-family: var(--font-body);
+    background-color: var(--color-paper);
+    color: var(--color-ink-2);
+    /* Tabular figures everywhere: a column of versions, counts and durations
+     * that shifts by a pixel per row is a column that is hard to scan. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: var(--tracking-display);
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+  }
+
+  /* Tailwind's reset sets text-transform: none on buttons and inputs, which
+   * silently split every sortable column header from its unsortable
+   * neighbours: same class, different casing. Inheriting restores the one
+   * rule the label style relies on. */
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    text-transform: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* One focus treatment for the whole application. Keyboard operation is a
+   * requirement here, not a nicety - an administrator under pressure reaches
+   * for the keyboard. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-inset);
+  }
+
+  ::selection {
+    background-color: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
+  /* Respect the system setting. Every transition below is decoration. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* The uppercase mono label used for column headers and metadata keys. */
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  .surface-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-card);
+  }
+}

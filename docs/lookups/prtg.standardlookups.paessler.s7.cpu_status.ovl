@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.s7.cpu_status" desiredValue="8" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        STOP (update)
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        STOP (reset memory)
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        STOP (self-initialization)
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        STOP (internal)
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        STARTUP (cold restart)
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        STARTUP (warm restart)
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        STARTUP (hot restart)
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        RUN (solo mode)
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        RUN-R (redundant mode)
+      </SingleInt>
+      <SingleInt state="Warning" value="10">
+        HOLD
+      </SingleInt>
+      <SingleInt state="Warning" value="11">
+        LINK-UP
+      </SingleInt>
+      <SingleInt state="Warning" value="12">
+        UPDATE
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        DEFECTIVE
+      </SingleInt>
+      <SingleInt state="Warning" value="14">
+        SELFTEST
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        NO POWER
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

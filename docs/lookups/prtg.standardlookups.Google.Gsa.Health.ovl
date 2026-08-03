@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.Google.Gsa.Health" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        green
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        yellow
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        red
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

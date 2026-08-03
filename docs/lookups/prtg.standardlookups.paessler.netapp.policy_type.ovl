@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.policy_type" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Vault
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        Async Mirror
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Mirror and Vault
+      </SingleInt>
+      <SingleInt state="Ok" value="4">
+        Strict Sync Mirror
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        Sync Mirror
+      </SingleInt>
+      <SingleInt state="Ok" value="6">
+        Async
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.cucsequipmentchassisconfigstate" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        unInitialized
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        unAcknowledged
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Unsupported Connectivity
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Removing
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Ack In Progress
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Evaluation
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Acknowledged
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        Auto Acknowledge
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

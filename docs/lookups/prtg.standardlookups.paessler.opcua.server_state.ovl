@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.opcua.server_state" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="0">
+        Running
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        No Configuration
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Suspended
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Shut Down
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        Test
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Communication Fault
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

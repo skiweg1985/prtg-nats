@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.dell.diskstate" desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+	<Lookups>
+		<SingleInt state="None" value="0">Unknown</SingleInt>
+		<SingleInt state="OK" value="1">Ready</SingleInt>
+		<SingleInt state="Error" value="2">Failed</SingleInt>
+		<SingleInt state="OK" value="3">Online</SingleInt>
+		<SingleInt state="Error" value="4">Offline</SingleInt>
+		<SingleInt state="Error" value="6">Degraded</SingleInt>
+		<SingleInt state="Warning" value="7">Recovering</SingleInt>
+		<SingleInt state="Error" value="11">Removed</SingleInt>
+		<SingleInt state="OK" value="13">Non-RAID</SingleInt>
+		<SingleInt state="Warning" value="14">PCIeSSD Not Ready</SingleInt>
+		<SingleInt state="Warning" value="15">Resynching</SingleInt>
+		<SingleInt state="Warning" value="22">Replacing</SingleInt>
+		<SingleInt state="Warning" value="24">Rebuild</SingleInt>
+		<SingleInt state="Warning" value="25">No Media</SingleInt>
+		<SingleInt state="Warning" value="26">Formatting</SingleInt>
+		<SingleInt state="OK" value="28">Diagnostics</SingleInt>
+		<SingleInt state="Error" value="34">Predictive Failure</SingleInt>
+		<SingleInt state="Warning" value="35">Initializing</SingleInt>
+		<SingleInt state="Error" value="39">Foreign</SingleInt>
+		<SingleInt state="OK" value="40">Clear</SingleInt>
+		<SingleInt state="Error" value="41">Unsupported</SingleInt>
+		<SingleInt state="Error" value="53">Incompatible</SingleInt>
+		<SingleInt state="Warning" value="56">PCIeSSD Read Only</SingleInt>
+	</Lookups>
+</ValueLookup>

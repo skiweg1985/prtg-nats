@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.netapp.fsstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Nearly Full
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Full
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

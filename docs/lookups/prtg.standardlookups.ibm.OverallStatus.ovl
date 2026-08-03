@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.ibm.overallstatus" desiredValue="255" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Critical
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Non Critical
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        System Level
+      </SingleInt>
+      <SingleInt state="OK" value="255">
+        Normal
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

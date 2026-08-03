@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+  <ValueLookup id="prtg.standardlookups.hp.smartstatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        replace Drive
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

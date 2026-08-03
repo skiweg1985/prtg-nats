@@ -1,0 +1,1676 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# Symlinks are resolved before the project directory is determined: when a
+# link in PATH points here (see "./prtg-nats self install"), BASH_SOURCE
+# points at /usr/local/bin and libexec/ and runtime/ would not be found.
+PROJECT_DIR="$(
+  cd -- "$(dirname -- "$(
+    readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null ||
+      printf '%s' "${BASH_SOURCE[0]}"
+  )")" && pwd
+)"
+LIBEXEC_DIR="${PROJECT_DIR}/libexec"
+
+usage() {
+  cat <<'EOF'
+PRTG-NATS bootstrap and deployment tooling
+
+Regular administration happens in the web interface:
+  docker compose -f compose.yaml -f compose.web.yaml up -d
+  https://<NATS_FQDN>:8443
+
+Usage:
+  ./prtg-nats <command> [options]
+
+First deployment:
+  setup                 Ask for site settings, prepare runtime/, start the stack
+  config [--edit]       Show the site settings; --edit asks and rewrites .env
+
+Stack lifecycle:
+  status                Show container state and certificate validity
+  logs [compose args]   Follow NATS logs (default: last 200 lines)
+  start | stop          Start or stop the stack without deleting data
+  restart               Recreate the NATS containers
+  update                Pull images, force-recreate the stack
+
+MPP rollout (needs an interactive shell, stays here):
+  mpp-info [USER]       Print the values of the generated MPP configuration
+  install-mpp [TARGET]  Install or reconfigure an MPP over SSH
+                        Options: --nats-user USER --probe-name NAME --wizard
+                                 --no-enroll --no-config --dry-run
+                                 --keep-on-failure --rollback-on-failure
+  probe ...             Enroll, configure, and centrally manage MPP systems
+  sensor ...            Manage the monitoring scripts of the probes
+  iperf-server ...      Set up and manage iperf3 measurement endpoints
+  ssh-key info|show     The management SSH public key
+  ca-info | ca-show | ca-path
+                        The public CA certificate
+
+Recovery (the web interface is the regular path; these call the same code):
+  init                  Initialise runtime/ without the web interface
+  user ...              add | list | show | rotate | delete NATS accounts
+  verify [--offline]    Check configuration, TLS, health, and login
+  renew-certificate     Renew the server certificate and restart NATS
+  backup                Create a consistent JetStream backup
+
+Shell integration:
+  self install|uninstall
+  completion [SHELL]
+
+Never use "docker compose down --volumes": it deletes JetStream data.
+EOF
+}
+
+run_internal() {
+  local script_name="$1"
+  shift
+  "${LIBEXEC_DIR}/${script_name}" "$@"
+}
+
+web_platform_present() {
+  docker ps -a --format '{{.Names}}' 2>/dev/null |
+    grep -qx 'prtg-nats-web-api'
+}
+
+compose() {
+  # Once the web platform has been started, its services belong to the same
+  # compose project. Loading only compose.yaml would then report them as
+  # orphans - and "update", which passes --remove-orphans, would silently
+  # delete the running web interface.
+  if web_platform_present; then
+    docker compose --project-directory "${PROJECT_DIR}" \
+      -f "${PROJECT_DIR}/compose.yaml" -f "${PROJECT_DIR}/compose.web.yaml" \
+      "$@"
+  else
+    docker compose --project-directory "${PROJECT_DIR}" "$@"
+  fi
+}
+
+# The services a lifecycle verb addresses: only the NATS pair by default, the
+# whole stack once the web platform exists - start and stop should then mean
+# the installation, not half of it.
+stack_services() {
+  if web_platform_present; then
+    printf ''
+  else
+    printf 'nats ca-download'
+  fi
+}
+
+# --- Recovery commands delegate to the Python operations module -------------
+#
+# One implementation for certificates, accounts and verification: the same
+# services the web platform runs. This function finds a Python that can import
+# them - the backend venv first, then the system interpreter.
+ops_python() {
+  local candidate=""
+
+  for candidate in \
+    "${PROJECT_DIR}/web/backend/.venv/bin/python" \
+    python3; do
+    if PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
+      PYTHONPATH="${PROJECT_DIR}/web/backend" \
+      "${candidate}" -c 'import app.ops' >/dev/null 2>&1; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_ops() {
+  local interpreter=""
+
+  interpreter="$(ops_python)" ||
+    {
+      printf 'The Python backend is not installed on this machine.\n' >&2
+      printf 'Either use the web interface, or install it once:\n' >&2
+      printf '  python3 -m venv web/backend/.venv\n' >&2
+      printf '  web/backend/.venv/bin/pip install -e web/backend\n' >&2
+      return 1
+    }
+  PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
+    PYTHONPATH="${PROJECT_DIR}/web/backend" \
+    "${interpreter}" -m app.ops "$@"
+}
+
+wait_until_healthy() {
+  local container_name="$1"
+  local service_name="$2"
+  local health_status=""
+
+  for _ in $(seq 1 45); do
+    health_status="$(
+      docker inspect --format '{{.State.Health.Status}}' \
+        "${container_name}" 2>/dev/null || true
+    )"
+    if [[ "${health_status}" == "healthy" ]]; then
+      return 0
+    fi
+    if [[ "${health_status}" == "unhealthy" ]]; then
+      break
+    fi
+    sleep 2
+  done
+
+  printf '%s did not become healthy (status: %s).\n' \
+    "${container_name}" "${health_status:-not running}" >&2
+  compose logs --tail=100 "${service_name}" >&2 || true
+  return 1
+}
+
+ENVIRONMENT_FILE="${PROJECT_DIR}/.env"
+
+# Reads one value from .env without interpreting the file as shell.
+environment_value() {
+  local wanted_key="$1"
+  local key=""
+  local value=""
+
+  [[ -f "${ENVIRONMENT_FILE}" ]] || return 0
+  while IFS='=' read -r key value; do
+    [[ "${key}" == "${wanted_key}" ]] || continue
+    printf '%s\n' "${value}"
+    return 0
+  done < "${ENVIRONMENT_FILE}"
+}
+
+# Asks for a value and repeats until it passes the validator. An empty entry
+# takes the suggestion, when there is one.
+ask_value() {
+  local prompt="$1"
+  local suggestion="$2"
+  local validator="$3"
+  local answer=""
+
+  while true; do
+    if [[ -n "${suggestion}" ]]; then
+      read -r -p "${prompt} [${suggestion}]: " answer
+      answer="${answer:-${suggestion}}"
+    else
+      read -r -p "${prompt}: " answer
+    fi
+    if [[ -z "${answer}" ]]; then
+      printf 'This value is required.\n' >&2
+      continue
+    fi
+    if "${validator}" "${answer}"; then
+      printf '%s\n' "${answer}"
+      return 0
+    fi
+    printf 'Invalid input: %s\n' "${answer}" >&2
+  done
+}
+
+validate_ip_address() {
+  local address="$1"
+  local part=""
+
+  [[ "${address}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+  for part in ${address//./ }; do
+    ((part >= 0 && part <= 255)) || return 1
+  done
+}
+
+validate_port_number() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && (($1 >= 1 && $1 <= 65535))
+}
+
+validate_organization() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9\ .,_-]{0,63}$ ]]
+}
+
+# Writes .env from a guided dialog. Site values deliberately have no built-in
+# default; they are created here once and live in the file afterwards.
+configure_environment() {
+  # shellcheck source=libexec/mpp-config.sh
+  source "${LIBEXEC_DIR}/mpp-config.sh"
+
+  local nats_fqdn="" host_address="" core_address=""
+  local nats_port="" ca_port="" ca_organization="" ssh_source_cidr=""
+  local suggested_fqdn="" suggested_address="" confirmation=""
+  local temporary=""
+
+  if [[ ! -t 0 ]]; then
+    printf 'The setup dialog needs a terminal.\n' >&2
+    printf 'For automation, write .env following .env.example.\n' >&2
+    return 1
+  fi
+
+  printf '\nSetup - the values are written to %s and can be changed\n' \
+    "${ENVIRONMENT_FILE}"
+  printf 'later with "./prtg-nats config --edit".\n\n'
+
+  # Suggestions: existing values win, otherwise whatever the system offers.
+  suggested_fqdn="$(environment_value NATS_FQDN)"
+  [[ -n "${suggested_fqdn}" ]] ||
+    suggested_fqdn="$(hostname -f 2>/dev/null || true)"
+  suggested_address="$(environment_value NATS_HOST_IP)"
+  # A suggestion is convenience, not a requirement: without "ip" or without a
+  # default route the question is asked without one instead of aborting.
+  if [[ -z "${suggested_address}" ]]; then
+    suggested_address="$(
+      ip route get 1.1.1.1 2>/dev/null |
+        awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }' |
+        head -1 || true
+    )" || suggested_address=""
+  fi
+
+  nats_fqdn="$(
+    ask_value 'FQDN of the NATS server' "${suggested_fqdn}" mpp_validate_nats_host
+  )"
+  host_address="$(
+    ask_value 'IP address for the container ports' "${suggested_address}" \
+      validate_ip_address
+  )"
+  core_address="$(
+    ask_value 'IP address of the PRTG core' "$(environment_value PRTG_CORE_IP)" \
+      validate_ip_address
+  )"
+  # Values that are not site-specific keep their default as the suggestion.
+  local suggested_value=""
+  suggested_value="$(environment_value NATS_PORT)"
+  nats_port="$(
+    ask_value 'NATS port' "${suggested_value:-23561}" validate_port_number
+  )"
+  suggested_value="$(environment_value CA_HTTP_PORT)"
+  ca_port="$(
+    ask_value 'Port for the CA download' "${suggested_value:-80}" \
+      validate_port_number
+  )"
+  suggested_value="$(environment_value CA_ORGANIZATION)"
+  ca_organization="$(
+    ask_value 'Organisation in the CA certificate' "${suggested_value:-PRTG NATS}" \
+      validate_organization
+  )"
+  # A wrong value here locks the management access out of every probe, which
+  # is why it is derived rather than asked for.
+  ssh_source_cidr="${host_address}/32"
+
+  printf '\nSummary:\n'
+  printf '  NATS endpoint    tls://%s:%s\n' "${nats_fqdn}" "${nats_port}"
+  printf '  Container ports  %s\n' "${host_address}"
+  printf '  CA download      http://%s:%s/nats-ca.pem\n' \
+    "${nats_fqdn}" "${ca_port}"
+  printf '  PRTG core        %s\n' "${core_address}"
+  printf '  CA organisation  %s\n' "${ca_organization}"
+  printf '  Management key   only from %s\n\n' "${ssh_source_cidr}"
+  read -r -p 'Apply? [y/N]: ' confirmation
+  case "$(printf '%s' "${confirmation}" | tr '[:upper:]' '[:lower:]')" in
+    y|yes|j|ja) ;;
+    *)
+      printf 'Aborted; %s stays unchanged.\n' "${ENVIRONMENT_FILE}"
+      return 1
+      ;;
+  esac
+
+  if [[ -f "${ENVIRONMENT_FILE}" ]]; then
+    install -d -m 700 "${PROJECT_DIR}/runtime/archive"
+    cp -p "${ENVIRONMENT_FILE}" \
+      "${PROJECT_DIR}/runtime/archive/env.$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  temporary="$(mktemp "${PROJECT_DIR}/.env.XXXXXX")"
+  {
+    printf '# Written by "./prtg-nats config --edit". See .env.example.\n'
+    printf 'NATS_FQDN=%s\n' "${nats_fqdn}"
+    printf 'NATS_PORT=%s\n' "${nats_port}"
+    printf 'NATS_HOST_IP=%s\n' "${host_address}"
+    printf 'CA_HTTP_PORT=%s\n' "${ca_port}"
+    printf 'CA_ORGANIZATION=%s\n' "${ca_organization}"
+    printf 'PRTG_CORE_IP=%s\n' "${core_address}"
+    printf 'MPP_SSH_SOURCE_CIDR=%s\n' "${ssh_source_cidr}"
+  } > "${temporary}"
+  chmod 600 "${temporary}"
+  mv "${temporary}" "${ENVIRONMENT_FILE}"
+  printf '\n%s written.\n' "${ENVIRONMENT_FILE}"
+
+  cat <<'EOF'
+
+If this changes the NATS endpoint of a running installation, the server and
+the probes have to follow in the same maintenance window:
+
+  sudo ./prtg-nats update
+  sudo ./prtg-nats probe configure USER   # per registered probe
+
+The PRTG core has to be changed as well.
+EOF
+}
+
+config_usage() {
+  cat <<'EOF'
+Usage:
+  ./prtg-nats config           Show the site settings and where they come from
+  ./prtg-nats config --edit    Ask for them again and rewrite .env
+EOF
+}
+
+# Shows the effective values, not the file contents: defaults are applied in
+# libexec/common.sh, and reading only .env would miss them.
+show_site_settings() {
+  local variable=""
+  local from_file=""
+
+  if [[ -z "$(environment_value NATS_FQDN)" ]]; then
+    printf 'Not configured yet.\n' >&2
+    printf 'Run "./prtg-nats config --edit" or "./prtg-nats setup".\n' >&2
+    return 1
+  fi
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+
+  printf 'Site settings (%s)\n\n' "${ENVIRONMENT_FILE}"
+  for variable in NATS_FQDN NATS_PORT NATS_HOST_IP CA_HTTP_PORT \
+    CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR; do
+    from_file="$(environment_value "${variable}")"
+    printf '  %-20s %-28s %s\n' \
+      "${variable}" "${!variable:-—}" \
+      "$([[ -n "${from_file}" ]] && printf 'set' || printf 'default')"
+  done
+  printf '\n  NATS endpoint      tls://%s:%s\n' "${NATS_FQDN}" "${NATS_PORT}"
+  printf '  CA download        http://%s:%s/nats-ca.pem\n' \
+    "${NATS_FQDN}" "${CA_HTTP_PORT}"
+  printf '\nChange them with "./prtg-nats config --edit".\n'
+}
+
+manage_config() {
+  case "${1:-}" in
+    '')
+      show_site_settings
+      ;;
+    --edit)
+      [[ $# -eq 1 ]] ||
+        {
+          config_usage >&2
+          return 2
+        }
+      configure_environment
+      ;;
+    -h|--help|help)
+      config_usage
+      ;;
+    *)
+      printf 'Unknown option: %s\n\n' "$1" >&2
+      config_usage >&2
+      return 2
+      ;;
+  esac
+}
+
+# .env has to exist and be complete before any command runs.
+ensure_environment() {
+  local missing=()
+  local variable=""
+
+  for variable in NATS_FQDN NATS_HOST_IP PRTG_CORE_IP; do
+    [[ -n "$(environment_value "${variable}")" ]] || missing+=("${variable}")
+  done
+  [[ "${#missing[@]}" -gt 0 ]] || return 0
+
+  if [[ ! -f "${ENVIRONMENT_FILE}" ]]; then
+    printf 'Not configured yet.\n'
+  else
+    printf 'In %s fehlen: %s\n' "${ENVIRONMENT_FILE}" "${missing[*]}"
+  fi
+  configure_environment
+}
+
+# Compose bind-mounts runtime/conf and runtime/certs as directories, so both
+# have to exist before the first "up" - a missing bind source would appear as
+# an empty root-owned directory with the wrong permissions.
+prepare_runtime_mounts() {
+  install -d -m 700 "${PROJECT_DIR}/runtime"
+  install -d -m 755 "${PROJECT_DIR}/runtime/conf" "${PROJECT_DIR}/runtime/certs"
+
+  # Until v0.1 the server configuration lived at runtime/nats-server.conf and
+  # was file-mounted. Move it once; the container reads conf/ now.
+  if [[ -f "${PROJECT_DIR}/runtime/nats-server.conf" &&
+        ! -f "${PROJECT_DIR}/runtime/conf/nats-server.conf" ]]; then
+    mv "${PROJECT_DIR}/runtime/nats-server.conf" \
+      "${PROJECT_DIR}/runtime/conf/nats-server.conf"
+    printf 'Moved nats-server.conf to runtime/conf/ (directory mount).\n'
+  fi
+}
+
+runtime_state() {
+  local expected_files=(
+    "${PROJECT_DIR}/runtime/conf/nats-server.conf"
+    "${PROJECT_DIR}/runtime/certs/ca.pem"
+    "${PROJECT_DIR}/runtime/certs/server.pem"
+    "${PROJECT_DIR}/runtime/certs/server-key.pem"
+    "${PROJECT_DIR}/runtime/private/ca-key.pem"
+    "${PROJECT_DIR}/runtime/credentials/prtg-nats.env"
+  )
+  local present_count=0
+  local expected_file
+
+  for expected_file in "${expected_files[@]}"; do
+    [[ -f "${expected_file}" ]] && present_count=$((present_count + 1))
+  done
+
+  if [[ "${present_count}" -eq 0 ]]; then
+    printf 'missing'
+  elif [[ "${present_count}" -eq "${#expected_files[@]}" ]]; then
+    printf 'complete'
+  else
+    printf 'partial'
+  fi
+}
+
+ensure_public_ca() {
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+
+  [[ -f "${CERT_DIR}/ca.pem" ]] ||
+    {
+      printf 'Public CA not found: %s\n' "${CERT_DIR}/ca.pem" >&2
+      return 1
+    }
+  install -d -o root -g root -m 0755 "${PUBLIC_DIR}"
+  install -o root -g root -m 0644 \
+    "${CERT_DIR}/ca.pem" "${PUBLIC_DIR}/nats-ca.pem"
+  install -d -o root -g root -m 0755 "${PUBLIC_DIR}/cgi-bin"
+  install -o root -g root -m 0555 \
+    "${PROJECT_DIR}/http/cgi-bin/nats-health" \
+    "${PUBLIC_DIR}/cgi-bin/nats-health"
+}
+
+start_stack() {
+  local services
+  read -r -a services <<< "$(stack_services)"
+  prepare_runtime_mounts
+  compose up -d "${services[@]}"
+  if [[ "$(runtime_state)" == "complete" ]]; then
+    wait_until_healthy prtg-nats nats
+    wait_until_healthy prtg-nats-ca ca-download
+  else
+    printf 'The runtime is not initialised yet; the NATS container waits for it.\n'
+    printf 'Initialise it in the web interface, or run: sudo ./prtg-nats init\n'
+  fi
+}
+
+print_mpp_info() {
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+
+  local configured_username="${1:-${NATS_USERNAME}}"
+  local configured_credentials=""
+  validate_nats_username "${configured_username}" ||
+    {
+      printf 'Invalid NATS username: %s\n' "${configured_username}" >&2
+      return 2
+    }
+  configured_credentials="$(credential_path "${configured_username}")"
+  [[ -f "${configured_credentials}" ]] ||
+    {
+      printf 'Unknown NATS user: %s\n' "${configured_username}" >&2
+      return 1
+    }
+
+  cat <<EOF
+Values written into /etc/paessler/mpprobe/config.yaml
+
+  TLS:                         Yes
+  CA certificate:              ${MPP_CA_PATH}
+  NATS server FQDN:            ${NATS_FQDN}
+  NATS port:                   ${NATS_PORT}
+  Authentication:              Username and password
+  NATS username:               ${configured_username}
+  NATS password source:        ${configured_credentials}
+  Configuration template:      config/mpprobe-config.yaml.template
+
+Public CA on this server:
+  File:     ${CERT_DIR}/ca.pem
+  Download: http://${NATS_FQDN}:${CA_HTTP_PORT}/nats-ca.pem
+
+The configuration is generated centrally; the official wizard is only used
+with "install-mpp --wizard". Probe id and PRTG access key are stored per probe
+and can be shown with "./prtg-nats probe show ${configured_username}".
+
+The password is deliberately not printed.
+Full rollout: docs/NEW-MPP.md
+EOF
+}
+
+print_ca_info() {
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+
+  [[ -f "${CERT_DIR}/ca.pem" ]] ||
+    {
+      printf 'Public CA not found: %s\n' "${CERT_DIR}/ca.pem" >&2
+      return 1
+    }
+
+  printf 'Download URL: http://%s:%s/nats-ca.pem\n' \
+    "${NATS_FQDN}" "${CA_HTTP_PORT}"
+  printf 'Local path:  %s\n' "${CERT_DIR}/ca.pem"
+  openssl x509 -in "${CERT_DIR}/ca.pem" \
+    -noout -subject -issuer -dates -fingerprint -sha256
+  printf '\nPEM only for copy and paste: ./prtg-nats ca-show\n'
+}
+
+INSTALL_SSH_TARGET=""
+INSTALL_REMOTE_STAGE=""
+INSTALL_CONTROL_DIR=""
+INSTALL_CONTROL_PATH=""
+INSTALL_SELECTED_USER=""
+INSTALL_AUTO_CREATED_USER="false"
+INSTALL_AUTO_ENROLLED="false"
+INSTALL_COMPLETE="false"
+INSTALL_ROLLBACK_MODE="ask"
+
+# After a failure the prepared state is usually worth more than tidiness:
+# whoever retries right away would otherwise have to dig out the bootstrap
+# password again, and the NATS account would get a new password that the PRTG
+# core would have to follow. So the question is asked instead of rolling back
+# reflexively.
+should_roll_back_install() {
+  local answer=""
+
+  case "${INSTALL_ROLLBACK_MODE}" in
+    always)
+      return 0
+      ;;
+    never)
+      return 1
+      ;;
+  esac
+  printf '\nThe remote installation did not complete.\n' >&2
+  printf 'Keeping the NATS user and the management access lets you retry with\n' >&2
+  printf '  ./prtg-nats install-mpp --nats-user %s\n' "${INSTALL_SELECTED_USER}" >&2
+  printf 'without the bootstrap password and without a new NATS password.\n' >&2
+  if [[ ! -t 0 ]]; then
+    printf 'No terminal available for the question; the prepared state is kept.\n' >&2
+    return 1
+  fi
+  read -r -p 'Roll back what this run created? [y/N]: ' answer
+  is_affirmative "${answer}"
+}
+
+# Reports what is deliberately kept, so the state stays explainable.
+report_kept_install_state() {
+  printf '\nKept for a repeated run:\n' >&2
+  [[ "${INSTALL_AUTO_ENROLLED}" != "true" ]] ||
+    printf '  management access on the probe (./prtg-nats probe status %s)\n' \
+      "${INSTALL_SELECTED_USER}" >&2
+  [[ "${INSTALL_AUTO_CREATED_USER}" != "true" ]] ||
+    printf '  NATS user %s (./prtg-nats probe show %s)\n' \
+      "${INSTALL_SELECTED_USER}" "${INSTALL_SELECTED_USER}" >&2
+  printf 'Remove it later with:\n' >&2
+  [[ "${INSTALL_AUTO_ENROLLED}" != "true" ]] ||
+    printf '  ./prtg-nats probe unenroll %s --remove-access\n' \
+      "${INSTALL_SELECTED_USER}" >&2
+  [[ "${INSTALL_AUTO_CREATED_USER}" != "true" ]] ||
+    printf '  ./prtg-nats user delete %s --yes\n' "${INSTALL_SELECTED_USER}" >&2
+}
+
+cleanup_install_session() {
+  local credentials=""
+  local auth_user=""
+
+  if [[ "${INSTALL_REMOTE_STAGE}" =~ ^/tmp/prtg-mpp-install\.[A-Za-z0-9]+$ &&
+        -S "${INSTALL_CONTROL_PATH}" ]]; then
+    ssh \
+      -S "${INSTALL_CONTROL_PATH}" \
+      -o BatchMode=yes \
+      -- "${INSTALL_SSH_TARGET}" \
+      "rm -rf -- '${INSTALL_REMOTE_STAGE}'" >/dev/null 2>&1 || true
+    INSTALL_REMOTE_STAGE=""
+  fi
+  if [[ -n "${INSTALL_CONTROL_PATH}" && -S "${INSTALL_CONTROL_PATH}" ]]; then
+    ssh \
+      -S "${INSTALL_CONTROL_PATH}" \
+      -O exit \
+      -- "${INSTALL_SSH_TARGET}" >/dev/null 2>&1 || true
+  fi
+  if [[ "${INSTALL_CONTROL_DIR}" =~ ^/tmp/prtg-nats-ssh\.[A-Za-z0-9]+$ ]]; then
+    rm -rf -- "${INSTALL_CONTROL_DIR}"
+    INSTALL_CONTROL_DIR=""
+    INSTALL_CONTROL_PATH=""
+  fi
+  # A failure does not automatically mean rollback: ask first, then act. The
+  # answer covers both parts, so no mixed state can arise.
+  if [[ "${INSTALL_COMPLETE}" != "true" ]] &&
+    [[ "${INSTALL_AUTO_ENROLLED}" == "true" ||
+       "${INSTALL_AUTO_CREATED_USER}" == "true" ]] &&
+    ! should_roll_back_install; then
+    report_kept_install_state
+    INSTALL_AUTO_ENROLLED="false"
+    INSTALL_AUTO_CREATED_USER="false"
+  fi
+  # Enrollment happens before the installation, so it has to be taken back
+  # before the NATS account: user delete refuses while a probe inventory
+  # exists.
+  if [[ "${INSTALL_AUTO_ENROLLED}" == "true" &&
+        "${INSTALL_COMPLETE}" != "true" ]]; then
+    printf '\nRemoving the management access enrolled in this run.\n' >&2
+    run_internal manage-probes.sh unenroll \
+      "${INSTALL_SELECTED_USER}" --remove-access >/dev/null 2>&1 ||
+      run_internal manage-probes.sh unenroll \
+        "${INSTALL_SELECTED_USER}" >/dev/null 2>&1 ||
+      printf 'WARNING: Could not remove the probe enrollment for %s.\n' \
+        "${INSTALL_SELECTED_USER}" >&2
+    INSTALL_AUTO_ENROLLED="false"
+  fi
+  if [[ "${INSTALL_AUTO_CREATED_USER}" == "true" &&
+        "${INSTALL_COMPLETE}" != "true" ]]; then
+    credentials="$(credential_path "${INSTALL_SELECTED_USER}")"
+    auth_user="$(auth_user_path "${INSTALL_SELECTED_USER}")"
+    printf '\nRolling back the automatically created NATS user %s.\n' \
+      "${INSTALL_SELECTED_USER}" >&2
+    if [[ -f "${credentials}" && -f "${auth_user}" ]] &&
+      ! run_internal manage-users.sh delete "${INSTALL_SELECTED_USER}" --yes; then
+      printf 'WARNING: Automatic NATS-user rollback failed. Remove it manually with:\n' >&2
+      printf '  ./prtg-nats user delete %s --yes\n' \
+        "${INSTALL_SELECTED_USER}" >&2
+    elif [[ -e "${credentials}" || -e "${auth_user}" ]]; then
+      printf 'WARNING: Automatic NATS-user rollback found incomplete state:\n' >&2
+      printf '  %s\n  %s\n' "${credentials}" "${auth_user}" >&2
+    fi
+    INSTALL_AUTO_CREATED_USER="false"
+  fi
+}
+
+# Creates the NATS account when it is missing, and reports incomplete states.
+ensure_nats_user_for_install() {
+  local username="$1"
+  local dry_run="$2"
+  local credentials=""
+  local auth_user=""
+
+  credentials="$(credential_path "${username}")"
+  auth_user="$(auth_user_path "${username}")"
+  if [[ -e "${credentials}" || -e "${auth_user}" ]]; then
+    [[ -f "${credentials}" && -f "${auth_user}" ]] ||
+      {
+        printf 'Incomplete NATS user state for %s; expected both:\n' \
+          "${username}" >&2
+        printf '  %s\n  %s\n' "${credentials}" "${auth_user}" >&2
+        return 1
+      }
+    if [[ "${dry_run}" == "true" ]]; then
+      printf 'Dry run: would reuse existing NATS user %s.\n' "${username}"
+    else
+      printf 'Using existing NATS user %s.\n' "${username}"
+    fi
+    return 0
+  fi
+  if [[ -e "$(probe_path "${username}")" ]]; then
+    printf 'Incomplete NATS state: probe inventory exists without credentials for %s.\n' \
+      "${username}" >&2
+    return 1
+  fi
+  if [[ "${dry_run}" == "true" ]]; then
+    printf 'Dry run: would create NATS user %s before installation.\n' \
+      "${username}"
+    return 0
+  fi
+  printf 'NATS user %s does not exist; creating it now.\n' "${username}"
+  INSTALL_AUTO_CREATED_USER="true"
+  run_ops user add "${username}"
+}
+
+open_bootstrap_session() {
+  local ssh_target="$1"
+
+  INSTALL_CONTROL_DIR="$(mktemp -d /tmp/prtg-nats-ssh.XXXXXX)"
+  chmod 0700 "${INSTALL_CONTROL_DIR}"
+  INSTALL_CONTROL_PATH="${INSTALL_CONTROL_DIR}/master"
+
+  printf 'Establishing one bootstrap SSH session to %s...\n' "${ssh_target}"
+  printf 'Authenticate with an existing SSH key or the bootstrap user password.\n'
+  ssh \
+    -M \
+    -S "${INSTALL_CONTROL_PATH}" \
+    -o ControlMaster=yes \
+    -o ControlPersist=no \
+    -o BatchMode=no \
+    -N \
+    -f \
+    -- "${ssh_target}"
+  [[ -S "${INSTALL_CONTROL_PATH}" ]] ||
+    {
+      printf 'Bootstrap SSH control session was not created.\n' >&2
+      return 1
+    }
+}
+
+# Copies the installer, the CA and the render library, and runs the package
+# and CA installation over the bootstrap session.
+run_remote_installer() {
+  local ssh_target="$1"
+  local username="$2"
+  shift 2
+  local installer_options=("$@")
+  local ca_fingerprint=""
+  local remote_command=""
+  local installer_option=""
+  local staged_files=(
+    "${PROJECT_DIR}/install-mpp.sh"
+    "${CERT_DIR}/ca.pem"
+    "${LIBEXEC_DIR}/mpp-config.sh"
+    "${PROJECT_DIR}/config/mpprobe-config.yaml.template"
+  )
+
+  ca_fingerprint="$(
+    openssl x509 -in "${CERT_DIR}/ca.pem" -outform DER |
+      openssl dgst -sha256 |
+      awk '{print $NF}'
+  )"
+
+  if [[ -z "${INSTALL_REMOTE_STAGE}" ]]; then
+    INSTALL_REMOTE_STAGE="$(
+      ssh \
+        -S "${INSTALL_CONTROL_PATH}" \
+        -o BatchMode=yes \
+        -- "${ssh_target}" \
+        'umask 077; mktemp -d /tmp/prtg-mpp-install.XXXXXX'
+    )"
+  fi
+  [[ "${INSTALL_REMOTE_STAGE}" =~ ^/tmp/prtg-mpp-install\.[A-Za-z0-9]+$ ]] ||
+    {
+      printf 'Unexpected remote staging path: %s\n' "${INSTALL_REMOTE_STAGE}" >&2
+      return 1
+    }
+
+  printf 'Copying installer and public CA to %s...\n' "${ssh_target}"
+  scp \
+    -q \
+    -o "ControlPath=${INSTALL_CONTROL_PATH}" \
+    -- \
+    "${staged_files[@]}" \
+    "${ssh_target}:${INSTALL_REMOTE_STAGE}/"
+
+  printf -v remote_command \
+    'bash %q --ca-file %q --ca-sha256 %q --accept-ca --nats-host %q --nats-port %q --nats-user %q' \
+    "${INSTALL_REMOTE_STAGE}/install-mpp.sh" \
+    "${INSTALL_REMOTE_STAGE}/ca.pem" \
+    "${ca_fingerprint}" \
+    "${NATS_FQDN}" \
+    "${NATS_PORT}" \
+    "${username}"
+  for installer_option in "${installer_options[@]}"; do
+    printf -v remote_command '%s %q' "${remote_command}" "${installer_option}"
+  done
+
+  printf 'Starting the remote installation on %s...\n' "${ssh_target}"
+  ssh \
+    -S "${INSTALL_CONTROL_PATH}" \
+    -t \
+    -- "${ssh_target}" \
+    "${remote_command}"
+
+  ssh \
+    -S "${INSTALL_CONTROL_PATH}" \
+    -o BatchMode=yes \
+    -- "${ssh_target}" \
+    "rm -rf -- '${INSTALL_REMOTE_STAGE}'"
+  INSTALL_REMOTE_STAGE=""
+}
+
+print_probe_access_key() {
+  local username="$1"
+  local inventory=""
+  local access_key=""
+
+  inventory="$(probe_path "${username}")"
+  [[ -f "${inventory}" ]] || return 0
+  access_key="$(read_optional_env_value "${inventory}" ACCESS_KEY)"
+  [[ -n "${access_key}" ]] || return 0
+  cat <<EOF
+
+Probe Access Key for PRTG:
+
+  ${access_key}
+
+Add this value as a new line in the PRTG access-key list. It is also stored in
+the protected inventory and can be shown again with:
+
+  ./prtg-nats probe show ${username}
+EOF
+}
+
+install_remote_mpp_usage() {
+  cat <<'EOF'
+Usage:
+  ./prtg-nats install-mpp [ADMIN@HOST] --nats-user USER [options]
+
+Installs or reconfigures an MPP over SSH. The restricted prtg-nats-admin key
+is tried first; a bootstrap target is only needed for the first run on a host.
+A missing --nats-user account is created automatically.
+
+Options:
+  --nats-user USER          NATS account for this probe (required)
+  --probe-name NAME         Probe name in PRTG (derived when omitted)
+  --wizard                  Use the official prtgmpprobe wizard
+  --no-enroll               Do not enroll central management access
+  --no-config               Install package and CA only
+  --dry-run                 Show the planned operations only
+  --keep-on-failure         Keep user and access after a failure
+  --rollback-on-failure     Remove them without asking
+EOF
+}
+
+install_remote_mpp() {
+  local ssh_target=""
+  local selected_user=""
+  local enroll_probe="true"
+  local installer_dry_run="false"
+  local config_mode="generate"
+  local probe_name=""
+
+  # Before loading the environment: help has to work without a configured
+  # .env, or it is unreachable exactly when it is needed.
+  case "${1:-}" in
+    -h|--help|help)
+      install_remote_mpp_usage
+      return 0
+      ;;
+  esac
+
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+  selected_user="${NATS_USERNAME}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --nats-user)
+        [[ $# -ge 2 ]] ||
+          {
+            printf '%s\n' '--nats-user requires a username' >&2
+            return 2
+          }
+        selected_user="$2"
+        shift 2
+        ;;
+      --enroll)
+        enroll_probe="true"
+        shift
+        ;;
+      --no-enroll)
+        enroll_probe="false"
+        shift
+        ;;
+      --probe-name)
+        [[ $# -ge 2 ]] ||
+          {
+            printf '%s\n' '--probe-name requires a name' >&2
+            return 2
+          }
+        probe_name="$2"
+        shift 2
+        ;;
+      --rollback-on-failure)
+        INSTALL_ROLLBACK_MODE="always"
+        shift
+        ;;
+      --keep-on-failure)
+        INSTALL_ROLLBACK_MODE="never"
+        shift
+        ;;
+      --wizard)
+        config_mode="wizard"
+        shift
+        ;;
+      --dry-run)
+        installer_dry_run="true"
+        shift
+        ;;
+      --no-config|--no-wizard)
+        config_mode="none"
+        shift
+        ;;
+      -*)
+        printf 'Unsupported remote installer option: %s\n' "$1" >&2
+        return 2
+        ;;
+      *)
+        [[ -z "${ssh_target}" ]] ||
+          {
+            printf 'Only one SSH target is supported: %s\n' "$1" >&2
+            return 2
+          }
+        ssh_target="$1"
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -n "${ssh_target}" && ! "${ssh_target}" =~ ^[A-Za-z0-9._@-]+$ ]]; then
+    printf 'Invalid SSH target: %s\n' "${ssh_target}" >&2
+    return 2
+  fi
+  validate_nats_username "${selected_user}" ||
+    {
+      printf 'Invalid NATS username: %s\n' "${selected_user}" >&2
+      return 2
+    }
+  bootstrap_auth_registry
+  if [[ "${enroll_probe}" == "true" &&
+        "${selected_user}" == "${NATS_USERNAME}" ]]; then
+    printf '%s\n' \
+      '--nats-user USER is required for automatic per-probe enrollment; use --no-enroll only for the legacy shared account' >&2
+    return 2
+  fi
+  require_command ssh
+  require_command scp
+  require_command openssl
+  require_command mktemp
+
+  [[ -f "${CERT_DIR}/ca.pem" ]] ||
+    {
+      printf 'Public CA not found: %s\n' "${CERT_DIR}/ca.pem" >&2
+      return 1
+    }
+
+  INSTALL_SELECTED_USER="${selected_user}"
+  INSTALL_SSH_TARGET="${ssh_target}"
+  trap cleanup_install_session EXIT
+
+  ensure_nats_user_for_install "${selected_user}" "${installer_dry_run}" ||
+    return 1
+
+  # The restricted management access is the normal path. Only when it does
+  # not exist yet, or does not answer, is a bootstrap session needed. Package
+  # installation and the official wizard never travel over that channel.
+  local management_available="false"
+  if [[ "${enroll_probe}" == "true" &&
+        "${installer_dry_run}" != "true" &&
+        "${config_mode}" == "generate" ]] &&
+    [[ -f "$(probe_path "${selected_user}")" ]]; then
+    printf 'Checking the restricted management access for %s...\n' \
+      "${selected_user}"
+    if run_internal manage-probes.sh internal-reachable "${selected_user}"; then
+      management_available="true"
+      printf 'Key-based management access is available; no bootstrap login is required.\n'
+    else
+      printf 'Key-based management access did not answer; a bootstrap login is required.\n'
+    fi
+  fi
+
+  if [[ "${management_available}" != "true" ]]; then
+    [[ -n "${ssh_target}" ]] ||
+      {
+        printf 'No usable management access for %s.\n' "${selected_user}" >&2
+        printf 'Provide a bootstrap target: ./prtg-nats install-mpp ADMIN@HOST --nats-user %s\n' \
+          "${selected_user}" >&2
+        return 2
+      }
+    if [[ "${installer_dry_run}" == "true" ]]; then
+      printf 'Dry run: would enroll restricted SSH management for %s.\n' \
+        "${selected_user}"
+      printf 'Dry run: would install package and CA on %s.\n' "${ssh_target}"
+      printf 'Dry run: would generate and activate the MPP configuration.\n'
+      INSTALL_COMPLETE="true"
+      cleanup_install_session
+      trap - EXIT
+      return 0
+    fi
+
+    open_bootstrap_session "${ssh_target}" || return 1
+
+    # Enrollment runs before the package installation, so every further step
+    # and every later run can go over the key. An existing inventory is
+    # renewed because the key-based access did not answer just now.
+    if [[ "${enroll_probe}" == "true" ]]; then
+      local enroll_arguments=("${selected_user}" "${ssh_target}")
+      if [[ -f "$(probe_path "${selected_user}")" ]]; then
+        printf 'Renewing the restricted management access for %s...\n' \
+          "${selected_user}"
+        enroll_arguments+=(--reenroll)
+      fi
+      env \
+        PRTG_NATS_BOOTSTRAP_CONTROL_PATH="${INSTALL_CONTROL_PATH}" \
+        "${LIBEXEC_DIR}/manage-probes.sh" \
+        enroll "${enroll_arguments[@]}"
+      INSTALL_AUTO_ENROLLED="true"
+    fi
+
+    if [[ "${enroll_probe}" == "true" && "${config_mode}" == "generate" ]]; then
+      # The restricted channel writes the configuration afterwards.
+      run_remote_installer "${ssh_target}" "${selected_user}" --no-config
+    elif [[ "${config_mode}" == "wizard" ]]; then
+      run_remote_installer "${ssh_target}" "${selected_user}" --wizard
+    elif [[ "${config_mode}" == "none" ]]; then
+      run_remote_installer "${ssh_target}" "${selected_user}" --no-config
+    else
+      # Without enrollment there is no key channel; the installer writes the
+      # configuration itself and reads the password from the protected file
+      # shipped along.
+      run_remote_installer_with_password "${ssh_target}" "${selected_user}"
+    fi
+  fi
+
+  if [[ "${enroll_probe}" == "true" && "${config_mode}" == "generate" ]]; then
+    printf '\nApplying the generated MPP configuration through the restricted channel...\n'
+    run_internal manage-probes.sh install-ca "${selected_user}"
+    if [[ -n "${probe_name}" ]]; then
+      run_internal manage-probes.sh configure "${selected_user}" \
+        --probe-name "${probe_name}"
+    else
+      run_internal manage-probes.sh configure "${selected_user}"
+    fi
+  elif [[ "${enroll_probe}" == "true" && "${config_mode}" == "wizard" ]]; then
+    run_internal manage-probes.sh status "${selected_user}"
+    run_internal manage-probes.sh adopt "${selected_user}"
+  fi
+
+  INSTALL_COMPLETE="true"
+  cleanup_install_session
+  trap - EXIT
+
+  if [[ "${enroll_probe}" == "true" &&
+        ( "${config_mode}" == "generate" || "${config_mode}" == "wizard" ) ]]; then
+    print_probe_access_key "${selected_user}"
+  fi
+  cat <<EOF
+
+Next:
+  1. Add the Probe Access Key shown above as a new line in PRTG.
+  2. Approve the probe (do not use "Approve and auto-discover").
+  3. Check the probe:
+       ./prtg-nats probe status ${selected_user}
+EOF
+}
+
+# The legacy path without enrollment: the password ships as a protected file
+# and is removed together with the staging directory.
+run_remote_installer_with_password() {
+  local ssh_target="$1"
+  local username="$2"
+  local credentials=""
+
+  credentials="$(credential_path "${username}")"
+  [[ -f "${credentials}" ]] ||
+    {
+      printf 'Credentials not found for %s.\n' "${username}" >&2
+      return 1
+    }
+  INSTALL_REMOTE_STAGE="$(
+    ssh \
+      -S "${INSTALL_CONTROL_PATH}" \
+      -o BatchMode=yes \
+      -- "${ssh_target}" \
+      'umask 077; mktemp -d /tmp/prtg-mpp-install.XXXXXX'
+  )"
+  [[ "${INSTALL_REMOTE_STAGE}" =~ ^/tmp/prtg-mpp-install\.[A-Za-z0-9]+$ ]] ||
+    {
+      printf 'Unexpected remote staging path.\n' >&2
+      return 1
+    }
+  scp \
+    -q \
+    -o "ControlPath=${INSTALL_CONTROL_PATH}" \
+    -- \
+    "${credentials}" \
+    "${ssh_target}:${INSTALL_REMOTE_STAGE}/nats-credentials.env"
+  run_remote_installer "${ssh_target}" "${username}" \
+    --nats-password-file "${INSTALL_REMOTE_STAGE}/nats-credentials.env"
+}
+
+# Both target directories can be overridden so the test suite can redirect
+# them to throwaway paths. A test run must not touch the setup of the machine
+# it runs on.
+COMMAND_LINK_DIR="${PRTG_NATS_LINK_DIR:-/usr/local/bin}"
+BASH_COMPLETION_DIR="${PRTG_NATS_BASH_COMPLETION_DIR:-/etc/bash_completion.d}"
+
+# Places a link in PATH so "prtg-nats" runs from any directory. A link rather
+# than a copy: the repository stays the single source, a "git pull" takes
+# effect immediately, and through the resolution at the top of this file the
+# script still finds its libexec/ and runtime/.
+# Does the path belong to exactly this repository? Only then may it be
+# touched. A regular file is never ours - "readlink -f" would return the path
+# itself and make it look like a matching link.
+command_link_is_ours() {
+  local link_path="$1"
+  local own_target="$2"
+
+  [[ -L "${link_path}" ]] || return 1
+  [[ "$(readlink -f -- "${link_path}" 2>/dev/null || true)" == "${own_target}" ]]
+}
+
+command_link_description() {
+  local link_path="$1"
+
+  if [[ -L "${link_path}" ]]; then
+    printf 'a symlink to %s\n' "$(readlink -- "${link_path}")"
+  else
+    printf 'a regular file\n'
+  fi
+}
+
+manage_command_link() {
+  local mode="$1"
+  local link_path="${COMMAND_LINK_DIR}/prtg-nats"
+  local own_target=""
+
+  own_target="$(readlink -f -- "${PROJECT_DIR}/prtg-nats" 2>/dev/null ||
+    printf '%s' "${PROJECT_DIR}/prtg-nats")"
+
+  if [[ "${mode}" == "unlink" ]]; then
+    if [[ ! -e "${link_path}" && ! -L "${link_path}" ]]; then
+      printf 'Nothing to remove: %s does not exist.\n' "${link_path}"
+      return 0
+    fi
+    command_link_is_ours "${link_path}" "${own_target}" ||
+      {
+        printf '%s was not created here; it is %s.\n' \
+          "${link_path}" "$(command_link_description "${link_path}")" >&2
+        printf 'Leaving it untouched; remove it yourself if intended.\n' >&2
+        return 1
+      }
+    rm -f -- "${link_path}"
+    printf 'Removed %s\n' "${link_path}"
+    return 0
+  fi
+
+  [[ -d "${COMMAND_LINK_DIR}" ]] ||
+    {
+      printf 'Directory does not exist: %s\n' "${COMMAND_LINK_DIR}" >&2
+      return 1
+    }
+  [[ -w "${COMMAND_LINK_DIR}" ]] ||
+    {
+      printf 'No write access to %s; run the command with sudo.\n' \
+        "${COMMAND_LINK_DIR}" >&2
+      return 1
+    }
+  # A foreign file of the same name belongs to somebody else and is not
+  # overwritten; a link of our own may be renewed.
+  if [[ -e "${link_path}" || -L "${link_path}" ]]; then
+    command_link_is_ours "${link_path}" "${own_target}" ||
+      {
+        printf '%s already exists and is %s.\n' \
+          "${link_path}" "$(command_link_description "${link_path}")" >&2
+        printf 'Remove it yourself if it should be replaced.\n' >&2
+        return 1
+      }
+  fi
+  ln -sfn -- "${PROJECT_DIR}/prtg-nats" "${link_path}"
+  printf 'Linked %s -> %s\n' "${link_path}" "${PROJECT_DIR}/prtg-nats"
+  printf 'The command "prtg-nats" now works from any directory.\n'
+}
+
+COMPLETION_BEGIN='# >>> prtg-nats completion >>>'
+COMPLETION_END='# <<< prtg-nats completion <<<'
+
+# Under sudo, $HOME belongs to root, but the caller's shell is what is meant.
+# Otherwise the block lands in /root/.zshrc and acts where nobody types.
+completion_target_user() {
+  printf '%s\n' "${SUDO_USER:-${USER:-$(id -un)}}"
+}
+
+completion_target_home() {
+  local home_directory=""
+
+  # Without sudo, $HOME rules - even when it differs from the passwd entry.
+  # Under sudo it points at root, and then the caller's entry decides.
+  if [[ -z "${SUDO_USER:-}" && -n "${HOME:-}" ]]; then
+    printf '%s\n' "${HOME}"
+    return 0
+  fi
+  home_directory="$(
+    getent passwd "$(completion_target_user)" 2>/dev/null | cut -d: -f6
+  )"
+  printf '%s\n' "${home_directory:-${HOME}}"
+}
+
+# Which shell to set up. The caller's login shell is a better hint than
+# $SHELL, which can point at root under sudo.
+completion_detect_shell() {
+  local login_shell=""
+
+  login_shell="$(
+    getent passwd "$(completion_target_user)" 2>/dev/null | cut -d: -f7
+  )"
+  case "${login_shell:-${SHELL:-}}" in
+    *zsh) printf 'zsh\n' ;;
+    *bash) printf 'bash\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+# The block is framed by markers: a second run replaces it instead of
+# appending it again, and "uninstall" takes it out cleanly.
+completion_block() {
+  printf '%s\n' "${COMPLETION_BEGIN}"
+  if [[ "$1" == "zsh" ]]; then
+    # Anyone using oh-my-zsh already runs compinit; a second call only costs
+    # start-up time. So check first, then load.
+    printf '%s\n' 'if ! typeset -f compdef >/dev/null; then'
+    printf '%s\n' '  autoload -U compinit && compinit'
+    printf '%s\n' 'fi'
+    printf '%s\n' 'if ! typeset -f complete >/dev/null; then'
+    printf '%s\n' '  autoload -U +X bashcompinit && bashcompinit'
+    printf '%s\n' 'fi'
+  fi
+  printf 'source %s\n' "${PROJECT_DIR}/completions/prtg-nats.bash"
+  printf '%s\n' "${COMPLETION_END}"
+}
+
+# Removes an existing block and optionally appends a new one. Permissions and
+# owner of the startup file are preserved.
+completion_apply_block() {
+  local target_file="$1"
+  local shell_name="$2"
+  local mode="$3"
+  local temporary=""
+
+  temporary="$(mktemp "${target_file}.prtg-nats.XXXXXX")"
+  if [[ -f "${target_file}" ]]; then
+    awk -v begin="${COMPLETION_BEGIN}" -v end="${COMPLETION_END}" '
+      $0 == begin { skip = 1 }
+      skip != 1 { print }
+      $0 == end { skip = 0 }
+    ' "${target_file}" > "${temporary}"
+    chmod --reference="${target_file}" "${temporary}" 2>/dev/null || true
+    chown --reference="${target_file}" "${temporary}" 2>/dev/null || true
+  else
+    chown "$(completion_target_user)" "${temporary}" 2>/dev/null || true
+    chmod 644 "${temporary}"
+  fi
+  if [[ "${mode}" == "install" ]]; then
+    completion_block "${shell_name}" >> "${temporary}"
+  fi
+  mv "${temporary}" "${target_file}"
+}
+
+manage_completion() {
+  local mode="$1"
+  local shell_name="${2:-}"
+  local target_file=""
+  local system_file="${BASH_COMPLETION_DIR}/prtg-nats"
+
+  # Cleanup covers both possible locations and needs no shell detection:
+  # somebody who installed as a user and removes as root must not leave half
+  # of it behind.
+  if [[ "${mode}" == "uninstall" ]]; then
+    local removed="false"
+    if [[ -f "${system_file}" ]]; then
+      rm -f -- "${system_file}"
+      printf 'Removed %s\n' "${system_file}"
+      removed="true"
+    fi
+    for target_file in \
+      "$(completion_target_home)/.zshrc" \
+      "$(completion_target_home)/.bashrc"; do
+      [[ -f "${target_file}" ]] || continue
+      grep -Fq "${COMPLETION_BEGIN}" "${target_file}" || continue
+      completion_apply_block "${target_file}" "" uninstall
+      printf 'Removed the block from %s\n' "${target_file}"
+      removed="true"
+    done
+    if [[ "${removed}" != "true" ]]; then
+      printf 'Nothing to remove.\n'
+      return 0
+    fi
+    printf 'Open a new shell for the change to take effect.\n'
+    return 0
+  fi
+
+  [[ -n "${shell_name}" ]] || shell_name="$(completion_detect_shell)"
+  case "${shell_name}" in
+    bash|zsh) ;;
+    *)
+      printf 'Could not detect the shell; name it explicitly:\n' >&2
+      printf '  ./prtg-nats completion install bash\n' >&2
+      printf '  ./prtg-nats completion install zsh\n' >&2
+      return 2
+      ;;
+  esac
+
+  # System-wide only for bash, and only when the directory exists: Debian has
+  # not created it since bookworm, RHEL still does. zsh does not read it
+  # anyway.
+  if [[ "${shell_name}" == "bash" ]] && [[ -d "${system_file%/*}" ]] &&
+    [[ -w "${system_file%/*}" ]]; then
+    # A link rather than a copy: every "git pull" takes effect at once.
+    printf 'source %s\n' "${PROJECT_DIR}/completions/prtg-nats.bash" \
+      > "${system_file}"
+    chmod 644 "${system_file}"
+    printf 'Installed for bash system-wide: %s\n' "${system_file}"
+    printf 'Open a new shell to use it.\n'
+    return 0
+  fi
+
+  if [[ "${shell_name}" == "zsh" ]]; then
+    target_file="$(completion_target_home)/.zshrc"
+  else
+    target_file="$(completion_target_home)/.bashrc"
+  fi
+  completion_apply_block "${target_file}" "${shell_name}" install
+  printf 'Installed for %s in %s\n' "${shell_name}" "${target_file}"
+  printf 'Open a new shell to use it.\n'
+}
+
+self_usage() {
+  cat <<'EOF'
+Usage:
+  ./prtg-nats self install [--link-only|--completion-only] [bash|zsh]
+  ./prtg-nats self uninstall [--link-only|--completion-only]
+
+Installs the "prtg-nats" command into /usr/local/bin and tab completion for
+the calling user's shell. Name the shell explicitly when it cannot be
+detected. Print the completion script itself with "./prtg-nats completion".
+EOF
+}
+
+# For the operator, the PATH link and the completion belong together, and
+# whoever has to call them separately forgot one of them - so "both" is the
+# default and the restriction is an option. A failure of one half does not
+# abort the other: an already occupied file in /usr/local/bin is no reason to
+# also give up the completion.
+manage_shell_integration() {
+  local mode="$1"
+  local scope="${2:-all}"
+  local shell_name="${3:-}"
+  local link_mode="link"
+  local failures=0
+  local printed="false"
+
+  [[ "${mode}" == "install" ]] || link_mode="unlink"
+
+  if [[ "${scope}" == "all" || "${scope}" == "link" ]]; then
+    manage_command_link "${link_mode}" || failures=$((failures + 1))
+    printed="true"
+  fi
+  if [[ "${scope}" == "all" || "${scope}" == "completion" ]]; then
+    [[ "${printed}" != "true" ]] || printf '\n'
+    manage_completion "${mode}" "${shell_name}" || failures=$((failures + 1))
+  fi
+
+  if [[ "${failures}" -gt 0 ]]; then
+    printf '\n%s step(s) did not complete; see the messages above.\n' \
+      "${failures}" >&2
+    return 1
+  fi
+  [[ "${mode}" != "install" ]] ||
+    printf '\nUndo with: %s/prtg-nats self uninstall\n' "${PROJECT_DIR}"
+}
+
+manage_self() {
+  local mode="${1:-}"
+  local scope="all"
+  local shell_name=""
+
+  case "${mode}" in
+    install|uninstall)
+      shift
+      ;;
+    ''|-h|--help|help)
+      self_usage
+      return 0
+      ;;
+    *)
+      printf 'Unknown "self" command: %s\n\n' "${mode}" >&2
+      self_usage >&2
+      return 2
+      ;;
+  esac
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --link-only)
+        scope="link"
+        shift
+        ;;
+      --completion-only)
+        scope="completion"
+        shift
+        ;;
+      bash|zsh)
+        shell_name="$1"
+        shift
+        ;;
+      *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        self_usage >&2
+        return 2
+        ;;
+    esac
+  done
+  manage_shell_integration "${mode}" "${scope}" "${shell_name}"
+}
+
+manage_ssh_key() {
+  local operation="${1:-info}"
+
+  # shellcheck source=libexec/common.sh
+  source "${LIBEXEC_DIR}/common.sh"
+  ensure_management_ssh_key
+  case "${operation}" in
+    info)
+      printf 'Private key: %s\n' "${SSH_KEY_PATH}"
+      printf 'Public key:  %s\n' "${SSH_KEY_PATH}.pub"
+      ssh-keygen -lf "${SSH_KEY_PATH}.pub"
+      ;;
+    show)
+      cat "${SSH_KEY_PATH}.pub"
+      ;;
+    *)
+      printf 'Usage: ./prtg-nats ssh-key info|show\n' >&2
+      return 2
+      ;;
+  esac
+}
+
+command_name="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "${command_name}" in
+  config)
+    manage_config "$@"
+    ;;
+  setup)
+    ensure_environment
+    prepare_runtime_mounts
+    case "$(runtime_state)" in
+      missing)
+        if run_ops init; then
+          # shellcheck source=libexec/common.sh
+          source "${LIBEXEC_DIR}/common.sh"
+          ensure_public_ca
+        else
+          printf '\nContinuing without initialisation. The stack starts and\n'
+          printf 'waits; finish the setup in the web interface.\n'
+        fi
+        ;;
+      complete)
+        printf 'Existing runtime state found; initialization skipped.\n'
+        ;;
+      partial)
+        printf 'Incomplete runtime state found. It was not overwritten.\n' >&2
+        printf 'Restore the missing runtime files or move runtime/ aside explicitly.\n' >&2
+        exit 1
+        ;;
+    esac
+    start_stack
+    cat <<'EOF'
+
+The stack is up. Continue in the web interface:
+
+  docker compose -f compose.yaml -f compose.web.yaml up -d
+  https://<NATS_FQDN>:8443
+
+The first visit creates the administrator account.
+EOF
+    if [[ -t 0 ]]; then
+      printf '\nSet up the "prtg-nats" command and tab completion now?\n'
+      read -r -p 'This links it into PATH and edits your shell startup file. [Y/n]: ' \
+        setup_shell_answer
+      case "$(printf '%s' "${setup_shell_answer}" | tr '[:upper:]' '[:lower:]')" in
+        n|no|nein)
+          printf 'Skipped; run "./prtg-nats self install" later if you change your mind.\n'
+          ;;
+        *)
+          manage_shell_integration install all '' || true
+          ;;
+      esac
+    fi
+    ;;
+  init)
+    ensure_environment
+    prepare_runtime_mounts
+    run_ops init "$@"
+    # shellcheck source=libexec/common.sh
+    source "${LIBEXEC_DIR}/common.sh"
+    ensure_public_ca
+    ;;
+  start)
+    start_stack
+    ;;
+  stop)
+    read -r -a stack_service_list <<< "$(stack_services)"
+    compose stop "${stack_service_list[@]}"
+    ;;
+  restart)
+    prepare_runtime_mounts
+    ensure_public_ca
+    read -r -a stack_service_list <<< "$(stack_services)"
+    compose up -d --force-recreate "${stack_service_list[@]}"
+    wait_until_healthy prtg-nats nats
+    wait_until_healthy prtg-nats-ca ca-download
+    ;;
+  update)
+    prepare_runtime_mounts
+    ensure_public_ca
+    printf 'Validating the Compose configuration...\n'
+    compose config --quiet
+    printf 'Pulling service images...\n'
+    compose pull
+    printf 'Force-recreating the Compose stack...\n'
+    compose up -d --force-recreate --remove-orphans
+    wait_until_healthy prtg-nats nats
+    wait_until_healthy prtg-nats-ca ca-download
+    printf '\nCompose stack update completed successfully.\n'
+    ;;
+  status)
+    compose ps
+    if [[ -f "${PROJECT_DIR}/runtime/certs/server.pem" ]]; then
+      printf '\nTLS server certificate:\n'
+      openssl x509 \
+        -in "${PROJECT_DIR}/runtime/certs/server.pem" \
+        -noout -subject -issuer -dates
+    fi
+    ;;
+  logs)
+    if [[ $# -eq 0 ]]; then
+      compose logs --tail=200 --follow nats
+    else
+      compose logs "$@" nats
+    fi
+    ;;
+  verify)
+    case "${1:-}" in
+      '') run_ops verify ;;
+      --offline) run_ops verify --offline ;;
+      *)
+        printf 'Usage: ./prtg-nats verify [--offline]\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  user)
+    # Help works without the Python backend - it is needed exactly when the
+    # machine is not set up yet.
+    case "${1:-}" in
+      ''|-h|--help|help)
+        cat <<'EOF'
+Usage:
+  ./prtg-nats user add USER
+  ./prtg-nats user list
+  ./prtg-nats user show USER
+  ./prtg-nats user rotate USER [--server-only]
+  ./prtg-nats user delete USER
+EOF
+        ;;
+      *)
+        run_ops user "$@"
+        ;;
+    esac
+    ;;
+  renew-certificate)
+    run_ops renew-certificate "$@"
+    ;;
+  backup)
+    run_ops backup "$@"
+    ;;
+  mpp-info)
+    [[ $# -le 1 ]] ||
+      {
+        printf 'Usage: ./prtg-nats mpp-info [USER]\n' >&2
+        exit 2
+      }
+    print_mpp_info "${1:-}"
+    ;;
+  install-mpp)
+    install_remote_mpp "$@"
+    ;;
+  probe)
+    run_internal manage-probes.sh "$@"
+    ;;
+  sensor)
+    run_internal manage-sensors.sh "$@"
+    ;;
+  iperf-server)
+    run_internal manage-iperf-server.sh "$@"
+    ;;
+  ssh-key)
+    manage_ssh_key "$@"
+    ;;
+  self)
+    manage_self "$@"
+    ;;
+  completion)
+    case "${1:-print}" in
+      print|bash|zsh) ;;
+      *)
+        printf 'Usage: ./prtg-nats completion [bash|zsh]\n' >&2
+        exit 2
+        ;;
+    esac
+    [[ $# -le 1 ]] ||
+      {
+        printf 'Usage: ./prtg-nats completion [bash|zsh]\n' >&2
+        exit 2
+      }
+    cat "${PROJECT_DIR}/completions/prtg-nats.bash"
+    ;;
+  ca-info)
+    print_ca_info
+    ;;
+  ca-show)
+    cat "${PROJECT_DIR}/runtime/certs/ca.pem"
+    ;;
+  ca-path)
+    printf '%s\n' "${PROJECT_DIR}/runtime/certs/ca.pem"
+    ;;
+  tui|rotate-password)
+    printf 'The command "%s" moved to the web interface.\n' "${command_name}" >&2
+    printf 'Start it with: docker compose -f compose.yaml -f compose.web.yaml up -d\n' >&2
+    printf 'For the shared account, "user rotate prtg-nats --server-only" still works.\n' >&2
+    exit 2
+    ;;
+  test-persistence)
+    printf 'The command "test-persistence" was retired without replacement.\n' >&2
+    printf 'The container health check proves JetStream is serving; "verify" covers the login.\n' >&2
+    exit 2
+    ;;
+  # One release of grace for the old name.
+  configure)
+    printf 'Note: "configure" is now "config --edit".\n' >&2
+    configure_environment
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    printf 'Unknown command: %s\n\n' "${command_name}" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

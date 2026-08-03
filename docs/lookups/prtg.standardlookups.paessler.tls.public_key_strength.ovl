@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.tls.public_key_strength" desiredValue="3" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Insecure
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Weak
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Good
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Perfect
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

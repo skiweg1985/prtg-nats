@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.buffalo.ts.nasisfwupdateavailable" desiredValue="3" undefinedState="olsNone" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Yes
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        No
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Latest
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

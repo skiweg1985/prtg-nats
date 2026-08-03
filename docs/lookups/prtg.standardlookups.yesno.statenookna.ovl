@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.yesno.statenookna" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        No
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Yes
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Not Available
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.aws.lookup_alarm_status" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Insufficient data
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        In alarm
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

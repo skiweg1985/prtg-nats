@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.ups-mib.upstest.upstestresultssummary" desiredValue="1" undefinedState="6" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Pass
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Warning
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Error
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Aborted
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        In Progress
+      </SingleInt>
+      <SingleInt state="None" value="6">
+        No Test Initiated
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>
+ 

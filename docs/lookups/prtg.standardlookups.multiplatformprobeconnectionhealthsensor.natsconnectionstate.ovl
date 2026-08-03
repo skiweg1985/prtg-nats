@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.multiplatformprobeconnectionhealthsensor.natsconnectionstate"
+  desiredValue="3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="None" value="0">
+      Unknown
+    </SingleInt>
+    <SingleInt state="OK" value="1">
+      Disabled
+    </SingleInt>
+    <SingleInt state="Error" value="2">
+      Disconnected
+    </SingleInt>
+    <SingleInt state="OK" value="3">
+      Connected
+    </SingleInt>
+  </Lookups>
+</ValueLookup>

@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-servercontrol2-mib.sc2powersupply.sc2powersupplystatus" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="None" value="2">
+        Not Present
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        OK
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Failed
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        AC Fail
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        DC Fail
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Critical Temperature
+      </SingleInt>
+      <SingleInt state="None" value="8">
+        Not Manageable
+      </SingleInt>
+      <SingleInt state="Warning" value="9">
+        Fan Failure Predicted
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Fan Failure
+      </SingleInt>
+      <SingleInt state="Warning" value="11">
+        Power Safe Mode
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        Non-Redundant DC Fail
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Non-Redundant AC Fail
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

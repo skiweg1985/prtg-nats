@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.tls.revocation_status" desiredValue="3" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Revoked
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Unable To Check Revocation Status
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Not Revoked
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,27 @@
+server_name: "@@SERVER_NAME@@"
+
+host: "0.0.0.0"
+port: @@NATS_PORT@@
+
+# The monitoring endpoint is published on host loopback only.
+http: "0.0.0.0:8222"
+
+tls {
+  cert_file: "/etc/nats/certs/server.pem"
+  key_file: "/etc/nats/certs/server-key.pem"
+  ca_file: "/etc/nats/certs/ca.pem"
+  min_version: "1.2"
+  timeout: 2
+}
+
+authorization {
+  users: [
+@@NATS_AUTH_USERS@@
+  ]
+}
+
+jetstream {
+  store_dir: "/data/jetstream"
+  max_memory_store: 1GB
+  max_file_store: 10GB
+}

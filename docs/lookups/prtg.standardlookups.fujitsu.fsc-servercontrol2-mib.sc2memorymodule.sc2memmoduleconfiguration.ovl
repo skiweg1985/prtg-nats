@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-servercontrol2-mib.sc2memorymodule.sc2memmoduleconfiguration" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Normal
+      </SingleInt>
+      <SingleInt state="None" value="3">
+        Disabled
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Hot Spare
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        Mirror
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        RAID
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Not Usable
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Configuration Error
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.tls.trust_status" desiredValue="1" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Trusted
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Not Trusted
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.dell.equallogic.memberstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Offline
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Vacating
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Vacated
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

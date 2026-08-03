@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.mqtt.rttstate" desiredValue="4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+        <SingleInt state="Error" value="0">
+            Subscriber could not connect
+        </SingleInt>
+        <SingleInt state="Error" value="1">
+            Publisher could not connect
+        </SingleInt>
+        <SingleInt state="Error" value="2">
+            Message not sent
+        </SingleInt>
+        <SingleInt state="Error" value="3">
+            Message not received
+        </SingleInt>
+        <SingleInt state="OK" value="4">
+            Roundtrip complete
+        </SingleInt>
+    </Lookups>
+</ValueLookup>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.lun_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Offline
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        NVRAM Failure
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Space Error
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Foreign LUN Error
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

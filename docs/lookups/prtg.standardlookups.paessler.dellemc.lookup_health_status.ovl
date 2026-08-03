@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.dellemc.lookup_health_status" desiredValue="5" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        OK
+      </SingleInt>
+      <SingleInt state="Ok" value="7">
+        OK But Minor Warning
+      </SingleInt>
+      <SingleInt state="Warning" value="10">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Warning" value="15">
+        Minor Issue
+      </SingleInt>
+      <SingleInt state="Error" value="20">
+        Major Issue
+      </SingleInt>
+      <SingleInt state="Error" value="25">
+        Critical Issue
+      </SingleInt>
+      <SingleInt state="Error" value="30">
+        Non Recoverable
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

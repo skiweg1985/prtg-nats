@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-servercontrol2-mib.sc2powersupplyredundancyconfiguration.sc2psredundancymodeconfig" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        No Redundancy
+      </SingleInt>
+      <SingleInt state="OK" value="19">
+        Redundancy 1-1
+      </SingleInt>
+      <SingleInt state="OK" value="35">
+        Redundancy 2-1
+      </SingleInt>
+      <SingleInt state="OK" value="36">
+        Redundancy 2-2
+      </SingleInt>
+      <SingleInt state="OK" value="51">
+        Redundancy 3-1
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

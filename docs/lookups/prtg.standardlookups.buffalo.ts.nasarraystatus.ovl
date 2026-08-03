@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.buffalo.ts.nasarraystatus" desiredValue="3" undefinedState="olsNone" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="-1">
+        Not Supported
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        No RAID Configured
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        RAID 0
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        RAID 1
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        RAID 5
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        RAID 6
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        RAID 10
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        RAID 50
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        RAID 51
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        RAID 60
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        RAID 61
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

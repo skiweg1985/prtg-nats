@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="3" id="prtg.standardlookups.wmi.battery.ups" 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Unknown</SingleInt>
+    <SingleInt state="OK" value="1">Fully Charged</SingleInt>
+    <SingleInt state="OK" value="2">Charging</SingleInt>
+    <SingleInt state="Warning" value="3">Discharging</SingleInt>
+    <SingleInt state="Warning" value="4">Critical but charging</SingleInt>
+    <SingleInt state="Error" value="5">Critical but discharging</SingleInt>
+  </Lookups>
+</ValueLookup>

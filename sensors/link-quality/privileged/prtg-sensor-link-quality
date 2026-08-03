@@ -1,0 +1,767 @@
+#!/usr/bin/env python3
+
+"""Privileged round-trip measurement for the "link-quality" Script v2 sensor.
+
+The sensor script runs as the probe's service user and cannot open an ICMP
+socket. This program takes over exactly that step. It is started by systemd
+per connection on /run/prtg-sensor-link-quality.sock; stdin and stdout are
+the socket. The task comes in as JSON, the result goes out as JSON.
+
+The route over a socket instead of sudo is necessary because
+prtg.mpprobe.service runs with NoNewPrivileges=yes and the kernel then
+ignores the setuid bit of sudo - the same holds for the file capability
+cap_net_raw of /bin/ping. As its own service, this program is also not
+subject to the seccomp restrictions of the MPP unit.
+
+An unprivileged ICMP socket (SOCK_DGRAM with IPPROTO_ICMP) would be an
+alternative on some probes, but only on some: it depends on
+net.ipv4.ping_group_range, whose default differs per distribution and
+release. A sensor that measures on one probe and not on the next is worse
+than one that takes the same path everywhere.
+
+It also stays callable directly on the command line: whoever starts it as
+root with a JSON task on stdin gets the same answer.
+"""
+
+import errno
+import fcntl
+import json
+import os
+import select
+import socket
+import struct
+import sys
+import threading
+import time
+
+RUN_DIR = "/run"
+LOCK_PATH = os.path.join(RUN_DIR, "prtg-sensor-link-quality.lock")
+
+ICMP_ECHO_REQUEST = 8
+ICMP_ECHO_REPLY = 0
+ICMP_DESTINATION_UNREACHABLE = 3
+ICMP_TIME_EXCEEDED = 11
+ICMPV6_ECHO_REQUEST = 128
+ICMPV6_ECHO_REPLY = 129
+ICMPV6_DESTINATION_UNREACHABLE = 1
+ICMPV6_TIME_EXCEEDED = 3
+
+# The limits are no convenience but the protection against this service
+# becoming a load tool. Whoever takes over the probe's service user reaches
+# the socket - and must not be able to flood an arbitrary target through
+# it. The numbers are generous for a quality measurement and tight for
+# everything else.
+MAX_TARGETS = 10
+MIN_PACKETS = 1
+MAX_PACKETS = 100
+MIN_INTERVAL_MS = 50
+MAX_INTERVAL_MS = 5000
+MIN_TIMEOUT_MS = 100
+MAX_TIMEOUT_MS = 10000
+MAX_PAYLOAD_BYTES = 1400
+# In addition to the individual limit: ten targets at a hundred packets
+# each would be a thousand packets per run and sensor. The product is the
+# quantity that matters.
+MAX_TOTAL_PACKETS = 400
+# A TCP attempt is more expensive than an echo packet - it leaves a
+# connection attempt in the far side's log. Twenty of them per minute would
+# look like a port scan, so it stays at a few with calm spacing.
+TCP_MAX_ATTEMPTS = 10
+TCP_MIN_INTERVAL_MS = 200
+
+# Marker in the payload. A raw socket sees every ICMP answer of the
+# system, including those to a concurrently running ping(8). Without the
+# marker, foreign answers would flow into the measurement.
+MAGIC = b"PRTG-NATS-LQ"
+DEFAULT_PAYLOAD_BYTES = 56
+
+# How long to wait for the lock before the run gives up. Several sensors
+# on the same probe then measure one after another instead of at once: a
+# run takes a few seconds, a scan interval minutes - the waiting goes
+# unnoticed, the doubled packet rate does not.
+LOCK_WAIT_SECONDS = 10.0
+LOCK_POLL_SECONDS = 0.2
+
+# A task cannot take longer than its parts: interval times packet count,
+# plus the trailing wait for the last answer. The cap catches the case of a
+# far end delaying every packet up to the time limit.
+MAX_RUN_SECONDS = 300
+
+
+class Blocked(Exception):
+    """The task was not carried out - no statement about the line."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def checksum(data):
+    """The ICMP checksum per RFC 1071.
+
+    Only IPv4 needs it here: with ICMPv6 it runs over a pseudo-header with
+    the addresses of the IPv6 header, which this program does not know -
+    the kernel fills it in there itself.
+    """
+    if len(data) % 2:
+        data += b"\x00"
+    total = 0
+    for index in range(0, len(data), 2):
+        total += int.from_bytes(data[index:index + 2], "big")
+        total = (total & 0xFFFF) + (total >> 16)
+    return ~total & 0xFFFF
+
+
+def build_payload(size):
+    """Payload from marker and filler.
+
+    The filler is a fixed pattern, not randomness: it should not distort
+    the measurement through a compression advantage on the path, and a
+    repeatable packet is easier to find in a capture when reproducing.
+    """
+    filler = bytes(range(0x20, 0x80))
+    body = MAGIC
+    while len(body) < size:
+        body += filler
+    return body[:size]
+
+
+def build_echo(family, identifier, sequence, payload):
+    kind = ICMP_ECHO_REQUEST if family == socket.AF_INET else ICMPV6_ECHO_REQUEST
+    header = struct.pack("!BBHHH", kind, 0, 0, identifier, sequence)
+    if family == socket.AF_INET6:
+        return header + payload
+    value = checksum(header + payload)
+    return struct.pack("!BBHHH", kind, 0, value, identifier, sequence) + payload
+
+
+def icmp_body(family, packet):
+    """Cut the ICMP part out of a received packet.
+
+    A raw socket delivers the IP header with IPv4 but not with IPv6 - the
+    kernel removes it there, because the header extensions could not be
+    skipped otherwise.
+    """
+    if family == socket.AF_INET:
+        if len(packet) < 20:
+            return b""
+        return packet[(packet[0] & 0x0F) * 4:]
+    return packet
+
+
+def embedded_sequence(family, body, identifier):
+    """Extract identifier and sequence number from an ICMP error message.
+
+    An error message carries the start of the packet that triggered it.
+    That attributes a "Destination Unreachable" exactly to the packet it
+    answers - and reports a target as "refused" instead of merely
+    "silent". That is the difference between a firewall and a failed
+    target.
+    """
+    original = body[8:]
+    if family == socket.AF_INET:
+        if len(original) < 20:
+            return None
+        original = original[(original[0] & 0x0F) * 4:]
+    else:
+        # The IPv6 header is a fixed 40 bytes. Header extensions would be
+        # possible here, but are none for an echo we sent ourselves.
+        if len(original) < 40:
+            return None
+        original = original[40:]
+    if len(original) < 8:
+        return None
+    _, _, _, embedded_id, sequence = struct.unpack("!BBHHH", original[:8])
+    if embedded_id != identifier:
+        return None
+    return sequence
+
+
+def parse_reply(family, packet, identifier):
+    """Interpret a received answer.
+
+    Returns (sequence number, kind) or None when the packet does not
+    belong to this run. The kind is "echo" for an answer and
+    "unreachable" or "expired" for an error message.
+    """
+    body = icmp_body(family, packet)
+    if len(body) < 8:
+        return None
+    kind = body[0]
+    reply = ICMPV6_ECHO_REPLY if family == socket.AF_INET6 else ICMP_ECHO_REPLY
+    unreachable = (ICMPV6_DESTINATION_UNREACHABLE
+                   if family == socket.AF_INET6
+                   else ICMP_DESTINATION_UNREACHABLE)
+    expired = (ICMPV6_TIME_EXCEEDED if family == socket.AF_INET6
+               else ICMP_TIME_EXCEEDED)
+
+    if kind == reply:
+        _, _, _, embedded_id, sequence = struct.unpack("!BBHHH", body[:8])
+        if embedded_id != identifier:
+            return None
+        # Die Kennung im Nutzdatenteil ist die zweite Schranke: Eine fremde
+        # An answer with a coincidentally equal id drops out here.
+        if MAGIC not in body[8:]:
+            return None
+        return sequence, "echo"
+
+    if kind in (unreachable, expired):
+        sequence = embedded_sequence(family, body, identifier)
+        if sequence is None:
+            return None
+        return sequence, "unreachable" if kind == unreachable else "expired"
+
+    return None
+
+
+class Unusable(Exception):
+    """This one target is not measurable - the others remain so.
+
+    Separate from Blocked because the difference decides the value of the
+    whole run: a typo in one of five targets must not discard the other
+    four's measurement. An unresolvable name is often precisely the
+    result, besides - a failed resolver is a finding about the uplink,
+    not an operating error.
+    """
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def resolve(host, source_family):
+    """Resolve a target name to exactly one address.
+
+    The source address family is preferred: whoever measures over an IPv4
+    tunnel does not want the sensor to pick IPv6 and thereby measure past
+    the path it is supposed to check.
+    """
+    try:
+        candidates = socket.getaddrinfo(host, None, type=socket.SOCK_DGRAM)
+    except OSError:
+        raise Unusable("resolve-failed", "Could not resolve %s" % host)
+    if not candidates:
+        raise Unusable("resolve-failed", "Could not resolve %s" % host)
+
+    preferred = [entry for entry in candidates if entry[0] == source_family]
+    for family, _, _, _, address in (preferred or candidates):
+        if family in (socket.AF_INET, socket.AF_INET6):
+            return family, address[0]
+    raise Unusable("resolve-failed", "Could not resolve %s" % host)
+
+
+def check_address(family, address):
+    """Exclude addresses that are no admissible measurement target.
+
+    Above all multicast and broadcast: an echo there makes many devices
+    answer at once. That is pointless as a measurement and dangerous as
+    amplification - it is exactly the pattern of a smurf attack.
+
+    The check sits behind resolution, not in the task's shape validation:
+    which address stands behind a name is only decided at run time.
+    """
+    try:
+        packed = socket.inet_pton(family, address)
+    except OSError:
+        raise Unusable("bad-address", "Invalid target address")
+
+    if family == socket.AF_INET:
+        if packed[0] >= 224:
+            raise Unusable("bad-address",
+                           "Multicast and broadcast are not valid targets")
+        if packed == b"\x00\x00\x00\x00":
+            raise Unusable("bad-address",
+                           "The unspecified address is no target")
+    else:
+        if packed[0] == 0xFF:
+            raise Unusable("bad-address", "Multicast is not a valid target")
+        if packed == b"\x00" * 16:
+            raise Unusable("bad-address",
+                           "The unspecified address is no target")
+
+
+def jitter_of(samples):
+    """Latency variation as the mean difference of consecutive samples.
+
+    Simplified per RFC 3550, the same computation as in the throughput
+    sensor. Deliberately not the standard deviation: a single outlier
+    weighs quadratically there, while for the perception of a connection
+    what counts is how far consecutive packets lie apart.
+    """
+    if len(samples) < 2:
+        return None
+    differences = [abs(samples[index] - samples[index - 1])
+                   for index in range(1, len(samples))]
+    return sum(differences) / len(differences)
+
+
+def summarize(target, samples, sent, failures):
+    """Build the result from a target's individual samples."""
+    received = len(samples)
+    result = {
+        "name": target["name"],
+        "host": target["host"],
+        "address": target.get("address", ""),
+        "mode": target["mode"],
+        "scope": target["scope"],
+        "sent": sent,
+        "received": received,
+        "reachable": received > 0,
+        "code": "ok" if received else (failures or "no-reply"),
+    }
+    if sent:
+        # Rounded half up, so a single lost packet of twenty appears as
+        # 5 % and not as 4 %.
+        result["loss_percent"] = int(round((sent - received) * 100.0 / sent))
+    else:
+        result["loss_percent"] = 100
+    if samples:
+        ordered = sorted(samples)
+        result["rtt_min_ms"] = round(ordered[0], 3)
+        result["rtt_avg_ms"] = round(sum(samples) / len(samples), 3)
+        result["rtt_max_ms"] = round(ordered[-1], 3)
+        deviation = jitter_of(samples)
+        if deviation is not None:
+            result["jitter_ms"] = round(deviation, 3)
+    return result
+
+
+class IcmpRun:
+    """One measurement run over all ICMP targets on shared sockets.
+
+    All targets are served on the same beat, not one after another. That
+    is not just faster: only that way do all targets see the same network
+    conditions, making their values comparable at all. Working through
+    one target after another would mean comparing measurements from
+    different minutes.
+    """
+
+    def __init__(self, targets, job):
+        self.targets = targets
+        self.job = job
+        # The identifier separates this run from any other ICMP traffic
+        # of the machine. It has to fit in 16 bits.
+        self.identifier = os.getpid() & 0xFFFF
+        self.payload = build_payload(job["payload_bytes"])
+        self.sockets = {}
+        self.pending = {}
+        self.samples = {index: [] for index in range(len(targets))}
+        self.sent = {index: 0 for index in range(len(targets))}
+        self.failures = {}
+        self.sequence = 0
+
+    def open_sockets(self):
+        for family in {target["family"] for target in self.targets}:
+            protocol = (socket.IPPROTO_ICMPV6 if family == socket.AF_INET6
+                        else socket.IPPROTO_ICMP)
+            try:
+                handle = socket.socket(family, socket.SOCK_RAW, protocol)
+            except OSError as problem:
+                if problem.errno in (errno.EPERM, errno.EACCES):
+                    raise Blocked("no-privileges",
+                                  "Not allowed to open an ICMP socket")
+                raise Blocked("socket-failed",
+                              "Could not open an ICMP socket")
+            handle.setblocking(False)
+            if self.job["source"]:
+                try:
+                    handle.bind((self.job["source"], 0))
+                except OSError:
+                    handle.close()
+                    self.close()
+                    raise Blocked("bind-failed",
+                                  "Could not bind to the given source address")
+            self.sockets[family] = handle
+
+    def close(self):
+        for handle in self.sockets.values():
+            try:
+                handle.close()
+            except OSError:
+                pass
+        self.sockets.clear()
+
+    def send_round(self):
+        for index, target in enumerate(self.targets):
+            self.sequence = (self.sequence + 1) & 0xFFFF
+            packet = build_echo(target["family"], self.identifier,
+                                self.sequence, self.payload)
+            try:
+                self.sockets[target["family"]].sendto(packet,
+                                                      (target["address"], 0))
+            except OSError:
+                # Ein nicht absetzbares Paket ist ein verlorenes Paket. Kein
+                # Grund, den Lauf zu beenden -- ein zeitweise volles
+                # Sendefenster oder eine fehlende Route sind genau das, was
+                # der Sensor sichtbar machen soll.
+                self.sent[index] += 1
+                self.failures.setdefault(index, "send-failed")
+                continue
+            self.pending[self.sequence] = (index, time.monotonic())
+            self.sent[index] += 1
+
+    def collect(self, until):
+        """Bis zum angegebenen Zeitpunkt Antworten einsammeln."""
+        handles = list(self.sockets.values())
+        while True:
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                return
+            try:
+                ready, _, _ = select.select(handles, [], [], remaining)
+            except OSError:
+                return
+            for handle in ready:
+                self.receive(handle)
+
+    def receive(self, handle):
+        family = handle.family
+        try:
+            packet, _ = handle.recvfrom(65535)
+        except OSError:
+            return
+        parsed = parse_reply(family, packet, self.identifier)
+        if parsed is None:
+            return
+        sequence, kind = parsed
+        entry = self.pending.pop(sequence, None)
+        if entry is None:
+            # A late answer to an already written-off packet. Crediting
+            # it retroactively would distort the round-trip time: for the
+            # application the packet was too late.
+            return
+        index, started = entry
+        if kind != "echo":
+            self.failures.setdefault(index, kind)
+            return
+        self.samples[index].append((time.monotonic() - started) * 1000.0)
+
+    def run(self):
+        self.open_sockets()
+        interval = self.job["interval_ms"] / 1000.0
+        timeout = self.job["timeout_ms"] / 1000.0
+        deadline = time.monotonic() + MAX_RUN_SECONDS
+        try:
+            for round_number in range(self.job["packets"]):
+                started = time.monotonic()
+                if started > deadline:
+                    break
+                self.send_round()
+                # Between two rounds we listen instead of sleeping. The
+                # beat stays the same, but the answers arrive immediately
+                # instead of bundled at the end.
+                if round_number + 1 < self.job["packets"]:
+                    self.collect(started + interval)
+            # Trailing wait for the last round: without it every packet
+            # whose answer is slower than the beat would count as lost.
+            self.collect(min(time.monotonic() + timeout, deadline + timeout))
+        finally:
+            self.close()
+
+        # Whatever is still outstanding is past the wait. The entry
+        # disappears; the loss stays visible in the difference of sent
+        # and received.
+        self.pending.clear()
+        return [
+            summarize(target, self.samples[index], self.sent[index],
+                      self.failures.get(index))
+            for index, target in enumerate(self.targets)
+        ]
+
+
+def measure_tcp(target, job):
+    """Measure a target through repeated connection setups.
+
+    For targets that drop ICMP - with some operators that is the rule.
+    Measured is the time to the completed handshake; that is a round trip
+    plus the far end's reaction and thus sits systematically above an
+    echo. Averaging both kinds in one channel would therefore be wrong,
+    and the sensor does not do it.
+    """
+    attempts = min(job["packets"], TCP_MAX_ATTEMPTS)
+    interval = max(job["interval_ms"], TCP_MIN_INTERVAL_MS) / 1000.0
+    timeout = job["timeout_ms"] / 1000.0
+    source = (job["source"], 0) if job["source"] else None
+    samples = []
+    failure = None
+
+    for attempt in range(attempts):
+        started = time.monotonic()
+        handle = None
+        try:
+            handle = socket.socket(target["family"], socket.SOCK_STREAM)
+            handle.settimeout(timeout)
+            if source:
+                handle.bind(source)
+            handle.connect((target["address"], target["port"]))
+            samples.append((time.monotonic() - started) * 1000.0)
+        except socket.timeout:
+            failure = failure or "no-reply"
+        except OSError as problem:
+            failure = failure or ("refused"
+                                  if problem.errno == errno.ECONNREFUSED
+                                  else "unreachable")
+        finally:
+            if handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+        if attempt + 1 < attempts:
+            rest = started + interval - time.monotonic()
+            if rest > 0:
+                time.sleep(rest)
+
+    return summarize(target, samples, attempts, failure)
+
+
+def parse_target(entry, index, source_family):
+    """Translate a target spec into a validated task."""
+    if not isinstance(entry, dict):
+        raise Blocked("bad-request", "Invalid target entry")
+
+    host = entry.get("host")
+    if not isinstance(host, str) or not host or len(host) > 255:
+        raise Blocked("bad-request", "Invalid target host")
+    # A control character in a host name has no legitimate reason and
+    # would be the start of any attempt to break out of this string.
+    if any(character < " " or character == "\x7f" for character in host):
+        raise Blocked("bad-request", "Invalid target host")
+
+    mode = entry.get("mode") or "icmp"
+    if mode not in ("icmp", "tcp"):
+        raise Blocked("bad-request", "Unsupported target mode")
+
+    scope = entry.get("scope") or "external"
+    if scope not in ("external", "internal"):
+        raise Blocked("bad-request", "Unsupported target scope")
+
+    port = 0
+    if mode == "tcp":
+        try:
+            port = int(entry.get("port") or 0)
+        except (TypeError, ValueError):
+            raise Blocked("bad-request", "Invalid target port")
+        if not 1 <= port <= 65535:
+            raise Blocked("bad-request", "Invalid target port")
+
+    name = entry.get("name") or host
+    if not isinstance(name, str) or len(name) > 64:
+        raise Blocked("bad-request", "Invalid target name")
+
+    target = {
+        "name": name,
+        "host": host,
+        "mode": mode,
+        "scope": scope,
+        "port": port,
+        "family": None,
+        "address": "",
+        "index": index,
+        "unusable": None,
+    }
+    # From here on the target is no longer rejected, at most noted as
+    # unmeasurable. The shape validation above is the hard part;
+    # everything that depends on name resolution is run time and thereby
+    # a finding.
+    try:
+        family, address = resolve(host, source_family)
+        check_address(family, address)
+    except Unusable as problem:
+        target["unusable"] = problem.code
+        return target
+    target["family"] = family
+    target["address"] = address
+    return target
+
+
+def bounded(job, key, default, lowest, highest, label):
+    try:
+        value = int(job.get(key) if job.get(key) is not None else default)
+    except (TypeError, ValueError):
+        raise Blocked("bad-request", "Invalid %s" % label)
+    if not lowest <= value <= highest:
+        raise Blocked("bad-request",
+                      "The %s must be %d to %d" % (label, lowest, highest))
+    return value
+
+
+def source_family_of(job):
+    """Determine the source address family, if one is set."""
+    source = job.get("source")
+    if not source:
+        return None
+    if not isinstance(source, str):
+        raise Blocked("bad-request", "Invalid source address")
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            socket.inet_pton(family, source)
+        except OSError:
+            continue
+        return family
+    # Deliberately no host name: the source of a measurement has to be
+    # unambiguous, and a name can resolve differently between two runs.
+    raise Blocked("bad-request",
+                  "The source must be a literal IPv4 or IPv6 address")
+
+
+def validate_job(job):
+    entries = job.get("targets")
+    if not isinstance(entries, list) or not entries:
+        raise Blocked("bad-request", "At least one target is required")
+    if len(entries) > MAX_TARGETS:
+        raise Blocked("bad-request",
+                      "At most %d targets are allowed" % MAX_TARGETS)
+
+    checked = {
+        "packets": bounded(job, "packets", 20, MIN_PACKETS, MAX_PACKETS,
+                           "packet count"),
+        "interval_ms": bounded(job, "interval_ms", 200, MIN_INTERVAL_MS,
+                               MAX_INTERVAL_MS, "interval"),
+        "timeout_ms": bounded(job, "timeout_ms", 1000, MIN_TIMEOUT_MS,
+                              MAX_TIMEOUT_MS, "timeout"),
+        "payload_bytes": bounded(job, "payload_bytes", DEFAULT_PAYLOAD_BYTES,
+                                 len(MAGIC), MAX_PAYLOAD_BYTES, "payload size"),
+        "source": job.get("source") or None,
+    }
+    if checked["packets"] * len(entries) > MAX_TOTAL_PACKETS:
+        raise Blocked(
+            "bad-request",
+            "Targets times packets must not exceed %d" % MAX_TOTAL_PACKETS)
+
+    source_family = source_family_of(job)
+    checked["targets"] = [parse_target(entry, index, source_family)
+                          for index, entry in enumerate(entries)]
+    return checked
+
+
+def perform(job):
+    """Measure all targets - ICMP together, TCP concurrently per target."""
+    started = time.monotonic()
+    usable = [target for target in job["targets"] if not target["unusable"]]
+    icmp_targets = [target for target in usable if target["mode"] == "icmp"]
+    tcp_targets = [target for target in usable if target["mode"] == "tcp"]
+
+    outcomes = {}
+    workers = []
+
+    # A target without an address is not measured, but it does not
+    # disappear either: it keeps its channels and reports the reason. A
+    # channel missing between two runs would be worse in PRTG than one
+    # showing 100 % loss.
+    for target in job["targets"]:
+        if target["unusable"]:
+            outcomes[target["index"]] = summarize(target, [], 0,
+                                                  target["unusable"])
+
+    def run_tcp(target):
+        try:
+            outcomes[target["index"]] = measure_tcp(target, job)
+        except Exception:
+            # Der Auftrag darf an einem einzelnen Ziel nicht scheitern; ein
+            # unerwarteter Fehler wird zu einem unerreichbaren Ziel.
+            outcomes[target["index"]] = summarize(target, [], job["packets"],
+                                                  "internal-error")
+
+    for target in tcp_targets:
+        worker = threading.Thread(target=run_tcp, args=(target,), daemon=True)
+        worker.start()
+        workers.append(worker)
+
+    if icmp_targets:
+        for target, outcome in zip(icmp_targets,
+                                   IcmpRun(icmp_targets, job).run()):
+            outcomes[target["index"]] = outcome
+
+    for worker in workers:
+        worker.join(MAX_RUN_SECONDS)
+
+    results = []
+    for target in job["targets"]:
+        results.append(outcomes.get(target["index"])
+                       or summarize(target, [], job["packets"], "no-reply"))
+    return {
+        "result": "ok",
+        "code": "ok",
+        "message": "",
+        "targets": results,
+        "duration_ms": int((time.monotonic() - started) * 1000),
+    }
+
+
+def acquire_lock():
+    """Serialise runs on this probe.
+
+    Not meant as exclusion but as a cap on the packet rate: whoever runs
+    several sensors against the same line gets them one after another
+    instead of on top of each other. If one waits too long, it prefers to
+    report that over silently delivering delayed values.
+    """
+    handle = open(os.open(LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o600), "w")
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except OSError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise Blocked("busy",
+                              "Another measurement is already running")
+            time.sleep(LOCK_POLL_SECONDS)
+
+
+def main():
+    if os.geteuid() != 0:
+        emit({"result": "blocked", "code": "no-privileges",
+              "message": "This helper must run as root"})
+
+    try:
+        payload = sys.stdin.read(65536)
+        job = json.loads(payload or "{}")
+        if not isinstance(job, dict):
+            raise ValueError
+    except ValueError:
+        emit({"result": "blocked", "code": "bad-request",
+              "message": "The request could not be parsed"})
+
+    handle = None
+    try:
+        if job.get("action") == "ping":
+            # Self-test of the permission chain: does the sensor script
+            # reach this helper, and may the helper open an ICMP socket
+            # at all? The second question is the more important one - it
+            # would otherwise only show up on the first real run, and
+            # then it looks like a network failure.
+            probe = socket.socket(socket.AF_INET, socket.SOCK_RAW,
+                                  socket.IPPROTO_ICMP)
+            probe.close()
+            emit({"result": "ok", "code": "ok",
+                  "message": "helper reachable, ICMP socket available",
+                  "targets": []})
+        handle = acquire_lock()
+        emit(perform(validate_job(job)))
+    except Blocked as blocked:
+        emit({"result": "blocked", "code": blocked.code,
+              "message": blocked.message, "targets": []})
+    except Exception:
+        # The exception is never printed - it could carry an internal
+        # address.
+        emit({"result": "blocked", "code": "internal-error",
+              "message": "The measurement failed unexpectedly", "targets": []})
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def emit(result):
+    print(json.dumps(result))
+    sys.stdout.flush()
+    # The calling sensor script evaluates only the JSON.
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

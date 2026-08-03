@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.buffalo.ts.nasdiskstatus" desiredValue="1" undefinedState="olsNone" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Normal
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Member of Array 1
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Member of Array 2
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Hot Spare / Normal
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Removed from Array
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Dismounted / Plugged
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Hot Spare / Dismounted
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="9">
+        Unplugged
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Member of Array 3
+      </SingleInt>
+      <SingleInt state="OK" value="11">
+        Member of Array 4
+      </SingleInt>
+      <SingleInt state="OK" value="12">
+        Media Cartridge
+      </SingleInt>
+      <SingleInt state="OK" value="13">
+        Member of Array 5
+      </SingleInt>
+      <SingleInt state="OK" value="14">
+        Member of Array 6
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

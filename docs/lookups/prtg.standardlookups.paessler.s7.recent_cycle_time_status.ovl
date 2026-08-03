@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.s7.recent_cycle_time_status" desiredValue="1" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Cycle Time Exceeded
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Diagnostic Buffer Overflow
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

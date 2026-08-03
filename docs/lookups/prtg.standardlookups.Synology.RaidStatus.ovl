@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.Synology.RaidStatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Normal
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Repairing
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Migrating
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Expanding
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Deleting
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Creating
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Syncing
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Parity Checking
+      </SingleInt>
+      <SingleInt state="Warning" value="9">
+        Assembling
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Canceling
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Degrade
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        Crashed
+      </SingleInt>
+      <SingleInt state="OK" value="13">
+        Data Scrubbing
+      </SingleInt>
+      <SingleInt state="OK" value="14">
+        Deploying
+      </SingleInt>
+      <SingleInt state="OK" value="15">
+        Undeploying
+      </SingleInt>
+      <SingleInt state="OK" value="16">
+        Mounting Cache
+      </SingleInt>
+      <SingleInt state="OK" value="17">
+        Unmounting Cache
+      </SingleInt>
+      <SingleInt state="OK" value="18">
+        Expanding Unfinished SHR
+      </SingleInt>
+      <SingleInt state="OK" value="19">
+        Converting SHR to Pool
+      </SingleInt>
+      <SingleInt state="OK" value="20">
+        Migrating SHR1 to SHR2
+      </SingleInt>
+      <SingleInt state="Error" value="21">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

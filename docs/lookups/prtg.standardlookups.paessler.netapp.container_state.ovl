@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.container_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Aggregate Offline
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Volume Offline
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Error
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

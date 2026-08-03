@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-raid-mib.svrphysicaldevice.svrphysicaldevicepowerstatus" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Active
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Stopped
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Transition
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.netapp.lunstate" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+     <SingleInt state="OK" value="0">
+        Online
+      </SingleInt>
+	  <SingleInt state="None" value="1">
+        LUN is administratively offline or a more detailed offline reason is not available
+      </SingleInt>
+	  <SingleInt state="Error" value="2">
+        LUN has been automatically taken offline due to a media error on the associated foreign LUN
+      </SingleInt>
+	  <SingleInt state="Error" value="3">
+        LUN has been automatically taken offline due to an NVRAM failure
+      </SingleInt>
+	  <SingleInt state="Error" value="4">
+        LUN has been automatically taken offline due to insufficient space
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

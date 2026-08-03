@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.liebert.lgpsysstatus.lgpsysselftestresult" desiredValue="2" undefinedState="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Passed
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        In Progress
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Sys Failiure
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Inhibited
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>
+ 

@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.QNAP.VolStatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Ready
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Rebuilding...
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        In degraded mode
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Synchronizing
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Failure
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

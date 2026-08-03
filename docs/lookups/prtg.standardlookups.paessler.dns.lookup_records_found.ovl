@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.dns.lookup_records_found" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="Error" value="0">
+        No
+      </Boolean>
+      <Boolean state="Ok" value="1">
+        Yes
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

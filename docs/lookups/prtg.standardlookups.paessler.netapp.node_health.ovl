@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.node_health" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Up
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Booting
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Down
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Taken Over
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Waiting For Giveback
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

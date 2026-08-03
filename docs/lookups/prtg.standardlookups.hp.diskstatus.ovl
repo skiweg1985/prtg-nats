@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.hp.diskstatus" desiredValue="2" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+	<Lookups>
+		<SingleInt state="None" value="1">Other</SingleInt>
+		<SingleInt state="OK" value="2">OK</SingleInt>
+		<SingleInt state="Error" value="3">Failed</SingleInt>
+		<SingleInt state="Warning" value="4">Predictive Failure</SingleInt>
+		<SingleInt state="Warning" value="5">Erasing</SingleInt>
+		<SingleInt state="Warning" value="6">Erase Done</SingleInt>
+		<SingleInt state="Warning" value="7">Erase Queued</SingleInt>
+		<SingleInt state="Error" value="8">SSD Wear Out</SingleInt>
+		<SingleInt state="Warning" value="9">Not Authenticated</SingleInt>
+		<SingleInt state="OK" value="10">Hot Spare</SingleInt>
+	</Lookups>
+</ValueLookup>

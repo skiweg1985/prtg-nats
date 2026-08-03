@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.is_home" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        At Home
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Not At Home
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.sigfox.keepalive" desiredValue="0"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+        <SingleInt state="None" value="0">
+            No
+        </SingleInt>
+        <SingleInt state="OK" value="1">
+            Yes
+        </SingleInt>
+    </Lookups>
+</ValueLookup>

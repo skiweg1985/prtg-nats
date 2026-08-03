@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hyperv.clusternodestatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Running
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Stopped
+      </SingleInt>
+      <SingleInt state="None" value="3">
+        No Cluster
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

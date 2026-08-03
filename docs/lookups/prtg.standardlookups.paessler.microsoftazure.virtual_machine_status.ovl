@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.microsoftazure.virtual_machine_status" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="0">
+        Running (Billed)
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Starting (Not Billed)
+      </SingleInt>
+      <SingleInt state="Warning" value="10">
+        Stopped (Billed)
+      </SingleInt>
+      <SingleInt state="Warning" value="11">
+        Stopping (Billed)
+      </SingleInt>
+      <SingleInt state="Error" value="20">
+        Deallocated (Not Billed)
+      </SingleInt>
+      <SingleInt state="Error" value="21">
+        Deallocating (Not Billed)
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

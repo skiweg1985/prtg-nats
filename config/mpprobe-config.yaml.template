@@ -1,0 +1,49 @@
+# Template for /etc/paessler/mpprobe/config.yaml
+#
+# Only the doubly wrapped placeholders are substituted. All other values are
+# deliberately fixed defaults and match the reference state of MPP 3.10.0.
+# Whoever has to change them changes this file and then rolls it out again
+# with "./prtg-nats probe configure USER".
+id: @@PROBE_ID@@
+access_key: @@ACCESS_KEY@@
+name: @@PROBE_NAME@@
+max_scheduling_delay: 300
+heartbeat_interval: 30
+slim: false
+nats:
+  url: tls://@@NATS_HOST@@:@@NATS_PORT@@
+  authentication:
+    user: @@NATS_USER@@
+    password: @@NATS_PASSWORD@@
+  request_timeout: 15
+  server_ca: @@SERVER_CA@@
+  client_name: @@CLIENT_NAME@@
+momo:
+  dir: /opt/paessler/mpprobe/monitoringmodules
+  timeout: 1200
+  channel_size: 1024
+scheduler:
+  channel_size: 1024
+logging:
+  console:
+    level: off
+    without_time: true
+  otel:
+    enabled: false
+  journald:
+    level: info
+    field_prefix: PRTGMPPROBE
+job_data_publisher:
+  channel_size: 1000000
+  maximum_messages_per_pack: 1000
+  retry_publication_delay: 5
+fastlane_publisher:
+  channel_size: 10000
+  maximum_messages_per_pack: 1000
+  retry_publication_delay: 5
+observability:
+  enable_endpoint: true
+  endpoint:
+    interface: localhost
+    port: 23562
+  process_check_interval: 10

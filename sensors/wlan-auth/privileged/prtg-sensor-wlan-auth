@@ -1,0 +1,597 @@
+#!/usr/bin/env python3
+
+"""Privileged Wi-Fi sign-in test for the "wlan-auth" Script v2 sensor.
+
+The sensor script runs as the probe's service user and must not configure
+any Wi-Fi. This program takes over exactly that step. It is started by
+systemd per connection on /run/prtg-sensor-wlan-auth.sock; stdin and stdout
+are the socket. The task comes in as JSON, the result goes out as JSON -
+credentials thereby never sit in argv and are not readable via /proc.
+
+The route over a socket instead of sudo is necessary because
+prtg.mpprobe.service runs with NoNewPrivileges=yes and the kernel then
+ignores the setuid bit of sudo. As its own service, this program is also
+not subject to the seccomp restrictions of the MPP unit, whose
+RestrictAddressFamilies does not allow AF_PACKET - without which there
+would be no DHCP request.
+
+It also stays callable directly on the command line: whoever starts it as
+root with a JSON task on stdin gets the same answer.
+
+The test runs its own short-lived wpa_supplicant instance on a reserved
+test interface. It leaves no network configuration behind: the DHCP stage
+runs in test mode, and the interface is powered down again afterwards.
+"""
+
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+CONFIG_DIR = "/etc/prtg-nats/sensors/wlan-auth"
+PROFILE_DIR = os.path.join(CONFIG_DIR, "profiles")
+ALLOWED_INTERFACES = os.path.join(CONFIG_DIR, "allowed-interfaces")
+RUN_DIR = "/run"
+
+# Field: (required for this method, adoptable from the profile)
+STRING_FIELDS = (
+    "ssid",
+    "psk",
+    "identity",
+    "anonymous_identity",
+    "password",
+    "ca_cert",
+    "domain_suffix_match",
+    "client_cert",
+    "private_key",
+    "private_key_passwd",
+    "bssid",
+    "profile",
+    "auth",
+)
+
+AUTH_METHODS = ("psk", "peap", "eap-tls")
+
+# Events wpa_supplicant reports on stdout, with the cause they mean for
+# the sensor. Order decides: the first matching line wins, so a follow-up
+# message does not overwrite the actual cause.
+FAILURE_EVENTS = (
+    ("CTRL-EVENT-SSID-TEMP-DISABLED", "WRONG_KEY", "auth-failed-psk",
+     "The access point rejected the pre-shared key"),
+    ("CTRL-EVENT-EAP-TLS-CERT-ERROR", None, "server-cert-rejected",
+     "The RADIUS server certificate was rejected"),
+    ("CTRL-EVENT-EAP-FAILURE", None, "auth-failed-eap",
+     "The RADIUS server rejected the credentials"),
+    ("CTRL-EVENT-AUTH-REJECT", None, "auth-rejected",
+     "The access point rejected the authentication"),
+    ("CTRL-EVENT-ASSOC-REJECT", None, "assoc-rejected",
+     "The access point rejected the association"),
+    ("CTRL-EVENT-NETWORK-NOT-FOUND", None, "ssid-not-found",
+     "The SSID was not found during the scan"),
+)
+
+
+class Blocked(Exception):
+    """The test could not be carried out - no statement about the Wi-Fi."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class Failed(Exception):
+    """The test ran, but the sign-in failed."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def hex_value(value):
+    """Write string fields as hex.
+
+    wpa_supplicant reads every string field either in quotation marks or
+    as a hex string. The hex form makes quotation marks, backslashes and
+    line breaks in SSIDs or passwords harmless - there is no escaping to
+    overlook, and no way to smuggle a second directive into the
+    configuration.
+    """
+    return value.encode("utf-8").hex()
+
+
+def wpa_psk(passphrase, ssid):
+    """PMK from passphrase and SSID, as wpa_passphrase produces it.
+
+    That way the passphrase itself never sits in a file, not even briefly
+    under /run.
+    """
+    return hashlib.pbkdf2_hmac(
+        "sha1", passphrase.encode("utf-8"), ssid.encode("utf-8"), 4096, 32
+    ).hex()
+
+
+def read_profile(name):
+    """Read credentials from a protected profile file.
+
+    Only this privileged part can read it; the sensor script knows merely
+    the profile name. That way no password sits in the PRTG
+    configuration.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+        raise Blocked("bad-request", "Invalid profile name")
+    path = os.path.join(PROFILE_DIR, name + ".env")
+    if not os.path.isfile(path):
+        raise Blocked("profile-missing", "Configured profile does not exist")
+
+    values = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip().lower()
+            if key in STRING_FIELDS:
+                values[key] = value.strip()
+    return values
+
+
+def default_route_interfaces():
+    """Interfaces the host routes its default routes over."""
+    try:
+        output = subprocess.run(
+            ["ip", "-j", "route", "show", "default"],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout
+        routes = json.loads(output or "[]")
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        # Better no test at all than a test on the management path.
+        raise Blocked("internal-error", "Could not determine the default route")
+    return {route.get("dev") for route in routes if route.get("dev")}
+
+
+def allowed_interfaces():
+    if not os.path.isfile(ALLOWED_INTERFACES):
+        return set()
+    with open(ALLOWED_INTERFACES, "r", encoding="utf-8") as handle:
+        return {
+            line.strip() for line in handle
+            if line.strip() and not line.startswith("#")
+        }
+
+
+def check_interface(interface):
+    """Check every reason this interface is off limits.
+
+    The most important: a test on the interface carrying the default
+    route would cut the probe off from its NATS server and the host from
+    its administration.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,15}", interface):
+        raise Blocked("bad-request", "Invalid interface name")
+    if not os.path.isdir(os.path.join("/sys/class/net", interface)):
+        raise Blocked("iface-missing",
+                      "Interface %s does not exist" % interface)
+    if not os.path.exists(os.path.join("/sys/class/net", interface, "wireless")):
+        raise Blocked("iface-not-wireless",
+                      "Interface %s is not a wireless interface" % interface)
+    if interface in default_route_interfaces():
+        raise Blocked("iface-protected",
+                      "Interface %s carries a default route" % interface)
+    permitted = allowed_interfaces()
+    if not permitted:
+        raise Blocked("iface-not-reserved",
+                      "No test interface is reserved on this probe")
+    if interface not in permitted:
+        raise Blocked("iface-not-reserved",
+                      "Interface %s is not reserved for tests" % interface)
+
+
+def check_file(path, label):
+    if not path.startswith("/") or re.search(r"[\x00-\x1f]", path):
+        raise Blocked("bad-request", "Invalid path for %s" % label)
+    if not os.path.isfile(path):
+        raise Blocked("file-missing", "Configured %s does not exist" % label)
+
+
+def build_network_block(job):
+    """The network={...} block for the chosen method.
+
+    All variable values go into the file as hex strings; fixed values
+    like key_mgmt or phase2 stand as literals.
+    """
+    lines = ["network={", "  ssid=%s" % hex_value(job["ssid"])]
+    if job.get("hidden"):
+        lines.append("  scan_ssid=1")
+    if job.get("bssid"):
+        if not re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}",
+                            job["bssid"]):
+            raise Blocked("bad-request", "Invalid BSSID")
+        lines.append("  bssid=%s" % job["bssid"].lower())
+
+    method = job["auth"]
+    if method == "psk":
+        if not job.get("psk"):
+            raise Blocked("bad-request", "WPA2-PSK requires a passphrase")
+        if not 8 <= len(job["psk"]) <= 63:
+            raise Blocked("bad-request",
+                          "The passphrase must be 8 to 63 characters long")
+        lines.append("  key_mgmt=WPA-PSK")
+        lines.append("  psk=%s" % wpa_psk(job["psk"], job["ssid"]))
+        lines.append("}")
+        return lines
+
+    lines.append("  key_mgmt=WPA-EAP")
+    if not job.get("identity"):
+        raise Blocked("bad-request", "Enterprise authentication requires an identity")
+    lines.append("  identity=%s" % hex_value(job["identity"]))
+    if job.get("anonymous_identity"):
+        lines.append("  anonymous_identity=%s"
+                     % hex_value(job["anonymous_identity"]))
+
+    if job.get("verify_server", True):
+        if not job.get("ca_cert"):
+            raise Blocked(
+                "bad-request",
+                "Server verification requires a CA certificate; "
+                "pass --no-verify-server to test without it",
+            )
+        check_file(job["ca_cert"], "CA certificate")
+        lines.append("  ca_cert=%s" % hex_value(job["ca_cert"]))
+        if job.get("domain_suffix_match"):
+            lines.append("  domain_suffix_match=%s"
+                         % hex_value(job["domain_suffix_match"]))
+
+    if method == "peap":
+        if not job.get("password"):
+            raise Blocked("bad-request", "PEAP requires a password")
+        lines.append("  eap=PEAP")
+        lines.append("  password=%s" % hex_value(job["password"]))
+        lines.append('  phase2="auth=MSCHAPV2"')
+    else:
+        for field, label in (("client_cert", "client certificate"),
+                             ("private_key", "private key")):
+            if not job.get(field):
+                raise Blocked("bad-request", "EAP-TLS requires a %s" % label)
+            check_file(job[field], label)
+        lines.append("  eap=TLS")
+        lines.append("  client_cert=%s" % hex_value(job["client_cert"]))
+        lines.append("  private_key=%s" % hex_value(job["private_key"]))
+        if job.get("private_key_passwd"):
+            lines.append("  private_key_passwd=%s"
+                         % hex_value(job["private_key_passwd"]))
+    lines.append("}")
+    return lines
+
+
+class SupplicantRun:
+    """A wpa_supplicant instance with event stream and cleanup."""
+
+    def __init__(self, interface, workdir):
+        self.interface = interface
+        self.workdir = workdir
+        self.process = None
+        self.events = []
+        self.lock = threading.Lock()
+        self.reader = None
+
+    def start(self, config_path):
+        try:
+            self.process = subprocess.Popen(
+                ["wpa_supplicant", "-i", self.interface, "-c", config_path,
+                 "-D", "nl80211,wext"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+        except OSError:
+            raise Blocked("internal-error", "Could not start wpa_supplicant")
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+
+    def _read(self):
+        for line in self.process.stdout:
+            with self.lock:
+                self.events.append((time.monotonic(), line.rstrip("\n")))
+
+    def seen(self, needle, since=0.0):
+        """Zeitpunkt der ersten Zeile mit diesem Text, sonst None."""
+        with self.lock:
+            for stamp, line in self.events:
+                if stamp >= since and needle in line:
+                    return stamp
+        return None
+
+    def failure(self):
+        """Erste Zeile, die eine Ursache benennt."""
+        with self.lock:
+            snapshot = list(self.events)
+        for _, line in snapshot:
+            for marker, detail, code, message in FAILURE_EVENTS:
+                if marker in line and (detail is None or detail in line):
+                    return code, message
+        return None
+
+    def control(self, *arguments):
+        try:
+            return subprocess.run(
+                ["wpa_cli", "-p", self.workdir, "-i", self.interface, *arguments],
+                capture_output=True, text=True, timeout=10,
+            ).stdout
+        except (subprocess.SubprocessError, OSError):
+            return ""
+
+    def stop(self):
+        if self.process is None:
+            return
+        self.process.send_signal(signal.SIGTERM)
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=5)
+
+
+def parse_status(text):
+    values = {}
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if value:
+            values[key.strip()] = value.strip()
+    return values
+
+
+def collect_link_details(run, result):
+    """Funkdaten der aktuellen Verbindung, soweit noch abfragbar."""
+    status = parse_status(run.control("status"))
+    signal_info = parse_status(run.control("signal_poll"))
+    for key, value in (
+        ("bssid", status.get("bssid", "")),
+        ("ssid", status.get("ssid", "")),
+        ("frequency_mhz", int(signal_info.get("FREQUENCY", 0)
+                              or status.get("freq", 0) or 0)),
+        ("signal_dbm", int(signal_info.get("RSSI", 0) or 0)),
+    ):
+        if value:
+            result["details"][key] = value
+
+
+def run_dhcp(interface, budget):
+    """DHCP in test mode: a complete cycle without setting the address.
+
+    dhcpcd -T requests a lease and prints it, but does not configure the
+    interface. The sensor thereby measures the DHCP server's response
+    time without leaving a route or address on the test interface.
+    """
+    seconds = max(3, int(budget))
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
+            capture_output=True, text=True, timeout=seconds + 5,
+        )
+    except subprocess.TimeoutExpired:
+        raise Failed("dhcp-timeout", "No DHCP answer within the time budget")
+    except OSError:
+        raise Blocked("internal-error", "Could not run dhcpcd")
+    duration = int((time.monotonic() - started) * 1000)
+
+    if completed.returncode != 0:
+        raise Failed("dhcp-timeout", "The DHCP request was not answered")
+    lease = {}
+    for line in completed.stdout.splitlines():
+        key, _, value = line.strip().partition("=")
+        if key in ("new_ip_address", "new_dhcp_server_identifier",
+                   "new_routers"):
+            lease[key] = value.strip("'")
+    if "new_ip_address" not in lease:
+        raise Failed("dhcp-timeout", "The DHCP server offered no address")
+    return duration, lease
+
+
+def wait_for_connection(run, deadline):
+    """Auf Assoziation und abgeschlossenen Handshake warten.
+
+    Die Zeitpunkte stammen aus dem Ereignisstrom von wpa_supplicant. Sie
+    trennen die Funkstrecke (Assoziation) von der Authentifizierung — bei
+    Enterprise-Netzen ist genau diese Trennung die interessante Aussage.
+    """
+    associated = None
+    while time.monotonic() < deadline:
+        cause = run.failure()
+        if cause is not None:
+            raise Failed(*cause)
+        if associated is None:
+            associated = run.seen("Associated with")
+        if run.seen("CTRL-EVENT-CONNECTED") is not None:
+            return associated, run.seen("CTRL-EVENT-CONNECTED")
+        if run.process.poll() is not None:
+            raise Blocked("internal-error", "wpa_supplicant stopped unexpectedly")
+        time.sleep(0.05)
+
+    cause = run.failure()
+    if cause is not None:
+        raise Failed(*cause)
+    if associated is None:
+        raise Failed("assoc-timeout",
+                     "The interface did not associate within the time budget")
+    raise Failed("auth-timeout",
+                 "The key negotiation did not complete within the time budget")
+
+
+def perform_test(job):
+    interface = job["interface"]
+    check_interface(interface)
+
+    started = time.monotonic()
+    deadline = started + job["timeout"]
+    workdir = tempfile.mkdtemp(prefix="prtg-sensor-wlan-auth.", dir=RUN_DIR)
+    os.chmod(workdir, 0o700)
+    run = SupplicantRun(interface, workdir)
+    result = {
+        "result": "ok",
+        "code": "ok",
+        "message": "",
+        "timings": {},
+        "details": {},
+    }
+
+    try:
+        config_path = os.path.join(workdir, "wpa.conf")
+        lines = ["ctrl_interface=%s" % workdir, "ap_scan=1"]
+        lines.extend(build_network_block(job))
+        with open(os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                          0o600), "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+
+        subprocess.run(["ip", "link", "set", interface, "up"],
+                       capture_output=True, timeout=10, check=True)
+        run.start(config_path)
+        associated, connected = wait_for_connection(run, deadline)
+
+        result["timings"]["assoc_ms"] = int((associated - started) * 1000)
+        result["timings"]["auth_ms"] = int((connected - associated) * 1000)
+        collect_link_details(run, result)
+
+        if job["stage"] == "dhcp":
+            duration, lease = run_dhcp(interface, deadline - time.monotonic())
+            result["timings"]["dhcp_ms"] = duration
+            result["details"]["ip_address"] = lease.get("new_ip_address", "")
+            result["details"]["dhcp_server"] = lease.get(
+                "new_dhcp_server_identifier", "")
+
+        result["message"] = "Authentication succeeded"
+    except Failed as failure:
+        result["result"] = "failed"
+        result["code"] = failure.code
+        result["message"] = failure.message
+        # A failure carries readings too: did association still happen,
+        # and how strong was the signal? Exactly that distinguishes a
+        # rejected sign-in from a too-weak radio link.
+        associated = run.seen("Associated with")
+        if associated is not None:
+            result["timings"]["assoc_ms"] = int((associated - started) * 1000)
+        collect_link_details(run, result)
+    finally:
+        # Always clean up: no running instance, no active test
+        # interface, and no configuration with credentials under /run.
+        run.stop()
+        subprocess.run(["ip", "link", "set", interface, "down"],
+                       capture_output=True, timeout=10, check=False)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    result["timings"]["total_ms"] = int((time.monotonic() - started) * 1000)
+    return result
+
+
+def merge_profile(job):
+    """Direct parameters take precedence; the profile fills the gaps."""
+    if not job.get("profile"):
+        return job
+    profile = read_profile(job["profile"])
+    for key, value in profile.items():
+        if not job.get(key):
+            job[key] = value
+    return job
+
+
+def validate_job(job):
+    for field in STRING_FIELDS:
+        value = job.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or re.search(r"[\x00-\x08\x0a-\x1f]", value):
+            raise Blocked("bad-request", "Invalid value for %s" % field)
+
+    job["interface"] = job.get("interface") or "wlan0"
+    job["auth"] = (job.get("auth") or "psk").lower()
+    if job["auth"] not in AUTH_METHODS:
+        raise Blocked("bad-request", "Unsupported authentication method")
+    if not job.get("ssid"):
+        raise Blocked("bad-request", "An SSID is required")
+    if len(job["ssid"].encode("utf-8")) > 32:
+        raise Blocked("bad-request", "The SSID is longer than 32 bytes")
+    job["stage"] = job.get("stage") or "dhcp"
+    if job["stage"] not in ("assoc", "dhcp"):
+        raise Blocked("bad-request", "Unsupported test stage")
+    try:
+        job["timeout"] = int(job.get("timeout") or 45)
+    except (TypeError, ValueError):
+        raise Blocked("bad-request", "Invalid timeout")
+    if not 5 <= job["timeout"] <= 300:
+        raise Blocked("bad-request", "The timeout must be 5 to 300 seconds")
+    return job
+
+
+def lock_interface(interface):
+    """Exclude parallel runs on the same interface.
+
+    Two simultaneous tests would take the radio link away from each
+    other and both report a wrong result.
+    """
+    path = os.path.join(RUN_DIR, "prtg-sensor-wlan-auth.%s.lock" % interface)
+    handle = open(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600), "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise Blocked("iface-busy",
+                      "Another test is already running on %s" % interface)
+    return handle
+
+
+def main():
+    if os.geteuid() != 0:
+        emit({"result": "blocked", "code": "no-privileges",
+              "message": "This helper must run as root through its sudo rule"})
+
+    try:
+        payload = sys.stdin.read(65536)
+        job = json.loads(payload or "{}")
+        if not isinstance(job, dict):
+            raise ValueError
+    except ValueError:
+        emit({"result": "blocked", "code": "bad-request",
+              "message": "The request could not be parsed"})
+
+    handle = None
+    try:
+        if job.get("action") == "ping":
+            # Self-test of the permission chain: does the sensor script
+            # reach this helper at all?
+            emit({"result": "ok", "code": "ok", "message": "helper reachable",
+                  "timings": {}, "details": {}})
+        job = validate_job(merge_profile(job))
+        handle = lock_interface(job["interface"])
+        emit(perform_test(job))
+    except Blocked as blocked:
+        emit({"result": "blocked", "code": blocked.code,
+              "message": blocked.message, "timings": {}, "details": {}})
+    except Exception:
+        # The exception is never printed - it could contain credentials.
+        emit({"result": "blocked", "code": "internal-error",
+              "message": "The test failed unexpectedly",
+              "timings": {}, "details": {}})
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def emit(result):
+    print(json.dumps(result))
+    sys.stdout.flush()
+    # The calling sensor script evaluates only the JSON.
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.esxelementhealthsensor.healthstate" 
+  desiredValue="5" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Unknown</SingleInt>
+    <SingleInt state="OK" value="5">OK</SingleInt>
+    <SingleInt state="Warning" value="10">Degraded</SingleInt>
+    <SingleInt state="Warning" value="15">Minor</SingleInt>
+    <SingleInt state="Error" value="20">Major</SingleInt>
+    <SingleInt state="Error" value="25">Critical</SingleInt>
+    <SingleInt state="Error" value="30">Non-recoverable Error</SingleInt>
+  </Lookups>
+</ValueLookup>

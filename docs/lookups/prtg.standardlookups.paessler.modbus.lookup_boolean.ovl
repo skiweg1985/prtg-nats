@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.modbus.lookup_boolean" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="None" value="0">
+        Off
+      </Boolean>
+      <Boolean state="None" value="1">
+        On
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

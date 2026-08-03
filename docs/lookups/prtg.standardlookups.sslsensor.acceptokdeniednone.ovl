@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.sslsensor.acceptokdeniednone" desiredValue="1" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <Boolean state="OK" value="1">
+        Accepted
+      </Boolean>
+      <Boolean state="None" value="0">
+        Denied
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

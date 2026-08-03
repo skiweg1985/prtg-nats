@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.rfc.hardwarestatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Running
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Warning
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Testing
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Down
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

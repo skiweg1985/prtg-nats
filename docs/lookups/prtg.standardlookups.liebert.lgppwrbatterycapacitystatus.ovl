@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.liebert.lgppwrbatterycapacitystatus" desiredValue="2" undefinedState="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Battery Normal
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Battery Low
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Battery Depleted
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>
+ 

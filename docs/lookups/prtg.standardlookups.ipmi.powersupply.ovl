@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.ipmi.powersupply" desiredValue="300" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Present
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        AC Lost
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Absent
+      </SingleInt>
+      <SingleInt state="Error" value="-1">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hp.powersupplystatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        No Error
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        General Failure
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Bist Failure
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Fan Failure
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Temp Failure
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Interlock Open
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Eprom Failed
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Vref Failed
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Dac Failed
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Ram Test Failed
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Voltage Channel Failed
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        Orring Diode Failed
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Brownout
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        Give Up On Startup
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        Nvram Invalid
+      </SingleInt>
+      <SingleInt state="Error" value="16">
+        Calibration Table Invalid
+      </SingleInt>
+      <SingleInt state="Error" value="17">
+        No Power Input
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

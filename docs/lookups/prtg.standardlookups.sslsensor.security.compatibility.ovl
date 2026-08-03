@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.sslsensor.security.compatibility" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <Range state="OK" from="2" to="3">
+        OK (Compatibility Mode)
+      </Range>
+      <Range state="Error" from="1" to="1">
+       No Secure Protocol Available
+      </Range>             
+    </Lookups>
+  </ValueLookup>

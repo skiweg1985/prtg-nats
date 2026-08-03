@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.opcua.raid_controller_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="1">
+        Good
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Offline
+      </SingleInt>
+      <SingleInt state="None" value="4">
+        Power Off
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

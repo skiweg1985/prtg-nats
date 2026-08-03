@@ -1,0 +1,478 @@
+"""Create, inspect and control jobs.
+
+A job is how the platform talks about work that takes time or can fail. The
+rules that make it trustworthy live here: a job declares what it touches before
+it starts, it never runs while another job holds one of those resources, and
+every line it emits is stored before it is broadcast.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import ConflictError, NotFoundError
+from app.core.ids import new_id
+from app.core.logging import get_correlation_id, get_logger
+from app.core.redaction import redact, redact_text
+from app.domain.enums import JobStatus, JobStepStatus, LogLevel
+from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
+from app.services.auth import Principal
+from app.services.events import (
+    JOBS_TOPIC,
+    EventBroadcaster,
+    StreamEvent,
+    job_topic,
+)
+
+logger = get_logger(__name__)
+
+# How long a lock survives without its worker. Long enough that a slow sensor
+# install is not interrupted, short enough that a crashed process does not lock
+# a probe out for the rest of the day.
+LOCK_LEASE = timedelta(minutes=30)
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceRef:
+    """Something a job needs exclusive use of."""
+
+    type: str  # "probe" | "nats" | "certificate" | "credential"
+    id: str
+
+    def __str__(self) -> str:
+        return f"{self.type}:{self.id}"
+
+
+@dataclass(frozen=True, slots=True)
+class JobRequest:
+    type: str
+    steps: tuple[str, ...]
+    resources: tuple[ResourceRef, ...] = ()
+    target_type: str | None = None
+    target_id: str | None = None
+    target_label: str | None = None
+    payload: dict[str, Any] | None = None
+    trigger: str = "user"
+
+
+class JobService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        broadcaster: EventBroadcaster,
+        *,
+        autocommit: bool = False,
+    ) -> None:
+        """``autocommit`` is for the worker's own session.
+
+        A handler runs for minutes; holding one write transaction across it
+        would hold SQLite's write lock across the whole platform for exactly
+        that long. The worker therefore commits after every state change, and
+        the log becomes durable line by line - which is also what a reader
+        polling the job table expects to see. API requests keep the default:
+        their transaction belongs to the request.
+        """
+        self._db = session
+        self._events = broadcaster
+        self._autocommit = autocommit
+
+    async def _persist(self) -> None:
+        await self._db.flush()
+        if self._autocommit:
+            await self._db.commit()
+
+    # --- Creating -----------------------------------------------------------
+
+    async def create(
+        self, request: JobRequest, principal: Principal | None = None
+    ) -> Job:
+        job = Job(
+            id=new_id(),
+            type=request.type,
+            status=JobStatus.QUEUED,
+            target_type=request.target_type,
+            target_id=request.target_id,
+            target_label=request.target_label,
+            trigger=request.trigger,
+            requested_by_id=None if principal is None else principal.user_id,
+            requested_by_name=None if principal is None else principal.username,
+            correlation_id=get_correlation_id(),
+            # Payload is inventory, never secrets: transient credentials are
+            # handed to the runner in memory and never written down.
+            # Resources are recorded alongside so the runner knows what to take
+            # without re-deriving it from the payload.
+            payload={
+                **redact(dict(request.payload or {})),
+                "_resources": [str(resource) for resource in request.resources],
+            },
+        )
+        # Assigned before the job is persisted, not added separately afterwards:
+        # once the job has an identity, reading `job.steps` would issue a lazy
+        # load, and the first status broadcast happens outside a greenlet where
+        # that raises. Populating the collection up front keeps it in memory.
+        job.steps = [
+            JobStep(position=position, name=name)
+            for position, name in enumerate(request.steps)
+        ]
+        self._db.add(job)
+        await self._db.flush()
+        return job
+
+    async def retry(self, job_id: str, principal: Principal | None = None) -> Job:
+        original = await self.get(job_id)
+        if not original.status.is_terminal:
+            raise ConflictError(
+                params={"job_id": job_id, "status": original.status.value},
+                details="only a finished job can be retried",
+            )
+        resources = tuple(
+            _parse_resource(entry) for entry in original.payload.get("_resources", [])
+        )
+        payload = {
+            key: value for key, value in original.payload.items() if key != "_resources"
+        }
+        retry = await self.create(
+            JobRequest(
+                type=original.type,
+                steps=tuple(step.name for step in original.steps),
+                resources=resources,
+                target_type=original.target_type,
+                target_id=original.target_id,
+                target_label=original.target_label,
+                payload=payload,
+                trigger="user",
+            ),
+            principal,
+        )
+        retry.retry_of_job_id = original.id
+        await self._db.flush()
+        return retry
+
+    async def request_cancel(self, job_id: str) -> Job:
+        job = await self.get(job_id)
+        if job.status.is_terminal:
+            raise ConflictError(
+                params={"job_id": job_id, "status": job.status.value},
+                details="the job has already finished",
+            )
+        if job.status is JobStatus.QUEUED:
+            # Nothing has started, so it can go straight to cancelled.
+            await self.finish(job, JobStatus.CANCELLED)
+            return job
+        job.cancel_requested = True
+        await self._db.flush()
+        return job
+
+    # --- Reading ------------------------------------------------------------
+
+    async def get(self, job_id: str) -> Job:
+        job = await self._db.get(Job, job_id)
+        if job is None:
+            raise NotFoundError.of("job", job_id)
+        return job
+
+    async def list_jobs(
+        self,
+        *,
+        status: JobStatus | None = None,
+        job_type: str | None = None,
+        target_id: str | None = None,
+        limit: int = 50,
+        before_id: str | None = None,
+    ) -> list[Job]:
+        query = select(Job).order_by(Job.id.desc()).limit(min(limit, 200))
+        if status is not None:
+            query = query.where(Job.status == status)
+        if job_type is not None:
+            query = query.where(Job.type == job_type)
+        if target_id is not None:
+            query = query.where(Job.target_id == target_id)
+        if before_id is not None:
+            query = query.where(Job.id < before_id)
+        return list(await self._db.scalars(query))
+
+    async def events(
+        self, job_id: str, *, after_sequence: int = 0, limit: int = 1000
+    ) -> list[JobEvent]:
+        return list(
+            await self._db.scalars(
+                select(JobEvent)
+                .where(JobEvent.job_id == job_id, JobEvent.sequence > after_sequence)
+                .order_by(JobEvent.sequence)
+                .limit(limit)
+            )
+        )
+
+    async def claim_next_queued(self) -> Job | None:
+        """Take ownership of the oldest queued job, or return None.
+
+        The claim is a conditional UPDATE, not a SELECT followed by one: with
+        several workers polling the same table, two of them read the same
+        queued row before either writes, and the job runs twice. Only the
+        worker whose UPDATE matches a row gets to proceed.
+        """
+        candidate = await self._db.scalar(
+            select(Job.id)
+            .where(Job.status == JobStatus.QUEUED)
+            .order_by(Job.id)
+            .limit(1)
+        )
+        if candidate is None:
+            return None
+
+        claimed = await self._db.execute(
+            update(Job)
+            .where(Job.id == candidate, Job.status == JobStatus.QUEUED)
+            .values(status=JobStatus.RUNNING, started_at=datetime.now(UTC))
+        )
+        if claimed.rowcount != 1:  # type: ignore[attr-defined]
+            # Another worker got there first. Its next poll picks up whatever
+            # is left; there is nothing to wait for here.
+            return None
+
+        job: Job | None = await self._db.get(Job, candidate)
+        return job
+
+    # --- Locking ------------------------------------------------------------
+
+    async def try_acquire_locks(self, job: Job) -> str | None:
+        """Take every resource the job declared, or none of them.
+
+        Returns the id of the job that is in the way, or None on success. The
+        unique constraint does the work: two workers racing for the same probe
+        cannot both win, whatever the timing.
+        """
+        resources = [
+            _parse_resource(entry) for entry in job.payload.get("_resources", [])
+        ]
+        if not resources:
+            return None
+
+        now = datetime.now(UTC)
+        held = await self._db.scalars(
+            select(ResourceLock).where(
+                ResourceLock.resource_type.in_([r.type for r in resources])
+            )
+        )
+        blocking = {
+            (lock.resource_type, lock.resource_id): lock
+            for lock in held
+            if lock.expires_at > now and lock.job_id != job.id
+        }
+        for resource in resources:
+            existing = blocking.get((resource.type, resource.id))
+            if existing is not None:
+                return existing.job_id
+
+        for resource in resources:
+            self._db.add(
+                ResourceLock(
+                    resource_type=resource.type,
+                    resource_id=resource.id,
+                    job_id=job.id,
+                    acquired_at=now,
+                    expires_at=now + LOCK_LEASE,
+                )
+            )
+        try:
+            await self._persist()
+        except IntegrityError:
+            # Lost the race between the check and the insert. Roll back to a
+            # clean state and let the caller keep the job queued.
+            await self._db.rollback()
+            return "unknown"
+        return None
+
+    async def release_locks(self, job_id: str) -> None:
+        locks = await self._db.scalars(
+            select(ResourceLock).where(ResourceLock.job_id == job_id)
+        )
+        for lock in locks:
+            await self._db.delete(lock)
+        await self._persist()
+
+    async def reap_expired_locks(self) -> int:
+        """Free resources whose worker never came back."""
+        now = datetime.now(UTC)
+        expired = list(
+            await self._db.scalars(
+                select(ResourceLock).where(ResourceLock.expires_at <= now)
+            )
+        )
+        for lock in expired:
+            await self._db.delete(lock)
+        await self._persist()
+        return len(expired)
+
+    # --- State transitions --------------------------------------------------
+
+    async def mark_running(self, job: Job) -> None:
+        """Announce a job the claim already moved to running."""
+        job.blocked_reason_key = None
+        job.blocked_by_job_id = None
+        await self._persist()
+        await self._publish_status(job)
+
+    async def release_to_queue(self, job: Job, blocking_job_id: str) -> None:
+        """Hand a claimed job back because a resource it needs is taken.
+
+        It returns to `queued` carrying the reason, so an operator sees why it
+        is waiting rather than a row that simply sits there.
+        """
+        job.status = JobStatus.QUEUED
+        job.started_at = None
+        job.blocked_reason_key = "jobs.blocked.resource_busy"
+        job.blocked_by_job_id = blocking_job_id
+        await self._persist()
+        await self._publish_status(job)
+
+    async def finish(
+        self,
+        job: Job,
+        status: JobStatus,
+        *,
+        result: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_params: dict[str, Any] | None = None,
+        error_details: str | None = None,
+    ) -> None:
+        job.status = status
+        job.finished_at = datetime.now(UTC)
+        job.progress = 100 if status is JobStatus.SUCCESSFUL else job.progress
+        job.result = redact(result) if result is not None else None
+        job.error_code = error_code
+        job.error_params = redact(error_params) if error_params else None
+        job.error_details = redact_text(error_details) if error_details else None
+        await self._persist()
+        await self._publish_status(job)
+
+    async def start_step(self, job: Job, name: str) -> JobStep | None:
+        step = next((entry for entry in job.steps if entry.name == name), None)
+        if step is None:
+            return None
+        # Moving on means the previous step finished. Without this every step
+        # stays "running" until the job ends, and the failure handler then
+        # marks all of them failed - including the ones that worked.
+        for previous in job.steps:
+            if previous.position < step.position and (
+                previous.status is JobStepStatus.RUNNING
+            ):
+                previous.status = JobStepStatus.SUCCEEDED
+                previous.finished_at = datetime.now(UTC)
+        step.status = JobStepStatus.RUNNING
+        step.started_at = datetime.now(UTC)
+        job.current_step = name
+        job.progress = _progress_for(job, name)
+        await self._persist()
+        await self._publish_status(job)
+        return step
+
+    async def finish_step(self, job: Job, name: str, status: JobStepStatus) -> None:
+        step = next((entry for entry in job.steps if entry.name == name), None)
+        if step is None:
+            return
+        step.status = status
+        step.finished_at = datetime.now(UTC)
+        await self._persist()
+        await self._publish_status(job)
+
+    # --- Logging ------------------------------------------------------------
+
+    async def log(
+        self,
+        job: Job,
+        code: str,
+        *,
+        level: LogLevel = LogLevel.INFO,
+        params: dict[str, Any] | None = None,
+        step: str | None = None,
+        target: str | None = None,
+        raw: str | None = None,
+    ) -> JobEvent:
+        """One line of the live log.
+
+        ``code`` and ``params`` are what the browser translates; ``raw`` is the
+        untranslated technical output kept behind a disclosure control.
+        """
+        sequence = await self._next_sequence(job.id)
+        event = JobEvent(
+            job_id=job.id,
+            sequence=sequence,
+            ts=datetime.now(UTC),
+            level=level,
+            step=step or job.current_step,
+            target=target,
+            code=code,
+            params=redact(params or {}),
+            raw=redact_text(raw) if raw else None,
+        )
+        self._db.add(event)
+        await self._persist()
+
+        await self._events.publish(
+            StreamEvent(
+                topic=job_topic(job.id),
+                kind="job.event",
+                payload={
+                    "id": event.id,
+                    "sequence": event.sequence,
+                    "ts": event.ts.isoformat(),
+                    "level": event.level.value,
+                    "step": event.step,
+                    "target": event.target,
+                    "code": event.code,
+                    "params": event.params,
+                    "raw": event.raw,
+                },
+            )
+        )
+        return event
+
+    async def _next_sequence(self, job_id: str) -> int:
+        current = await self._db.scalar(
+            select(JobEvent.sequence)
+            .where(JobEvent.job_id == job_id)
+            .order_by(JobEvent.sequence.desc())
+            .limit(1)
+        )
+        return (current or 0) + 1
+
+    async def _publish_status(self, job: Job) -> None:
+        payload = {
+            "id": job.id,
+            "type": job.type,
+            "status": job.status.value,
+            "progress": job.progress,
+            "current_step": job.current_step,
+            "target_label": job.target_label,
+            "blocked_reason_key": job.blocked_reason_key,
+            "blocked_by_job_id": job.blocked_by_job_id,
+            "error_code": job.error_code,
+            "steps": [
+                {"name": step.name, "status": step.status.value} for step in job.steps
+            ],
+        }
+        await self._events.publish(
+            StreamEvent(topic=job_topic(job.id), kind="job.status", payload=payload)
+        )
+        await self._events.publish(
+            StreamEvent(topic=JOBS_TOPIC, kind="job.status", payload=payload)
+        )
+
+
+def _parse_resource(entry: str) -> ResourceRef:
+    resource_type, _, resource_id = entry.partition(":")
+    return ResourceRef(type=resource_type, id=resource_id)
+
+
+def _progress_for(job: Job, step_name: str) -> int:
+    names = [step.name for step in job.steps]
+    if step_name not in names or not names:
+        return job.progress
+    return int(names.index(step_name) / len(names) * 100)

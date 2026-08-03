@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.fsc-raid-mib.svrlogicaldrive.svrlogicaldriveinitstatus" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Initialized
+      </SingleInt>
+      <SingleInt state="None" value="3">
+        Not Initialized
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

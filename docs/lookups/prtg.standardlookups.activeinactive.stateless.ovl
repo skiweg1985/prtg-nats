@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.activeinactive.stateless" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="2">
+        Inactive
+      </SingleInt>
+      <SingleInt state="None" value="1">
+        Active
+      </SingleInt>
+      <SingleInt state="None" value="0">
+        Inactive
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

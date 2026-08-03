@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.netapp.dfstatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="1">
+        unmounted
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        mounted
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        frozen
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        destroying
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        creating
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        mounting
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        unmounting
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        nofsinfo
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        replaying
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        replayed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

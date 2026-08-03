@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hp.memorycontrollererrorstatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        Other
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        No Error
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Dimm Ecc Error
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Unlock Error
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Config Error
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Bus Error
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Power Error
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Advanced Ecc
+      </SingleInt>
+      <SingleInt state="OK" value="9">
+        onlineSpare
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Mirrored
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Mirrored Dimm Error
+      </SingleInt>
+      <SingleInt state="OK" value="12">
+        Memory Raid
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Raid Dimm Error
+      </SingleInt>
+      <SingleInt state="OK" value="14">
+        Lock Step
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        Lock Step Error
+      </SingleInt>
+      <SingleInt state="OK" value="16">
+        Adaptive Double Device Data Correction (ADDDC)
+      </SingleInt>
+      <SingleInt state="Error" value="17">
+        ADDDC DIMM Error
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

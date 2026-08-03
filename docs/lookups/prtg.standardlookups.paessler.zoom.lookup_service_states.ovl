@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.zoom.lookup_service_states" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="1">
+        Operational
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Degraded Performance
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Partial Outage
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Major Outage
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Under Maintenance
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

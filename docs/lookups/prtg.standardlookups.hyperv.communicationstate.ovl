@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hyperv.communicationstate" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="-1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="0">
+        Responding
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        NotResponding
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        AccessDenied
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Connecting
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Disconnecting
+      </SingleInt>
+      <SingleInt state="OK" value="5">
+        Resetting
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        NoConnection
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.aggregate_state" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="Ok" value="2">
+        Onlining
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Offline
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Offlining
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Relocating
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Unmounted
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Restricted
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Inconsistent
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Failed
+      </SingleInt>
+      <SingleInt state="None" value="10">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

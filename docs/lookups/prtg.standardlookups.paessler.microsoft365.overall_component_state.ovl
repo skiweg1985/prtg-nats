@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.microsoft365.overall_component_state" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="Ok" value="0">
+        Operational
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Warning
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Interrupted
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

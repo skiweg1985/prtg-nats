@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.access.status" desiredValue="300" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Nothing Checked
+      </SingleInt>
+      <SingleInt state="OK" value="100">
+        Domain Availibility OK
+      </SingleInt>
+      <SingleInt state="OK" value="200">
+        Domain Login OK
+      </SingleInt>
+      <SingleInt state="OK" value="300">
+        Impersonation OK
+      </SingleInt>
+      <SingleInt state="OK" value="400">
+        File Access OK
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

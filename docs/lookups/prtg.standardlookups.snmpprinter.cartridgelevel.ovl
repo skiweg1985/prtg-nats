@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.snmpprinter.cartridgelevel" desiredValue="100" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+       <Range state="OK" from="16" to="100">
+        Ok
+      </Range>
+      <Range state="Warning" from="6" to="15">
+        Low
+      </Range>
+      <Range state="Error" from="0" to="5">
+        Critical
+      </Range>
+	  <Range state="OK" from="-1" to="-1">
+        No Restriction
+      </Range>
+      <Range state="None" from="-2" to="-2">
+        Unknown
+      </Range>
+      <Range state="OK" from="-3" to="-3">
+        Not Empty
+      </Range>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.dell.equallogic.diskstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        Online
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Spare
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Offline
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Alt-Sig
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Too Small
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        History Of Failures
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Unsupported Version
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Unhealthy
+      </SingleInt>
+      <SingleInt state="Warning" value="10">
+        Replacement
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Encrypted
+      </SingleInt>
+      <SingleInt state="Error" value="12">
+        Not Approved
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Preempt Failed
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

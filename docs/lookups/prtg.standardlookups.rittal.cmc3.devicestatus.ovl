@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.rittal.cmc3.devicestatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Device Not Available
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Device Not Available
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Device Detected, Confirmation Required 
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Device Lost (Disconnected), Confirmation Required
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Device Changed
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Error
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        Firmware Update Pending
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Firmware Update Running
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

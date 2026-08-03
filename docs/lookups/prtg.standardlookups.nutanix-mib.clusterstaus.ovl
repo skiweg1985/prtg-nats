@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="0" id="prtg.standardlookups.nutanix-mib.clusterstaus" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="Error" value="0">Unknown</SingleInt>
+    <SingleInt state="OK" value="1">Started</SingleInt>
+    <SingleInt state="Warning" value="2">Starting</SingleInt>
+    <SingleInt state="Warning" value="3">Stopping</SingleInt>
+    <SingleInt state="Error" value="4">Stopped</SingleInt>
+  </Lookups>
+</ValueLookup>

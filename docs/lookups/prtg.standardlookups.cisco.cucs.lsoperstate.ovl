@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.lsoperstate" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Error" value="0">
+        Indeterminate
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Unassociated
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Ok
+      </SingleInt>
+      <SingleInt state="OK" value="11">
+        Discovery
+      </SingleInt>
+      <SingleInt state="OK" value="12">
+        Config
+      </SingleInt>
+      <SingleInt state="OK" value="13">
+        Unconfig
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        Power Off
+      </SingleInt>
+      <SingleInt state="Warning" value="15">
+        Restart
+      </SingleInt>
+      <SingleInt state="Warning" value="20">
+        Maintenance
+      </SingleInt>
+      <SingleInt state="OK" value="21">
+        Test
+      </SingleInt>
+      <SingleInt state="Error" value="29">
+        Compute Mismatch
+      </SingleInt>
+      <SingleInt state="Error" value="30">
+        Compute Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="31">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="32">
+        Discovery Failed
+      </SingleInt>
+      <SingleInt state="Error" value="33">
+        Config Failure
+      </SingleInt>
+      <SingleInt state="Error" value="34">
+        Unconfig Failed
+      </SingleInt>
+      <SingleInt state="Error" value="35">
+        Test Failed
+      </SingleInt>
+      <SingleInt state="Error" value="36">
+        Maintenance Failed
+      </SingleInt>
+      <SingleInt state="Error" value="40">
+        Removed
+      </SingleInt>
+      <SingleInt state="OK" value="41">
+        Disabled
+      </SingleInt>
+      <SingleInt state="Error" value="50">
+        Inaccessible
+      </SingleInt>
+      <SingleInt state="Warning" value="60">
+        Thermal Problem
+      </SingleInt>
+      <SingleInt state="Warning" value="61">
+        Power Problem
+      </SingleInt>
+      <SingleInt state="Warning" value="62">
+        Voltage Problem
+      </SingleInt>
+      <SingleInt state="Error" value="63">
+        Inoperable
+      </SingleInt>
+      <SingleInt state="Warning" value="101">
+        Decomissioning
+      </SingleInt>
+      <SingleInt state="Warning" value="201">
+        Bios Restore
+      </SingleInt>
+      <SingleInt state="Warning" value="202">
+        CMOS Reset
+      </SingleInt>
+      <SingleInt state="OK" value="203">
+        Diagnostics
+      </SingleInt>
+      <SingleInt state="Error" value="204">
+        Diagnostics Failed
+      </SingleInt>
+      <SingleInt state="OK" value="210">
+        Pending Reboot
+      </SingleInt>
+      <SingleInt state="OK" value="211">
+        Pending Reassociation
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

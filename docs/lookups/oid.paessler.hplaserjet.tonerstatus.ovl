@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="oid.paessler.hplaserjet.tonerstatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Toner Okay
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Toner Low
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        No Toner Cartridge Loaded
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

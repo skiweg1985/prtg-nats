@@ -1,0 +1,119 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hyperv.vmstatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Running
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Power Off
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Powering Off
+      </SingleInt>
+      <SingleInt state="OK" value="3">
+        Saved
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Saving
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Restoring
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        Paused
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Discard Saved State
+      </SingleInt>
+      <SingleInt state="OK" value="11">
+        Starting
+      </SingleInt>
+      <SingleInt state="OK" value="12">
+        Merging Drives
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Deleting
+      </SingleInt>
+      <SingleInt state="OK" value="80">
+        Discarding Drives
+      </SingleInt>
+      <SingleInt state="OK" value="81">
+        Pausing
+      </SingleInt>
+      <SingleInt state="OK" value="100">
+        Under Creation
+      </SingleInt>
+      <SingleInt state="Error" value="101">
+        Creation Failed
+      </SingleInt>
+      <SingleInt state="OK" value="102">
+        Stored
+      </SingleInt>
+      <SingleInt state="OK" value="103">
+        Under Template Creation
+      </SingleInt>
+      <SingleInt state="Error" value="104">
+        Template Creation Failed
+      </SingleInt>
+      <SingleInt state="Error" value="105">
+        Customization Failed
+      </SingleInt>
+      <SingleInt state="OK" value="106">
+        Under Update
+      </SingleInt>
+      <SingleInt state="Error" value="107">
+        Update Failed
+      </SingleInt>
+      <SingleInt state="OK" value="200">
+        Under Migration
+      </SingleInt>
+      <SingleInt state="Error" value="201">
+        Migration Failed
+      </SingleInt>
+      <SingleInt state="OK" value="210">
+        Creating Checkpoint
+      </SingleInt>
+      <SingleInt state="OK" value="211">
+        Deleting Checkpoint
+      </SingleInt>
+      <SingleInt state="OK" value="212">
+        Recovering Checkpoint
+      </SingleInt>
+      <SingleInt state="Error" value="213">
+        Checkpoint Failed
+      </SingleInt>
+      <SingleInt state="OK" value="214">
+        Initializing Checkpoint Operation
+      </SingleInt>
+      <SingleInt state="OK" value="215">
+        Finishing Checkpoint Operation
+      </SingleInt>
+      <SingleInt state="Error" value="220">
+        Missing
+      </SingleInt>
+      <SingleInt state="Error" value="221">
+        Host Not Responding
+      </SingleInt>
+      <SingleInt state="Error" value="222">
+        Unsupported
+      </SingleInt>
+      <SingleInt state="Error" value="223">
+        Incomplete VMConfig
+      </SingleInt>
+      <SingleInt state="Error" value="224">
+        Unsupported SharedFiles
+      </SingleInt>
+      <SingleInt state="Error" value="225">
+        Unsupported Cluster
+      </SingleInt>
+      <SingleInt state="Error" value="240">
+        Physical to Virtual Conversion Failed
+      </SingleInt>
+      <SingleInt state="Error" value="250">
+        Virtual to Virtual Creation Failed
+      </SingleInt>
+      <SingleInt state="None" value="-1">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

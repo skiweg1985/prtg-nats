@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="1" id="prtg.standardlookups.netapp.lunalignment" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Aligned</SingleInt>
+    <SingleInt state="Warning" value="1">Misaligned</SingleInt>
+    <SingleInt state="Warning" value="2">Possibly Misaligned</SingleInt>
+    <SingleInt state="Warning" value="3">Indeterminate</SingleInt>
+    <SingleInt state="Warning" value="4">Partial Writes</SingleInt>
+    <SingleInt state="Warning" value="5">Partial Reads</SingleInt>
+  </Lookups>
+</ValueLookup>

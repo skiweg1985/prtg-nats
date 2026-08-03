@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="0" id="prtg.standardlookups.aws.statevalue" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Ok</SingleInt>
+    <SingleInt state="Warning" value="1">Insufficient Data</SingleInt>
+    <SingleInt state="Error" value="2">Failed</SingleInt>
+  </Lookups>
+</ValueLookup>

@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.opcua.self_signed_certificate" desiredValue="0" undefinedState="Warning">
+    <Lookups>
+      <Boolean state="Ok" value="0">
+        No
+      </Boolean>
+      <Boolean state="Ok" value="1">
+        Yes
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

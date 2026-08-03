@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.storage_configuration_path" desiredValue="3" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Single Path
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Multi Path
+      </SingleInt>
+      <SingleInt state="Ok" value="4">
+        Mixed Path
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        Single Path HA
+      </SingleInt>
+      <SingleInt state="Ok" value="6">
+        Mixed Path HA
+      </SingleInt>
+      <SingleInt state="Ok" value="7">
+        Quad Path
+      </SingleInt>
+      <SingleInt state="Ok" value="8">
+        Quad Path HA
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

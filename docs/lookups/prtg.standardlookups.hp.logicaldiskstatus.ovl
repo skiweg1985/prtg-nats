@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.hp.logicaldiskstatus" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="1">
+        other
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Unconfigurated
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Recovering
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Ready For Rebuild
+      </SingleInt>
+      <SingleInt state="OK" value="7">
+        Rebuilding
+      </SingleInt>
+      <SingleInt state="Error" value="8">
+        Wrong Drive
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Bad Connect
+      </SingleInt>
+      <SingleInt state="Error" value="10">
+        Overheating
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Shutdown
+      </SingleInt>
+      <SingleInt state="OK" value="12">
+        Expanding
+      </SingleInt>
+      <SingleInt state="Error" value="13">
+        Not Available
+      </SingleInt>
+      <SingleInt state="Error" value="14">
+        Queued For Expansion
+      </SingleInt>
+      <SingleInt state="Error" value="15">
+        Multipath Access Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="16">
+        Erasing
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

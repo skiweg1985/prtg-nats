@@ -1,0 +1,177 @@
+/* The token layer.
+ *
+ * The single source for colour, type, spacing, radius and motion. No component
+ * may define a value that bypasses this file.
+ *
+ * Adopted from the design system of skiweg1985/ssa and kept deliberately close
+ * to it, so the two products read as one family.
+ *
+ * Structure:
+ *   --n-* / --a-* / --ok-* / --warn-* / --dg-*   ramps as bare OKLCH components
+ *                                                (L C H, no function wrapper) so
+ *                                                Tailwind alpha modifiers such as
+ *                                                bg-surface/60 still resolve.
+ *   --color-*                                    semantic aliases; these flip in
+ *                                                dark mode, the ramps do not.
+ *
+ * Every pairing is computed against WCAG AA: body text >= 4.5:1, icons and
+ * focus rings >= 3:1.
+ */
+
+:root {
+  /* ---- Neutral ramp - graphite, cool at hue 251-261 -------------------------
+   * No pure white and no pure black. The lightest tone is a cool paper, the
+   * darkest a cool graphite. The ramp is FIXED and does not flip in dark mode.
+   */
+  --n-50: 98.5% 0.004 251;
+  --n-100: 94% 0.006 252;
+  --n-200: 86.5% 0.009 253;
+  --n-300: 77.5% 0.012 254;
+  --n-400: 64.5% 0.015 255;
+  --n-500: 53.5% 0.016 256;
+  --n-600: 42.5% 0.018 257;
+  --n-700: 34.5% 0.016 258;
+  --n-800: 24.5% 0.016 259;
+  --n-900: 20% 0.016 260;
+  --n-950: 15% 0.016 261;
+
+  /* Cool near-white. Replaces pure #fff throughout. */
+  --n-paper: 99.4% 0.003 250;
+
+  /* ---- Accent - one signal blue --------------------------------------------
+   * THE signal. Covers under 5% of any viewport: primary button, focus ring,
+   * active state, running job. Nothing else.
+   * a-500 sits at L 52% on purpose: only there does white text on the fill
+   * reach 5.54:1.
+   */
+  --a-50: 97.2% 0.020 256;
+  --a-100: 94% 0.042 256;
+  --a-200: 88% 0.075 256;
+  --a-300: 79% 0.115 256;
+  --a-400: 66% 0.165 257;
+  --a-500: 52% 0.190 257;
+  --a-600: 46% 0.175 258;
+  --a-700: 40% 0.150 259;
+  --a-800: 33% 0.115 259;
+  --a-900: 27% 0.085 260;
+
+  /* ---- Status - exactly three, no duplicates -------------------------------
+   * One ramp per meaning. A second green that means the same thing as the
+   * first is how a status system stops being readable.
+   */
+  --ok-50: 96.8% 0.022 155;
+  --ok-100: 93% 0.048 155;
+  --ok-200: 87% 0.080 155;
+  --ok-300: 78% 0.120 155;
+  --ok-400: 64% 0.135 155;
+  --ok-500: 54.5% 0.125 155;
+  --ok-600: 48% 0.112 156;
+  --ok-700: 41.5% 0.095 157;
+  --ok-800: 34.5% 0.075 158;
+  --ok-900: 28.5% 0.058 159;
+
+  --warn-50: 97.5% 0.022 80;
+  --warn-100: 94.5% 0.050 80;
+  --warn-200: 88.5% 0.090 78;
+  --warn-300: 82% 0.120 77;
+  --warn-400: 72% 0.140 76;
+  --warn-500: 62% 0.135 75;
+  --warn-600: 53% 0.125 72;
+  --warn-700: 45% 0.105 70;
+  --warn-800: 37% 0.085 68;
+  --warn-900: 30.5% 0.068 66;
+
+  --dg-50: 96.8% 0.018 25;
+  --dg-100: 93.5% 0.038 25;
+  --dg-200: 88% 0.070 25;
+  --dg-300: 79% 0.110 26;
+  --dg-400: 66% 0.165 27;
+  --dg-500: 57% 0.195 27;
+  --dg-600: 50.5% 0.190 27;
+  --dg-700: 43.5% 0.165 27;
+  --dg-800: 36% 0.130 26;
+  --dg-900: 30% 0.100 26;
+
+  /* ---- Semantic aliases - light mode --------------------------------------- */
+  --color-paper: oklch(var(--n-50)); /* page ground              */
+  --color-surface: oklch(var(--n-paper)); /* card, table, dialog      */
+  --color-surface-2: oklch(var(--n-100)); /* inset: thead, kbd, track */
+  --color-ink: oklch(var(--n-900)); /* heading, primary text    */
+  --color-ink-2: oklch(var(--n-600)); /* body text                */
+  --color-ink-3: oklch(var(--n-500)); /* meta, timestamps         */
+  --color-rule: oklch(var(--n-200)); /* hairline                 */
+  --color-rule-2: oklch(var(--n-300)); /* input border             */
+  --color-accent: oklch(var(--a-500));
+  --color-accent-ink: oklch(var(--n-paper));
+  --color-accent-soft: oklch(var(--a-50));
+  --color-focus: oklch(var(--a-500));
+
+  /* Status aliases, so a component never reaches into a ramp directly. */
+  --color-ok: oklch(var(--ok-600));
+  --color-ok-soft: oklch(var(--ok-50));
+  --color-warn: oklch(var(--warn-600));
+  --color-warn-soft: oklch(var(--warn-50));
+  --color-danger: oklch(var(--dg-600));
+  --color-danger-soft: oklch(var(--dg-50));
+  --color-neutral: oklch(var(--n-500));
+  --color-neutral-soft: oklch(var(--n-100));
+
+  /* ---- Typography ----------------------------------------------------------
+   * Three roles, three faces. Space Grotesk carries titles, Inter body text,
+   * JetBrains Mono every machine value: ids, versions, checksums, timestamps,
+   * status labels, keyboard shortcuts.
+   */
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --tracking-display: -0.02em;
+  --tracking-label: 0.06em; /* uppercase mono labels */
+
+  /* ---- Radii - drawn with a ruler, no pills -------------------------------- */
+  --radius-control: 6px; /* button, input, select, chip */
+  --radius-card: 10px; /* card, dialog, code surface  */
+  --radius-inset: 4px; /* kbd, counter, mini chip     */
+
+  /* ---- Motion - three named easings, no others ----------------------------- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --dur-instant: 100ms; /* colour change on hover */
+  --dur-short: 180ms; /* state change           */
+  --dur-medium: 320ms; /* overlay in and out     */
+
+  /* ---- Layers - a named z scale, no 9999s --------------------------------- */
+  --z-sticky: 20;
+  --z-header: 30;
+  --z-overlay: 40;
+  --z-dialog: 50;
+  --z-popover: 60; /* tooltip, menu, select - must sit above an open dialog */
+  --z-toast: 70;
+}
+
+.dark {
+  /* Only the semantic aliases flip. The ramps above stay as they are. */
+  --color-paper: oklch(var(--n-900));
+  --color-surface: oklch(var(--n-800));
+  --color-surface-2: oklch(var(--n-700));
+  --color-ink: oklch(var(--n-50));
+  --color-ink-2: oklch(var(--n-300));
+  --color-ink-3: oklch(var(--n-400));
+  --color-rule: oklch(var(--n-700));
+  --color-rule-2: oklch(var(--n-600));
+  --color-accent: oklch(var(--a-400));
+  --color-accent-ink: oklch(var(--n-950));
+  --color-accent-soft: oklch(var(--a-900));
+  --color-focus: oklch(var(--a-400));
+
+  --color-ok: oklch(var(--ok-400));
+  --color-ok-soft: oklch(var(--ok-900));
+  --color-warn: oklch(var(--warn-400));
+  --color-warn-soft: oklch(var(--warn-900));
+  --color-danger: oklch(var(--dg-400));
+  --color-danger-soft: oklch(var(--dg-900));
+  --color-neutral: oklch(var(--n-400));
+  --color-neutral-soft: oklch(var(--n-700));
+}

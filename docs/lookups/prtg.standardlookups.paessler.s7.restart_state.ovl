@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.s7.restart_state" desiredValue="1" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        No Restarts
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Hot Automatic
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Hot Manual
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Cold Automatic
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Cold Manual
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Warm Automatic
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Warm Manual
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

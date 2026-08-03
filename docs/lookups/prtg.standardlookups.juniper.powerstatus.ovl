@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.juniper.powerstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+       <SingleInt state="Error" value="0">
+        Fail
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Good
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.veeam.lookup_status" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Idle
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Starting
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Stopping
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Working
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Pausing
+      </SingleInt>
+      <SingleInt state="Warning" value="5">
+        Resuming
+      </SingleInt>
+      <SingleInt state="Ok" value="6">
+        Stopped
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Never started
+      </SingleInt>
+      <SingleInt state="Ok" value="8">
+        Postprocessing
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

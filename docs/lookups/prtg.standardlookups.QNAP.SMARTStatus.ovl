@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.QNAP.SMARTStatus" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Good
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Bad
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Normal
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

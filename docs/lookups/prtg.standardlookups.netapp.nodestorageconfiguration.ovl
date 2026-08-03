@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="2" id="prtg.standardlookups.netapp.nodestorageconfiguration" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="-1">N/A</SingleInt>
+    <SingleInt state="Error" value="0">unknown</SingleInt>
+    <SingleInt state="Warning" value="1">single_path</SingleInt>
+    <SingleInt state="OK" value="2">multi_path</SingleInt>
+    <SingleInt state="Warning" value="3">mixed_path</SingleInt>
+    <SingleInt state="Warning" value="4">single_path_ha</SingleInt>
+    <SingleInt state="OK" value="5">multi_path_ha</SingleInt>
+    <SingleInt state="Warning" value="6">mixed_path_ha</SingleInt>
+    <SingleInt state="OK" value="7">quad_path</SingleInt>
+    <SingleInt state="OK" value="8">quad_path_ha</SingleInt>
+  </Lookups>
+</ValueLookup>

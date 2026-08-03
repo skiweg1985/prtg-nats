@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <!-- choose a unique id for your lookup file e.g. id="prtg.standardlookups.exampledevice"
+   set the desired value for this lookup e.g. 0 -> "Ok"  --> 
+  <ValueLookup id="prtg.standardlookups.exampledevice" desiredValue="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <!-- add a new singleint entry for each integer value that you want to replace with a textual representation
+       select the sensor state for this lookup value e.g. state="OK"
+       select the value for which this lookup entry is shown e.g. value="0"-->
+      <SingleInt state="OK" value="0">
+        <!-- enter the textual representation of the value "0" -->
+        Len(ExampleSetting) less than or equal 5
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Len(ExampleSetting) less than 10
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Len(ExampleSetting) greater 10
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

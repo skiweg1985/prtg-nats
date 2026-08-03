@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.sslcertificatesensor.publickeyecc" desiredValue="2048" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+  	<Range from="-1" to="-1" state="None">Unknown</Range>
+    <Range from="0" to="127" state="Error">Unsafe</Range>      
+    <Range from="128" to="192" state="OK">Good</Range>            
+    <Range from="193" to="999999" state="OK">Perfect</Range>            
+  </Lookups>
+</ValueLookup>

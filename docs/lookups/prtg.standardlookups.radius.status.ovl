@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+ <ValueLookup id="prtg.standardlookups.radius.status" desiredValue="2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="2">
+        Access-Accept
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Access-Reject
+      </SingleInt>
+      <SingleInt state="Warning" value="11">
+        Access-Challenge
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

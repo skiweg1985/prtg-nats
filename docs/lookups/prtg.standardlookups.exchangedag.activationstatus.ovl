@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.exchangedag.activationstatus" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+		<SingleInt state="OK" value="0">
+		  active
+		</SingleInt>
+		<SingleInt state="OK" value="1">
+		  not active
+		</SingleInt>
+		<SingleInt state="Warning" value="2">
+		  not active but this is the preferred server
+		</SingleInt>
+		<SingleInt state="Warning" value="3">
+		  active but not on the preferred server
+		</SingleInt>
+		<SingleInt state="Warning" value="4">
+		  could not read activationpreference
+		</SingleInt>
+	</Lookups>
+  </ValueLookup>

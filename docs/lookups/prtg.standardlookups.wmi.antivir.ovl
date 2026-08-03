@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="4" id="prtg.standardlookups.wmi.antivir" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="Error" value="0">Unknown</SingleInt>
+    <SingleInt state="Error" value="1">Not Running - Out of Date</SingleInt>
+    <SingleInt state="Warning" value="2">Running - Out of Date</SingleInt>
+    <SingleInt state="Error" value="3">Not running - Up to Date</SingleInt>
+    <SingleInt state="OK" value="4">Running - Up to Date</SingleInt>
+  </Lookups>
+</ValueLookup>

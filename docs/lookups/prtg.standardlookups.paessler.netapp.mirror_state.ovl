@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.mirror_state" desiredValue="3" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Error" value="1">
+        Broken Off
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Paused
+      </SingleInt>
+      <SingleInt state="Ok" value="3">
+        Snapmirrored
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Uninitialized
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        In Sync
+      </SingleInt>
+      <SingleInt state="Error" value="6">
+        Out Of Sync
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Synchronizing
+      </SingleInt>
+      <SingleInt state="Ok" value="8">
+        Aborting
+      </SingleInt>
+      <SingleInt state="Ok" value="9">
+        Quiesced
+      </SingleInt>
+      <SingleInt state="Ok" value="10">
+        Quiescing
+      </SingleInt>
+      <SingleInt state="Ok" value="11">
+        Checking
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

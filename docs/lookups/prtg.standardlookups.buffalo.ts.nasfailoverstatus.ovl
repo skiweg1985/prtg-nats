@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.buffalo.ts.nasfailoverstatus" desiredValue="0" undefinedState="olsNone" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="0">
+        Idle
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Busy
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Starting Main
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Starting Backup
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Initializing
+      </SingleInt>
+      <SingleInt state="Warning" value="32">
+        Stopping
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

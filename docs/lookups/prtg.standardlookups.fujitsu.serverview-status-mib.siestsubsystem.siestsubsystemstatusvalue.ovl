@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.fujitsu.serverview-status-mib.siestsubsystem.siestsubsystemstatusvalue" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="OK" value="1">
+        OK
+      </SingleInt>
+      <SingleInt state="Warning" value="2">
+        Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Error
+      </SingleInt>
+      <SingleInt state="Error" value="4">
+        Failed
+      </SingleInt>
+      <SingleInt state="None" value="5">
+        Unknown
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

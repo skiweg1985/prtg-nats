@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.netapp.transfer_status" desiredValue="4" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Channel Value Not Set
+      </SingleInt>
+      <SingleInt state="Warning" value="1">
+        Aborted
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="3">
+        Hard Aborted
+      </SingleInt>
+      <SingleInt state="Ok" value="4">
+        Queued
+      </SingleInt>
+      <SingleInt state="Ok" value="5">
+        Success
+      </SingleInt>
+      <SingleInt state="Ok" value="6">
+        Transferring
+      </SingleInt>
+      <SingleInt state="Ok" value="7">
+        Idle
+      </SingleInt>
+      <SingleInt state="Ok" value="8">
+        Preparing
+      </SingleInt>
+      <SingleInt state="Ok" value="9">
+        Finalizing
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

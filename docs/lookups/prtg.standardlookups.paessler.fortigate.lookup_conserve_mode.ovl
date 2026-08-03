@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.fortigate.lookup_conserve_mode" desiredValue="1" undefinedState="Warning">
+    <Lookups>
+      <SingleInt state="None" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="Ok" value="1">
+        Inactive
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Active
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

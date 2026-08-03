@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="200" id="prtg.standardlookups.docker.containerstatus" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="OK" value="0">Create</SingleInt>
+    <SingleInt state="OK" value="1">Running</SingleInt>
+    <SingleInt state="Warning" value="100">Paused</SingleInt>
+    <SingleInt state="Warning" value="101">Restarting</SingleInt>
+    <SingleInt state="Error" value="200">Exited</SingleInt>
+  </Lookups>
+</ValueLookup>

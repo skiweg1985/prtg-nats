@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup desiredValue="0" id="prtg.standardlookups.wmi.diskhealth.operationalstatus"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+  <Lookups>
+    <SingleInt state="Error" value="1">Error</SingleInt>
+    <SingleInt state="Warning" value="2">Warning</SingleInt>
+    <SingleInt state="None" value="3">Starting</SingleInt>
+    <SingleInt state="OK" value="4">OK</SingleInt>
+  </Lookups>
+</ValueLookup>

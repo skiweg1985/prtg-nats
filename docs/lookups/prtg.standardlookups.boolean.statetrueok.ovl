@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ValueLookup id="prtg.standardlookups.boolean.statetrueok" desiredValue="1" undefinedState="None" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+	<Lookups>
+		<Boolean state="Error" value="0">False</Boolean>
+		<Boolean state="OK" value="1">True</Boolean>
+	</Lookups>
+</ValueLookup>

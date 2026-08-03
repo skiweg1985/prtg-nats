@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.equipmentpowerstate" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Warning" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        On
+      </SingleInt>
+      <SingleInt state="OK" value="2">
+        Test
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Off
+      </SingleInt>
+      <SingleInt state="OK" value="4">
+        Online
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Offline
+      </SingleInt>
+      <SingleInt state="OK" value="6">
+        Off Duty
+      </SingleInt>
+      <SingleInt state="Warning" value="7">
+        Degraded
+      </SingleInt>
+      <SingleInt state="OK" value="8">
+        Power Save
+      </SingleInt>
+      <SingleInt state="Error" value="9">
+        Error
+      </SingleInt>
+      <SingleInt state="OK" value="10">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="11">
+        Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="100">
+        Not Supported
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

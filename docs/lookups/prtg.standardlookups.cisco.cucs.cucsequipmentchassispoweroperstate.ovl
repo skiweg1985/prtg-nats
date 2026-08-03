@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.cisco.cucs.cucsequipmentchassispoweroperstate" desiredValue="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <SingleInt state="Warning" value="0">
+        Unknown
+      </SingleInt>
+      <SingleInt state="OK" value="1">
+        Ok
+      </SingleInt>
+      <SingleInt state="Error" value="2">
+        Failed
+      </SingleInt>
+      <SingleInt state="Error" value="3">
+        Input Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="4">
+        Input Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="5">
+        Output Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="6">
+        Output Degraded
+      </SingleInt>
+      <SingleInt state="Error" value="7">
+        Redundancy Failed
+      </SingleInt>
+      <SingleInt state="Warning" value="8">
+        Redundancy Degraded
+      </SingleInt>
+    </Lookups>
+  </ValueLookup>

@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+  <ValueLookup id="prtg.standardlookups.paessler.snmp.sensor_behavior_down_on_found" desiredValue="0" undefinedState="Warning" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="PaeValueLookup.xsd">
+    <Lookups>
+      <Boolean state="None" value="0">
+        String Not Found
+      </Boolean>
+      <Boolean state="Error" value="1">
+        String Found
+      </Boolean>
+    </Lookups>
+  </ValueLookup>

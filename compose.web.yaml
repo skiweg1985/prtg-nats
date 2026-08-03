@@ -1,0 +1,102 @@
+# The web management platform.
+#
+# Kept in its own file so the NATS stack in compose.yaml can run without it,
+# and so an operator who does not want a web interface simply never starts it:
+#
+#   docker compose -f compose.yaml -f compose.web.yaml up -d
+#
+# The API binds to loopback and Caddy terminates TLS in front of it. Neither
+# service publishes a port an untrusted network can reach.
+
+name: prtg-nats
+
+services:
+  web-api:
+    build:
+      context: ./web/backend
+    container_name: prtg-nats-web-api
+    environment:
+      # Points at the bind mount below, not at the host path: the container
+      # sees the installation at /srv/prtg-nats whatever it is called outside.
+      PRTG_NATS_WEB_PROJECT_DIR: /srv/prtg-nats
+      PRTG_NATS_WEB_ENVIRONMENT: production
+      # Loopback only: in the host network namespace, anything else would
+      # expose the plain-HTTP API on a routable address.
+      PRTG_NATS_WEB_HOST: 127.0.0.1
+      PRTG_NATS_WEB_PORT: "8100"
+      # The NATS monitoring endpoint is published on the host's loopback only,
+      # which is why this container joins the host network namespace for it.
+      PRTG_NATS_WEB_NATS_MONITORING_URL: http://127.0.0.1:8222
+      PRTG_NATS_WEB_SESSION_COOKIE_SECURE: "true"
+    volumes:
+      # Read-write: the platform writes its own database here and, from the
+      # credential phase onwards, the files the shell tooling also writes.
+      - type: bind
+        source: .
+        target: /srv/prtg-nats
+      # Container lifecycle. Without it the platform still manages every probe
+      # and sensor; only the server actions disappear from the interface.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    # Shares the host's loopback so 127.0.0.1:8222 is the NATS monitoring
+    # endpoint and 127.0.0.1:8100 is this API - the same addresses the shell
+    # tooling uses, with no second set of names to keep in sync.
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  web-frontend:
+    build:
+      context: ./web/frontend
+    container_name: prtg-nats-web-frontend
+    # Copies the freshly built static files into the volume the proxy serves,
+    # then exits. The image keeps them in /dist: mounting the volume over the
+    # target path would otherwise hide the new build, and Docker's
+    # copy-on-first-use only fills a volume once.
+    volumes:
+      - web-static:/srv/www
+    command: ["sh", "-c", "rm -rf /srv/www/* && cp -a /dist/. /srv/www/"]
+    restart: "no"
+
+  web-proxy:
+    image: caddy:2.9-alpine
+    container_name: prtg-nats-web-proxy
+    # Host network like the API: the Caddyfile forwards /api to the backend on
+    # the host's loopback, which a bridge-network container cannot reach. The
+    # bind address below keeps the listener on the host IP the rest of the
+    # stack uses; TLS terminates here, the API itself never speaks it.
+    network_mode: host
+    volumes:
+      - type: bind
+        source: ./web/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - web-static:/srv/www:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      WEB_FQDN: ${WEB_FQDN:-${NATS_FQDN}}
+      WEB_BIND_IP: ${NATS_HOST_IP:?NATS_HOST_IP is missing - run "./prtg-nats config --edit"}
+      WEB_HTTPS_PORT: ${WEB_HTTPS_PORT:-8443}
+    depends_on:
+      - web-frontend
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  web-static:
+    name: prtg-nats-web-static
+  caddy-data:
+    name: prtg-nats-caddy-data
+  caddy-config:
+    name: prtg-nats-caddy-config
