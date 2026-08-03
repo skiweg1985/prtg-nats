@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
@@ -13,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from app.api.deps.common import (
     AuditDep,
     BroadcasterDep,
+    DbSession,
     JobServiceDep,
     PrincipalDep,
     require_permission,
@@ -21,7 +23,7 @@ from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
-from app.services.events import job_topic
+from app.services.events import StreamEvent, job_topic
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -82,6 +84,7 @@ async def job_log(
 async def job_events(
     job_id: str,
     request: Request,
+    db: DbSession,
     jobs: JobServiceDep,
     broadcaster: BroadcasterDep,
     _: Annotated[object, Depends(require_permission(Permission.JOB_READ))],
@@ -94,36 +97,56 @@ async def job_events(
     that stays open on a finished job is a leak with a nice name.
     """
     job = await jobs.get(job_id)
-    backlog = await jobs.events(job_id, after_sequence=after)
+    backlog = [
+        JobEventOut.model_validate(event).model_dump(mode="json")
+        for event in await jobs.events(job_id, after_sequence=after)
+    ]
     already_finished = job.status.is_terminal
+    final_status = {"id": job.id, "status": job.status.value, "progress": job.progress}
+
+    # Everything the stream sends is now in memory, and the session has to go
+    # before the response starts. A dependency with yield is not torn down until
+    # the response ends, which for a stream is as long as the operator leaves
+    # the page open - and authentication has already dirtied this session's
+    # last_seen_at, so the first query flushed an UPDATE and opened SQLite's one
+    # write transaction. Held that long, every job worker's claim waits on it
+    # and fails with "database is locked".
+    await db.commit()
+    await db.close()
 
     async def stream() -> AsyncIterator[bytes]:
         for event in backlog:
-            yield _sse(
-                "job.event", JobEventOut.model_validate(event).model_dump(mode="json")
-            )
+            yield _sse("job.event", event)
 
         if already_finished:
-            yield _sse(
-                "job.status",
-                {"id": job.id, "status": job.status.value, "progress": job.progress},
-            )
+            yield _sse("job.status", final_status)
             yield b"event: end\ndata: {}\n\n"
             return
 
         subscription = broadcaster.subscribe(job_topic(job_id))
         iterator = subscription.__aiter__()
+        # The wait for the next line is a task of its own, outliving the
+        # keepalive. wait_for cancels what it waits on when it times out, and a
+        # cancelled __anext__ runs the subscription's finally and closes it for
+        # good: the stream would then die on the first idle interval instead of
+        # sending a comment and carrying on.
+        pending: asyncio.Task[StreamEvent] = asyncio.ensure_future(iterator.__anext__())
         try:
             while True:
                 if await request.is_disconnected():
                     break
-                try:
-                    update = await asyncio.wait_for(
-                        iterator.__anext__(), timeout=SSE_KEEPALIVE_SECONDS
-                    )
-                except TimeoutError:
+                done, _pending = await asyncio.wait(
+                    {pending}, timeout=SSE_KEEPALIVE_SECONDS
+                )
+                if not done:
                     yield b": keepalive\n\n"
                     continue
+
+                try:
+                    update = pending.result()
+                except StopAsyncIteration:  # the broadcaster went away
+                    break
+                pending = asyncio.ensure_future(iterator.__anext__())
 
                 yield _sse(update.kind, update.payload)
                 if (
@@ -133,6 +156,12 @@ async def job_events(
                     yield b"event: end\ndata: {}\n\n"
                     break
         finally:
+            # StopAsyncIteration is suppressed rather than allowed out: raised
+            # inside an async generator it becomes a RuntimeError the ASGI
+            # server reports as a failed application.
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                await pending
             await subscription.aclose()
 
     return StreamingResponse(
