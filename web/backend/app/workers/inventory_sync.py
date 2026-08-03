@@ -84,6 +84,32 @@ class InventorySync:
             await asyncio.sleep(self._settings.inventory_sync_interval_seconds)
 
     async def run_once(self) -> None:
+        """One pass, in three transactions rather than one.
+
+        The split is not tidiness. SQLite allows a single writer, and the
+        middle phase talks SSH to every stale probe - ten seconds each for
+        one that does not answer. A transaction held across that locks out
+        every other writer in the process for the same time: the job workers
+        claiming work, and every API request, which writes the session's
+        last_seen_at. Jobs then fail with "database is locked" and never
+        leave the queue.
+        """
+        usernames = self._runtime.list_probe_usernames()
+
+        async with session_scope() as db:
+            probes = ProbeService(
+                db, self._settings, self._runtime, self._helper, self._catalog
+            )
+            for username in usernames:
+                await probes.ensure_record(username)
+            stale = await self._stale_usernames(db, usernames)
+
+        if stale:
+            await self._refresh_many(stale)
+
+        # Asked before the transaction opens, for the same reason.
+        connected = await self._nats.connected_users()
+
         async with session_scope() as db:
             probes = ProbeService(
                 db, self._settings, self._runtime, self._helper, self._catalog
@@ -91,16 +117,6 @@ class InventorySync:
             system = SystemService(
                 db, self._settings, self._runtime, self._nats, self._docker
             )
-
-            usernames = self._runtime.list_probe_usernames()
-            for username in usernames:
-                await probes.ensure_record(username)
-
-            stale = await self._stale_usernames(db, usernames)
-            if stale:
-                await self._refresh_many(probes, stale)
-
-            connected = await self._nats.connected_users()
             summaries = await probes.list_summaries(
                 connected, expected_ca_sha256=system.expected_ca_fingerprint()
             )
@@ -125,11 +141,17 @@ class InventorySync:
             if observed_at is None or observed_at < cutoff
         ]
 
-    async def _refresh_many(self, probes: ProbeService, usernames: list[str]) -> None:
+    async def _refresh_many(self, usernames: list[str]) -> None:
         semaphore = asyncio.Semaphore(REFRESH_CONCURRENCY)
 
         async def refresh(username: str) -> None:
-            async with semaphore:
+            # A transaction of its own per probe, and refresh_observed_state
+            # only opens it once the probe has answered. One slow host
+            # therefore delays its own row and nothing else.
+            async with semaphore, session_scope() as db:
+                probes = ProbeService(
+                    db, self._settings, self._runtime, self._helper, self._catalog
+                )
                 await probes.refresh_observed_state(username)
 
         # refresh_observed_state stores failures rather than raising, so a dead
