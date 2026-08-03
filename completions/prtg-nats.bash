@@ -135,7 +135,7 @@ _prtg_nats() {
                 candidates="--reenroll"
                 ;;
               unenroll)
-                candidates="--remove-access"
+                candidates="--remove-access --remove-sensors --uninstall-mpp"
                 ;;
               configure)
                 candidates="--probe-name"

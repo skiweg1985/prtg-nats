@@ -59,6 +59,28 @@ Unchanged, and staying: these need an interactive terminal.
 Sensor deployments and probe maintenance are also - and preferably - done in
 the web interface, where they run as jobs with a live log and an audit trail.
 
+### Retiring a probe
+
+`probe unenroll USER` removes the management access and the inventory. The
+probe keeps running and stays connected to NATS; three options clear what is
+otherwise left on the host:
+
+| Option | What it adds |
+| --- | --- |
+| `--remove-access` | revoke the restricted key on the probe |
+| `--remove-sensors` | remove every sensor the inventory or the probe knows of |
+| `--uninstall-mpp` | remove `prtgmpprobe`, its configuration with the NATS CA, and the Paessler package source |
+
+The first two need the management channel, so they run before it is revoked,
+and a failure stops the unenrollment rather than stranding a host nobody can
+reach any more. The NATS account is not touched: `user delete USER` does that,
+and only works once no inventory names the probe - which is what the
+unenrollment has just ended.
+
+```bash
+sudo ./prtg-nats probe unenroll mpp-berlin-01 --remove-sensors --uninstall-mpp --remove-access
+```
+
 ## Recovery
 
 These delegate to `python -m app.ops`, which drives the same services the web

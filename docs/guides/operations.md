@@ -306,6 +306,47 @@ Reconfigure an already installed probe, without bootstrap access:
 sudo ./prtg-nats install-mpp --nats-user mpp-probe-01
 ```
 
+## Retire a probe
+
+Unenrolling ends the management relationship: the restricted key and the
+inventory entry go, the probe itself keeps running and stays connected to
+NATS. That default is deliberate - a host may leave this platform's care and
+go on reporting to PRTG.
+
+To clear what the platform put on the host as well, say so. In the web
+interface the three checkboxes sit in the unenroll dialog on the probe's page;
+in the shell they are options:
+
+```bash
+sudo ./prtg-nats probe unenroll mpp-probe-01 --remove-sensors --uninstall-mpp --remove-access
+```
+
+| Option | What it clears |
+| --- | --- |
+| `--remove-sensors` | scripts, wrappers, systemd units, sudo rules, configuration with credentials, virtual environments, interface reservations |
+| `--uninstall-mpp` | the `prtgmpprobe` package, `/etc/paessler/mpprobe` with the NATS CA, the Paessler package source |
+| `--remove-access` | the restricted key and the sudo rule of the management account |
+
+The order matters and is not up to the caller: sensors and the probe software
+are only reachable over the management channel, so they are cleared before it
+is revoked. If either fails, the unenrollment stops with the access still in
+place - a host that could not be cleaned up has to stay reachable, or nobody
+gets back to it without a fresh enrollment.
+
+Sensors are removed from both lists, the inventory's and the probe's own. The
+two disagree after an interrupted rollout, and that is precisely when a sensor
+would otherwise be left behind.
+
+The NATS account outlives all of this on purpose. Delete it separately once
+the inventory is gone:
+
+```bash
+sudo ./prtg-nats user delete mpp-probe-01 --yes
+```
+
+In the web interface the same decision is the third checkbox, and it is
+refused for the last remaining account.
+
 ## Rotate the shared core/legacy-probe password
 
 The protected account `prtg-nats` remains for the core and any legacy probes.

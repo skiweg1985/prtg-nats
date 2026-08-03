@@ -415,12 +415,26 @@ export function useExecuteReconcile() {
   })
 }
 
+export type UnenrollOptions = {
+  removeSensors?: boolean
+  uninstallMpp?: boolean
+  deleteAccount?: boolean
+}
+
 export function useUnenrollProbe() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.delete<JobAccepted>(`/probes/${id}`),
+    mutationFn: ({ id, ...options }: UnenrollOptions & { id: string }) => {
+      const query = new URLSearchParams({
+        remove_sensors: String(options.removeSensors ?? false),
+        uninstall_mpp: String(options.uninstallMpp ?? false),
+        delete_account: String(options.deleteAccount ?? false),
+      })
+      return api.delete<JobAccepted>(`/probes/${id}?${query.toString()}`)
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.probes })
+      void client.invalidateQueries({ queryKey: keys.credentials })
       void client.invalidateQueries({ queryKey: ['jobs'] })
     },
   })

@@ -18,6 +18,7 @@ from app.infrastructure.probe_helper import (
     normalise_optional,
     parse_response,
 )
+from tests.conftest import REPO_ROOT
 
 PROBE_INFO = """OK probe-info
 package=2.1.0
@@ -123,3 +124,26 @@ def test_sensor_list_records_are_parsed() -> None:
     assert sensors[0].interfaces == ()
     assert sensors[1].interfaces == ("wlan0", "wlan1")
     assert sensors[1].helper_state == "active"
+
+
+def test_every_command_exists_on_the_probe() -> None:
+    """A command this side can send that the probe cannot answer is a bug.
+
+    The helper replies "Unsupported management request" to anything its
+    dispatch does not list, and that failure would surface on a customer's
+    machine rather than here.
+    """
+    helper = (REPO_ROOT / "libexec" / "prtg-nats-probe-helper").read_text(
+        encoding="utf-8"
+    )
+    # The newline the split consumed goes back on, so the first case label
+    # matches the same way as every other one.
+    dispatch = "\n" + helper.partition('\ncase "${command_name}" in\n')[2]
+    assert dispatch.strip(), "the helper's dispatch moved; this test needs updating"
+
+    missing = [
+        command.value
+        for command in HelperCommand
+        if f"\n  {command.value})\n" not in dispatch
+    ]
+    assert not missing, f"the probe helper does not handle: {missing}"

@@ -35,9 +35,10 @@ from app.api.schemas.probes import (
     ReconciliationPlanOut,
     SensorStateOut,
 )
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.models import DesiredProbeState, DesiredSensor, ProbeSummary
+from app.infrastructure.nats_runtime import NatsRuntime
 from app.persistence.models.inventory import ProbeDesiredState
 from app.services.jobs import JobRequest, ResourceRef
 from app.services.probes import ProbeDetail
@@ -477,28 +478,69 @@ async def unenroll_probe(
     probe_id: str,
     probes: ProbeServiceDep,
     jobs: JobServiceDep,
+    settings: SettingsDep,
     audit: AuditDep,
     principal: Annotated[
         PrincipalDep, Depends(require_permission(Permission.PROBE_DELETE))
     ],
+    remove_sensors: Annotated[
+        bool,
+        Query(description="Remove every sensor from the probe before retiring it"),
+    ] = False,
+    uninstall_mpp: Annotated[
+        bool,
+        Query(description="Uninstall the probe software, its config and the CA"),
+    ] = False,
+    delete_account: Annotated[
+        bool, Query(description="Delete the NATS account once the inventory is gone")
+    ] = False,
 ) -> JobAccepted:
-    """Remove the management access and the inventory.
+    """Retire a probe, optionally clearing everything this platform put on it.
 
-    The probe keeps running and stays connected; deleting its NATS account is
-    a separate decision under Credentials. The lock means this waits for any
-    job still working on the probe instead of pulling the access out from
-    under it.
+    Bare, this removes the management access and the inventory; the probe
+    keeps running and stays connected. Each option is a separate decision
+    with its own permission, because each destroys something the plain
+    unenroll deliberately leaves alone.
+
+    The lock means this waits for any job still working on the probe instead
+    of pulling the access out from under it.
     """
     record = await probes.get_record(probe_id)
+    if remove_sensors and not principal.has(Permission.SENSOR_REMOVE):
+        raise PermissionDeniedError.of(Permission.SENSOR_REMOVE.value)
+    if uninstall_mpp and not principal.has(Permission.PROBE_UPDATE):
+        raise PermissionDeniedError.of(Permission.PROBE_UPDATE.value)
+    if delete_account:
+        if not principal.has(Permission.CREDENTIAL_ROTATE):
+            raise PermissionDeniedError.of(Permission.CREDENTIAL_ROTATE.value)
+        # Checked here rather than in the job: the account is deleted last,
+        # so a refusal there would arrive after the probe has already lost
+        # its access. The job repeats the check - this only keeps the common
+        # case from becoming a half-finished retirement.
+        if NatsRuntime(settings).is_last_account(record.nats_username):
+            raise ConflictError(
+                params={"resource": "nats_account"},
+                details="refusing to remove the last NATS account",
+            )
+
     job = await jobs.create(
         JobRequest(
             type=probe_lifecycle.UNENROLL_JOB_TYPE,
-            steps=probe_lifecycle.UNENROLL_STEPS,
+            steps=probe_lifecycle.unenroll_steps(
+                remove_sensors=remove_sensors,
+                uninstall_mpp=uninstall_mpp,
+                delete_account=delete_account,
+            ),
             resources=(ResourceRef("probe", record.id),),
             target_type="probe",
             target_id=record.id,
             target_label=record.nats_username,
-            payload={"probe": record.nats_username},
+            payload={
+                "probe": record.nats_username,
+                "remove_sensors": remove_sensors,
+                "uninstall_mpp": uninstall_mpp,
+                "delete_account": delete_account,
+            },
         ),
         principal,
     )
@@ -508,6 +550,11 @@ async def unenroll_probe(
         object_id=record.id,
         object_label=record.nats_username,
         job_id=job.id,
+        after={
+            "remove_sensors": remove_sensors,
+            "uninstall_mpp": uninstall_mpp,
+            "delete_account": delete_account,
+        },
     )
     return JobAccepted(
         job_id=job.id,

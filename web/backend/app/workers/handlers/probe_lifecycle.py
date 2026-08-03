@@ -26,6 +26,7 @@ from app.infrastructure.probe_helper import ProbeConnection
 from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
 from app.workers.handlers import deploy_sensor as deploy_sensor_handler
+from app.workers.handlers import sensor_actions
 
 CONFIGURE_STEPS: tuple[str, ...] = (
     "resolve_identity",
@@ -41,6 +42,12 @@ RECONCILE_JOB_TYPE = "probe.reconcile"
 
 UNENROLL_STEPS: tuple[str, ...] = ("revoke_access", "remove_inventory")
 UNENROLL_JOB_TYPE = "probe.unenroll"
+
+# The optional parts of a retirement. Each one is a step only when it was
+# asked for, so the progress display never shows work that will not happen.
+REMOVE_SENSORS_STEP = "remove_sensors"
+UNINSTALL_MPP_STEP = "uninstall_mpp"
+DELETE_ACCOUNT_STEP = "delete_account"
 
 ROTATE_STEPS: tuple[str, ...] = ("rotate_server", "reconfigure_probe", "verify")
 ROTATE_JOB_TYPE = "credential.rotate"
@@ -255,14 +262,104 @@ async def reconcile(context: JobContext) -> dict[str, Any]:
     return {"probe": username, "actions": applied}
 
 
-async def unenroll(context: JobContext) -> dict[str, Any]:
-    """Remove the management access and the inventory.
+def unenroll_steps(
+    *, remove_sensors: bool, uninstall_mpp: bool, delete_account: bool
+) -> tuple[str, ...]:
+    """The steps one retirement runs, in the only order they work in.
 
-    The probe keeps running and stays connected to NATS; what disappears is
-    our ability to manage it. Deleting the NATS account is a separate,
-    deliberate action - a probe may be unenrolled while it keeps reporting.
+    Anything that needs the management channel has to happen before
+    revoke_access, which is the step that closes it. Deleting the NATS
+    account has to happen after remove_inventory, because the server refuses
+    while an inventory still points at it.
+    """
+    steps: list[str] = []
+    if remove_sensors:
+        steps.append(REMOVE_SENSORS_STEP)
+    if uninstall_mpp:
+        steps.append(UNINSTALL_MPP_STEP)
+    steps.extend(UNENROLL_STEPS)
+    if delete_account:
+        steps.append(DELETE_ACCOUNT_STEP)
+    return tuple(steps)
+
+
+async def _remove_every_sensor(
+    context: JobContext, connection: ProbeConnection, username: str
+) -> list[str]:
+    """Take every sensor off the probe.
+
+    Both sources are asked, because they can disagree after an interrupted
+    rollout: the inventory knows what we deployed, the probe knows what it
+    actually carries. Trusting the bookkeeping alone would leave behind
+    precisely the sensors something already went wrong with.
+    """
+    names = set(context.runtime.read_probe(username).assigned_sensors)
+    listed = await context.helper.sensor_list(connection)
+    names.update(
+        record["name"] for record in listed.records if record.get("name", "").strip()
+    )
+
+    removed: list[str] = []
+    for sensor in sorted(names):
+        await sensor_actions.remove_from_probe(context, connection, username, sensor)
+        removed.append(sensor)
+    await context.log(
+        "jobs.probe.sensors_removed",
+        params={"probe": username, "count": len(removed)},
+    )
+    return removed
+
+
+async def _uninstall_probe_software(
+    context: JobContext, connection: ProbeConnection, username: str
+) -> str:
+    """Remove the probe software, and report what was left standing."""
+    response = await context.helper.mpp_uninstall(connection)
+    package = response.header_fields.get("package", "none")
+    await context.log(
+        "jobs.probe.mpp_uninstalled",
+        params={"probe": username, "package": package},
+    )
+    # Sensors outlive the package they were installed for. Saying so beats
+    # letting the next operator find dead units on a host nobody manages.
+    leftover = response.header_fields.get("sensors", "0")
+    if leftover.isdigit() and int(leftover) > 0:
+        await context.log(
+            "jobs.probe.sensors_left_behind",
+            level=LogLevel.WARNING,
+            params={"probe": username, "count": leftover},
+        )
+    return package
+
+
+async def unenroll(context: JobContext) -> dict[str, Any]:
+    """Retire a probe - as far as the operator asked for.
+
+    On its own this removes the management access and the inventory: the
+    probe keeps running and stays connected to NATS, and only our ability to
+    manage it disappears. The three optional parts go further, and a failure
+    in either of the first two aborts the job before the access is revoked -
+    a probe that could not be cleaned up has to stay reachable, or nobody
+    will ever reach it again.
     """
     username: str = context.payload["probe"]
+    remove_sensors = bool(context.payload.get("remove_sensors"))
+    uninstall_mpp = bool(context.payload.get("uninstall_mpp"))
+    delete_account = bool(context.payload.get("delete_account"))
+    removed_sensors: list[str] = []
+    package = "none"
+
+    if remove_sensors:
+        await context.step(REMOVE_SENSORS_STEP)
+        removed_sensors = await _remove_every_sensor(
+            context, _connection(context, username), username
+        )
+
+    if uninstall_mpp:
+        await context.step(UNINSTALL_MPP_STEP)
+        package = await _uninstall_probe_software(
+            context, _connection(context, username), username
+        )
 
     await context.step("revoke_access")
     try:
@@ -283,7 +380,19 @@ async def unenroll(context: JobContext) -> dict[str, Any]:
     await context.step("remove_inventory")
     context.runtime.remove_probe(username)
     await context.log("jobs.probe.unenrolled", params={"probe": username})
-    return {"probe": username}
+
+    if delete_account:
+        await context.step(DELETE_ACCOUNT_STEP)
+        provisioning = ProvisioningService(context.settings, context.docker)
+        await provisioning.delete_account(username)
+        await context.log("jobs.credential.deleted", params={"probe": username})
+
+    return {
+        "probe": username,
+        "sensors_removed": removed_sensors,
+        "package": package,
+        "account_deleted": delete_account,
+    }
 
 
 async def rotate_credential(context: JobContext) -> dict[str, Any]:

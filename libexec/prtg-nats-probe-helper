@@ -6,10 +6,20 @@ umask 077
 STATE_DIR="/var/lib/prtg-nats-probe-state"
 TRANSACTION_DIR="${STATE_DIR}/transactions"
 MPP_SERVICE="prtg.mpprobe.service"
-CERT_DIR="/etc/paessler/mpprobe/certs"
+MPP_CONFIG_DIR="/etc/paessler/mpprobe"
+CERT_DIR="${MPP_CONFIG_DIR}/certs"
 CA_PATH="${CERT_DIR}/nats-docker-ca.pem"
-TOML_CONFIG="/etc/paessler/mpprobe/config.toml"
-YAML_CONFIG="/etc/paessler/mpprobe/config.yaml"
+TOML_CONFIG="${MPP_CONFIG_DIR}/config.toml"
+YAML_CONFIG="${MPP_CONFIG_DIR}/config.yaml"
+MPP_PACKAGE="prtgmpprobe"
+# What install-mpp.sh registers to reach the package. The uninstall takes the
+# same paths back, so a removed probe leaves no repository behind that would
+# keep offering the package on the next apt update.
+MPP_REPOSITORY_FILES=(
+  "/etc/apt/sources.list.d/paessler.sources"
+  "/usr/share/keyrings/paessler-archive-keyring.asc"
+  "/etc/yum.repos.d/paessler-prtg.repo"
+)
 MAXIMUM_INPUT_BYTES=65536
 # Sensor scripts are larger than a configuration, but they stay text.
 MAXIMUM_SENSOR_BYTES=262144
@@ -1267,6 +1277,79 @@ remove_access() {
   printf 'OK management-access-removed\n'
 }
 
+# Sensors belong to this platform, not to the package. They survive its
+# removal as systemd sockets nobody calls any more, so the uninstall counts
+# them and says so rather than letting them be found months later.
+installed_sensor_count() {
+  local directory=""
+  local name=""
+  local count=0
+
+  shopt -s nullglob
+  for directory in "${SENSOR_CONFIG_ROOT}"/*/; do
+    name="$(basename -- "${directory}")"
+    validate_token "${name}" || continue
+    [[ -f "$(sensor_slot_target "${name}" script)" ]] || continue
+    count=$((count + 1))
+  done
+  shopt -u nullglob
+  printf '%s\n' "${count}"
+}
+
+# The counterpart to install-mpp.sh: takes the probe software back off the
+# host. Service, package, the configuration with the NATS CA and the Paessler
+# repository the installer registered all go, so nothing keeps offering the
+# package on the next update run.
+#
+# A piece that is already gone is not an error. A host without the package is
+# a finished uninstall, and failing there would leave the remaining pieces
+# behind - which is the state this command exists to prevent.
+uninstall_mpp() {
+  local package_version=""
+  local package_state="absent"
+  local repository_file=""
+  local repositories=0
+
+  package_version="$(installed_package_version)"
+  systemctl disable --now "${MPP_SERVICE}" >/dev/null 2>&1 || true
+
+  # Registration decides, not the reported version: after an earlier
+  # "apt-get remove" the package sits in "config-files" and reports no
+  # version, while its configuration stays registered. Purging is what takes
+  # that last state with it.
+  if command -v dpkg-query >/dev/null 2>&1 &&
+    [[ -n "$(
+      dpkg-query -W -f '${db:Status-Status}' "${MPP_PACKAGE}" 2>/dev/null || true
+    )" ]]; then
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y "${MPP_PACKAGE}" \
+      >/dev/null 2>&1 || die "Could not remove the ${MPP_PACKAGE} package"
+    package_state="purged"
+  elif command -v rpm >/dev/null 2>&1 &&
+    rpm -q "${MPP_PACKAGE}" >/dev/null 2>&1; then
+    dnf remove -y "${MPP_PACKAGE}" >/dev/null 2>&1 ||
+      die "Could not remove the ${MPP_PACKAGE} package"
+    package_state="removed"
+  elif [[ "${package_version}" != "none" ]]; then
+    die "No supported package manager to remove ${MPP_PACKAGE}"
+  fi
+
+  # Configuration and CA were written by this platform, so they leave with
+  # it. The package's own purge does not touch them: it never wrote them.
+  rm -rf -- "${MPP_CONFIG_DIR:?}"
+
+  for repository_file in "${MPP_REPOSITORY_FILES[@]}"; do
+    [[ -e "${repository_file}" ]] || continue
+    rm -f -- "${repository_file}"
+    repositories=$((repositories + 1))
+  done
+
+  printf 'OK mpp-uninstalled package=%s state=%s repositories=%s sensors=%s\n' \
+    "${package_version}" \
+    "${package_state}" \
+    "${repositories}" \
+    "$(installed_sensor_count)"
+}
+
 [[ "${EUID}" -eq 0 ]] || die "Helper must run as root through its sudo rule"
 install -d -o root -g root -m 0700 "${STATE_DIR}" "${TRANSACTION_DIR}"
 
@@ -1370,6 +1453,10 @@ case "${command_name}" in
        -z "${argument_three:-}" ]] ||
       die "sensor-remove-profile requires sensor and profile"
     remove_sensor_profile "${argument_one}" "${argument_two}"
+    ;;
+  mpp-uninstall)
+    [[ -z "${argument_one:-}" ]] || die "mpp-uninstall takes no arguments"
+    uninstall_mpp
     ;;
   unenroll)
     [[ -z "${argument_one:-}" ]] || die "unenroll takes no arguments"

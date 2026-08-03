@@ -11,6 +11,7 @@ import {
   useRefreshProbe,
   useRemoveSensorFromProbe,
   useUnenrollProbe,
+  type UnenrollOptions,
 } from '@/api/hooks'
 import type { Deviation, ProbeDetail, SensorState } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
@@ -45,6 +46,13 @@ export function ProbeDetailPage() {
   const unenroll = useUnenrollProbe()
   const [tab, setTab] = useState<Tab>('overview')
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
+  // Every option starts off. Retiring a probe is destructive enough on its
+  // own; what else goes has to be chosen, not merely left checked.
+  const [cleanup, setCleanup] = useState<Required<UnenrollOptions>>({
+    removeSensors: false,
+    uninstallMpp: false,
+    deleteAccount: false,
+  })
 
   if (isLoading) return <Skeleton className="h-64" />
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -134,6 +142,49 @@ export function ProbeDetailPage() {
               <p className="text-ink-2 text-sm">
                 {t('probes.unenrollWarning', { probe: summary.nats_username })}
               </p>
+
+              <fieldset className="mt-4 space-y-3 border-t pt-3">
+                <legend className="sr-only">{t('probes.cleanup.legend')}</legend>
+                <PermissionGate permission="sensor.remove">
+                  <CleanupOption
+                    label={t('probes.cleanup.removeSensors')}
+                    hint={t('probes.cleanup.removeSensorsHint', {
+                      count: data.sensors.length,
+                    })}
+                    checked={cleanup.removeSensors}
+                    onChange={(checked) =>
+                      setCleanup({ ...cleanup, removeSensors: checked })
+                    }
+                  />
+                </PermissionGate>
+                <PermissionGate permission="probe.update">
+                  <CleanupOption
+                    label={t('probes.cleanup.uninstallMpp')}
+                    hint={t('probes.cleanup.uninstallMppHint')}
+                    checked={cleanup.uninstallMpp}
+                    onChange={(checked) =>
+                      setCleanup({ ...cleanup, uninstallMpp: checked })
+                    }
+                  />
+                </PermissionGate>
+                <PermissionGate permission="credential.rotate">
+                  <CleanupOption
+                    label={t('probes.cleanup.deleteAccount')}
+                    hint={t('probes.cleanup.deleteAccountHint')}
+                    checked={cleanup.deleteAccount}
+                    onChange={(checked) =>
+                      setCleanup({ ...cleanup, deleteAccount: checked })
+                    }
+                  />
+                </PermissionGate>
+              </fieldset>
+
+              {cleanup.uninstallMpp && !cleanup.removeSensors && data.sensors.length > 0 && (
+                <p className="text-ink-3 mt-3 text-xs">
+                  {t('probes.cleanup.sensorsSurviveHint')}
+                </p>
+              )}
+
               {unenroll.error && (
                 <div className="mt-3">
                   <ErrorDetails error={unenroll.error} />
@@ -146,9 +197,12 @@ export function ProbeDetailPage() {
                 <Button
                   variant="danger"
                   onClick={() =>
-                    unenroll.mutate(probeId, {
-                      onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                    })
+                    unenroll.mutate(
+                      { id: probeId, ...cleanup },
+                      {
+                        onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                      },
+                    )
                   }
                   disabled={unenroll.isPending}
                 >
@@ -253,6 +307,33 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
         </dl>
       </Card>
     </div>
+  )
+}
+
+function CleanupOption({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <span className="text-ink">{label}</span>
+        <span className="text-ink-3 block text-xs">{hint}</span>
+      </span>
+    </label>
   )
 }
 

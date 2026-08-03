@@ -105,6 +105,25 @@ password, so fetching it is a disclosure and is audited as one.
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
 
+`DELETE /probes/{id}` removes the management access and the inventory; the
+probe keeps running and stays connected. Three query parameters clear what it
+otherwise leaves behind, each with its own permission and its own step in the
+job:
+
+| Parameter | What it adds | Permission |
+| --- | --- | --- |
+| `remove_sensors=true` | every sensor the inventory or the probe knows of | `sensor.remove` |
+| `uninstall_mpp=true` | the `prtgmpprobe` package, its configuration with the NATS CA, and the Paessler package source | `probe.update` |
+| `delete_account=true` | the NATS account, once no inventory names it | `credential.rotate` |
+
+The order is fixed and not negotiable: sensors and the probe software both
+need the management channel, so they run before it is revoked, and a failure
+in either aborts the job with the access still in place - a probe that could
+not be cleaned up has to stay reachable. The account goes last, because the
+server refuses to delete one an inventory still points at. Deleting the last
+remaining account is refused before the job is created, not once the probe has
+already lost its access.
+
 ### Enrolling a probe
 
 A probe enrols itself. The platform mints a single-use invitation and returns

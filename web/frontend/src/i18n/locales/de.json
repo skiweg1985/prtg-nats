@@ -144,7 +144,17 @@
     "planRestartWarning": "Dabei wird der Probe-Dienst neu gestartet. Er verbindet sich danach wieder.",
     "configure": "Konfiguration anwenden",
     "unenroll": "Ausbinden",
-    "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Die Probe läuft weiter und bleibt mit NATS verbunden; ihr NATS-Konto wird nicht gelöscht.",
+    "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Ohne weitere Auswahl läuft die Probe weiter und bleibt mit NATS verbunden.",
+    "cleanup": {
+      "legend": "Zusätzlich aufräumen",
+      "removeSensors": "Sensoren entfernen",
+      "removeSensorsHint": "Nimmt alle {{count}} Sensoren von der Probe: Dienste, sudo-Regeln, Konfiguration und Zugangsdaten.",
+      "uninstallMpp": "Probe-Software deinstallieren",
+      "uninstallMppHint": "Entfernt das Paket prtgmpprobe, seine Konfiguration samt NATS-CA und die Paessler-Paketquelle.",
+      "deleteAccount": "NATS-Konto löschen",
+      "deleteAccountHint": "Die Probe verliert damit sofort ihre Verbindung und meldet nicht mehr an PRTG.",
+      "sensorsSurviveHint": "Die Sensoren bleiben ohne Probe-Software als funktionslose Dienste zurück."
+    },
     "executePlan": "Abweichungen jetzt beheben",
     "enroll": {
       "action": "Probe hinzufügen",
@@ -295,6 +305,9 @@
       "apply": "Anwenden",
       "revoke_access": "Zugang entziehen",
       "remove_inventory": "Inventar entfernen",
+      "remove_sensors": "Sensoren entfernen",
+      "uninstall_mpp": "Probe-Software deinstallieren",
+      "delete_account": "NATS-Konto löschen",
       "rotate_server": "Auf dem Server rotieren",
       "reconfigure_probe": "Probe neu konfigurieren",
       "bookkeeping": "Buchführung",
@@ -332,6 +345,9 @@
         "access_revoked": "{{probe}}: Management-Zugang entzogen",
         "access_revoke_failed": "{{probe}}: Management-Zugang ließ sich nicht entziehen; der Schlüssel auf der Probe bleibt zurück",
         "unenrolled": "{{probe}}: aus dem Inventar entfernt",
+        "sensors_removed": "{{probe}}: {{count}} Sensoren entfernt",
+        "mpp_uninstalled": "{{probe}}: Probe-Software deinstalliert (Paket {{package}})",
+        "sensors_left_behind": "{{probe}}: {{count}} Sensoren bleiben ohne Probe-Software zurück",
         "host_key_pinned": "{{host}}: Hostschlüssel {{fingerprints}} (neu: {{new}})",
         "account_created": "NATS-Konto {{username}} angelegt",
         "account_exists": "NATS-Konto {{username}} existiert bereits",
@@ -375,7 +391,8 @@
       },
       "credential": {
         "rotated_server": "Serverseitige Zugangsdaten für {{probe}} rotiert",
-        "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen"
+        "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen",
+        "deleted": "NATS-Konto {{probe}} gelöscht"
       }
     }
   },
