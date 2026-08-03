@@ -8,6 +8,7 @@ loudly when any link in it changes.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -531,6 +532,161 @@ async def test_a_job_can_only_be_claimed_once(
         assert stored is not None
         assert stored.status is JobStatus.RUNNING
         assert stored.started_at is not None
+
+
+async def test_a_blocked_job_is_skipped_rather_than_claimed_and_handed_back(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The regression this guards: a probe locked by a job that never returned
+    left four workers claiming the job behind it and releasing it again, once
+    a second each, until SQLite reported "database is locked" to everything
+    else on the platform.
+    """
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        holder = await jobs.create(
+            JobRequest(
+                type="probe.unenroll",
+                steps=("a",),
+                resources=(ResourceRef("probe", "probe-1"),),
+            )
+        )
+        waiting = await jobs.create(
+            JobRequest(
+                type="probe.configure",
+                steps=("a",),
+                resources=(ResourceRef("probe", "probe-1"),),
+            )
+        )
+        assert await jobs.try_acquire_locks(holder) is None
+        holder.status = JobStatus.RUNNING
+        await db.commit()
+
+    async with session_factory() as db:
+        assert await JobService(db, get_broadcaster()).claim_next_queued() is None
+        await db.commit()
+
+    async with session_factory() as db:
+        stored = await db.get(Job, waiting.id)
+        assert stored is not None
+        assert stored.status is JobStatus.QUEUED
+        assert stored.started_at is None
+        assert stored.blocked_by_job_id == holder.id
+
+
+async def test_a_blocked_job_does_not_hold_up_the_queue_behind_it(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        holder = await jobs.create(
+            JobRequest(
+                type="probe.unenroll",
+                steps=("a",),
+                resources=(ResourceRef("probe", "probe-1"),),
+            )
+        )
+        await jobs.create(
+            JobRequest(
+                type="probe.configure",
+                steps=("a",),
+                resources=(ResourceRef("probe", "probe-1"),),
+            )
+        )
+        elsewhere = await jobs.create(
+            JobRequest(
+                type="probe.validate",
+                steps=("a",),
+                resources=(ResourceRef("probe", "probe-2"),),
+            )
+        )
+        assert await jobs.try_acquire_locks(holder) is None
+        holder.status = JobStatus.RUNNING
+        await db.commit()
+
+    async with session_factory() as db:
+        claimed = await JobService(db, get_broadcaster()).claim_next_queued()
+        assert claimed is not None
+        assert claimed.id == elsewhere.id
+        await db.commit()
+
+
+async def test_a_job_left_running_by_a_dead_process_is_cleared_at_startup(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    transport: ScriptedTransport,
+) -> None:
+    """A restart mid-job used to leave the row running for ever.
+
+    Nothing was carrying it, so the cancel button set a flag no one read, and
+    the lock it held kept every later job on that probe queued behind it.
+    """
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        abandoned = await jobs.create(
+            JobRequest(
+                type="probe.unenroll",
+                steps=("remove_sensors", "revoke_access"),
+                resources=(ResourceRef("probe", "probe-1"),),
+            )
+        )
+        assert await jobs.try_acquire_locks(abandoned) is None
+        abandoned.status = JobStatus.RUNNING
+        abandoned.started_at = datetime.now(UTC)
+        abandoned.cancel_requested = True
+        await db.commit()
+
+    runner = build_runner(settings, transport)
+    await runner.start()
+    await runner.stop()
+
+    async with session_factory() as db:
+        stored = await db.get(Job, abandoned.id)
+        assert stored is not None
+        # Cancelled, not failed: the operator asked for this, and a red row
+        # would misreport what happened.
+        assert stored.status is JobStatus.CANCELLED
+        assert stored.finished_at is not None
+        assert [step.status for step in stored.steps] == [
+            JobStepStatus.SKIPPED,
+            JobStepStatus.SKIPPED,
+        ]
+        held = list(
+            await db.scalars(
+                select(ResourceLock).where(ResourceLock.job_id == abandoned.id)
+            )
+        )
+        assert held == []
+
+
+async def test_a_running_job_this_process_carries_survives_the_reaper(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    transport: ScriptedTransport,
+) -> None:
+    """The reaper decides by asking the runner, so it must not touch its own."""
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        mine = await jobs.create(JobRequest(type="probe.validate", steps=("a",)))
+        theirs = await jobs.create(JobRequest(type="probe.validate", steps=("a",)))
+        for job in (mine, theirs):
+            job.status = JobStatus.RUNNING
+            job.started_at = datetime.now(UTC) - timedelta(minutes=5)
+        await db.commit()
+
+    runner = build_runner(settings, transport)
+    runner._active.add(mine.id)
+    async with session_factory() as db:
+        ended = await runner._end_abandoned_jobs(
+            db, JobService(db, get_broadcaster()), grace=timedelta(seconds=90)
+        )
+        await db.commit()
+    assert ended == 1
+
+    async with session_factory() as db:
+        assert (await db.get(Job, mine.id)).status is JobStatus.RUNNING  # type: ignore[union-attr]
+        assert (await db.get(Job, theirs.id)).status is JobStatus.FAILED  # type: ignore[union-attr]
+        assert (await db.get(Job, theirs.id)).error_code == "jobs.orphaned"  # type: ignore[union-attr]
 
 
 async def test_a_failed_rollout_reports_a_code_and_marks_the_step(

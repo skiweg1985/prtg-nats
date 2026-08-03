@@ -28,6 +28,7 @@ the probe's own words behind a disclosure control. See
 | `dpkg process was interrupted` | an earlier package run was aborted | on the probe run `sudo dpkg --configure -a`, `sudo apt-get -f install` and `sudo dpkg --audit` |
 | The probe does not appear | wrong PRTG access key, or the GID was denied | check the access key and `Deny GIDs`, then restart the service |
 | `result_evaluation was not available` | an old, incompatible ping v2 sensor | recreate the sensor in PRTG; this is not a NATS connection error |
+| A job stays on `running` and cancel does nothing | its worker is gone, usually the API container was restarted mid-job | [A job stays on running](#a-job-stays-on-running-and-cancel-does-nothing) |
 
 The official installation and wizard details are in the
 [Paessler MPP manual](https://manuals.paessler.com/multiplatformprobemanual.pdf).
@@ -100,3 +101,29 @@ Errors such as `ping_group.result_evaluation was not available` only occur
 after a message has been delivered successfully. That is an incompatible old
 sensor, not a rejected duplicate and not a NATS error. Recreate the affected
 sensor in PRTG.
+
+### A job stays on running and cancel does nothing
+
+Cancel asks the running job to stop at its next step - it does not end the
+job from outside. A job whose worker no longer exists, because the API
+container was restarted or the process was killed while it ran, has nobody
+left to read that request. The row keeps saying `running` and holds its
+probe against every job queued behind it.
+
+The runner clears those out on its own. Jobs left behind by a previous
+process are ended while the API starts, and every minute after that the
+reaper does the same for a job whose worker disappeared underneath a
+process that kept running. Such a job is reported as cancelled if somebody
+had asked for that, and as failed with `jobs.orphaned` otherwise; its locks
+are released either way.
+
+Restarting the API container is therefore the whole fix:
+
+```bash
+docker restart prtg-nats-web-api
+```
+
+A job whose worker is genuinely still working is a different case, and a
+restart there aborts real work: `mpp uninstall` waits up to fifteen minutes
+for the package manager on the probe. As long as the job log still gains
+lines, the cancel takes effect once the current step returns - wait for it.

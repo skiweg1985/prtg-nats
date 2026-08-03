@@ -40,8 +40,10 @@ logger = get_logger(__name__)
 
 IDLE_POLL_SECONDS = 1.0
 REAPER_INTERVAL_SECONDS = 60.0
-# A job still marked running after this long belongs to a process that is gone.
-_ORPHAN_AFTER = timedelta(minutes=45)
+# A running job this process does not know about was left behind by one that
+# died. The grace period only covers the moment between the claiming UPDATE
+# and its commit; anything older than that has no worker coming back for it.
+_ORPHAN_GRACE = timedelta(seconds=90)
 
 
 class JobRunner:
@@ -65,6 +67,9 @@ class JobRunner:
         self._stopping = asyncio.Event()
         # Transient values a job needs but must never store, keyed by job id.
         self._job_secrets: dict[str, dict[str, str]] = {}
+        # The jobs this process is actually carrying. The table cannot say so
+        # on its own: a row reading "running" is a claim, not a heartbeat.
+        self._active: set[str] = set()
 
     def hand_secrets(self, job_id: str, secrets: dict[str, str]) -> None:
         """Pass credentials to a queued job without writing them down.
@@ -76,6 +81,7 @@ class JobRunner:
 
     async def start(self) -> None:
         self._stopping.clear()
+        await self._recover_abandoned_jobs()
         for index in range(self._settings.job_worker_count):
             self._tasks.append(
                 asyncio.create_task(self._worker(index), name=f"job-worker-{index}")
@@ -111,36 +117,51 @@ class JobRunner:
 
     async def _claim_and_run(self) -> bool:
         """Take one job if there is one to take. Returns whether it ran."""
-        async with session_scope() as db:
-            jobs = JobService(db, self._broadcaster, autocommit=True)
-            job = await jobs.claim_next_queued()
-            if job is None:
-                return False
+        claimed_id: str | None = None
+        try:
+            async with session_scope() as db:
+                jobs = JobService(db, self._broadcaster, autocommit=True)
+                job = await jobs.claim_next_queued()
+                if job is None:
+                    return False
 
-            definition = get_definition(job.type)
-            if definition is None:
-                await jobs.finish(
-                    job,
-                    JobStatus.FAILED,
-                    error_code="jobs.unknown_type",
-                    error_details=f"no handler registered for {job.type!r}",
-                )
-                return True
+                # Recorded before the next await, because from the claiming
+                # UPDATE onwards the row reads running and the reaper decides
+                # what is abandoned by asking this set.
+                claimed_id = job.id
+                self._active.add(claimed_id)
 
-            blocking_job_id = await jobs.try_acquire_locks(job)
-            if blocking_job_id is not None:
-                # Not an error: the job waits its turn and the interface says so.
-                await jobs.release_to_queue(job, blocking_job_id)
-                return False
+                definition = get_definition(job.type)
+                if definition is None:
+                    await jobs.finish(
+                        job,
+                        JobStatus.FAILED,
+                        error_code="jobs.unknown_type",
+                        error_details=f"no handler registered for {job.type!r}",
+                    )
+                    return True
 
-            await jobs.mark_running(job)
-            job_id = job.id
-            correlation_id = job.correlation_id
+                blocking_job_id = await jobs.try_acquire_locks(job)
+                if blocking_job_id is not None:
+                    # Not an error: the job waits its turn and the interface
+                    # says so. Rare now that the claim skips blocked jobs -
+                    # this is the worker that lost the race for the lock.
+                    await jobs.release_to_queue(job, blocking_job_id)
+                    return False
 
-        set_correlation_id(correlation_id)
-        await self._run_job(job_id)
-        set_correlation_id(None)
-        return True
+                await jobs.mark_running(job)
+                correlation_id = job.correlation_id
+
+            set_correlation_id(correlation_id)
+            await self._run_job(claimed_id)
+            set_correlation_id(None)
+            return True
+        finally:
+            # Also on the way out of an exception: the claim survives in the
+            # table, so forgetting the job here is what lets the reaper find
+            # it rather than leaving it running with nobody behind it.
+            if claimed_id is not None:
+                self._active.discard(claimed_id)
 
     async def _run_job(self, job_id: str) -> None:
         secrets = self._job_secrets.pop(job_id, {})
@@ -270,26 +291,63 @@ class JobRunner:
                             "released expired resource locks",
                             extra={"count": released},
                         )
-                    await self._fail_orphaned_jobs(db, jobs)
+                    await self._end_abandoned_jobs(db, jobs, grace=_ORPHAN_GRACE)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("lock reaper failed")
 
-    async def _fail_orphaned_jobs(self, db, jobs: JobService) -> None:  # type: ignore[no-untyped-def]
-        """A job left running by a killed process is stuck forever otherwise."""
-        cutoff = datetime.now(UTC) - _ORPHAN_AFTER
-        orphans = await db.scalars(
-            select(Job).where(Job.status == JobStatus.RUNNING, Job.started_at < cutoff)
-        )
-        for job in orphans:
+    async def _recover_abandoned_jobs(self) -> None:
+        """Clear out whatever the previous process left behind.
+
+        The platform runs a single server, so nothing can be running while
+        this one starts up. A row that still says otherwise belongs to a
+        process that was restarted or killed - and left on its own it holds
+        the probe until the lease expires and shows up in the interface as a
+        job that runs forever, with a cancel button that has nobody left to
+        talk to.
+        """
+        async with session_scope() as db:
+            jobs = JobService(db, self._broadcaster, autocommit=True)
+            recovered = await self._end_abandoned_jobs(db, jobs, grace=None)
+        if recovered:
+            logger.warning(
+                "ended jobs left running by a previous process",
+                extra={"count": recovered},
+            )
+
+    async def _end_abandoned_jobs(  # type: ignore[no-untyped-def]
+        self, db, jobs: JobService, *, grace: timedelta | None
+    ) -> int:
+        """Finish every running job no worker of this process is carrying."""
+        query = select(Job).where(Job.status == JobStatus.RUNNING)
+        if grace is not None:
+            query = query.where(Job.started_at < datetime.now(UTC) - grace)
+
+        ended = 0
+        for job in await db.scalars(query):
+            if job.id in self._active:
+                continue
+            # A job somebody already asked to stop is reported as cancelled,
+            # not as a failure: the operator got what they asked for, however
+            # late, and a red row would be a lie about what happened.
+            cancelled = bool(job.cancel_requested)
+            await self._mark_steps_failed(jobs, job)
+            await jobs.log(
+                job,
+                "jobs.cancelled" if cancelled else "jobs.failed",
+                level=LogLevel.WARNING if cancelled else LogLevel.ERROR,
+                params={} if cancelled else {"reason": "jobs.orphaned"},
+            )
             await jobs.finish(
                 job,
-                JobStatus.FAILED,
-                error_code="jobs.orphaned",
-                error_details="the worker did not report back within the lease",
+                JobStatus.CANCELLED if cancelled else JobStatus.FAILED,
+                error_code=None if cancelled else "jobs.orphaned",
+                error_details=None if cancelled else "the worker did not report back",
             )
             await jobs.release_locks(job.id)
+            ended += 1
+        return ended
 
 
 _OUTCOME_MESSAGES: dict[JobStatus, str] = {
