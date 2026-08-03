@@ -134,7 +134,15 @@ run_ops() {
       printf '  web/backend/.venv/bin/pip install -e web/backend\n' >&2
       return 1
     }
+  # The runtime path has to travel along. Without it the backend falls back to
+  # PROJECT_DIR/runtime and writes the CA, the credentials and the database
+  # beside the checkout, while this script keeps reading the volume - two
+  # installations, one of which nothing serves. The API container carries the
+  # same value in its image; here it is whatever runtime-dir.sh resolved.
+  # shellcheck source=libexec/runtime-dir.sh
+  source "${LIBEXEC_DIR}/runtime-dir.sh"
   PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
+    PRTG_NATS_WEB_RUNTIME_DIR="${RUNTIME_DIR}" \
     PYTHONPATH="${PROJECT_DIR}/web/backend" \
     "${interpreter}" -m app.ops "$@"
 }

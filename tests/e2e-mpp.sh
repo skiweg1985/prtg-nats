@@ -30,6 +30,15 @@ NATS_USER="mpp-probe-e2e"
 # --network host.
 NATS_FQDN="127-0-0-1.sslip.io"
 KEEP_ENVIRONMENT="${PRTG_E2E_KEEP:-false}"
+# The stack as it is deployed, plus what this test has to change about it -
+# see tests/e2e/compose.e2e.yaml. Relative, because every compose call runs in
+# the admin container with the repository copy as its working directory.
+COMPOSE_FILES=(-f compose.yaml -f tests/e2e/compose.e2e.yaml)
+# Where the admin container sees the installation. The runtime moved into the
+# prtg-nats-runtime volume, so the inventory and the credentials this test
+# reads are here and not under the repository copy - checking a path beside
+# the checkout would only ever find the empty directory nobody writes to.
+RUNTIME_MOUNT="/srv/prtg-nats/runtime"
 
 passed=0
 failed=0
@@ -101,7 +110,8 @@ cleanup() {
   printf '\nCleaning up the test environment...\n'
   if [[ -n "${WORK_DIR}" ]]; then
     docker exec "${ADMIN_CONTAINER}" \
-      docker compose --project-directory "${WORK_DIR}" down \
+      docker compose --project-directory "${WORK_DIR}" \
+      "${COMPOSE_FILES[@]}" down \
       >/dev/null 2>&1 || true
   fi
   docker rm -f "${PROBE_CONTAINER}" "${ADMIN_CONTAINER}" >/dev/null 2>&1 || true
@@ -152,12 +162,12 @@ docker build -q -t prtg-e2e-admin \
 printf '  Images are ready.\n'
 
 log "Creating the repository copy"
-# The compose stack bind-mounts ./runtime. Such paths are always
-# resolved by the Docker host, not the caller. If this script itself runs
-# in a container - in Gitea Actions, say - a directory created here would
-# be invisible to the host and the admin container would get an empty
-# one. The working directory is therefore created and filled directly on
-# the host through helper containers. That works in both cases.
+# Compose resolves the project directory and every relative bind mount in it
+# on the Docker host, not in the caller. If this script itself runs in a
+# container - in Gitea Actions, say - a directory created here would be
+# invisible to the host and the admin container would get an empty one. The
+# working directory is therefore created and filled directly on the host
+# through helper containers. That works in both cases.
 WORK_DIR="/tmp/prtg-e2e.$(
   head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n'
 )"
@@ -194,8 +204,8 @@ docker run -d --name "${ADMIN_CONTAINER}" --hostname prtg-e2e-admin \
   --network "${NETWORK_NAME}" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "${WORK_DIR}:${WORK_DIR}" -w "${WORK_DIR}" \
-  -v prtg-nats-runtime:/srv/prtg-nats/runtime \
-  -e PRTG_NATS_RUNTIME_DIR=/srv/prtg-nats/runtime \
+  -v "prtg-nats-runtime:${RUNTIME_MOUNT}" \
+  -e "PRTG_NATS_RUNTIME_DIR=${RUNTIME_MOUNT}" \
   prtg-e2e-admin >/dev/null
 
 for _ in $(seq 1 30); do
@@ -271,7 +281,8 @@ docker exec "${ADMIN_CONTAINER}" ./prtg-nats init >/dev/null
 # namespace, which this nested test environment does not have, and the rollout
 # copies the CA over the bootstrap session anyway.
 docker exec "${ADMIN_CONTAINER}" \
-  docker compose --project-directory "${WORK_DIR}" up -d nats \
+  docker compose --project-directory "${WORK_DIR}" \
+  "${COMPOSE_FILES[@]}" up -d nats \
   >/dev/null
 for _ in $(seq 1 30); do
   [[ "$(
@@ -351,11 +362,11 @@ check "the probe is signed in to NATS" "${connection_user}" "${NATS_USER}"
 log "Probe identity"
 first_key="$(
   docker exec "${ADMIN_CONTAINER}" bash -c \
-    "grep '^ACCESS_KEY=' runtime/probes/${NATS_USER}.env | cut -d= -f2-"
+    "grep '^ACCESS_KEY=' ${RUNTIME_MOUNT}/probes/${NATS_USER}.env | cut -d= -f2-"
 )"
 first_id="$(
   docker exec "${ADMIN_CONTAINER}" bash -c \
-    "grep '^PROBE_ID=' runtime/probes/${NATS_USER}.env | cut -d= -f2-"
+    "grep '^PROBE_ID=' ${RUNTIME_MOUNT}/probes/${NATS_USER}.env | cut -d= -f2-"
 )"
 [[ -n "${first_key}" ]] || die "No access key in the inventory"
 printf '  Access Key: %s\n' "${first_key}"
@@ -373,11 +384,11 @@ check_contains "configuration rolled out again" "${second_run}" \
   "Configuration applied"
 check "access key unchanged" \
   "$(docker exec "${ADMIN_CONTAINER}" bash -c \
-    "grep '^ACCESS_KEY=' runtime/probes/${NATS_USER}.env | cut -d= -f2-")" \
+    "grep '^ACCESS_KEY=' ${RUNTIME_MOUNT}/probes/${NATS_USER}.env | cut -d= -f2-")" \
   "${first_key}"
 check "probe id unchanged" \
   "$(docker exec "${ADMIN_CONTAINER}" bash -c \
-    "grep '^PROBE_ID=' runtime/probes/${NATS_USER}.env | cut -d= -f2-")" \
+    "grep '^PROBE_ID=' ${RUNTIME_MOUNT}/probes/${NATS_USER}.env | cut -d= -f2-")" \
   "${first_id}"
 
 log "Fleet overview"
@@ -498,7 +509,7 @@ check "the management access is gone" \
 check "the inventory entry is gone" \
   "$(
     docker exec "${ADMIN_CONTAINER}" \
-      bash -c "test -e runtime/probes/${NATS_USER}.env && echo present || echo absent"
+      bash -c "test -e ${RUNTIME_MOUNT}/probes/${NATS_USER}.env && echo present || echo absent"
   )" \
   "absent"
 # The account is a separate decision, and the retirement says so rather than
@@ -506,7 +517,7 @@ check "the inventory entry is gone" \
 check "the NATS account survives" \
   "$(
     docker exec "${ADMIN_CONTAINER}" \
-      bash -c "test -e runtime/credentials/${NATS_USER}.env && echo present || echo absent"
+      bash -c "test -e ${RUNTIME_MOUNT}/credentials/${NATS_USER}.env && echo present || echo absent"
   )" \
   "present"
 
