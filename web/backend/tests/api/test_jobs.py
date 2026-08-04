@@ -898,3 +898,118 @@ async def test_an_open_stream_does_not_hold_the_sqlite_write_lock(
             assert claimed.id == job_id
             # With the lock held this waits out the busy timeout and raises.
             await asyncio.wait_for(db.commit(), timeout=3)
+
+
+async def test_a_line_written_while_the_backlog_is_read_still_arrives(
+    app: Any,
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The window between the stored half and the live one has to be closed.
+
+    The route used to read the backlog and subscribe afterwards, and a worker
+    logging in between wrote into neither: the line was past the query and
+    ahead of the subscription. Reproduced by publishing from inside the backlog
+    read, which is exactly where the worker was.
+    """
+    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    await sign_in(client)
+    job_id = await queued_job(session_factory)
+
+    original = JobService.events
+    published = False
+
+    async def events_that_race(self: JobService, job_id_arg: str, **kwargs: Any) -> Any:
+        nonlocal published
+        result = await original(self, job_id_arg, **kwargs)
+        if not published:
+            published = True
+            await get_broadcaster().publish(
+                StreamEvent(
+                    topic=job_topic(job_id_arg),
+                    kind="job.event",
+                    payload={"sequence": 1, "code": "jobs.in_the_window"},
+                )
+            )
+        return result
+
+    monkeypatch.setattr(JobService, "events", events_that_race)
+
+    async with await open_stream(app, client, job_id) as stream:
+        await asyncio.wait_for(stream.read_until(b"jobs.in_the_window"), 10)
+
+
+async def test_a_replayed_line_is_not_sent_a_second_time(
+    app: Any,
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listening before reading means the two halves can overlap.
+
+    Whatever the backlog already carried has to be dropped when it arrives
+    again on the live side, or the operator reads the same line twice.
+    """
+    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    await sign_in(client)
+    job_id = await queued_job(session_factory)
+
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        job = await jobs.get(job_id)
+        await jobs.log(job, "jobs.stored_line")
+        await db.commit()
+
+    async with await open_stream(app, client, job_id) as stream:
+        await asyncio.wait_for(stream.read_until(b"jobs.stored_line"), 10)
+
+        # The same sequence the backlog already replayed.
+        await get_broadcaster().publish(
+            StreamEvent(
+                topic=job_topic(job_id),
+                kind="job.event",
+                payload={"sequence": 1, "code": "jobs.stored_line"},
+            )
+        )
+        await get_broadcaster().publish(
+            StreamEvent(
+                topic=job_topic(job_id),
+                kind="job.event",
+                payload={"sequence": 2, "code": "jobs.fresh_line"},
+            )
+        )
+        await asyncio.wait_for(stream.read_until(b"jobs.fresh_line"), 10)
+
+    assert stream.received.count(b"jobs.stored_line") == 1
+
+
+async def test_the_whole_backlog_is_replayed_not_the_first_page(
+    app: Any,
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A page size is not a reason to lose the middle of a job's log.
+
+    One query with the service's own limit cut the replay off and the stream
+    carried on from the live end, so everything between the page and the
+    present was gone for good.
+    """
+    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(jobs_route, "_BACKLOG_PAGE", 2)
+    await sign_in(client)
+    job_id = await queued_job(session_factory)
+
+    async with session_factory() as db:
+        jobs = JobService(db, get_broadcaster())
+        job = await jobs.get(job_id)
+        for index in range(5):
+            await jobs.log(job, f"jobs.line_{index}")
+        await db.commit()
+
+    async with await open_stream(app, client, job_id) as stream:
+        await asyncio.wait_for(stream.read_until(b"jobs.line_4"), 10)
+
+    for index in range(5):
+        assert f"jobs.line_{index}".encode() in stream.received

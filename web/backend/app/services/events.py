@@ -48,20 +48,35 @@ class EventBroadcaster:
                 with suppress(asyncio.QueueFull):
                     queue.put_nowait(event)
 
-    async def subscribe(self, topic: str) -> AsyncGenerator[StreamEvent, None]:
+    async def register(self, topic: str) -> asyncio.Queue[StreamEvent]:
+        """Start collecting for a subscriber that is not reading yet.
+
+        Split out of subscribe() for the one caller that has to be listening
+        before it reads anything: a stream replaying stored history first has
+        to hold the live events that arrive while it does, or the lines
+        produced between the read and the first yield exist in neither half.
+        The caller owns the queue until it hands it back to unregister().
+        """
         queue: asyncio.Queue[StreamEvent] = asyncio.Queue(SUBSCRIBER_QUEUE_SIZE)
         async with self._lock:
             self._subscribers.setdefault(topic, set()).add(queue)
+        return queue
+
+    async def unregister(self, topic: str, queue: asyncio.Queue[StreamEvent]) -> None:
+        async with self._lock:
+            subscribers = self._subscribers.get(topic)
+            if subscribers is not None:
+                subscribers.discard(queue)
+                if not subscribers:
+                    del self._subscribers[topic]
+
+    async def subscribe(self, topic: str) -> AsyncGenerator[StreamEvent, None]:
+        queue = await self.register(topic)
         try:
             while True:
                 yield await queue.get()
         finally:
-            async with self._lock:
-                subscribers = self._subscribers.get(topic)
-                if subscribers is not None:
-                    subscribers.discard(queue)
-                    if not subscribers:
-                        del self._subscribers[topic]
+            await self.unregister(topic, queue)
 
     async def subscriber_count(self, topic: str) -> int:
         async with self._lock:

@@ -29,7 +29,7 @@ MAXIMUM_HELPER_BYTES=524288
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=2
+HELPER_VERSION=3
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -948,6 +948,10 @@ install_sensor_files() {
   rm -f -- "${prepared}"
 }
 
+# Undo an activation. Only the slots activate_sensor recorded a "before" for
+# are touched: a staged slot without one was never installed, and deleting its
+# target would take away the working sensor that is still standing there - the
+# rollout failed before it ever replaced anything.
 restore_sensor_files() {
   local transaction="$1"
   local name="$2"
@@ -964,7 +968,7 @@ restore_sensor_files() {
       chown --reference="${transaction}/original-${slot}" "${target}.restore"
       chmod --reference="${transaction}/original-${slot}" "${target}.restore"
       mv "${target}.restore" "${target}"
-    else
+    elif [[ -f "${transaction}/original-${slot}-absent" ]]; then
       rm -f -- "${target}"
     fi
   done
@@ -1086,6 +1090,13 @@ activate_sensor() {
     fi
   done
 
+  # From here on the installed state is ours to undo, and the "before" of every
+  # slot above is on disk. A rollback that arrives without this marker belongs
+  # to a transaction that never got this far and therefore has nothing to
+  # restore.
+  : > "${transaction}/activated"
+  chmod 0600 "${transaction}/activated"
+
   install_sensor_files "${transaction}" "${name}" "${service_user}"
   if ! sensor_self_check "${name}" "${service_user}"; then
     restore_sensor_files "${transaction}" "${name}" "${service_user}"
@@ -1105,6 +1116,15 @@ rollback_sensor() {
     die "Unknown or incomplete sensor transaction"
   name="$(<"${transaction}/sensor-name")"
   validate_token "${name}" || die "Invalid sensor name"
+  # A transaction that never reached activation left the installed sensor
+  # untouched. Restoring it would mean removing files this transaction never
+  # wrote - the rollout that failed while staging must not take the working
+  # sensor down with it.
+  if [[ ! -f "${transaction}/activated" ]]; then
+    rm -rf -- "${transaction}"
+    printf 'OK sensor-rolled-back %s nothing-to-restore\n' "${name}"
+    return 0
+  fi
   restore_sensor_files "${transaction}" "${name}" "$(sensor_service_user)"
   printf 'OK sensor-rolled-back %s\n' "${name}"
 }

@@ -60,6 +60,14 @@ configuration:
 That also proves the permission chain, not just the file: a script that
 cannot reach its privileged helper through `sudo` does not get through.
 
+A rollout that fails earlier - a connection lost between two files, a probe
+that stops answering while staging - is rolled back too, and that rollback
+restores only what step 2 actually replaced. A sensor that was already
+running is therefore still running afterwards, in the version it had before
+anyone touched it. Helper versions below 3 removed it instead, so a failed
+update took the working sensor with it; update the helper before the next
+rollout if a probe still reports one of them.
+
 ## What is created on the probe
 
 | File | Owner | Mode |

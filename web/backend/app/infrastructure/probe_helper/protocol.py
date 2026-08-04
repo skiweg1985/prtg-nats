@@ -48,7 +48,13 @@ FIELD_SEPARATOR = "\t"
 # than of the rewritten one. Version 1 still speaks the same protocol, so the
 # minimum stays where it is - it merely reports every sensor with dependencies
 # as modified, which an offered helper update resolves.
-CURRENT_HELPER_VERSION = 2
+#
+# Version 3 restores only what an activation actually replaced. Before it, a
+# sensor-rollback for a transaction that failed while staging deleted the
+# installed sensor it had not touched yet - a failed update took the working
+# version with it. The protocol is unchanged, so the minimum stays at 1, but a
+# probe below 3 should be updated before the next rollout.
+CURRENT_HELPER_VERSION = 3
 MINIMUM_HELPER_VERSION = 1
 
 # What the helper answers to a request it does not know. Recognised verbatim
