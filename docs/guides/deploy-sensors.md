@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Manage sensor scripts centrally
@@ -70,6 +70,7 @@ cannot reach its privileged helper through `sudo` does not get through.
 | `/etc/systemd/system/prtg-sensor-NAME@.service` | `root:root` | `0644` |
 | `/run/prtg-sensor-NAME.sock` | `root:SERVICE-USER` | `0660` |
 | `/etc/prtg-nats/sensors/NAME/version` | `root:root` | `0644` |
+| `/etc/prtg-nats/sensors/NAME/shebang`, with dependencies only | `root:root` | `0644` |
 | `/etc/prtg-nats/sensors/NAME/profiles/*.env` | `root:root` | `0600` |
 | `/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf` | `root:root` | `0644` |
 
@@ -206,6 +207,16 @@ If a sensor ships a `requirements.txt`, deployment creates a dedicated
 environment on the probe under `/var/lib/prtg-nats-sensors/venv/NAME` and
 points the installed script's shebang at it. This is necessary because Debian
 no longer allows system-wide `pip` installs since PEP 668.
+
+That rewrite means the installed file is not byte-identical with the one in
+the catalogue, and the deviation check compares exactly those bytes. The
+helper therefore records the line the catalogue shipped under
+`/etc/prtg-nats/sensors/NAME/shebang` and puts it back before it reports the
+checksum; every other byte, and a shebang the helper did not write itself,
+stays visible as a deviation. A probe still running helper version 1 reports
+such a sensor as "Modified" for good, which
+[the troubleshooting page](troubleshooting.md#a-sensor-reports-as-modified-right-after-deployment)
+covers.
 
 The probe needs two things for it:
 
