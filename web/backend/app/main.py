@@ -30,7 +30,7 @@ from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTransport
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
-from app.persistence.base import Base
+from app.persistence.schema import ensure_schema
 from app.persistence.session import dispose_engine, init_engine
 from app.services.events import get_broadcaster
 from app.services.provisioning import ProvisioningService
@@ -57,10 +57,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     engine = init_engine(settings)
-    # Alembic owns the schema in a real deployment. This is the development and
-    # first-run path, so a fresh checkout comes up without a migration step.
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    # Before anything else touches the database, and deliberately not guarded
+    # by the environment: this used to create the missing tables and stop
+    # there, which let a migration that adds a column reach an operator as a
+    # service answering 500 to every request that read it.
+    await ensure_schema(engine)
 
     runtime = RuntimeFileStore(settings)
     catalog = SensorCatalog(settings.sensor_source_dir)

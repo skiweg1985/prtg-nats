@@ -1,7 +1,7 @@
 ---
 title: Install the web platform
 role: operator
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Install the web platform
@@ -100,8 +100,41 @@ git pull
 docker compose up -d --build
 ```
 
-Database migrations run at start-up. The schema is owned by Alembic; a change
-without a matching migration fails in CI rather than on your server.
+Database migrations run at start-up, before the job workers do. The schema is
+owned by Alembic: a change without a matching migration fails in CI rather
+than on your server, and a migration that never ran is not something the
+service starts up around. A fresh installation is built by the migrations too,
+so there is only ever one thing that has shaped the schema.
+
+If the upgrade cannot be applied, `web-api` stops with the reason in its log
+rather than serving requests against a schema it does not fit:
+
+```bash
+docker compose logs web-api
+```
+
+### A database from before migrations ran
+
+Installations set up before this shipped have a schema nobody recorded a
+version for: it was created from the models directly. The service takes such a
+database over on the next start, as long as its schema still matches the
+models - it is at the current revision, it just never said so.
+
+If it does not match, it is behind by an unknown number of releases, and only
+you know which version it last ran. The service refuses to start and names
+what is missing. Stamp it with the revision that version shipped, then upgrade:
+
+```bash
+docker compose exec web-api alembic history
+docker compose exec web-api alembic stamp REVISION
+docker compose exec web-api alembic upgrade head
+```
+
+`alembic history` lists the revisions newest first, each with its description
+and the date it was written; the version you were running is the newest one
+older than the day you installed it. Stamping too new a revision skips the
+migrations in between, which is the failure this whole mechanism exists to
+prevent - when in doubt, stamp the older one and let the upgrade do the work.
 
 ## Turning the interface off
 
