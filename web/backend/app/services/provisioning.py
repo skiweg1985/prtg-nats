@@ -8,6 +8,7 @@ Python function with the same file formats and the same refusals.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gzip
 import hashlib
 import tarfile
@@ -27,6 +28,13 @@ from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.infrastructure.pki import Pki
 from app.infrastructure.runtime_files import RuntimeFileStore
+
+# How long a configuration reload has to show up in the monitoring endpoint
+# before it counts as refused. NATS applies it synchronously, but the signal
+# goes through the Docker daemon and the endpoint is polled - two seconds were
+# tight enough that a busy host produced a refusal for a reload that worked.
+RELOAD_VERIFY_INTERVAL = 0.25
+RELOAD_VERIFY_ATTEMPTS = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,10 +253,32 @@ class ProvisioningService:
             raise
         finally:
             if was_running:
-                await self._docker.start(StackContainer.NATS)
-                await self._docker.wait_healthy(StackContainer.NATS)
+                await self._restart_after_backup()
 
         return BackupResult(archive=str(archive), sha256=checksum, size_bytes=size)
+
+    async def _restart_after_backup(self) -> None:
+        """Bring NATS back up, cancellation included.
+
+        The restart is the half of this that must not be skipped: a backup
+        interrupted by a shutdown or a cancelled job would otherwise leave the
+        backbone stopped, and nothing starts it again - every probe loses its
+        connection until somebody notices. Shielded so the cancellation
+        travelling through this task does not reach the restart as well, and
+        awaited once more afterwards so the container is up before the
+        exception carries on.
+        """
+        restart = asyncio.ensure_future(self._start_nats())
+        try:
+            await asyncio.shield(restart)
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await restart
+            raise
+
+    async def _start_nats(self) -> None:
+        await self._docker.start(StackContainer.NATS)
+        await self._docker.wait_healthy(StackContainer.NATS)
 
     # --- Runtime export -----------------------------------------------------
 
@@ -384,11 +414,20 @@ class ProvisioningService:
         await self._docker.reload_config(StackContainer.NATS)
         # NATS applies a reload synchronously, but the signal travels through
         # the daemon; a short wait avoids reading the old value back.
-        for _ in range(10):
-            await asyncio.sleep(0.2)
+        after: str | None = None
+        for _ in range(RELOAD_VERIFY_ATTEMPTS):
+            await asyncio.sleep(RELOAD_VERIFY_INTERVAL)
             after = await self._config_load_time()
             if after is not None and after != before:
                 return
+
+        if before is None and after is None:
+            # The monitoring endpoint answered nothing, before or after. That
+            # says the reload could not be verified, not that it was refused -
+            # reporting a failure here would turn every account change into an
+            # error on an installation whose monitoring port is unreachable,
+            # while the files and the signal were both fine.
+            return
 
         raise NatsReloadRefusedError(
             details=(

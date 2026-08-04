@@ -41,6 +41,16 @@ class FakeDocker:
         self.reloads += 1
 
 
+@pytest.fixture(autouse=True)
+def quick_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The wait for the timestamp, without the wait.
+
+    The refusal is only decided after the full verification window, so a test
+    for it otherwise spends that window sleeping.
+    """
+    monkeypatch.setattr(provisioning_module, "RELOAD_VERIFY_INTERVAL", 0.0)
+
+
 @pytest.fixture
 def patched_load_time(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
     """Control what /varz reports for config_load_time."""
@@ -56,6 +66,20 @@ def patched_load_time(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyp
 
     monkeypatch.setattr(provisioning_module, "NatsMonitoringClient", FakeClient)
     return values
+
+
+@pytest.fixture
+def silent_monitoring(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A monitoring endpoint that answers nothing at all."""
+
+    class UnavailableClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def fetch_state(self) -> NatsServerState:
+            return NatsServerState(available=False)
+
+    monkeypatch.setattr(provisioning_module, "NatsMonitoringClient", UnavailableClient)
 
 
 async def test_a_refused_reload_is_an_error_not_a_shrug(
@@ -93,3 +117,42 @@ async def test_without_docker_nothing_is_claimed(settings: Settings) -> None:
 
     service = ProvisioningService(settings, NoDocker())  # type: ignore[arg-type]
     await service._reload_server()  # does not raise
+
+
+async def test_an_unverifiable_reload_is_not_reported_as_a_refusal(
+    settings: Settings, silent_monitoring: None
+) -> None:
+    """Not knowing is not the same as knowing it failed.
+
+    An installation whose monitoring port is unreachable answers nothing
+    before the reload and nothing after, and the comparison can never show a
+    change. Read as a refusal - which is what it did - every account created,
+    rotated or deleted ended as an error while the files and the signal were
+    both fine.
+    """
+    docker = FakeDocker()
+    service = ProvisioningService(settings, docker)  # type: ignore[arg-type]
+
+    await service._reload_server()  # does not raise
+
+    assert docker.reloads == 1
+
+
+async def test_a_reload_that_answers_late_still_counts(
+    settings: Settings, patched_load_time: list[str | None]
+) -> None:
+    """The signal travels through the daemon; the first look can be early."""
+    patched_load_time.extend(
+        [
+            "2026-08-03T07:10:37Z",  # before
+            "2026-08-03T07:10:37Z",  # not applied yet
+            "2026-08-03T07:10:37Z",
+            "2026-08-03T07:48:32Z",  # applied
+        ]
+    )
+    docker = FakeDocker()
+    service = ProvisioningService(settings, docker)  # type: ignore[arg-type]
+
+    await service._reload_server()
+
+    assert docker.reloads == 1
