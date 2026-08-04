@@ -503,6 +503,24 @@ check "the setup script sits where it is expected" \
 check "and masters the password change without a key swap" \
   "$(bash sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh --help |
     grep -c -- '--force-credentials')" "1"
+# /etc/iperf3 is closed to everyone but root and the service group, so the
+# administrator the session belongs to cannot read the public key there.
+# The setup run hands it over while it still has root; without that the
+# install ends after the endpoint is already set up.
+check "the setup script can hand out the public key" \
+  "$(bash sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh --help |
+    grep -c -- '--export-public-key')" "1"
+check "and the install asks it to" \
+  "$(grep -c -- '--export-public-key %q' libexec/manage-iperf-server.sh)" "1"
+check "and reads the copy, not the closed directory" \
+  "$(grep -c 'cat .\${REMOTE_STAGE}/public.pem' \
+    libexec/manage-iperf-server.sh)" "1"
+# Unconditionally: the install records the password it generated, so the
+# endpoint has to take it over even on the first run against a host that
+# was set up by hand. Anything else records a password nobody can use.
+check "the install always enforces its own password" \
+  "$(grep -c 'setup_options+=(--force-credentials)' \
+    libexec/manage-iperf-server.sh)" "1"
 # Exactly one sensor declares itself responsible for endpoints; through
 # this field "sensor deploy" learns the credentials belong along.
 check "the iperf sensor declares its endpoints" \

@@ -112,6 +112,13 @@ exactly the password stored here — the already-served probes keep their
 access. That also lets you bring an endpoint back in line that somebody
 changed by hand.
 
+**The password of this side always wins.** The first run against a host
+that was set up by hand replaces its credentials with the one generated
+here; the key pair survives it. Probes that were supplied by hand
+beforehand need `iperf-server deploy` afterwards. The alternative would be
+an endpoint that keeps its old password while this side records a
+different one — a mismatch nobody sees until the sensor reports it.
+
 **The endpoint gets no permanent access from here.** Unlike a probe it is
 not managed, only measured; every intervention signs in anew. That is why
 `--rotate` needs an SSH target again as well.
@@ -216,8 +223,14 @@ shred -u /root/iperf-password
 | `--user NAME` | different user name, default `prtg-probe` |
 | `--password-file PATH` | your own password instead of a generated one |
 | `--port PORT` | different port, default 5201 |
+| `--export-public-key PATH` | a copy of the public key at PATH, readable by everyone |
 | `--force-credentials` | **password change**: new credentials, the key pair stays. The probes only need the new password |
 | `--force` | replace key pair **and** credentials. Every probe needs both anew afterwards |
+
+`/etc/iperf3` belongs to `root` and the service group and is closed to
+everyone else, so the public key can only be picked up there as root. If
+you ran the script through `sudo`, `--export-public-key` hands it out in
+the same run and saves you the second elevation.
 
 Without the two `--force` options everything existing stays untouched; the
 script only verifies and reports. That also makes it usable to inspect an

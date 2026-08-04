@@ -57,8 +57,10 @@ IPERF_KIND="iperf3"
 # libexec/, because it can also be fetched from there by hand - the manual
 # path in sensors/iperf-throughput/README.md uses the same file.
 SETUP_SCRIPT="${SENSOR_SOURCE_DIR}/iperf-throughput/endpoint/setup-iperf3-endpoint.sh"
-# Where the endpoint stores its public key. The same path is in the setup
-# script; here it is only read.
+# Where the endpoint stores its public key. Only for the error message: the
+# directory is closed to everyone but root and the service group, so the
+# administrator we sign in as reads the copy from the staging directory
+# instead.
 REMOTE_PUBLIC_KEY="/etc/iperf3/public.pem"
 
 DRY_RUN="false"
@@ -316,12 +318,13 @@ install_iperf() {
   fi
 
   setup_options=(--user "${iperf_user}" --port "${port}")
-  # Afterwards the endpoint has to hold exactly the password recorded here.
-  # Without this switch it would keep an existing one and the two sides would
-  # drift apart without anyone noticing. The key pair stays untouched -
-  # replacing it costs every probe its access.
-  [[ ! -f "${existing}" ]] || setup_options+=(--force-credentials)
-  [[ "${rotate}" != "true" ]] || setup_options+=(--force-credentials)
+  # Afterwards the endpoint has to hold exactly the password recorded here,
+  # in every case. Without this switch the endpoint keeps a password it
+  # already has while this side records the one it just generated, and the
+  # two drift apart without anyone noticing - the first run against a host
+  # somebody set up by hand is exactly that case. The key pair stays
+  # untouched; replacing it costs every probe its access.
+  setup_options+=(--force-credentials)
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     printf '\nDry run, nothing was changed:\n'
@@ -364,9 +367,10 @@ install_iperf() {
     session_run "umask 077; cat > '${REMOTE_STAGE}/password'"
 
   printf -v remote_command \
-    'bash %q --password-file %q' \
+    'bash %q --password-file %q --export-public-key %q' \
     "${REMOTE_STAGE}/setup-iperf3-endpoint.sh" \
-    "${REMOTE_STAGE}/password"
+    "${REMOTE_STAGE}/password" \
+    "${REMOTE_STAGE}/public.pem"
   for option in "${setup_options[@]}"; do
     printf -v remote_command '%s %q' "${remote_command}" "${option}"
   done
@@ -381,8 +385,11 @@ install_iperf() {
     "${remote_command}" ||
     die "The endpoint setup on ${ssh_target} failed; nothing was recorded here"
 
-  public_key="$(session_run "cat '${REMOTE_PUBLIC_KEY}'")" ||
-    die "Could not read the public key ${REMOTE_PUBLIC_KEY} from ${ssh_target}"
+  # The copy in the staging directory, not ${REMOTE_PUBLIC_KEY} itself: the
+  # setup run put it there as root, and reading the original would need a
+  # second sudo prompt for a key that is public anyway.
+  public_key="$(session_run "cat '${REMOTE_STAGE}/public.pem'")" ||
+    die "Could not read the public key of ${ssh_target}; the setup run should have copied ${REMOTE_PUBLIC_KEY} to ${REMOTE_STAGE}/public.pem"
   printf '%s\n' "${public_key}" | grep -q -- '-----BEGIN PUBLIC KEY-----' ||
     die "The endpoint did not return a usable public key"
 

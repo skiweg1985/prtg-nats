@@ -19,6 +19,7 @@ SERVICE=iperf3.service
 
 user_name=prtg-probe
 password_file=""
+export_public_key=""
 port=5201
 force=no
 force_credentials=no
@@ -39,6 +40,11 @@ who may sudo -- the script raises itself.
                           A password on the command line would end up in the
                           shell history, so there is no --password.
   --port PORT             port the endpoint listens on (default: 5201)
+  --export-public-key PATH
+                          write a copy of the public key to PATH, readable
+                          by everyone. /etc/iperf3 is closed to all but root
+                          and the service group, so whoever called this
+                          script cannot pick the key up there.
   --force-credentials     replace the credentials but keep the key pair. This
                           is the password rotation: the probes need the new
                           password, but the key they already have stays valid.
@@ -81,6 +87,11 @@ while [[ $# -gt 0 ]]; do
       password_file="$2"
       shift 2
       ;;
+    --export-public-key)
+      [[ $# -ge 2 ]] || die "--export-public-key needs a path"
+      export_public_key="$2"
+      shift 2
+      ;;
     --port)
       [[ $# -ge 2 ]] || die "--port needs a value"
       port="$2"
@@ -110,6 +121,12 @@ done
   die "The user name may only contain letters, digits, hyphen and underscore"
 [[ "${port}" =~ ^[0-9]+$ && "${port}" -ge 1 && "${port}" -le 65535 ]] ||
   die "The port must be a number between 1 and 65535"
+if [[ -n "${export_public_key}" ]]; then
+  [[ "${export_public_key}" == /* ]] ||
+    die "--export-public-key needs an absolute path"
+  [[ -d "$(dirname -- "${export_public_key}")" ]] ||
+    die "The directory for ${export_public_key} does not exist"
+fi
 # Whoever signs in over SSH as an ordinary administrator should not have
 # to re-run the script with sudo by hand. It elevates itself, the way
 # install-mpp.sh does on a probe.
@@ -157,6 +174,14 @@ fi
 chown root:"${service_group}" "${CONFIG_DIR}/private.pem" "${CONFIG_DIR}/public.pem"
 chmod 0640 "${CONFIG_DIR}/private.pem"
 chmod 0644 "${CONFIG_DIR}/public.pem"
+# The public key is the one thing here that has to leave the machine, and
+# the directory around it is closed. Handing it out while we still have root
+# saves the caller a second elevation - they came in as an administrator,
+# not as a member of the service group.
+if [[ -n "${export_public_key}" ]]; then
+  install -m 0644 "${CONFIG_DIR}/public.pem" "${export_public_key}"
+  note "exported the public key to ${export_public_key}"
+fi
 
 printf '\n== Credentials ==\n'
 password=""
