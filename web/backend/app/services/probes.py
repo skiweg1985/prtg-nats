@@ -8,6 +8,7 @@ state - and with the last thing the probe said about itself.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -464,19 +465,12 @@ def _derive_status(
 def _with_sensors(
     observed: ObservedProbeState, sensors: tuple[InstalledSensor, ...]
 ) -> ObservedProbeState:
-    return ObservedProbeState(
-        nats_username=observed.nats_username,
-        observed_at=observed.observed_at,
-        reachable=observed.reachable,
-        service=observed.service,
-        package_version=observed.package_version,
-        hostname=observed.hostname,
-        ca_sha256=observed.ca_sha256,
-        config_path=observed.config_path,
-        probe_id=observed.probe_id,
-        probe_name=observed.probe_name,
-        has_access_key=observed.has_access_key,
-        sensors=sensors,
-        error_code=observed.error_code,
-        error_details=observed.error_details,
-    )
+    """One field replaced, every other one carried over untouched.
+
+    Listing the fields by hand here dropped helper_version and helper_sha256
+    on every probe whose sensor list could be read - which is every healthy
+    one. The platform then saw a probe reporting no helper version at all,
+    called it older than itself, and told the operator to enrol it again;
+    enrolling again produced the same probe and the same message.
+    """
+    return dataclasses.replace(observed, sensors=sensors)
