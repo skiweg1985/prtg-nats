@@ -75,11 +75,37 @@ async def enroll(context: JobContext) -> dict[str, Any]:
         },
     )
 
-    # --- 2. Does the management channel answer? -----------------------------
-    # The first use of the access the bootstrap installed. If the source
-    # network in its authorized_keys names the wrong address, this is where it
-    # shows - and the message says so, because the repair is a walk to that
-    # host's console and nothing here can do it.
+    return await finish_setup(
+        context,
+        name=name,
+        host=host,
+        ssh_port=ssh_port,
+        iperf_port=iperf_port,
+        username=username,
+        expected_from=payload.get("ssh_source_cidr"),
+    )
+
+
+async def finish_setup(
+    context: JobContext,
+    *,
+    name: str,
+    host: str,
+    ssh_port: int,
+    iperf_port: int,
+    username: str,
+    expected_from: str | None,
+) -> dict[str, Any]:
+    """Everything after the access exists - shared by both ways in.
+
+    How the management access got onto the endpoint differs: it fetched a
+    bootstrap script, or this platform signed in and installed it. From here on
+    there is only one host with one channel, and one thing to do with it.
+    """
+    # --- Does the management channel answer? --------------------------------
+    # The first use of the access. If the source network in its authorized_keys
+    # names the wrong address, this is where it shows - and the message says
+    # so, because the repair is a walk to that host's console.
     await context.step("verify_access")
     connection = EndpointConnection(name=name, host=host, port=ssh_port)
     info = await context.endpoints.endpoint_info(connection)
@@ -95,10 +121,9 @@ async def enroll(context: JobContext) -> dict[str, Any]:
 
     # What address the endpoint sees us arrive from. The platform cannot know
     # this for itself behind NAT, and it is what the "from=" rule has to name -
-    # so it is recorded here, where a later invitation can be filled in with a
+    # so it is recorded here, where a later run can be filled in with a
     # measured value instead of a guess.
     seen_from = info.value("peer")
-    expected_from = payload.get("ssh_source_cidr")
     if seen_from and seen_from != "none":
         await context.log(
             "jobs.iperf.seen_from",
@@ -109,8 +134,8 @@ async def enroll(context: JobContext) -> dict[str, Any]:
             },
         )
 
-    # --- 3. The endpoint itself ---------------------------------------------
-    # Deliberately over the channel rather than in the bootstrap: the channel
+    # --- The endpoint itself -------------------------------------------------
+    # Deliberately over the channel rather than during the install: the channel
     # is what everything later depends on, so it is exercised before anything
     # relies on it. The same split the probe enrolment makes.
     await context.step("setup_endpoint")
@@ -129,7 +154,7 @@ async def enroll(context: JobContext) -> dict[str, Any]:
         },
     )
 
-    # --- 4. The record -------------------------------------------------------
+    # --- The record ----------------------------------------------------------
     # Last, and the one step that cannot be retried on its own: the endpoint
     # already holds this password. A failure here is repaired by running the
     # enrolment again, which sets a fresh one - said out loud below, because
@@ -144,6 +169,7 @@ async def enroll(context: JobContext) -> dict[str, Any]:
             password=password,
             public_key_pem=public_key_pem,
             managed=True,
+            ssh_port=ssh_port,
         )
     except Exception:
         await context.log(

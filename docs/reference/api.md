@@ -209,11 +209,68 @@ The reverse proxy publishes these under `/enroll/*` and rewrites them onto the
 API prefix. That URL is typed into a one-liner and lands in runbooks, so it
 carries no API version.
 
-### Enrolling an iperf measurement endpoint
+### Setting up an iperf measurement endpoint
 
-The same ceremony with a different script. An endpoint enrols itself, the
-platform sets it up afterwards over the channel that run installed, and the
-password the probes will use is generated here rather than reported back.
+Three ways in, because the topology decides which one is possible. All three
+write the same record, so everything downstream treats the result identically.
+
+| | |
+| --- | --- |
+| `POST /iperf-endpoints/host-keys` | read a host's SSH keys, without signing in |
+| `POST /iperf-endpoints` | → job: sign in once and install the access |
+| `POST /iperf-endpoints/register` | record one somebody else operates |
+| `POST /iperf-endpoints/{name}/rotate` | → job: new password, carried to the probes |
+| `DELETE /iperf-endpoints/{name}` | → job: take it off the probes and its host |
+
+**Push** is the usual way and the only one that works when the endpoint cannot
+reach this installation - which is most of the time for a host on a public
+address while the platform sits on an internal network. It needs the reverse to
+be true, and that is not an extra demand: the management channel is SSH from
+here to there, so an endpoint this platform cannot reach could not be managed
+at all.
+
+The host keys come first and separately. `POST /iperf-endpoints/host-keys`
+opens a connection without signing in - what `ssh-keyscan` does - and returns
+the keys with their fingerprints. Those keys go into `POST /iperf-endpoints`
+as `host_keys`, where they are pinned *before* the sign-in: that is what makes
+the acceptance count for anything, and it is why the field is required. The
+scan is the one route that makes this server talk to an address a caller names,
+so it takes `iperf.manage` rather than `iperf.read`.
+
+The administrator credentials are in the request body and go no further. They
+never enter the job payload, which is a row in the database, and never the log;
+they are handed to the worker out of band and taken once, when the job starts.
+A password or a private key is required - one of the two, not both.
+
+**Registration** covers an endpoint somebody else operates. No job, nothing
+installed, nothing reached: the record is the whole of what this platform has.
+Credentials are all or nothing - a user name needs both its password and the
+endpoint's public key, or every sensor run would fail on credentials it cannot
+use. Such an endpoint reports `managed: false`, cannot be rotated from here,
+and `DELETE` only forgets it.
+
+**Rotation** sets a new password and carries it to every probe holding this
+endpoint, in one job. The second half is not a follow-up somebody might skip:
+from the moment the endpoint accepts the new password, every probe still on the
+old one is locked out, so refreshing them is the repair of the state the
+rotation just created. The stored public key survives it - the endpoint's key
+pair is untouched by a credential change, and losing the copy would cost every
+probe the ability to encrypt what it sends.
+
+**Removal** goes in the only order that strands nothing: the probes lose the
+credentials, then the endpoint stops accepting them, then the access that did
+the work removes itself, then the record goes. Reversed, a failure halfway
+would leave sensors measuring against a host that refuses them with no way left
+to tell the probes. Each step tolerates a host that has already gone - a
+machine decommissioned last week still has a record here, and refusing to clean
+that up would be a record nobody can remove. `?keep_service=true` forgets the
+endpoint here and leaves the iperf3 service running. The package is never
+uninstalled; something else on that host may be using it.
+
+**Invitation** is the third way: the endpoint fetches a bootstrap script and
+reports in, exactly as a probe does. It needs this platform to be reachable
+from there, so it fits an endpoint on the same network - and in exchange no
+administrator credential passes through this API at all.
 
 | | |
 | --- | --- |

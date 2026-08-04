@@ -34,6 +34,7 @@ from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import ProbeRecord
 from app.persistence.models.jobs import Job
 from app.persistence.session import session_scope
+from app.services import job_secrets
 from app.services.events import EventBroadcaster
 from app.services.jobs import JobService, declared_probe_ids
 from app.services.probes import ProbeService
@@ -73,8 +74,6 @@ class JobRunner:
         self._docker = docker
         self._tasks: list[asyncio.Task[None]] = []
         self._stopping = asyncio.Event()
-        # Transient values a job needs but must never store, keyed by job id.
-        self._job_secrets: dict[str, dict[str, str]] = {}
         # The jobs this process is actually carrying. The table cannot say so
         # on its own: a row reading "running" is a claim, not a heartbeat.
         self._active: set[str] = set()
@@ -82,10 +81,12 @@ class JobRunner:
     def hand_secrets(self, job_id: str, secrets: dict[str, str]) -> None:
         """Pass credentials to a queued job without writing them down.
 
-        Used by probe onboarding, where the bootstrap SSH password exists only
-        between the operator's form and the one connection that needs it.
+        Kept as a method for the callers that already have a runner to hand;
+        the values themselves live in app.services.job_secrets, because the end
+        that hands them over is an API request and the end that collects them
+        is a worker task, and those are not always the same object.
         """
-        self._job_secrets[job_id] = secrets
+        job_secrets.hand(job_id, secrets)
 
     async def start(self) -> None:
         self._stopping.clear()
@@ -172,7 +173,7 @@ class JobRunner:
                 self._active.discard(claimed_id)
 
     async def _run_job(self, job_id: str) -> None:
-        secrets = self._job_secrets.pop(job_id, {})
+        secrets = job_secrets.take(job_id)
         touched: list[str] = []
         async with session_scope() as db:
             jobs = JobService(db, self._broadcaster, autocommit=True)
