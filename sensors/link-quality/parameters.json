@@ -1,0 +1,52 @@
+{
+  "parameters": [
+    {
+      "name": "--target",
+      "type": "string",
+      "repeatable": true,
+      "placeholder": "[NAME=][tcp:]HOST[:PORT]",
+      "description": "A target on the internet. Repeatable."
+    },
+    {
+      "name": "--internal-target",
+      "type": "string",
+      "repeatable": true,
+      "placeholder": "[NAME=][tcp:]HOST[:PORT]",
+      "description": "A target inside the own network, for example behind a tunnel. Repeatable."
+    },
+    {
+      "name": "--packets",
+      "type": "integer",
+      "default": 20,
+      "description": "Echo requests per target and run."
+    },
+    {
+      "name": "--interval-ms",
+      "type": "integer",
+      "default": 200,
+      "description": "Milliseconds between two packets."
+    },
+    {
+      "name": "--timeout-ms",
+      "type": "integer",
+      "default": 1000,
+      "description": "Milliseconds to wait for a single answer."
+    },
+    {
+      "name": "--payload-bytes",
+      "type": "integer",
+      "default": 56,
+      "description": "Payload size of an echo request."
+    },
+    {
+      "name": "--source",
+      "type": "string",
+      "description": "Local address the measurement binds to."
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "description": "Only verify that the sensor is able to run."
+    }
+  ]
+}

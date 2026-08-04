@@ -14,12 +14,14 @@ Called by tests/check-static.sh; the exit code is 1 as soon as one check
 fails.
 """
 
+import argparse
 import contextlib
 import importlib.machinery
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import struct
@@ -129,6 +131,253 @@ def check_manifests():
                        "--self-check" in source)
             check_true("%s: script always ends with exit code 0" % name,
                        "sys.exit(0)" in source and "sys.exit(1)" not in source)
+
+
+def read_declaration(name):
+    """The parameters.json of a sensor, or None if it ships none."""
+    path = os.path.join(SENSOR_DIR, name, "parameters.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+class CapturedParser(Exception):
+    """Carries the parser out of setup() before the sensor starts working."""
+
+    def __init__(self, parser):
+        Exception.__init__(self)
+        self.parser = parser
+
+
+def sensor_parser(module):
+    """The argparse definition of a sensor, without running it.
+
+    setup() builds the parser and parses in one go, so the parser is taken
+    where it is complete and before anything happens with it: at the
+    parse_args() call, which is made never to return. stdin is emptied for
+    the same reason - the sensors read their parameters from it and would
+    otherwise block on the terminal.
+    """
+    original = argparse.ArgumentParser.parse_args
+
+    def capture(self, *arguments, **keywords):
+        raise CapturedParser(self)
+
+    argparse.ArgumentParser.parse_args = capture
+    stdin = sys.stdin
+    sys.stdin = io.StringIO("")
+    try:
+        module.setup()
+    except CapturedParser as captured:
+        return captured.parser
+    finally:
+        argparse.ArgumentParser.parse_args = original
+        sys.stdin = stdin
+    return None
+
+
+def argparse_type(action):
+    if action.nargs == 0:
+        return "boolean"
+    if action.type is int:
+        return "integer"
+    if action.choices:
+        return "choice"
+    return "string"
+
+
+def argparse_options(parser):
+    """Every option of a sensor by its long form, help included."""
+    options = {}
+    for action in parser._actions:
+        if action.dest == "help" or not action.option_strings:
+            continue
+        options[action.option_strings[-1]] = action
+    return options
+
+
+def locale_keys():
+    """Every dotted key of both locale files.
+
+    Read here rather than left to "npm run i18n:check", which compares the
+    two files against each other and never learns that a sensor asked for a
+    key neither of them has - that one renders as the raw key.
+    """
+    locales = {}
+    for language in ("de", "en"):
+        path = os.path.join(PROJECT_DIR, "web", "frontend", "src", "i18n",
+                            "locales", "%s.json" % language)
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+        keys = set()
+
+        def walk(node, prefix):
+            for key, value in node.items():
+                full = "%s.%s" % (prefix, key) if prefix else key
+                if isinstance(value, dict):
+                    walk(value, full)
+                else:
+                    keys.add(full)
+
+        walk(document, "")
+        locales[language] = keys
+    return locales
+
+
+def template_keys(name):
+    """The keys a sensor's profile template documents.
+
+    Commented-out ones count: the template lists what a method needs, and
+    an optional key belongs there struck through rather than absent.
+    """
+    directory = os.path.join(SENSOR_DIR, name, "profiles")
+    if not os.path.isdir(directory):
+        return None
+    keys = set()
+    for entry in sorted(os.listdir(directory)):
+        if not entry.endswith(".env.template"):
+            continue
+        with open(os.path.join(directory, entry), encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip().lstrip("#").strip()
+                if "=" in line:
+                    keys.add(line.partition("=")[0].strip())
+    return keys
+
+
+def check_parameter_declarations():
+    """parameters.json against the script it describes.
+
+    The declaration is what the web interface renders as its parameter
+    reference and as the form for a variant. A name that drifted from the
+    script would send an operator to paste a parameter the sensor rejects -
+    which is exactly the mistake the reference exists to prevent.
+
+    The declaration may be *more* precise than argparse: a sensor that
+    validates its own values, as aruba-uplink does for --primary, can name
+    them as choices here. It may never contradict it.
+    """
+    print("\n== Parameter declarations ==")
+    locales = locale_keys()
+    declared = 0
+
+    for name in sensor_names():
+        document = read_declaration(name)
+        check_true("%s: declares its parameters" % name, document is not None)
+        if document is None:
+            continue
+        declared += 1
+
+        manifest = read_manifest(os.path.join(SENSOR_DIR, name, "manifest.env"))
+        script = os.path.join(SENSOR_DIR, name, manifest["SENSOR_SCRIPT"])
+        module = load_module(name.replace("-", "_") + "_declaration", script)
+        parser = sensor_parser(module)
+        check_true("%s: the parser could be read" % name, parser is not None)
+        if parser is None:
+            continue
+
+        options = argparse_options(parser)
+        entries = {entry["name"]: entry for entry in document.get("parameters", [])}
+        check("%s: declares every option of the script" % name,
+              sorted(set(options) - set(entries)), [])
+        check("%s: declares no option the script does not have" % name,
+              sorted(set(entries) - set(options)), [])
+
+        for option, action in sorted(options.items()):
+            entry = entries.get(option)
+            if entry is None:
+                continue
+            check_parameter_entry(name, option, entry, action)
+
+        check_profile_declaration(name, document)
+        check_translation_keys(name, document, locales)
+
+    check_true("every sensor declares its parameters", declared == len(sensor_names()))
+
+
+def check_parameter_entry(name, option, entry, action):
+    """One declared parameter against the argparse action behind it."""
+    label = "%s %s" % (name, option)
+    expected_type = argparse_type(action)
+    declared_type = entry.get("type", "string")
+    # A choice is the one refinement allowed: the sensor validates the
+    # values itself, and naming them turns a free text field into a list.
+    refined = expected_type == "string" and declared_type == "choice"
+    check("%s: type" % label,
+          declared_type if not refined else expected_type, expected_type)
+    if refined:
+        check_true("%s: a refined choice names its values" % label,
+                   entry.get("choices"))
+    if action.choices:
+        check("%s: choices" % label,
+              list(entry.get("choices", [])), list(action.choices))
+
+    # The help text is what the reference shows. Whitespace differs because
+    # argparse strings are wrapped in the source.
+    check("%s: description matches the script's help" % label,
+          " ".join(entry.get("description", "").split()),
+          " ".join((action.help or "").split()))
+
+    repeatable = type(action).__name__ == "_AppendAction"
+    check("%s: repeatable" % label, bool(entry.get("repeatable")), repeatable)
+
+    # An empty string or list is argparse's way of saying "unset"; only a
+    # real default belongs in the reference.
+    default = action.default
+    if repeatable or expected_type == "boolean" or default in (None, "", []):
+        check("%s: declares no default" % label, "default" in entry, False)
+    else:
+        check("%s: default" % label, entry.get("default"), default)
+
+    if action.required:
+        check("%s: required, as argparse demands" % label,
+              bool(entry.get("required")), True)
+
+
+def check_profile_declaration(name, document):
+    """Settings, credentials and files of one sensor.
+
+    The keys end up in a file the probe helper accepts only as upper-case
+    KEY=VALUE lines, and each of them has exactly one writer.
+    """
+    settings = document.get("settings", [])
+    credentials = document.get("credentials", [])
+    files = document.get("files", [])
+    if not (settings or credentials or files):
+        return
+
+    keys = [entry["name"] for entry in settings + credentials + files]
+    check("%s: no profile key is declared twice" % name,
+          sorted(key for key in set(keys) if keys.count(key) > 1), [])
+    for key in keys:
+        check("%s: %s is a key the probe accepts" % (name, key),
+              bool(re.fullmatch(r"[A-Z][A-Z0-9_]*", key)), True)
+
+    documented = template_keys(name)
+    if documented is not None:
+        check("%s: every profile key is in the template" % name,
+              sorted(set(keys) - documented), [])
+
+    for entry in files:
+        extension = entry.get("extension", ".pem")
+        # The extension is part of the path the helper builds on the probe.
+        check("%s: %s has a usable extension" % (name, entry["name"]),
+              extension.startswith(".") and "/" not in extension, True)
+
+
+def check_translation_keys(name, document, locales):
+    """A label_key that exists in neither locale renders as the raw key."""
+    sections = ("parameters", "settings", "credentials", "files")
+    wanted = set()
+    for section in sections:
+        for entry in document.get(section, []):
+            for field in ("label_key", "description_key"):
+                if entry.get(field):
+                    wanted.add(entry[field])
+    for language, keys in sorted(locales.items()):
+        check("%s: every translation key exists in %s.json" % (name, language),
+              sorted(wanted - keys), [])
 
 
 def check_privilege_path():
@@ -915,6 +1164,7 @@ def check_iperf_throughput_output():
 
     check_iperf_throughput_validation(module)
     check_iperf_throughput_credentials(module)
+    check_iperf_throughput_endpoint_from_profile(module)
     check_iperf_throughput_parsing(module)
     check_iperf_throughput_channels(module)
 
@@ -999,6 +1249,59 @@ def check_iperf_throughput_validation(module):
           "very-secret" not in redacted, True)
     check("the endpoint name as well",
           "endpoint.internal" not in redacted, True)
+
+
+def check_iperf_throughput_endpoint_from_profile(module):
+    """A variant names its endpoint, so PRTG does not have to.
+
+    This is what makes a second measurement endpoint a second sensor with one
+    parameter instead of four. The rule is the one that already governs the
+    password: what is given directly wins.
+    """
+    print("\n== iperf-throughput: endpoint from the profile ==")
+
+    directory = tempfile.mkdtemp()
+    try:
+        profile = os.path.join(directory, "berlin.env")
+        with open(profile, "w", encoding="utf-8") as handle:
+            handle.write("IPERF3_HOST=iperf.berlin.example\n"
+                         "IPERF3_PORT=5301\n"
+                         "IPERF3_USERNAME=probe-berlin\n"
+                         "IPERF3_PASSWORD=secret\n")
+        os.chmod(profile, 0o640)
+        module.PROFILE_DIR = directory
+
+        merged = module.merge_profile(
+            iperf_arguments(profile="berlin", server=None, port=None,
+                            username=None))
+        check("the endpoint comes from the variant",
+              (merged["server"], merged["port"], merged["username"]),
+              ("iperf.berlin.example", 5301, "probe-berlin"))
+
+        merged = module.merge_profile(
+            iperf_arguments(profile="berlin", server="other.example",
+                            port=9999, username="someone"))
+        check("what is given directly still wins",
+              (merged["server"], merged["port"], merged["username"]),
+              ("other.example", 9999, "someone"))
+
+        # Without a variant the port has to land somewhere, and 5201 is where
+        # it landed before the profile could contribute one.
+        merged = module.merge_profile(
+            iperf_arguments(profile="absent", server="x.example", port=None))
+        check("without a variant the port falls back to the default",
+              merged["port"], 5201)
+
+        with open(profile, "w", encoding="utf-8") as handle:
+            handle.write("IPERF3_HOST=iperf.berlin.example\n"
+                         "IPERF3_PORT=not-a-number\n")
+        os.chmod(profile, 0o640)
+        merged = module.merge_profile(
+            iperf_arguments(profile="berlin", server=None, port=None))
+        check("an unusable port in the variant does not break the run",
+              merged["port"], 5201)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def check_iperf_throughput_credentials(module):
@@ -1875,6 +2178,7 @@ def check_aruba_uplink_secrets(module):
 
 if __name__ == "__main__":
     check_manifests()
+    check_parameter_declarations()
     check_privilege_path()
     check_wlan_auth_output()
     check_wlan_auth_configuration()

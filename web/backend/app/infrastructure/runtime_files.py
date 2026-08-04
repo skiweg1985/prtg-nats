@@ -11,6 +11,7 @@ either use the probe helper or the legacy adapter - never a stray open().
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from dataclasses import dataclass, field
@@ -27,6 +28,8 @@ logger = get_logger(__name__)
 NATS_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # Same rule as validate_iperf_name and validate_sensor_name.
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+# The only shape write_sensor_profile() in the probe helper accepts as a key.
+PROFILE_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -94,6 +97,45 @@ class IperfEndpointRecord:
     # that host. Absent in a record the shell tooling wrote, and read as true
     # there - that path only ever produced endpoints it had just set up.
     managed: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class IperfProfileMaterial:
+    """What the credential profile of one measurement endpoint is made of.
+
+    Named rather than a tuple because the profile carries five values now: the
+    endpoint's address belongs in it too, so a variant describes a measurement
+    path and not only the secret to walk it.
+    """
+
+    password: str
+    public_key_b64: str
+    host: str
+    port: int
+    username: str
+
+
+@dataclass(frozen=True, slots=True)
+class SensorProfileFile:
+    """One certificate or key that belongs to a variant."""
+
+    key: str
+    filename: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class SensorProfileRecord:
+    """One variant of a sensor: its settings, credentials and files."""
+
+    sensor: str
+    name: str
+    updated_at: datetime | None
+    files: tuple[SensorProfileFile, ...] = ()
+    # Which probes it is meant to be on. Read from the probe sidecars, since
+    # that is where the assignment lives.
+    probes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -519,11 +561,217 @@ class RuntimeFileStore:
 
     def remove_probe(self, nats_username: str) -> None:
         """Delete the inventory and its sidecars - the unenroll bookkeeping."""
-        for suffix in ("env", "sensors", "iperf"):
+        for suffix in ("env", "sensors", "iperf", "profiles"):
             self._sidecar(nats_username, suffix).unlink(missing_ok=True)
 
-    def read_iperf_profile_material(self, name: str) -> tuple[str, str, str, int]:
-        """Password, base64 public key, host and port of one endpoint.
+    # --- Sensor variants ----------------------------------------------------
+    #
+    # A variant is a profile file plus the certificates and keys that belong
+    # to it, kept centrally under runtime/sensor-profiles/ - in the same
+    # protected, git-ignored area as the NATS passwords, and in the byte format
+    # "./prtg-nats sensor profile" has always written, so a variant filled in
+    # from the interface is one the command line can deploy again.
+
+    def _profile_dir(self, sensor: str) -> Path:
+        if not NAME_PATTERN.match(sensor):
+            raise NotFoundError.of("sensor", sensor)
+        return self._settings.sensor_profile_dir / sensor
+
+    def _profile_path(self, sensor: str, profile: str) -> Path:
+        if not NAME_PATTERN.match(profile):
+            raise NotFoundError.of("sensor_profile", profile)
+        return self._profile_dir(sensor) / f"{profile}.env"
+
+    def _profile_file_dir(self, sensor: str, profile: str) -> Path:
+        if not NAME_PATTERN.match(profile):
+            raise NotFoundError.of("sensor_profile", profile)
+        return self._profile_dir(sensor) / "files" / profile
+
+    def write_sensor_profile(
+        self, sensor: str, profile: str, values: dict[str, str]
+    ) -> None:
+        """Store one variant.
+
+        The probe helper accepts a profile as comments and ``KEY=VALUE`` lines
+        and nothing else, so a value carrying a line break is refused here
+        rather than on the probe: the same rejection, but with a field name
+        attached to it.
+        """
+        path = self._profile_path(sensor, profile)
+        lines = [
+            "# Written by the PRTG-NATS web platform.",
+            f"# Variant {profile} of {sensor}.",
+        ]
+        for key in sorted(values):
+            value = values[key]
+            if not PROFILE_KEY_PATTERN.match(key):
+                raise RuntimeStateError(
+                    params={"sensor": sensor, "key": key},
+                    details="a profile key is upper case, digits and underscores",
+                )
+            if any(character in value for character in "\n\r\x00"):
+                raise RuntimeStateError(
+                    params={"sensor": sensor, "key": key},
+                    details="a profile value cannot contain a line break",
+                )
+            lines.append(f"{key}={value}")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # 0700 on the directories as well: the file mode alone would still let
+        # anything list which variants exist and for which sites.
+        self._settings.sensor_profile_dir.chmod(0o700)
+        path.parent.chmod(0o700)
+        path.touch(mode=0o600, exist_ok=True)
+        path.chmod(0o600)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def read_sensor_profile(self, sensor: str, profile: str) -> dict[str, str]:
+        path = self._profile_path(sensor, profile)
+        if not path.is_file():
+            raise NotFoundError.of("sensor_profile", f"{sensor}/{profile}")
+        return read_env_file(path)
+
+    def sensor_profile_exists(self, sensor: str, profile: str) -> bool:
+        return self._profile_path(sensor, profile).is_file()
+
+    def sensor_profile_content(self, sensor: str, profile: str) -> str:
+        """The file as it goes to the probe, byte for byte."""
+        path = self._profile_path(sensor, profile)
+        if not path.is_file():
+            raise NotFoundError.of("sensor_profile", f"{sensor}/{profile}")
+        return path.read_text(encoding="utf-8")
+
+    def list_sensor_profiles(self, sensor: str) -> list[SensorProfileRecord]:
+        directory = self._profile_dir(sensor)
+        if not directory.is_dir():
+            return []
+        assignments = self._profile_assignments()
+        records = []
+        for path in sorted(directory.glob("*.env")):
+            name = path.stem
+            if not NAME_PATTERN.match(name):
+                continue
+            records.append(
+                SensorProfileRecord(
+                    sensor=sensor,
+                    name=name,
+                    updated_at=datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
+                    files=tuple(self.list_sensor_profile_files(sensor, name)),
+                    probes=tuple(sorted(assignments.get((sensor, name), ()))),
+                )
+            )
+        return records
+
+    def remove_sensor_profile(self, sensor: str, profile: str) -> None:
+        """Forget a variant here. What sits on the probes is a separate
+        request, which the job makes before this."""
+        self._profile_path(sensor, profile).unlink(missing_ok=True)
+        directory = self._profile_file_dir(sensor, profile)
+        if directory.is_dir():
+            for entry in directory.iterdir():
+                entry.unlink()
+            directory.rmdir()
+
+    def write_sensor_profile_file(
+        self, sensor: str, profile: str, key: str, filename: str, payload: bytes
+    ) -> None:
+        """Store a certificate or key of one variant.
+
+        Replaces whatever was under this key before, extension included: the
+        path is written into the profile, and two files for one key would leave
+        the profile pointing at the one that is no longer meant.
+        """
+        if not PROFILE_KEY_PATTERN.match(key):
+            raise NotFoundError.of("sensor_profile_file", key)
+        if "/" in filename or filename.startswith("."):
+            raise NotFoundError.of("sensor_profile_file", filename)
+        directory = self._profile_file_dir(sensor, profile)
+        directory.mkdir(parents=True, exist_ok=True)
+        self._settings.sensor_profile_dir.chmod(0o700)
+        for parent in (directory.parent.parent, directory.parent, directory):
+            parent.chmod(0o700)
+        for existing in directory.glob(f"{key}.*"):
+            existing.unlink()
+        path = directory / filename
+        path.touch(mode=0o600, exist_ok=True)
+        path.chmod(0o600)
+        path.write_bytes(payload)
+
+    def list_sensor_profile_files(
+        self, sensor: str, profile: str
+    ) -> list[SensorProfileFile]:
+        directory = self._profile_file_dir(sensor, profile)
+        if not directory.is_dir():
+            return []
+        files = []
+        for path in sorted(directory.iterdir()):
+            if not path.is_file():
+                continue
+            payload = path.read_bytes()
+            files.append(
+                SensorProfileFile(
+                    key=path.stem,
+                    filename=path.name,
+                    size_bytes=len(payload),
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                )
+            )
+        return files
+
+    def read_sensor_profile_file(self, sensor: str, profile: str, key: str) -> bytes:
+        if not PROFILE_KEY_PATTERN.match(key):
+            raise NotFoundError.of("sensor_profile_file", key)
+        directory = self._profile_file_dir(sensor, profile)
+        for path in sorted(directory.glob(f"{key}.*")):
+            return path.read_bytes()
+        raise NotFoundError.of("sensor_profile_file", f"{sensor}/{profile}/{key}")
+
+    def remove_sensor_profile_file(self, sensor: str, profile: str, key: str) -> None:
+        if not PROFILE_KEY_PATTERN.match(key):
+            raise NotFoundError.of("sensor_profile_file", key)
+        for path in self._profile_file_dir(sensor, profile).glob(f"{key}.*"):
+            path.unlink()
+
+    # --- Which variant belongs on which probe -------------------------------
+    #
+    # In runtime/probes/USER.profiles, one "sensor/variant" per line. Desired
+    # state rather than bookkeeping, the same way USER.sensors is: it is what
+    # a rollout reads to know which variants have to travel with the sensor.
+
+    def assign_profile(self, nats_username: str, sensor: str, profile: str) -> None:
+        self._remember_line(
+            self._sidecar(nats_username, "profiles"), f"{sensor}/{profile}"
+        )
+
+    def unassign_profile(self, nats_username: str, sensor: str, profile: str) -> None:
+        self._forget_line(
+            self._sidecar(nats_username, "profiles"), f"{sensor}/{profile}"
+        )
+
+    def assigned_profiles(
+        self, nats_username: str, sensor: str | None = None
+    ) -> tuple[str, ...]:
+        """The variants one probe is meant to hold, for one sensor or all."""
+        entries = self._read_lines(self._sidecar(nats_username, "profiles"))
+        pairs = [entry.partition("/") for entry in entries]
+        return tuple(
+            profile
+            for name, separator, profile in pairs
+            if separator and profile and (sensor is None or name == sensor)
+        )
+
+    def _profile_assignments(self) -> dict[tuple[str, str], list[str]]:
+        """Every assignment, keyed by variant - the reverse of the sidecars."""
+        assignments: dict[tuple[str, str], list[str]] = {}
+        for username in self.list_probe_usernames():
+            for entry in self._read_lines(self._sidecar(username, "profiles")):
+                name, separator, profile = entry.partition("/")
+                if separator and profile:
+                    assignments.setdefault((name, profile), []).append(username)
+        return assignments
+
+    def read_iperf_profile_material(self, name: str) -> IperfProfileMaterial:
+        """Everything the profile of one endpoint is made of.
 
         Only the profile-deployment path calls this; the values go straight to
         the probe helper over the encrypted channel.
@@ -546,11 +794,12 @@ class RuntimeFileStore:
         public_key_b64 = ""
         if key_file.is_file():
             public_key_b64 = base64.b64encode(key_file.read_bytes()).decode("ascii")
-        return (
-            password,
-            public_key_b64,
-            values.get("IPERF_HOST", ""),
-            _as_int(values.get("IPERF_PORT"), 5201),
+        return IperfProfileMaterial(
+            password=password,
+            public_key_b64=public_key_b64,
+            host=values.get("IPERF_HOST", ""),
+            port=_as_int(values.get("IPERF_PORT"), 5201),
+            username=values.get("IPERF_USERNAME", ""),
         )
 
     # --- Helpers ------------------------------------------------------------

@@ -1,0 +1,61 @@
+{
+  "parameters": [
+    {
+      "name": "--host",
+      "type": "string",
+      "required": true,
+      "description": "Address of the Aruba gateway of this site.",
+      "source": "prtg",
+      "prtg_placeholder": "%host"
+    },
+    {
+      "name": "--user",
+      "type": "string",
+      "required": true,
+      "description": "A read-only account on the gateway.",
+      "source": "prtg",
+      "prtg_placeholder": "%scriptplaceholder1"
+    },
+    {
+      "name": "--password",
+      "type": "string",
+      "required": true,
+      "description": "Its password.",
+      "source": "prtg",
+      "prtg_placeholder": "%scriptplaceholder2"
+    },
+    {
+      "name": "--primary",
+      "type": "choice",
+      "choices": ["wired", "cellular"],
+      "default": "wired",
+      "description": "Which uplink kind is the main path: wired or cellular."
+    },
+    {
+      "name": "--backup",
+      "type": "choice",
+      "choices": ["cellular", "wired", "none"],
+      "default": "cellular",
+      "description": "The alternative path: cellular, wired or none."
+    },
+    {
+      "name": "--backup-share",
+      "type": "integer",
+      "default": 25,
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Percentage of traffic on the backup from which the traffic counts as moved over."
+    },
+    {
+      "name": "--timeout-ms",
+      "type": "integer",
+      "default": 10000,
+      "description": "Milliseconds to wait for a single answer."
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "description": "Only verify that the sensor is able to run."
+    }
+  ]
+}

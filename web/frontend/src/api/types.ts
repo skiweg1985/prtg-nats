@@ -186,6 +186,7 @@ export interface SensorSummary {
   requires_privileged_helper: boolean
   iperf_kind: string | null
   has_parameter_schema: boolean
+  supports_profiles: boolean
   installed_on: number
   outdated_on: number
 }
@@ -197,23 +198,59 @@ export interface SensorFile {
   sha256: string
 }
 
-export interface ParameterField {
+export type FieldType = 'string' | 'integer' | 'boolean' | 'choice'
+
+interface FieldBase {
   name: string
-  type: 'string' | 'integer' | 'boolean' | 'choice'
   required?: boolean
-  default?: unknown
-  choices?: string[]
+  description?: string
   label_key?: string
   description_key?: string
-  sensitive?: boolean
   group?: string
+}
+
+/** One option of the sensor, as the PRTG parameter line takes it. */
+export interface ParameterField extends FieldBase {
+  type: FieldType
+  default?: unknown
+  choices?: string[]
   minimum?: number
   maximum?: number
   placeholder?: string
+  /** argparse action="append": the flag is repeated, not given a list. */
+  repeatable?: boolean
+  /** 'prtg' means PRTG substitutes the value - show the placeholder, do not ask. */
+  source?: 'manual' | 'prtg'
+  prtg_placeholder?: string | null
+}
+
+/** One KEY=VALUE line of a variant - a setting or a credential. */
+export interface ProfileField extends FieldBase {
+  type: FieldType
+  default?: unknown
+  choices?: string[]
+  /** Never sent back by the API; an empty input means "leave as it is". */
+  sensitive?: boolean
+  /** The parameter this key stands in for, so PRTG can leave it out. */
+  maps_to?: string | null
+}
+
+/** A certificate or key that travels with a variant. */
+export interface FileField extends FieldBase {
+  kind?: string
+  secret?: boolean
+  max_bytes: number
+  extension: string
+  maps_to?: string | null
 }
 
 export interface ParameterSchema {
-  fields: ParameterField[]
+  parameters: ParameterField[]
+  settings: ProfileField[]
+  credentials: ProfileField[]
+  files: FileField[]
+  supports_profiles: boolean
+  default_parameter_line: string
 }
 
 export interface SensorDetail extends Omit<SensorSummary, 'has_parameter_schema'> {
@@ -222,6 +259,34 @@ export interface SensorDetail extends Omit<SensorSummary, 'has_parameter_schema'
   readme: string | null
   profile_template: string | null
   probes: string[]
+}
+
+/** An uploaded certificate or key. Described, never handed back. */
+export interface SensorProfileFile {
+  key: string
+  filename: string
+  size_bytes: number
+  sha256: string
+  /** Where it sits on the probe, which is also what stands in the profile. */
+  probe_path: string
+}
+
+/** One variant of a sensor: one SSID, one endpoint, one site. */
+export interface SensorProfile {
+  sensor: string
+  name: string
+  updated_at: string | null
+  probes: string[]
+  files: SensorProfileFile[]
+  /** The line that selects this variant in PRTG. */
+  parameter_line: string
+}
+
+export interface SensorProfileDetail extends SensorProfile {
+  /** Settings only - a credential is never sent back. */
+  values: Record<string, string>
+  /** Names of the credentials that are stored, so the form can say so. */
+  secrets_set: string[]
 }
 
 export interface JobStep {

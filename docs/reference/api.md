@@ -317,10 +317,44 @@ which sets a fresh password.
 | --- | --- |
 | `GET /sensors` | the catalogue read from `sensors/` |
 | `GET /sensors/{name}` | files, checksums, which probes run it |
-| `GET /sensors/{name}/parameter-schema` | the form definition |
+| `GET /sensors/{name}/parameter-schema` | what the sensor declares: parameters, settings, credentials, files |
 | `POST /sensors/{name}/render-parameters` | the line to paste into PRTG |
 | `GET`/`POST /deployments` | rollouts and their outcome per probe |
 | `GET /deployments/{id}` | one rollout with its per-probe result |
+
+#### Variants
+
+A variant is the settings, credentials and files a sensor needs for one
+purpose - one SSID, one site. It is stored as a profile under
+`runtime/sensor-profiles/` and deployed to the probes it is assigned to.
+
+| | |
+| --- | --- |
+| `GET /sensors/{name}/profiles` | the variants, with their probes and files |
+| `GET /sensors/{name}/profiles/{profile}` | settings and the **names** of the stored credentials |
+| `PUT /sensors/{name}/profiles/{profile}` | store one and deploy it - returns a job |
+| `PUT /sensors/{name}/profiles/{profile}/files/{key}` | upload a certificate or key, base64 in `content_base64` |
+| `DELETE /sensors/{name}/profiles/{profile}` | remove it here and from every probe - returns a job |
+
+Writing needs `sensor.configure`; reading needs `sensor.read`. A sensor that
+declares no settings, credentials or files answers `422` on all of these -
+`aruba-uplink` takes its host and credentials from PRTG placeholders instead.
+
+**A credential is never returned.** `GET` answers with the settings, plus
+`secrets_set` naming which credentials are stored. An empty credential in a
+`PUT` therefore means "leave it as it is", not "clear it" - otherwise every
+edit of a variant would wipe its password.
+
+**The values never reach the job.** The `PUT` writes them to the runtime
+directory synchronously and the job it creates carries only the sensor, the
+variant name and the probes; the handler reads the values back itself. Nothing
+about a credential is written to SQLite, the job log or the audit trail - the
+audit entry records the field names.
+
+Uploaded files are described but never handed back, not even a public
+certificate: the response carries name, size, fingerprint and the path the
+file has on the probe. That path is what the platform writes into the profile,
+and what the sensor script reads to find the file.
 
 ### Jobs
 
