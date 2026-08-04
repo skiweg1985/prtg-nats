@@ -350,14 +350,38 @@ class JobService:
             await self._db.delete(lock)
         await self._persist()
 
-    async def reap_expired_locks(self) -> int:
-        """Free resources whose worker never came back."""
-        now = datetime.now(UTC)
-        expired = list(
-            await self._db.scalars(
-                select(ResourceLock).where(ResourceLock.expires_at <= now)
-            )
+    async def renew_locks(self, job_ids: set[str]) -> int:
+        """Push the lease out for jobs a worker is still carrying.
+
+        The lease exists to free a probe from a process that died, not to put
+        a time limit on the work itself. A sensor rollout across several probes
+        outlives ``LOCK_LEASE`` without anything being wrong, and without this
+        the reaper would hand its probe to the next job while the SSH
+        transaction is still open.
+        """
+        if not job_ids:
+            return 0
+        result = await self._db.execute(
+            update(ResourceLock)
+            .where(ResourceLock.job_id.in_(job_ids))
+            .values(expires_at=datetime.now(UTC) + LOCK_LEASE)
         )
+        await self._persist()
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+    async def reap_expired_locks(self, *, keep: set[str] | None = None) -> int:
+        """Free resources whose worker never came back.
+
+        ``keep`` names the jobs this process is carrying. They are spared even
+        when their lease reads expired: renewing and reaping run in the same
+        pass, and a lock whose renewal lost that race still has a worker behind
+        it.
+        """
+        now = datetime.now(UTC)
+        query = select(ResourceLock).where(ResourceLock.expires_at <= now)
+        if keep:
+            query = query.where(ResourceLock.job_id.notin_(keep))
+        expired = list(await self._db.scalars(query))
         for lock in expired:
             await self._db.delete(lock)
         await self._persist()

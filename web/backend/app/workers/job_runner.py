@@ -285,7 +285,12 @@ class JobRunner:
             try:
                 async with session_scope() as db:
                     jobs = JobService(db, self._broadcaster, autocommit=True)
-                    released = await jobs.reap_expired_locks()
+                    # Renewed before anything is reaped: the lease is there to
+                    # survive a dead process, and a job still running here is
+                    # the opposite of that.
+                    carried = set(self._active)
+                    await jobs.renew_locks(carried)
+                    released = await jobs.reap_expired_locks(keep=carried)
                     if released:
                         logger.warning(
                             "released expired resource locks",
