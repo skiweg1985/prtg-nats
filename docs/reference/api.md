@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # REST API
@@ -55,7 +55,9 @@ Anything that takes time answers `202` with a job to watch:
 
 `events_url` is a server-sent event stream. It replays what has already
 happened before switching to live, so a client that connects late loses
-nothing.
+nothing. A client that lost the stream reconnects with `?after=<sequence>` of
+its last line and gets the gap replayed the same way; the interface does this
+with a backoff rather than leaving the log where it stopped.
 
 ## Endpoints
 

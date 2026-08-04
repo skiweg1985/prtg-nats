@@ -287,7 +287,8 @@
     "retry": "Erneut ausführen",
     "live": "Live",
     "reconnecting": "Verbindung wird wiederhergestellt …",
-    "disconnected": "Die Live-Verbindung ist abgerissen. Das Protokoll unten ist bis dahin vollständig.",
+    "disconnected": "Die Live-Verbindung ist abgerissen und nicht zurückgekommen. Das Protokoll unten ist bis dahin vollständig.",
+    "reconnect": "Erneut verbinden",
     "blocked": {
       "resource_busy": "Wartet darauf, dass Job {{jobId}} das Ziel freigibt."
     },

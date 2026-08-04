@@ -19,6 +19,7 @@ Element.prototype.scrollIntoView = () => {}
 class StubEventSource {
   close() {}
   addEventListener() {}
+  onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
 }
 Object.defineProperty(window, 'EventSource', { writable: true, value: StubEventSource })

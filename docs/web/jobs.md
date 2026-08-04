@@ -1,7 +1,7 @@
 ---
 title: Jobs and deployments
 role: operator
-updated: 2026-08-02
+updated: 2026-08-04
 ---
 
 # Jobs and deployments
@@ -70,9 +70,17 @@ resource - a crashed process cannot lock a probe out for the rest of the day.
 
 The job detail page fetches the stored log, then subscribes to a server-sent
 event stream from the last line it has. A page opened after a job finished
-shows exactly what a page that watched it happen shows, and a dropped
-connection is reported rather than hidden - a log that silently stops is worse
-than one that says it stopped.
+shows exactly what a page that watched it happen shows.
+
+A stream that drops is picked up again from the last line the page holds, so a
+proxy timeout, a laptop waking up or a short network outage costs a moment of
+"reconnecting" rather than the rest of the job. The retries wait a little
+longer each time - one second, then two, five, ten, thirty - and a network
+coming back or the tab coming forward tries again straight away instead of
+sitting out the wait. Once those attempts are used up the page says the
+connection is gone and offers a button, which is the honest version of a log
+that has stopped moving. Nothing is lost in the gap: the stream replays
+everything after the line the page resumed from.
 
 Each line carries a code and parameters, which the browser turns into a
 sentence in the operator's language, plus optional raw output that is never
