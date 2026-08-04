@@ -1,7 +1,7 @@
 ---
 title: Command reference
 role: operator
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Command reference
@@ -32,7 +32,7 @@ The values these commands read and write are in
 | `status` | container state and certificate validity |
 | `logs` | follow the NATS log |
 | `start` / `stop` / `restart` | stack lifecycle |
-| `update` | pull images and force-recreate the stack |
+| `update` | pull images and force-recreate the stack; the API migrates its database when it comes back |
 
 `setup` starts the stack first and initialises afterwards, because the
 initialisation runs in the `prtg-nats-web-api` container. Nothing has to be
