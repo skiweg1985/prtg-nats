@@ -572,6 +572,7 @@ after_rollback() {
     SENSOR_WRAPPER_DIR="${sandbox}/sbin"
     # shellcheck disable=SC2034
     SENSOR_CONFIG_ROOT="${sandbox}/config"
+    # shellcheck disable=SC2034
     SENSOR_SLOTS=(script wrapper requirements version)
     local transaction="${sandbox}/transaction"
     mkdir -p "${SENSOR_SCRIPT_DIR}" "${SENSOR_WRAPPER_DIR}" "${transaction}"
