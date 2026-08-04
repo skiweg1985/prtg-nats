@@ -40,6 +40,7 @@ from app.domain.reconciliation import (
     build_plan,
     compare_sensors,
     find_deviations,
+    needs_attention,
 )
 from app.infrastructure.probe_helper import ProbeConnection, ProbeHelperClient
 from app.infrastructure.runtime_files import ProbeInventory, RuntimeFileStore
@@ -170,15 +171,13 @@ class ProbeService:
             record = records[username]
             observed = self._observed_from_row(username, observed_rows.get(record.id))
             desired = await self._desired_for(record)
-            deviation_count = 0
+            deviations: list[Deviation] = []
             if observed is not None and observed.reachable:
-                deviation_count = len(
-                    find_deviations(
-                        desired,
-                        observed,
-                        catalogue_versions=catalogue_versions,
-                        expected_ca_sha256=expected_ca_sha256,
-                    )
+                deviations = find_deviations(
+                    desired,
+                    observed,
+                    catalogue_versions=catalogue_versions,
+                    expected_ca_sha256=expected_ca_sha256,
                 )
             summaries.append(
                 self._summarise(
@@ -187,7 +186,7 @@ class ProbeService:
                     observed=observed,
                     connected_users=connected_users,
                     expected_ca_sha256=expected_ca_sha256,
-                    deviation_count=deviation_count,
+                    deviations=deviations,
                     running_job_id=active_jobs.get(record.id),
                 )
             )
@@ -244,7 +243,7 @@ class ProbeService:
             observed=observed,
             connected_users=connected_users,
             expected_ca_sha256=expected_ca_sha256,
-            deviation_count=len(deviations),
+            deviations=list(deviations),
             running_job_id=active_jobs.get(record.id),
         )
         return ProbeDetail(
@@ -455,9 +454,14 @@ class ProbeService:
         observed: ObservedProbeState | None,
         connected_users: frozenset[str],
         expected_ca_sha256: str | None,
-        deviation_count: int,
+        deviations: list[Deviation],
         running_job_id: str | None,
     ) -> ProbeSummary:
+        # The findings an operator is expected to do something about. The
+        # informational ones stay on the probe's own page, where they belong:
+        # a fleet view is scanned for what is wrong, and something nobody can
+        # resolve is not that. See needs_attention.
+        deviation_count = sum(1 for entry in deviations if needs_attention(entry))
         stale_after = timedelta(
             seconds=self._settings.observed_state_stale_after_seconds
         )
@@ -513,6 +517,11 @@ def _derive_status(
     Deliberately pessimistic: anything short of "everything checks out" is
     degraded, because a probe that looks fine but is not is the failure this
     platform exists to prevent.
+
+    Pessimistic about problems, that is. ``deviation_count`` is the ones that
+    need attention, not every finding - this used to count them all, which
+    made an adopted sensor nobody had declared a permanent warning about a
+    probe the platform had already decided needed nothing doing.
     """
     if record.retired_at is not None:
         return ProbeStatus.RETIRED

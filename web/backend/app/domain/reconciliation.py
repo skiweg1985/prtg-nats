@@ -145,6 +145,20 @@ def _sensor_status(
     return SensorInstallationStatus.CURRENT
 
 
+def needs_attention(deviation: Deviation) -> bool:
+    """Whether a deviation is something to act on, or something to know about.
+
+    The difference is whether anything the platform can do would resolve it.
+    An unrequested sensor and a name that does not match are findings with no
+    remedy the platform is entitled to choose - only an operator can decide
+    whether to adopt them or remove them, and until they do, both states are
+    legitimate. Counting those as problems produces a warning that cannot be
+    cleared, and a warning that cannot be cleared is one everybody learns to
+    ignore, which costs the ones that matter.
+    """
+    return deviation.severity is not DeviationSeverity.INFO
+
+
 def find_deviations(
     desired: DesiredProbeState,
     observed: ObservedProbeState,

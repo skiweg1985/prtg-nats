@@ -21,7 +21,12 @@ from app.domain.models import (
     InstalledSensor,
     ObservedProbeState,
 )
-from app.domain.reconciliation import build_plan, compare_sensors, find_deviations
+from app.domain.reconciliation import (
+    build_plan,
+    compare_sensors,
+    find_deviations,
+    needs_attention,
+)
 
 CA = "3b" * 32
 NOW = datetime(2026, 8, 2, 12, 0, tzinfo=UTC)
@@ -119,6 +124,29 @@ def test_unrequested_sensor_is_reported_not_removed() -> None:
     # No remediation: adopting it is the likelier intent, and that is a choice
     # for the operator, not a default.
     assert unmanaged.remediation is None
+    # And therefore nothing to raise a warning about, which is the same
+    # statement seen from the badge's side: it would never clear.
+    assert not needs_attention(unmanaged)
+
+
+def test_a_finding_with_a_remedy_needs_attention() -> None:
+    """The other side of the same rule, so it cannot quieten everything."""
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="internet-speed"),))
+    state = observed(service=ServiceState.INACTIVE)
+
+    deviations = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"internet-speed": "2"},
+        expected_ca_sha256=CA,
+    )
+
+    assert deviations
+    assert all(needs_attention(entry) for entry in deviations)
+    assert {entry.kind for entry in deviations} == {
+        DeviationKind.SERVICE_INACTIVE,
+        DeviationKind.SENSOR_MISSING,
+    }
 
 
 def test_an_unreachable_probe_produces_no_findings() -> None:
