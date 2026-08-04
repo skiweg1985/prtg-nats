@@ -1,11 +1,16 @@
 import { QueryClient } from '@tanstack/react-query'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppProviders } from '@/app/providers'
 import { LiveLog } from '@/components/ui/JobProgress'
 import type { JobEvent } from '@/api/types'
+// The connection states are translated, so the test asks the table what they
+// say rather than repeating the prose and going stale with it. Event codes are
+// not: an unknown code falls back to itself, which is why those are matched
+// literally below.
+import en from '@/i18n/locales/en.json'
 
 /**
  * The live log has two sources and they overlap.
@@ -14,6 +19,11 @@ import type { JobEvent } from '@/api/types'
  * while the event stream keeps running. Replacing the list with the refetched
  * answer drops whatever arrived after the server built it - and the stream
  * never sends those lines again, because it has moved past their sequence.
+ *
+ * The second half is what happens when the stream itself goes: a proxy
+ * timeout, a laptop waking up, a blip. The job carries on, so the log has to
+ * pick the stream up again from the line it holds rather than sit there saying
+ * it is disconnected.
  */
 
 class FakeEventSource {
@@ -21,6 +31,7 @@ class FakeEventSource {
 
   readonly url: string
   readonly listeners = new Map<string, ((event: MessageEvent<string>) => void)[]>()
+  onopen: (() => void) | null = null
   onerror: (() => void) | null = null
   closed = false
 
@@ -42,6 +53,25 @@ class FakeEventSource {
       handler(new MessageEvent(type, { data: JSON.stringify(payload) }))
     }
   }
+}
+
+/** The delays the component walks through, plus one attempt past the last. */
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
+
+function latest(): FakeEventSource {
+  const source = FakeEventSource.instances.at(-1)
+  if (!source) throw new Error('no stream was opened')
+  return source
+}
+
+/** Drop the current stream and let the backoff run out. */
+function drop(): void {
+  act(() => {
+    latest().onerror?.()
+  })
+  act(() => {
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS.at(-1)!)
+  })
 }
 
 function event(sequence: number, code: string): JobEvent {
@@ -71,9 +101,11 @@ describe('LiveLog', () => {
   beforeEach(() => {
     FakeEventSource.instances = []
     globalThis.EventSource = FakeEventSource as unknown as typeof EventSource
+    vi.useFakeTimers()
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     FakeEventSource.instances = []
   })
 
@@ -132,7 +164,97 @@ describe('LiveLog', () => {
     const source = FakeEventSource.instances.at(-1)
     act(() => source?.emit('end', {}))
 
-    expect(screen.queryByText(/jobs.disconnected/)).toBeNull()
+    expect(screen.queryByText(en.jobs.disconnected)).toBeNull()
     expect(source?.closed).toBe(true)
+  })
+
+  it('picks the stream up again after a drop, from the line it holds', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[event(1, 'jobs.first_line')]} live />)
+
+    const first = latest()
+    act(() => first.emit('job.event', event(7, 'jobs.streamed_line')))
+
+    act(() => first.onerror?.())
+    expect(first.closed).toBe(true)
+    expect(screen.getByText(en.jobs.reconnecting)).toBeTruthy()
+    expect(screen.queryByText(en.jobs.disconnected)).toBeNull()
+
+    act(() => vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]))
+
+    expect(FakeEventSource.instances).toHaveLength(2)
+    // Resumed from the streamed line, not from what the stored log held.
+    expect(latest().url).toContain('after=7')
+
+    act(() => latest().onopen?.())
+    act(() => latest().emit('job.event', event(8, 'jobs.after_the_gap')))
+    expect(screen.getByText(/jobs.first_line/)).toBeTruthy()
+    expect(screen.getByText(/jobs.after_the_gap/)).toBeTruthy()
+  })
+
+  it('backs off further with every drop in a row', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[]} live />)
+
+    for (const [index, delay] of RECONNECT_DELAYS_MS.entries()) {
+      act(() => latest().onerror?.())
+      // One tick short of the delay is still too early.
+      act(() => vi.advanceTimersByTime(delay - 1))
+      expect(FakeEventSource.instances).toHaveLength(index + 1)
+      act(() => vi.advanceTimersByTime(1))
+      expect(FakeEventSource.instances).toHaveLength(index + 2)
+    }
+  })
+
+  it('starts the backoff over once a stream has held', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[]} live />)
+
+    act(() => latest().onerror?.())
+    act(() => vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]))
+
+    // The second stream connects and stays up long enough to count.
+    act(() => latest().onopen?.())
+    act(() => vi.advanceTimersByTime(30_000))
+
+    act(() => latest().onerror?.())
+    act(() => vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]))
+    expect(FakeEventSource.instances).toHaveLength(3)
+  })
+
+  it('gives up in the open, with a control to try again', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[]} live />)
+
+    for (let attempt = 0; attempt <= RECONNECT_DELAYS_MS.length; attempt += 1) drop()
+
+    const opened = FakeEventSource.instances.length
+    expect(screen.getByText(en.jobs.disconnected)).toBeTruthy()
+    expect(screen.queryByText(en.jobs.reconnecting)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: en.jobs.reconnect }))
+    expect(FakeEventSource.instances).toHaveLength(opened + 1)
+    expect(screen.queryByText(en.jobs.disconnected)).toBeNull()
+  })
+
+  it('tries again at once when the network comes back', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[]} live />)
+
+    for (let attempt = 0; attempt <= RECONNECT_DELAYS_MS.length; attempt += 1) drop()
+    const opened = FakeEventSource.instances.length
+
+    act(() => {
+      window.dispatchEvent(new Event('online'))
+    })
+
+    expect(FakeEventSource.instances).toHaveLength(opened + 1)
+  })
+
+  it('does not reconnect a job that has ended', () => {
+    wrap(<LiveLog jobId="job-1" initialEvents={[]} live />)
+
+    act(() => latest().emit('end', {}))
+    act(() => vi.advanceTimersByTime(60_000))
+    act(() => {
+      window.dispatchEvent(new Event('online'))
+    })
+
+    expect(FakeEventSource.instances).toHaveLength(1)
   })
 })

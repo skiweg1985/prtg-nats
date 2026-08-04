@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { API_BASE } from '@/api/client'
@@ -13,8 +13,10 @@ import { Badge, Button, Dot } from './primitives'
  *
  * The stored log is fetched first and the event stream then continues from the
  * last sequence number, so a page opened after a job finished shows exactly
- * what a page that watched it happen shows. A dropped stream is reported rather
- * than hidden - a log that silently stops is worse than one that says it did.
+ * what a page that watched it happen shows. A dropped stream is picked up
+ * again from the last line the client holds, and only reported once picking it
+ * up has stopped working - a log that silently stops is worse than one that
+ * says it did.
  */
 
 export function JobSteps({ job }: { job: JobDetail }) {
@@ -88,6 +90,28 @@ const LEVEL_CLASS: Record<JobEvent['level'], string> = {
   error: 'text-danger',
 }
 
+type Connection = 'idle' | 'open' | 'reconnecting' | 'closed' | 'ended'
+
+/**
+ * How long to wait before each attempt at picking the stream up again.
+ *
+ * The length of the list is also the point at which the log gives up and says
+ * so: retrying forever at an interval nobody watches is not better than a
+ * control the operator can press.
+ */
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
+
+/**
+ * How long a stream has to hold before the backoff starts over.
+ *
+ * Resetting on connect alone would be enough for a proxy that drops the
+ * connection once, and wrong for one that accepts it and drops it again: every
+ * attempt would look like a recovery and the retries would settle at one a
+ * second. A job runs for minutes, so a connection that survives this long has
+ * recovered, not flapped.
+ */
+const RECONNECT_RESET_MS = 30_000
+
 export function LiveLog({
   jobId,
   initialEvents,
@@ -99,10 +123,17 @@ export function LiveLog({
 }) {
   const { t } = useTranslation()
   const [events, setEvents] = useState<JobEvent[]>(initialEvents)
-  const [connection, setConnection] = useState<'idle' | 'open' | 'closed' | 'ended'>(
-    'idle',
-  )
+  const [connection, setConnection] = useState<Connection>('idle')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  // Bumping this opens a fresh stream. It is the only thing besides the job
+  // itself that re-runs the subscription, which is what keeps the retry count
+  // out of the dependencies: a counter that resets while a stream is healthy
+  // would tear that healthy stream down to do it.
+  const [attempt, setAttempt] = useState(0)
+  const failures = useRef(0)
+  // Where a reconnect resumes. The endpoint replays everything after it, so it
+  // has to follow the merged list rather than either of its two sources.
+  const lastSequence = useRef(initialEvents.at(-1)?.sequence ?? 0)
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -110,31 +141,88 @@ export function LiveLog({
   }, [initialEvents])
 
   useEffect(() => {
+    lastSequence.current = events.at(-1)?.sequence ?? lastSequence.current
+  }, [events])
+
+  // Declared before the subscription so it runs first on the commit that
+  // changes either: a different job, or a job that has only now gone live,
+  // starts counting from zero.
+  useEffect(() => {
+    failures.current = 0
+  }, [jobId, live])
+
+  const reconnectNow = useCallback(() => {
+    failures.current = 0
+    setConnection('reconnecting')
+    setAttempt((current) => current + 1)
+  }, [])
+
+  useEffect(() => {
     if (!live) return
 
-    const after = events.at(-1)?.sequence ?? 0
-    const source = new EventSource(`${API_BASE}/jobs/${jobId}/events?after=${after}`)
-    setConnection('open')
+    const source = new EventSource(
+      `${API_BASE}/jobs/${jobId}/events?after=${lastSequence.current}`,
+    )
+    let settled: ReturnType<typeof setTimeout> | undefined
+    let retry: ReturnType<typeof setTimeout> | undefined
 
+    source.onopen = () => {
+      setConnection('open')
+      settled = setTimeout(() => {
+        failures.current = 0
+      }, RECONNECT_RESET_MS)
+    }
     source.addEventListener('job.event', (message) => {
       const event = JSON.parse((message as MessageEvent<string>).data) as JobEvent
       setEvents((current) => mergeEvents(current, [event]))
     })
     source.addEventListener('end', () => {
-      // The job finished and said so; that is not a dropped connection.
+      // The job finished and said so; that is not a dropped connection, and
+      // nothing is left to pick up.
       setConnection('ended')
       source.close()
     })
     source.onerror = () => {
-      setConnection('closed')
+      // Closing suppresses the browser's own reconnect on purpose: it would
+      // ask for the same URL again, with the `after` this stream started from,
+      // and replay every line since instead of continuing where we are.
       source.close()
+      const delay = RECONNECT_DELAYS_MS[failures.current]
+      if (delay === undefined) {
+        setConnection('closed')
+        return
+      }
+      failures.current += 1
+      setConnection('reconnecting')
+      retry = setTimeout(() => setAttempt((current) => current + 1), delay)
     }
 
-    return () => source.close()
-    // Intentionally keyed on the job alone: re-subscribing on every new line
-    // would tear the stream down and rebuild it for each event.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, live])
+    return () => {
+      clearTimeout(settled)
+      clearTimeout(retry)
+      source.close()
+    }
+    // Keyed on the job and the attempt, never on the log: re-subscribing on
+    // every new line would tear the stream down and rebuild it for each event.
+  }, [jobId, live, attempt])
+
+  // A network coming back or a tab coming forward is better news than the
+  // backoff has. A laptop that slept through the last attempt would otherwise
+  // wake to a log that has given up, with the job still running.
+  useEffect(() => {
+    if (!live) return
+    if (connection !== 'reconnecting' && connection !== 'closed') return
+
+    const wake = () => {
+      if (document.visibilityState === 'visible') reconnectNow()
+    }
+    window.addEventListener('online', wake)
+    document.addEventListener('visibilitychange', wake)
+    return () => {
+      window.removeEventListener('online', wake)
+      document.removeEventListener('visibilitychange', wake)
+    }
+  }, [live, connection, reconnectNow])
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'nearest' })
@@ -152,8 +240,19 @@ export function LiveLog({
         )}
       </div>
 
+      {live && connection === 'reconnecting' && (
+        <p className="text-ink-3 text-xs" role="status">
+          {t('jobs.reconnecting')}
+        </p>
+      )}
+
       {live && connection === 'closed' && (
-        <p className="text-ink-3 text-xs">{t('jobs.disconnected')}</p>
+        <div className="flex flex-wrap items-center gap-2" role="status">
+          <p className="text-ink-3 text-xs">{t('jobs.disconnected')}</p>
+          <Button variant="secondary" size="sm" onClick={reconnectNow}>
+            {t('jobs.reconnect')}
+          </Button>
+        </div>
       )}
 
       <div className="rounded-card border-rule bg-surface max-h-[28rem] overflow-auto border">

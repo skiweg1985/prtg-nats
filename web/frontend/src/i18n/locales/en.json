@@ -287,7 +287,8 @@
     "retry": "Run again",
     "live": "Live",
     "reconnecting": "Reconnecting…",
-    "disconnected": "The live connection dropped. The log below is complete up to that point.",
+    "disconnected": "The live connection dropped and did not come back. The log below is complete up to that point.",
+    "reconnect": "Reconnect",
     "blocked": {
       "resource_busy": "Waiting for job {{jobId}} to release the target."
     },
