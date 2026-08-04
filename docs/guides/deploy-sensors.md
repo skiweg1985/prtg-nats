@@ -377,6 +377,7 @@ profiles and remaining reservations stay untouched.
 | `internet-speed` | measure the throughput of the uplink (download, upload, latency) | [README](../../sensors/internet-speed/README.md) |
 | `link-quality` | reachability and quality of the uplink (loss, latency, jitter) | [README](../../sensors/link-quality/README.md) |
 | `iperf-throughput` | the uplink against a self-operated iperf3 endpoint (throughput, loss, jitter, latency) | [README](../../sensors/iperf-throughput/README.md) |
+| `aruba-uplink` | which uplink of an Aruba gateway carries the site (primary and backup, path quality, LTE signal) | [README](../../sensors/aruba-uplink/README.md) |
 
 `internet-speed` and `link-quality` answer two different questions about the
 same line: one asks how much it carries, the other how cleanly it carries.
@@ -387,3 +388,11 @@ and makes telephony unusable.
 [your own endpoint](#measurement-endpoints) instead of the internet: not
 "does the provider deliver the contracted line" but "can the site do its
 work".
+
+`aruba-uplink` answers a question none of the others can: those three
+describe how well a line carries, it says *which* line that is. Where a
+gateway fails over to LTE quietly, the other sensors keep reporting green -
+the line does carry - and only this one notices that the site has been on
+mobile data for a fortnight. It needs an Aruba gateway and a read-only
+account on it, and it produces no traffic of its own: every value comes
+from the device.

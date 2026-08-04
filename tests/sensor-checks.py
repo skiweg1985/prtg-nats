@@ -1551,6 +1551,328 @@ def check_link_quality_helper():
           answer.get("result"), "blocked")
 
 
+def aruba_arguments(**overrides):
+    arguments = {
+        "self_check": False, "host": "192.0.2.1", "user": "monitoring",
+        "password": "s3cr3t-value", "primary": "wired", "backup": "cellular",
+        "backup_share": 25, "timeout_ms": 10000,
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+# Real answers of an Aruba gateway, with the addresses replaced by
+# documentation ranges. Two properties of the API are kept deliberately:
+# the text arrives HTML escaped, and one "_data" entry holds several lines
+# at once. Both only show up against the device, and a parser built against
+# invented data would miss them.
+ARUBA_STATS = {"_data": [
+    "Uplinks Statistics: \n------------------------------",
+    "Wired VLAN:\t4086 (dhcp_inet)\n\tActive ports:\tGE0/0/0 \n"
+    "\trx_pkts/sec: 369 tx_pkts/sec: 168\n"
+    "\trx_bytes/sec: 394607 tx_bytes/sec: 70811",
+    "Cellular VLAN:\t4095 (lte_lte)\n\trx_pkts/sec: 1 tx_pkts/sec: 1\n"
+    "\trx_bytes/sec: 212 tx_bytes/sec: 188",
+]}
+ARUBA_DEBUG = {"_data": [
+    "link: 0xe19a80 type: 1(Wired), link_id: 101",
+    "vlan 4086 priority: 200 state: 4(CONNECTED) err: 0 "
+    "nametag: &#39;dhcp_inet&#39;",
+    "probe ip: &#39;192.0.2.79&#39; latency: 14800 jitter: 192 "
+    "pkt_loss: 0.000% Rvalue: 92.570 state: 1(Reachable)",
+    "probe ip: &#39;198.51.100.5&#39; latency: 11200 jitter: 508 "
+    "pkt_loss: 2.000% Rvalue: 92.650 state: 1(Reachable)",
+    "link: 0xe19f78 type: 2(Cellular), link_id: 105",
+    "probe ip: &#39;192.0.2.79&#39; latency: 50250 jitter: 0 "
+    "pkt_loss: 0.000% Rvalue: 91.694 state: 1(Reachable)",
+]}
+ARUBA_CELLULAR = {"_data": [
+    "Modem Name                \t: Internal-LTE",
+    "Link Status               \t: Connected",
+    "RSRP (LTE)                \t: -99 dBm",
+    "SINR                      \t: 8",
+    "Data usage                \t: 1700 MB",
+    "IMEI                      \t: 000000000000000",
+    "GPS Latitude              \t: ",
+    "-----------------------------",
+]}
+
+
+def aruba_table(*rows):
+    return {"Uplink Management Table": [dict(row) for row in rows]}
+
+
+def aruba_row(kind, up=True, utilisation="0.07%"):
+    return {"Uplink Type": kind, "State": "Connected" if up else "Down",
+            "Reachability": "Reachable" if up else "Unreachable",
+            "B/w utiln": utilisation}
+
+
+def check_aruba_uplink_output():
+    """Output format, parsers and role assignment of the gateway sensor."""
+    print("\n== aruba-uplink: output for PRTG ==")
+    script = os.path.join(SENSOR_DIR, "aruba-uplink", "script",
+                          "aruba-uplink.py")
+    module = load_module("aruba_uplink", script)
+
+    completed = run_script(script, "\n")
+    check("a run without parameters yields exit code 0",
+          completed.returncode, 0)
+    document = json.loads(completed.stdout)
+    check("the answer carries the schema version", document.get("version"), 2)
+    check("without a gateway it is rejected", document.get("status"), "error")
+    # The parameters are typed into a text field in PRTG and checked by
+    # nothing there. The message is the only place an administrator learns
+    # what to write instead.
+    check("and a copyable line is in the message",
+          "--host 192.0.2.1" in document.get("message", ""), True)
+
+    completed = run_script(script, "--host 192.0.2.1\n")
+    document = json.loads(completed.stdout)
+    check("without credentials it is rejected too",
+          document.get("status"), "error")
+    check("and that message names both parameters",
+          "--user NAME --password SECRET" in document.get("message", ""), True)
+
+    # A scheme or a port would silently land in the Host header and produce
+    # a connection error nobody can trace back to the parameter.
+    for spec in ("https://192.0.2.1", "192.0.2.1:4343"):
+        completed = run_script(
+            script, "--host %s --user u --password p\n" % spec)
+        document = json.loads(completed.stdout)
+        check("%r is rejected as a gateway address" % spec,
+              document.get("status"), "error")
+
+    # The PRTG manual is explicit: a credential placeholder must not appear
+    # in anything the script prints. argparse quotes the offending value
+    # back, so a typo next to the password would leak it into every
+    # notification.
+    completed = run_script(
+        script, "--host 192.0.2.1 --user monitoring "
+                "--password s3cr3t-value --timeout-ms abc\n")
+    document = json.loads(completed.stdout)
+    check("a typo next to the password still fails",
+          document.get("status"), "error")
+    check("but the password does not reach the message",
+          "s3cr3t-value" in document.get("message", ""), False)
+    check("while the parameter at fault is still named",
+          "--timeout-ms" in document.get("message", ""), True)
+    # A secret too short to mask cannot be blanked without shredding the
+    # message - then the whole message goes.
+    completed = run_script(
+        script, "--host 192.0.2.1 --user monitoring --password ab "
+                "--timeout-ms abc\n")
+    document = json.loads(completed.stdout)
+    check("a very short password drops the message entirely",
+          "invalid int value" in document.get("message", ""), False)
+
+    completed = run_script(script, "--totally-unknown\n")
+    check("an unknown parameter yields exit code 0", completed.returncode, 0)
+    document = json.loads(completed.stdout)
+    check("an unknown parameter reports a sensor failure",
+          document.get("status"), "error")
+    check("the message names the typo",
+          "--totally-unknown" in document.get("message", ""), True)
+
+    completed = run_script(
+        script, "--host 192.0.2.1 --user u --password p "
+                "--primary wired --backup wired\n")
+    document = json.loads(completed.stdout)
+    check("the same kind twice is rejected", document.get("status"), "error")
+    check("and the message names the way out",
+          "--backup none" in document.get("message", ""), True)
+
+    check_aruba_uplink_parsers(module)
+    check_aruba_uplink_channels(module)
+    check_aruba_uplink_secrets(module)
+
+
+def check_aruba_uplink_parsers(module):
+    """The parsers are where foreign text enters the sensor."""
+    print("\n== aruba-uplink: parsers ==")
+
+    rates = module.parse_uplink_stats(module.data_lines(ARUBA_STATS))
+    check("the byte rates are summed per kind and direction",
+          rates, {"wired": 465418, "cellular": 400})
+    check("a block without rates stays at zero",
+          module.parse_uplink_stats(["Wired VLAN:\t4086 (dhcp_inet)"]),
+          {"wired": 0})
+    check("text before any section is ignored",
+          module.parse_uplink_stats(["rx_bytes/sec: 5 tx_bytes/sec: 5"]), {})
+
+    quality = module.parse_link_quality(module.data_lines(ARUBA_DEBUG))
+    # The gateway probes several targets per uplink; averaging over them is
+    # the honest summary, and microseconds become milliseconds on the way.
+    check("the probes land at the right uplink", sorted(quality),
+          ["cellular", "wired"])
+    check("latency is averaged and converted",
+          round(quality["wired"]["latency_ms"], 3), 13.0)
+    check("jitter as well",
+          round(quality["wired"]["jitter_ms"], 3), 0.35)
+    check("loss as well", round(quality["wired"]["loss_percent"], 3), 1.0)
+    check("the R value as well", round(quality["wired"]["quality"], 3), 92.61)
+    check("a single probe needs no averaging",
+          round(quality["cellular"]["latency_ms"], 3), 50.25)
+    # HTML escaping is why data_lines exists at all: without unescaping,
+    # the quoted address swallows the rest of the line.
+    check("the HTML escaped quotes do not break the line",
+          len(module.parse_link_quality(
+              ["link: 0x1 type: 1(Wired), link_id: 1",
+               "probe ip: &#39;192.0.2.1&#39; latency: 1000 jitter: 0 "
+               "pkt_loss: 0.000% Rvalue: 90.000 state: 1(Reachable)"])), 1)
+    # The one command that is not documented API surface. A changed format
+    # has to end in a failure code, never in an exception.
+    check("an answer without link blocks yields nothing, not a crash",
+          module.parse_link_quality(["Uplink Manager: Enabled", ""]), {})
+
+    values = module.cellular_values(ARUBA_CELLULAR)
+    check("the radio values are read", values,
+          {"rsrp": -99.0, "sinr": 8.0, "data_usage": 1700.0})
+    # IMEI, IMSI, cell ID and GPS sit in the same block. They are device and
+    # location identifiers and must not reach a channel or a message.
+    check("no identifier is carried along",
+          [key for key in values if key not in ("rsrp", "sinr", "data_usage")],
+          [])
+    check("a line without a colon is skipped",
+          module.parse_key_values(["-------", "Key : Value"]),
+          {"Key": "Value"})
+    check("an empty value stays empty",
+          module.parse_key_values(["Standby SIM : "]), {"Standby SIM": ""})
+
+    uplinks = module.parse_uplinks(aruba_table(
+        aruba_row("Wired", up=False, utilisation="1.00%"),
+        aruba_row("Wired", up=True, utilisation="4.00%"),
+        aruba_row("Cellular")))
+    # Several uplinks of one kind: the kind stands as soon as one of them
+    # does, and the utilisation is the worst of them.
+    check("two wired uplinks collapse into one statement",
+          (uplinks["wired"]["up"], uplinks["wired"]["count"],
+           uplinks["wired"]["utilisation"]), (True, 2, 4.0))
+    try:
+        module.parse_uplinks({"_data": []})
+        message = ""
+    except module.Failed as problem:
+        message = problem.code
+    check("a missing table is a bad answer, not a crash", message,
+          "bad-answer")
+
+
+def check_aruba_uplink_channels(module):
+    """Which channels exist follows the configuration, never the result."""
+    print("\n== aruba-uplink: channels ==")
+
+    uplinks = module.parse_uplinks(aruba_table(aruba_row("Wired"),
+                                               aruba_row("Cellular")))
+    rates = module.parse_uplink_stats(module.data_lines(ARUBA_STATS))
+    quality = module.parse_link_quality(module.data_lines(ARUBA_DEBUG))
+
+    def identifiers(**overrides):
+        args = aruba_arguments(**overrides)
+        summary = module.summarise(args, uplinks, rates)
+        document = module.present(args, summary, {"rsrp": -99.0}, quality, 0,
+                                  12, "ok", "")
+        return [entry["id"] for entry in document["channels"]]
+
+    default = identifiers()
+    check("the channels come out ascending", default, sorted(default))
+    check("with a backup every block is present", default,
+          [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+           30, 31, 32, 33, 40, 41, 42, 43])
+    # Without an alternative path the backup channels would report a
+    # permanent alarm for something the site does not have.
+    check("without a backup the backup channels are gone",
+          identifiers(backup="none"),
+          [10, 11, 12, 15, 16, 17, 18, 20, 30, 31, 32, 33])
+    check("a wired-only site carries no radio channels",
+          [identifier for identifier in identifiers(backup="none")
+           if identifier in (19, 21, 22)], [])
+    check("an LTE-only site does carry them",
+          [identifier for identifier
+           in identifiers(primary="cellular", backup="none")
+           if identifier in (19, 21, 22)], [19, 21, 22])
+    check("the roles can be swapped",
+          identifiers(primary="cellular", backup="wired"), default)
+
+    # A failure must not change the channel structure - a channel that
+    # disappears during an outage tears its history apart in PRTG.
+    failed = module.failure_result(aruba_arguments(), "gateway-unreachable",
+                                   "nope")
+    check("an unreachable gateway keeps every channel",
+          [entry["id"] for entry in failed["channels"]], default)
+    codes = {entry["id"]: entry["value"] for entry in failed["channels"]}
+    check("and sets Test Result to error", codes[10], module.LOOKUP_NO)
+    check("and enters its code", codes[18],
+          module.FAILURE_CODES["gateway-unreachable"])
+    check("and reports the primary as down", codes[12], module.LOOKUP_NO)
+
+    # The path measurement is secondary: losing it must not pull the result
+    # channel down with it.
+    partial = module.present(aruba_arguments(),
+                             module.summarise(aruba_arguments(), uplinks,
+                                              rates),
+                             {}, {}, 0, 12, "no-quality-data", "no data")
+    codes = {entry["id"]: entry["value"] for entry in partial["channels"]}
+    check("a missing path measurement stays a valid run", codes[10],
+          module.LOOKUP_YES)
+    check("but is named by its code", codes[18],
+          module.FAILURE_CODES["no-quality-data"])
+    check("and leaves the quality channels at zero", codes[33], 0.0)
+
+    # The threshold, not equality: a gateway that load-balances puts a
+    # little traffic on the backup permanently.
+    quiet = module.summarise(aruba_arguments(), uplinks,
+                             {"wired": 10000, "cellular": 100})
+    check("a little traffic on the backup is no changeover",
+          (round(quiet["backup_share"], 2), quiet["on_primary"]),
+          (0.99, True))
+    moved = module.summarise(aruba_arguments(), uplinks,
+                             {"wired": 100, "cellular": 10000})
+    check("most of it on the backup is one", moved["on_primary"], False)
+    check("a dead primary is never on the primary",
+          module.summarise(
+              aruba_arguments(),
+              module.parse_uplinks(aruba_table(aruba_row("Wired", up=False),
+                                               aruba_row("Cellular"))),
+              rates)["primary_up"], False)
+    # Without a backup there is no share to compare against.
+    check("without a backup only the primary decides",
+          module.summarise(aruba_arguments(backup="none"), uplinks,
+                           rates)["on_primary"], True)
+
+    empty = module.summarise(aruba_arguments(), {}, {})
+    check("a gateway without uplinks yields zeros, not missing channels",
+          (empty["connected"], empty["primary_up"], empty["backup_share"]),
+          (0, False, 0.0))
+
+
+def check_aruba_uplink_secrets(module):
+    """Nothing the sensor prints may carry the password."""
+    print("\n== aruba-uplink: secrets ==")
+
+    document = module.self_check(aruba_arguments(self_check=True))
+    check("complete parameters pass the self-test",
+          document.get("status"), "ok")
+    # The self-test must not reach out to the gateway: activating a sensor
+    # would otherwise depend on a device across the site.
+    check("and the self-test names the gateway, not the password",
+          ("192.0.2.1" in document["message"],
+           "s3cr3t-value" in json.dumps(document)), (True, False))
+
+    tokens = ["--user", "monitoring", "--password", "s3cr3t-value"]
+    check("the password is masked wherever it appears",
+          module.redact("saw s3cr3t-value here", tokens), "saw ... here")
+    # The user name is no secret - it stands in the sensor configuration
+    # anyway, and blanking a short one would shred the whole message.
+    check("the user name is left alone",
+          module.redact("saw monitoring here", tokens), "saw monitoring here")
+    check("a secret too short to mask drops the message",
+          "invalid" in module.redact(
+              "invalid value", ["--password", "va"]), False)
+    check("a message without the secret survives untouched",
+          module.redact("--timeout-ms takes a number", tokens),
+          "--timeout-ms takes a number")
+
+
 if __name__ == "__main__":
     check_manifests()
     check_privilege_path()
@@ -1560,6 +1882,7 @@ if __name__ == "__main__":
     check_iperf_throughput_output()
     check_link_quality_output()
     check_link_quality_helper()
+    check_aruba_uplink_output()
     if FAILURES:
         print("\n%d sensor check(s) failed." % FAILURES,
               file=sys.stderr)
