@@ -549,6 +549,72 @@ else
   printf '  skipped (sha256sum not installed)\n'
 fi
 
+# A rollout that fails while staging must not take the sensor that is already
+# running with it. The rollback used to restore every staged slot, and a slot
+# with no recorded "before" - which is every slot until activation records one
+# - was restored by deleting the target. So a deploy that lost the connection
+# between the second and the third file left the probe without the working
+# version it had before anyone touched it.
+#
+# The function is lifted out of the helper and run on its own, so the check
+# exercises the code that ships rather than a copy of it. It reports what is
+# left of the installed sensor; the checks themselves stay in this shell,
+# where the counter lives.
+after_rollback() {
+  local scenario="$1"
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # the roots are read by the sourced code
+    SENSOR_SCRIPT_DIR="${sandbox}/scripts"
+    # shellcheck disable=SC2034
+    SENSOR_WRAPPER_DIR="${sandbox}/sbin"
+    # shellcheck disable=SC2034
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    SENSOR_SLOTS=(script wrapper requirements version)
+    local transaction="${sandbox}/transaction"
+    mkdir -p "${SENSOR_SCRIPT_DIR}" "${SENSOR_WRAPPER_DIR}" "${transaction}"
+
+    # shellcheck disable=SC1090  # a process substitution, not a fixed path
+    source <(sed -n '/^sensor_slot_target()/,/^}/p
+      /^restore_sensor_files()/,/^}/p' libexec/prtg-nats-probe-helper)
+    # The unit half needs systemd; the file half is what this is about.
+    write_sensor_units() { :; }
+    remove_sensor_units() { :; }
+
+    printf 'the running version\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+    printf 'the new version\n' > "${transaction}/slot-script"
+    case "${scenario}" in
+      staged) ;;  # never activated, so nothing was recorded
+      activated) printf 'the running version\n' > "${transaction}/original-script" ;;
+      newly-installed) : > "${transaction}/original-script-absent" ;;
+    esac
+
+    restore_sensor_files "${transaction}" demo root
+
+    if [[ -f "${SENSOR_SCRIPT_DIR}/demo.py" ]]; then
+      cat "${SENSOR_SCRIPT_DIR}/demo.py"
+    else
+      printf 'gone\n'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a rollback before activation keeps the installed sensor" \
+  "$(after_rollback staged)" "the running version"
+check "a rollback after activation puts the previous file back" \
+  "$(after_rollback activated)" "the running version"
+check "a rollback removes a sensor that was newly installed" \
+  "$(after_rollback newly-installed)" "gone"
+
+# The marker is what tells the two apart, so the rollback has to look for it
+# and the activation has to leave it behind.
+check "activation marks the transaction as activated" \
+  "$(grep -c "> \"\${transaction}/activated\"" libexec/prtg-nats-probe-helper)" "1"
+check "the rollback asks for that marker" \
+  "$(grep -c '\-f "${transaction}/activated"' libexec/prtg-nats-probe-helper)" "1"
+
 # The endpoint is the second machine this tool sets up over SSH. What
 # holds for the probe holds for it too: help without a configured
 # environment, and every deploy has a counterpart.
