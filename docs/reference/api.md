@@ -108,6 +108,12 @@ password, so fetching it is a disclosure and is audited as one.
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
 
+`GET /probes/{id}/access-key` answers with `nats_username` and `access_key`
+and takes `credential.read`. It is the only endpoint that returns the value:
+`GET /probes/{id}` reports `access_key_present` and nothing more, and job logs
+mask it like any other secret. Every call is recorded as `credential.reveal`,
+so the trail says who looked and when - never at what.
+
 Every probe reports `helper_version` and `helper_outdated`. `POST
 /probes/{id}/helper-update` sends the helper the platform ships, signed with
 the key in `runtime/private/`; the probe verifies it before it replaces

@@ -27,6 +27,7 @@ import type {
   ProbeDetail,
   ProbeSummary,
   ReconciliationPlan,
+  RevealedAccessKey,
   SensorDetail,
   SensorSummary,
   SystemStatus,
@@ -395,6 +396,12 @@ export function useRevealNatsPassword() {
       api.get<{ username: string; password: string }>(
         `/credentials/${username}/reveal`,
       ),
+  })
+}
+
+export function useRevealAccessKey() {
+  return useMutation({
+    mutationFn: (id: string) => api.get<RevealedAccessKey>(`/probes/${id}/access-key`),
   })
 }
 

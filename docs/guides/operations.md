@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Operations and maintenance
@@ -266,6 +266,11 @@ probe reports about itself:
 ```bash
 sudo ./prtg-nats probe show mpp-probe-01
 ```
+
+The web interface shows the same key on the probe's **Overview** tab behind a
+**Reveal** button, for the case where the key has to go into PRTG and nobody
+has a shell on the NATS host. Unlike the command above, that disclosure is
+recorded in the audit trail.
 
 ## State of the whole fleet
 

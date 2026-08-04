@@ -77,6 +77,17 @@ class ProbeInventoryOut(ApiModel):
     known_iperf_endpoints: list[str] = Field(default_factory=list)
 
 
+class AccessKeyOut(ApiModel):
+    """The revealed access key, next to the probe it belongs to.
+
+    The account name travels with the value so the interface can name what it
+    is showing without trusting the route parameter it sent.
+    """
+
+    nats_username: str
+    access_key: str
+
+
 class ObservedStateOut(ApiModel):
     observed_at: datetime
     reachable: bool

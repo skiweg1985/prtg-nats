@@ -1,7 +1,7 @@
 ---
 title: Add your first probe
 role: deployer
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Roll out a new MPP in about 10 minutes
@@ -326,8 +326,11 @@ In PRTG:
 `Setup > System Administration > Probes > Probe Connection Settings`
 
 Add the **probe access key** printed at the end of `install-mpp` as its own
-line in the **Access Keys** field and save. It can be shown again at any time
-with `./prtg-nats probe show USER`. Do not overwrite existing keys. If PRTG
+line in the **Access Keys** field and save. It can be shown again at any
+time - with `./prtg-nats probe show USER` on the NATS host, or in the web
+interface on the probe's **Overview** tab, where **PRTG access key** carries a
+**Reveal** button. Both read the same inventory file; the web interface
+records who looked in the audit trail. Do not overwrite existing keys. If PRTG
 asks for a core restart, confirm it in a maintenance window.
 
 The field holds all keys, one per line. So that each line can be attributed
