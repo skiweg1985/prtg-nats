@@ -119,7 +119,7 @@ class IssuedInvitationOut(InvitationOut):
     ca_sha256: str
 
 
-def _valid_source_cidr(value: str) -> str:
+def valid_source_cidr(value: str) -> str:
     """A comma separated list of networks, each one checked on its own.
 
     The same rule libexec/iperf-enroll.sh applies before it writes the key, and
@@ -203,7 +203,7 @@ class IperfInvitationIn(ApiModel):
     @field_validator("ssh_source_cidr")
     @classmethod
     def _valid_cidr(cls, value: str | None) -> str | None:
-        return None if value is None else _valid_source_cidr(value)
+        return None if value is None else valid_source_cidr(value)
 
 
 class IperfInvitationOut(ApiModel):

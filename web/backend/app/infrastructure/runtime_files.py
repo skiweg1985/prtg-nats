@@ -84,6 +84,10 @@ class IperfEndpointRecord:
     kind: str
     updated_at: datetime | None
     has_public_key: bool
+    # Where the management channel to this endpoint answers. Absent in a record
+    # the shell tooling wrote, which never opened one - 22 is right for every
+    # endpoint that path produced, because nothing there connected at all.
+    ssh_port: int = 22
     # Whether this platform set the host up and can still reach it. False for
     # an endpoint somebody else operates, which was registered here by hand:
     # its password is not ours to rotate and removing it here takes nothing off
@@ -358,6 +362,7 @@ class RuntimeFileStore:
                     updated_at=_as_datetime(values.get("IPERF_UPDATED")),
                     has_public_key=(directory / f"{path.stem}.pem").is_file(),
                     managed=_as_bool(values.get("IPERF_MANAGED"), default=True),
+                    ssh_port=_as_int(values.get("IPERF_SSH_PORT"), 22),
                 )
             )
         return endpoints
@@ -418,6 +423,7 @@ class RuntimeFileStore:
         password: str,
         public_key_pem: str | None = None,
         managed: bool = True,
+        ssh_port: int = 22,
         kind: str = "iperf3",
     ) -> None:
         """The endpoint's record and its public key, in the format
@@ -445,6 +451,7 @@ class RuntimeFileStore:
             f"IPERF_USERNAME={username}\n"
             f"IPERF_PASSWORD={password}\n"
             f"IPERF_MANAGED={'true' if managed else 'false'}\n"
+            f"IPERF_SSH_PORT={ssh_port}\n"
             f"IPERF_UPDATED={datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
         )
         record.touch(mode=0o600, exist_ok=True)

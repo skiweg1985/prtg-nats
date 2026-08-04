@@ -26,6 +26,7 @@ from app.core.errors import AppError
 from app.core.ids import new_id
 from app.domain.enums import JobStatus, JobStepStatus, LogLevel
 from app.infrastructure.probe_helper import SENSOR_SLOTS, ProbeConnection
+from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorDefinition
 from app.persistence.models.inventory import Deployment, DeploymentTarget
 from app.workers.context import JobContext
@@ -284,6 +285,22 @@ async def _finalise_deployment(
         deployment.status = JobStatus.SUCCESSFUL
 
 
+def endpoint_profile_content(runtime: RuntimeFileStore, endpoint: str) -> str:
+    """The credential profile for one endpoint, as the sensor reads it.
+
+    Shared with the rotation job, which writes the very same file when the
+    password changes. Two renderings of one format would be two chances for the
+    probes to end up with something the sensor cannot parse.
+    """
+    password, public_key_b64, host, port = runtime.read_iperf_profile_material(endpoint)
+    return (
+        "# Written by the PRTG-NATS web platform. Do not edit by hand.\n"
+        f"# Endpoint {endpoint} on {host}:{port}\n"
+        f"IPERF3_PASSWORD={password}\n"
+        f"IPERF3_PUBLIC_KEY_B64={public_key_b64}\n"
+    )
+
+
 async def _deploy_endpoint_profiles(
     context: JobContext,
     connection: ProbeConnection,
@@ -301,15 +318,7 @@ async def _deploy_endpoint_profiles(
         return
 
     for endpoint in endpoints:
-        password, public_key_b64, host, port = (
-            context.runtime.read_iperf_profile_material(endpoint.name)
-        )
-        content = (
-            "# Written by the PRTG-NATS web platform. Do not edit by hand.\n"
-            f"# Endpoint {endpoint.name} on {host}:{port}\n"
-            f"IPERF3_PASSWORD={password}\n"
-            f"IPERF3_PUBLIC_KEY_B64={public_key_b64}\n"
-        )
+        content = endpoint_profile_content(context.runtime, endpoint.name)
         await context.helper.write_profile(
             connection, definition.name, endpoint.name, content
         )
@@ -323,15 +332,9 @@ async def _deploy_endpoint_profiles(
     if len(endpoints) == 1:
         # With exactly one endpoint its profile is also "default", so nobody
         # has to name a profile while there is nothing to distinguish.
-        password, public_key_b64, host, port = (
-            context.runtime.read_iperf_profile_material(endpoints[0].name)
-        )
-        content = (
-            "# Written by the PRTG-NATS web platform. Do not edit by hand.\n"
-            f"# Endpoint {endpoints[0].name} on {host}:{port}\n"
-            f"IPERF3_PASSWORD={password}\n"
-            f"IPERF3_PUBLIC_KEY_B64={public_key_b64}\n"
-        )
         await context.helper.write_profile(
-            connection, definition.name, "default", content
+            connection,
+            definition.name,
+            "default",
+            endpoint_profile_content(context.runtime, endpoints[0].name),
         )

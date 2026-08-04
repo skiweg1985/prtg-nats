@@ -289,11 +289,18 @@ party service - `iperf-throughput` does that against an iperf3 measurement
 endpoint. Such a far end is more than a credential profile: it is a machine
 that wants setting up, and both sides have to know the same secret.
 
-There are two ways to set one up, and they write the same files. From the web
-interface an endpoint enrols itself, the way a probe does: the platform hands
-out a command, somebody runs it on the endpoint, and the platform takes over
-from there - see
-[Enrolling an iperf measurement endpoint](../reference/api.md#enrolling-an-iperf-measurement-endpoint).
+There are several ways to set one up and they all write the same files, so
+whichever was used, the result is the same endpoint:
+
+| Way | When |
+| --- | --- |
+| the interface signs in once over SSH | the usual case, and the only one that works when the endpoint cannot reach this installation |
+| the endpoint fetches an invitation | when it *can* reach it - then no administrator password passes through the platform |
+| registering it | a host somebody else operates, where nothing may be installed |
+| `./prtg-nats iperf-server install` | from the command line, unchanged |
+
+The first three are in
+[Setting up an iperf measurement endpoint](../reference/api.md#setting-up-an-iperf-measurement-endpoint).
 From the command line it works like `install-mpp`: one SSH sign-in, and the
 machine is operational.
 
@@ -330,12 +337,17 @@ by the `SENSOR_IPERF` field in their manifest.
 **What access stays behind depends on which way it was set up.** An endpoint
 installed with `iperf-server install` keeps none: every intervention signs in
 anew over SSH as an administrator, the password change included. An endpoint
-enrolled from the web interface keeps the same kind of restricted access a
-probe has - an SSH forced command, bound to a source network, that answers four
+set up from the web interface keeps the same kind of restricted access a probe
+has - an SSH forced command, bound to a source network, that answers four
 requests and nothing else: ask about itself, set itself up, remove the
 endpoint, remove the access. That is what makes rotating the password and
-taking the endpoint off again something the platform can do, instead of a walk
-to a console.
+taking the endpoint off again a button instead of a walk to a console.
+
+The administrator credentials the push way asks for exist for that one
+connection. They are not stored, not logged and not written into the job, which
+is a database row - they are handed to the worker separately and taken once.
+After the run the platform holds its own restricted key and nothing else, which
+is the point of installing one.
 
 `IPERF_SSH_SOURCE_CIDR` decides which network that access is accepted from, and
 it has no default -

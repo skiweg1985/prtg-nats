@@ -256,7 +256,14 @@ def write_sensor(
     version: str = "1",
     description: str = "Example sensor",
     script: str = "#!/usr/bin/env python3\nprint('{}')\n",
+    iperf_kind: str = "",
 ) -> None:
+    """A sensor in the catalogue.
+
+    ``iperf_kind`` mirrors SENSOR_IPERF in a real manifest: it is what marks a
+    sensor as measuring against a managed endpoint, and therefore what decides
+    which sensors an endpoint's credentials are written to and taken from.
+    """
     directory = project_dir / "sensors" / name / "script"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{name}.py").write_text(script, encoding="utf-8")
@@ -267,6 +274,7 @@ def write_sensor(
         f"SENSOR_SCRIPT=script/{name}.py\n"
         "SENSOR_PRIVILEGED=\n"
         "SENSOR_REQUIREMENTS=\n"
-        "SENSOR_NEEDS_INTERFACE=false\n",
+        "SENSOR_NEEDS_INTERFACE=false\n"
+        f"SENSOR_IPERF={iperf_kind}\n",
         encoding="utf-8",
     )

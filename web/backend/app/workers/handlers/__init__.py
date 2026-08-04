@@ -15,6 +15,7 @@ from app.workers.context import JobContext
 from app.workers.handlers import (
     deploy_sensor,
     iperf_enrollment,
+    iperf_provisioning,
     probe_actions,
     probe_enrollment,
     probe_lifecycle,
@@ -139,6 +140,27 @@ REGISTRY: dict[str, JobDefinition] = {
         # would be a round trip per probe for a host none of them has heard
         # from yet - the credentials reach them in their own job.
         refreshes_probes=False,
+    ),
+    iperf_provisioning.PROVISION_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.PROVISION_JOB_TYPE,
+        steps=iperf_provisioning.PROVISION_STEPS,
+        handler=iperf_provisioning.provision,
+        permission="iperf.manage",
+        refreshes_probes=False,
+    ),
+    iperf_provisioning.REMOVE_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.REMOVE_JOB_TYPE,
+        steps=iperf_provisioning.REMOVE_STEPS,
+        handler=iperf_provisioning.remove,
+        permission="iperf.manage",
+        # This one does touch probes: they lose a credential profile, and the
+        # sensor that used it reports differently from the next run onwards.
+    ),
+    iperf_provisioning.ROTATE_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.ROTATE_JOB_TYPE,
+        steps=iperf_provisioning.ROTATE_STEPS,
+        handler=iperf_provisioning.rotate,
+        permission="iperf.manage",
     ),
     system_actions.EXPORT_JOB_TYPE: JobDefinition(
         type=system_actions.EXPORT_JOB_TYPE,
