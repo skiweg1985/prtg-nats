@@ -921,7 +921,18 @@ fi
 
 log "Installing the public NATS CA"
 run install -d -o root -g root -m 0755 "$(dirname -- "${CA_DESTINATION}")"
-run install -o root -g root -m 0644 "${CA_SOURCE}" "${CA_DESTINATION}"
+# --ca-file may already point at the destination: the bootstrap writes the CA
+# there before it runs this script, and an operator repeating an installation
+# names the file that is already in place. "install" refuses to copy a file
+# onto itself, which ended a successful run with a failure - the package was
+# installed, the CA was where it belongs, and the report said neither.
+if [[ "${CA_SOURCE}" -ef "${CA_DESTINATION}" ]]; then
+  log "The CA is already in place; leaving it as it is"
+  run chown root:root "${CA_DESTINATION}"
+  run chmod 0644 "${CA_DESTINATION}"
+else
+  run install -o root -g root -m 0644 "${CA_SOURCE}" "${CA_DESTINATION}"
+fi
 if [[ "${DRY_RUN}" != "true" ]]; then
   printf 'Installed CA SHA-256: %s\n' "${actual_ca_sha256}"
 fi
