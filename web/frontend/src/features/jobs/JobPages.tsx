@@ -231,7 +231,15 @@ export function JobDetailPage() {
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card dense>
           <div className="p-4">
-            <LiveLog jobId={jobId} initialEvents={log ?? []} live={running} />
+            {/* Keyed on the job: the log merges what it has with what it is
+                given, and a different job is a different log, not more of
+                this one. */}
+            <LiveLog
+              key={jobId}
+              jobId={jobId}
+              initialEvents={log ?? []}
+              live={running}
+            />
           </div>
         </Card>
 

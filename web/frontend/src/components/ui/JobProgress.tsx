@@ -66,6 +66,21 @@ function StepChip({ step }: { step: JobStep }) {
   )
 }
 
+/**
+ * Merge stored and streamed lines, newest sequence wins, ordered by sequence.
+ *
+ * The log has two sources and they overlap: the query refetches on window
+ * focus and on every job mutation, and the stream keeps running while it does.
+ * Replacing the list with the refetched one - which is what this did - drops
+ * the lines that arrived after the server built its answer, and the stream
+ * never sends them again because it has moved past their sequence.
+ */
+function mergeEvents(current: JobEvent[], incoming: JobEvent[]): JobEvent[] {
+  const bySequence = new Map(current.map((event) => [event.sequence, event]))
+  for (const event of incoming) bySequence.set(event.sequence, event)
+  return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence)
+}
+
 const LEVEL_CLASS: Record<JobEvent['level'], string> = {
   debug: 'text-ink-3',
   info: 'text-ink-2',
@@ -84,12 +99,14 @@ export function LiveLog({
 }) {
   const { t } = useTranslation()
   const [events, setEvents] = useState<JobEvent[]>(initialEvents)
-  const [connection, setConnection] = useState<'idle' | 'open' | 'closed'>('idle')
+  const [connection, setConnection] = useState<'idle' | 'open' | 'closed' | 'ended'>(
+    'idle',
+  )
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setEvents(initialEvents)
+    setEvents((current) => mergeEvents(current, initialEvents))
   }, [initialEvents])
 
   useEffect(() => {
@@ -101,14 +118,11 @@ export function LiveLog({
 
     source.addEventListener('job.event', (message) => {
       const event = JSON.parse((message as MessageEvent<string>).data) as JobEvent
-      setEvents((current) =>
-        current.some((entry) => entry.sequence === event.sequence)
-          ? current
-          : [...current, event],
-      )
+      setEvents((current) => mergeEvents(current, [event]))
     })
     source.addEventListener('end', () => {
-      setConnection('closed')
+      // The job finished and said so; that is not a dropped connection.
+      setConnection('ended')
       source.close()
     })
     source.onerror = () => {
