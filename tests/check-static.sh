@@ -898,6 +898,7 @@ sed \
   -e 's|@@TOKEN@@|token|' \
   -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
   -e 's|@@CA_SHA256@@|0000|' \
+  -e 's|@@CA_FINGERPRINT@@|1111|' \
   -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24|' \
   -e 's|@@NATS_HOST@@|nats.example.test|' \
   -e 's|@@NATS_PORT@@|23561|' \
@@ -930,6 +931,15 @@ for option in --nats-host --nats-port --ca-file --ca-sha256 --accept-ca; do
   check "the installer is called with ${option}" \
     "$(printf '%s' "${bootstrap_install_call}" | grep -c -- "${option}")" "1"
 done
+
+# --ca-sha256 means the fingerprint of the certificate, not the hash of the
+# file the certificate sits in. The bootstrap holds both and verifies its own
+# copy with the file hash, so passing that one on is the easy mistake - and it
+# mismatches on every certificate there is, right after the same file was
+# checked successfully a few lines earlier.
+check "the installer gets the fingerprint, not the file hash" \
+  "$(printf '%s' "${bootstrap_install_call}" |
+    grep -c -- '--ca-sha256 "${CA_FINGERPRINT}"')" "1"
 
 # What the installer says when it fails is quoted straight into the report, so
 # it has to survive the trip: an unescaped quote or backslash in that text

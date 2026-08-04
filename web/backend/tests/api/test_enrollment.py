@@ -370,6 +370,48 @@ async def test_the_script_hands_the_installer_a_nats_endpoint(
     assert '--nats-port "${NATS_PORT}"' in script
 
 
+async def test_the_installer_gets_the_fingerprint_not_the_file_hash(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """One certificate, two digests, and they are not interchangeable.
+
+    `sha256sum -c` in the one-liner and in the bootstrap compares the hash of
+    the PEM file. install-mpp.sh means the fingerprint of the certificate
+    itself - its DER encoding - which is also what the probe helper reports.
+    Handing the first where the second belongs mismatches on every certificate
+    there is, and the enrolment fails with "CA SHA-256 mismatch" after the
+    bootstrap has already verified the very same file successfully.
+    """
+    import re as _re
+
+    from app.infrastructure.certificates import fingerprint_of_pem
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    issued = await _invite(client)
+
+    script = (await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")).text
+
+    # The two digests of the CA this invitation carries, computed from the
+    # script's own copy rather than from a fixture - what is embedded is what
+    # the probe checks.
+    embedded = _re.search(
+        r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", script, _re.DOTALL
+    )
+    assert embedded, "the script carries no CA to check"
+    fingerprint = fingerprint_of_pem(embedded.group(0))
+    assert fingerprint
+
+    assert f'CA_FINGERPRINT="{fingerprint}"' in script
+    assert f'CA_SHA256="{issued["ca_sha256"]}"' in script
+    # The file hash is what the browser showed and what sha256sum verifies;
+    # the fingerprint is what the installer is handed. Distinct values.
+    assert issued["ca_sha256"] != fingerprint
+    assert '--ca-sha256 "${CA_FINGERPRINT}"' in script
+
+
 async def test_the_callback_spends_the_invitation_exactly_once(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

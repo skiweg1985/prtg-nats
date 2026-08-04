@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import EnrollmentTokenInvalidError, RuntimeStateError
 from app.core.security import hash_session_token
+from app.infrastructure.certificates import fingerprint_of_pem
 from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.persistence.models.inventory import EnrollmentToken
@@ -260,11 +261,24 @@ class EnrollmentService:
             )
 
         ca_pem, ca_sha256 = self.ca_material()
+        # Two digests of one certificate, and they are not interchangeable.
+        # ca_sha256 is the hash of the file, which is what "sha256sum -c"
+        # compares in the one-liner and in the bootstrap. install-mpp.sh means
+        # the fingerprint of the certificate itself - the DER encoding - which
+        # is also what the probe helper reports and what reconciliation
+        # compares against. Handing the first where the second is expected is
+        # a mismatch on every certificate there is.
+        ca_fingerprint = fingerprint_of_pem(ca_pem)
+        if not ca_fingerprint:
+            raise RuntimeStateError(
+                details="the CA in runtime/ is not a PEM certificate"
+            )
         values = {
             "@@BASE_URL@@": self.base_url(),
             "@@TOKEN@@": token,
             "@@CA_PEM@@": ca_pem,
             "@@CA_SHA256@@": ca_sha256,
+            "@@CA_FINGERPRINT@@": ca_fingerprint,
             "@@SSH_SOURCE_CIDR@@": source_cidr,
             "@@NATS_HOST@@": site.nats_fqdn,
             "@@NATS_PORT@@": str(site.nats_port),
