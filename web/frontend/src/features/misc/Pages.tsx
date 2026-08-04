@@ -6,10 +6,9 @@ import {
   useCapabilities,
   useCertificates,
   useDeployments,
-  useIperfEndpoints,
   useSystemStatus,
 } from '@/api/hooks'
-import type { AuditEvent, Certificate, Deployment, IperfEndpoint } from '@/api/types'
+import type { AuditEvent, Certificate, Deployment } from '@/api/types'
 import { PermissionGate, useAuth, useTheme } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -325,67 +324,6 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
         <p className="text-danger mt-3 text-sm">{t('infrastructure.keyMismatch')}</p>
       )}
     </Card>
-  )
-}
-
-export function IperfPage() {
-  const { t } = useTranslation()
-  const { data, isLoading, error, refetch } = useIperfEndpoints()
-
-  if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
-
-  const columns: Column<IperfEndpoint>[] = [
-    {
-      key: 'name',
-      header: t('sensors.columns.name'),
-      sortValue: (row) => row.name,
-      searchValue: (row) => `${row.name} ${row.host}`,
-      cell: (row) => <span className="text-ink font-medium">{row.name}</span>,
-    },
-    {
-      key: 'endpoint',
-      header: t('dashboard.endpoint'),
-      cell: (row) => (
-        <Mono>
-          {row.host}:{row.port}
-        </Mono>
-      ),
-    },
-    {
-      key: 'user',
-      header: t('auth.username'),
-      cell: (row) => <Mono>{row.username}</Mono>,
-    },
-    {
-      key: 'deployed',
-      header: t('sensors.columns.installed'),
-      align: 'right',
-      sortValue: (row) => row.deployed_to.length,
-      cell: (row) => <span className="text-sm">{row.deployed_to.length}</span>,
-    },
-    {
-      key: 'updated',
-      header: t('common.lastUpdated', { time: '' }).trim(),
-      cell: (row) => (
-        <span className="text-ink-3 text-xs">{formatRelative(row.updated_at)}</span>
-      ),
-    },
-  ]
-
-  return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('infrastructure.iperfTitle')}</h1>
-        <p className="text-ink-3 text-sm">{t('infrastructure.iperfSubtitle')}</p>
-      </header>
-      <DataTable
-        rows={data}
-        columns={columns}
-        rowKey={(row) => row.name}
-        isLoading={isLoading}
-        emptyTitle={t('infrastructure.iperfEmpty')}
-      />
-    </div>
   )
 }
 

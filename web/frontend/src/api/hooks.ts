@@ -13,6 +13,7 @@ import type {
   Certificate,
   Dashboard,
   Deployment,
+  HostKeyScan,
   Invitation,
   InvitationRequest,
   IperfEndpoint,
@@ -26,7 +27,9 @@ import type {
   ParameterSchema,
   ProbeDetail,
   ProbeSummary,
+  ProvisionEndpointRequest,
   ReconciliationPlan,
+  RegisterEndpointRequest,
   RevealedAccessKey,
   SensorDetail,
   SensorProfile,
@@ -351,6 +354,62 @@ export function useIperfEndpoints() {
   return useQuery({
     queryKey: keys.iperf,
     queryFn: () => api.get<IperfEndpoint[]>('/iperf-endpoints'),
+  })
+}
+
+/** Read a host's SSH keys without signing in, so a person can accept them
+ *  before any administrator credential travels to that address. */
+export function useScanHostKeys() {
+  return useMutation({
+    mutationFn: (body: { host: string; ssh_port?: number }) =>
+      api.post<HostKeyScan>('/iperf-endpoints/host-keys', body),
+  })
+}
+
+export function useProvisionEndpoint() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ProvisionEndpointRequest) =>
+      api.post<JobAccepted>('/iperf-endpoints', request),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useRegisterEndpoint() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: RegisterEndpointRequest) =>
+      api.post<IperfEndpoint>('/iperf-endpoints/register', request),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.iperf }),
+  })
+}
+
+export function useRotateEndpoint() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.post<JobAccepted>(`/iperf-endpoints/${name}/rotate`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useRemoveEndpoint() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, keepService }: { name: string; keepService: boolean }) =>
+      api.delete<JobAccepted>(
+        `/iperf-endpoints/${name}${keepService ? '?keep_service=true' : ''}`,
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
   })
 }
 

@@ -4,11 +4,11 @@ import { AuthGate } from '@/features/auth/AuthGate'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { JobDetailPage, JobListPage } from '@/features/jobs/JobPages'
 import { CredentialsPage } from '@/features/infrastructure/CredentialsPage'
+import { IperfPage } from '@/features/infrastructure/IperfPage'
 import {
   AuditPage,
   CertificatesPage,
   DeploymentListPage,
-  IperfPage,
   NatsPage,
   NotFoundPage,
   SettingsPage,
