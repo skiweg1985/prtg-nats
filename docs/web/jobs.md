@@ -86,6 +86,32 @@ Each line carries a code and parameters, which the browser turns into a
 sentence in the operator's language, plus optional raw output that is never
 translated and sits behind a disclosure control.
 
+## The state after a job
+
+What the platform knows about a probe is a cache with a timestamp, refreshed
+by a background pass once it is old enough - five minutes by default. A job
+that changes a probe would otherwise be compared against a reading from before
+it ran, and the comparison finds what the job has just resolved: a sensor
+installed a minute ago reported as missing, a service just restarted reported
+as down, a CA just placed reported as absent. The probe shows degraded for the
+rest of the window, with an alert to match.
+
+So a job ends by asking every probe it held how it left it. The probe answered
+seconds ago, so this is one short round trip, and it happens after the job's
+own result is recorded - a probe that has gone quiet delays nothing and fails
+nothing.
+
+If the probe cannot be asked right then - a host still restarting its service
+is the common case - nothing is overwritten. The cached answer stays, and with
+it the honest "last checked at", while the probe is marked for the next
+background pass, which is a minute away rather than five. Writing "unreachable"
+instead would trade a wrong warning for a wrong alarm.
+
+Two jobs are outside this. `probe.unenroll` has nothing left to ask: the probe
+is out of the inventory by the time it ends. And a newly enrolled probe has no
+cached state at all rather than a stale one, so it shows as pending until the
+first pass reaches it.
+
 ## Retrying
 
 A retry is a new job with the same inputs, pointing back at the one it repeats.

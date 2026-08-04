@@ -32,6 +32,12 @@ class JobDefinition:
     # Permission the API requires before it will create this job. Kept beside
     # the handler so a new job type cannot ship without one.
     permission: str
+    # Whether the runner asks the probes this job held about the state it left
+    # them in. On by default: a job that takes a probe has changed it often
+    # enough that forgetting to say so is the more expensive mistake, and the
+    # cost of being wrong is one round trip to a host that answered seconds
+    # ago. Off only where there is nothing left to ask.
+    refreshes_probes: bool = True
 
 
 REGISTRY: dict[str, JobDefinition] = {
@@ -76,6 +82,10 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=probe_lifecycle.UNENROLL_STEPS,
         handler=probe_lifecycle.unenroll,
         permission="probe.delete",
+        # The probe is out of the inventory by the time this ends. Asking it
+        # anything would mean reading an entry that is gone and putting the
+        # record back that the job just removed.
+        refreshes_probes=False,
     ),
     probe_lifecycle.ROTATE_JOB_TYPE: JobDefinition(
         type=probe_lifecycle.ROTATE_JOB_TYPE,

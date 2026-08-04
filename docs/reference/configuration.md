@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Configuration reference
@@ -199,7 +199,7 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_SSH_COMMAND_TIMEOUT_SECONDS` | Timeout for one management request | int | `120` | no |
 | `PRTG_NATS_WEB_JOB_WORKER_COUNT` | Concurrent job workers | int | `4` | no |
 | `PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS` | How often `runtime/` is re-read | int | `60` | no |
-| `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale | int | `300` | no |
+| `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
 
 ### Development only

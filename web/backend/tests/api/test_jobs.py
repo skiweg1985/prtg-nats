@@ -207,6 +207,9 @@ async def test_a_sensor_rollout_drives_the_helper_transaction(
     await drain(build_runner(settings, transport))
 
     # stage -> activate -> commit, in that order, is the probe's own contract.
+    # The probe-info/sensor-list pair after it is the runner asking the probe
+    # how the job left it, so the sensor does not read as missing until the
+    # cached state expires.
     commands = transport.commands()
     assert commands == [
         "probe-info",
@@ -215,6 +218,8 @@ async def test_a_sensor_rollout_drives_the_helper_transaction(
         "sensor-stage",
         "sensor-activate",
         "sensor-commit",
+        "probe-info",
+        "sensor-list",
     ]
 
     async with session_factory() as db:
@@ -273,7 +278,9 @@ async def test_a_dry_run_touches_nothing(
     )
     await drain(build_runner(settings, transport))
 
-    assert transport.commands() == ["probe-info"]
+    # The pair at the end reads the probe, it does not change it - the point of
+    # a dry run is that nothing is prepared, staged, activated or committed.
+    assert transport.commands() == ["probe-info", "probe-info", "sensor-list"]
 
 
 async def test_configuring_a_probe_without_the_package_stages_nothing(
@@ -304,7 +311,10 @@ async def test_configuring_a_probe_without_the_package_stages_nothing(
     job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
     assert job["status"] == "failed"
     assert job["error_code"] == "probe.package_missing"
-    assert transport.commands() == ["probe-info"]
+    # Nothing staged. The read at the end is the runner refreshing the cached
+    # state, which after a failure is worth more than after a success: what the
+    # job left behind is exactly what nobody knows yet.
+    assert transport.commands() == ["probe-info", "probe-info", "sensor-list"]
 
 
 async def test_a_failed_activation_rolls_back_and_reports(

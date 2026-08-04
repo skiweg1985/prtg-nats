@@ -560,6 +560,22 @@ def _parse_resource(entry: str) -> ResourceRef:
     return ResourceRef(type=resource_type, id=resource_id)
 
 
+def declared_probe_ids(job: Job) -> list[str]:
+    """The probe records a job declared exclusive use of.
+
+    Here rather than at the caller so how a resource is written down stays in
+    this module: it is a string in the payload because a job has to know what
+    it needs before it can be claimed, and that is nobody else's business.
+    """
+    return [
+        resource.id
+        for resource in (
+            _parse_resource(entry) for entry in job.payload.get("_resources", [])
+        )
+        if resource.type == "probe"
+    ]
+
+
 def _progress_for(job: Job, step_name: str) -> int:
     names = [step.name for step in job.steps]
     if step_name not in names or not names:

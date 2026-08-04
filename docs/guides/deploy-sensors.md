@@ -68,6 +68,12 @@ anyone touched it. Helper versions below 3 removed it instead, so a failed
 update took the working sensor with it; update the helper before the next
 rollout if a probe still reports one of them.
 
+When the job ends it asks every probe it worked on how it looks now, so the
+sensor it just installed is not compared against a reading from before the
+rollout. Without that the probe would report the new sensor as missing, and
+show as degraded, until its cached state expired - see
+[Jobs and deployments](../web/jobs.md#the-state-after-a-job).
+
 ## What is created on the probe
 
 | File | Owner | Mode |

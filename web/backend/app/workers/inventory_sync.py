@@ -129,16 +129,23 @@ class InventorySync:
             seconds=self._settings.observed_state_stale_after_seconds
         )
         rows = await db.execute(
-            select(ProbeRecord.nats_username, ProbeObservedState.observed_at)
+            select(
+                ProbeRecord.nats_username,
+                ProbeObservedState.observed_at,
+                ProbeObservedState.refresh_due,
+            )
             .outerjoin(
                 ProbeObservedState, ProbeObservedState.probe_id == ProbeRecord.id
             )
             .where(ProbeRecord.nats_username.in_(usernames))
         )
+        # refresh_due is set by a job that changed the probe and could not ask
+        # it about the change. Waiting out the staleness window for that would
+        # mean minutes of reporting a deviation the job resolved.
         return [
             username
-            for username, observed_at in rows
-            if observed_at is None or observed_at < cutoff
+            for username, observed_at, refresh_due in rows
+            if observed_at is None or refresh_due or observed_at < cutoff
         ]
 
     async def _refresh_many(self, usernames: list[str]) -> None:
