@@ -308,6 +308,10 @@ class IperfEndpointOut(ApiModel):
     kind: str
     updated_at: datetime | None
     has_public_key: bool
+    # Whether this platform set the host up and can still reach it. False for
+    # one somebody else operates: its password is not ours to rotate, and
+    # removing it here takes nothing off that host.
+    managed: bool = True
     # Which probes hold credentials for it, from runtime/probes/USER.iperf.
     deployed_to: list[str] = Field(default_factory=list)
 

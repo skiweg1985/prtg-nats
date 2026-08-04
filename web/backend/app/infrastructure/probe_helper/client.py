@@ -62,6 +62,26 @@ def refusal_error(
     return ProbeRejectedError(params=params, details=reason)
 
 
+class HelperTarget(Protocol):
+    """What the transport needs to dial one host.
+
+    A protocol rather than the dataclass below, because the iperf endpoints
+    reach their own helper over the same transport with a different account -
+    same key, same pinned known_hosts, different forced command.
+    """
+
+    @property
+    def label(self) -> str:
+        """What this host is called in errors and logs."""
+        ...
+
+    @property
+    def host(self) -> str: ...
+
+    @property
+    def port(self) -> int: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeConnection:
     """Everything needed to reach one probe. Comes from its inventory file."""
@@ -77,12 +97,16 @@ class ProbeConnection:
                 details=f"invalid enrolled SSH host: {self.host!r}",
             )
 
+    @property
+    def label(self) -> str:
+        return self.nats_username
+
 
 class HelperTransport(Protocol):
     """Seam for tests: the whole SSH layer behind one method."""
 
     async def run(
-        self, connection: ProbeConnection, request: HelperRequest, timeout: int
+        self, connection: HelperTarget, request: HelperRequest, timeout: int
     ) -> str: ...
 
 
@@ -93,13 +117,15 @@ class SshHelperTransport:
         key_path: Path,
         known_hosts_path: Path,
         connect_timeout: int = 10,
+        username: str = MANAGEMENT_USER,
     ) -> None:
         self._key_path = key_path
         self._known_hosts_path = known_hosts_path
         self._connect_timeout = connect_timeout
+        self._username = username
 
     async def run(
-        self, connection: ProbeConnection, request: HelperRequest, timeout: int
+        self, connection: HelperTarget, request: HelperRequest, timeout: int
     ) -> str:
         if not self._key_path.is_file():
             raise RuntimeStateError(
@@ -114,7 +140,7 @@ class SshHelperTransport:
             async with asyncssh.connect(
                 connection.host,
                 port=connection.port,
-                username=MANAGEMENT_USER,
+                username=self._username,
                 client_keys=[str(self._key_path)],
                 known_hosts=str(self._known_hosts_path),
                 connect_timeout=self._connect_timeout,
@@ -132,25 +158,21 @@ class SshHelperTransport:
                 )
         except asyncssh.HostKeyNotVerifiable as exc:
             raise ProbeUnreachableError(
-                params={"probe": connection.nats_username, "host": connection.host},
+                params={"probe": connection.label, "host": connection.host},
                 details=f"host key is not pinned in known_hosts: {exc}",
             ) from exc
         except (OSError, asyncssh.Error) as exc:
-            raise ProbeUnreachableError.of(
-                connection.nats_username, details=str(exc)
-            ) from exc
+            raise ProbeUnreachableError.of(connection.label, details=str(exc)) from exc
         except TimeoutError as exc:
             raise ProbeUnreachableError(
-                params={"probe": connection.nats_username, "timeout": timeout},
-                details="the probe did not answer within the timeout",
+                params={"probe": connection.label, "timeout": timeout},
+                details="the host did not answer within the timeout",
             ) from exc
 
         stdout = result.stdout if isinstance(result.stdout, str) else ""
         stderr = result.stderr if isinstance(result.stderr, str) else ""
         if result.exit_status != 0:
-            raise refusal_error(
-                connection.nats_username, request.command, (stderr or stdout)
-            )
+            raise refusal_error(connection.label, request.command, (stderr or stdout))
         return stdout
 
 

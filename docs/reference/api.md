@@ -209,6 +209,51 @@ The reverse proxy publishes these under `/enroll/*` and rewrites them onto the
 API prefix. That URL is typed into a one-liner and lands in runbooks, so it
 carries no API version.
 
+### Enrolling an iperf measurement endpoint
+
+The same ceremony with a different script. An endpoint enrols itself, the
+platform sets it up afterwards over the channel that run installed, and the
+password the probes will use is generated here rather than reported back.
+
+| | |
+| --- | --- |
+| `POST /iperf-endpoints/enrollment/tokens` | mint an invitation, returns the command |
+| `GET /iperf-endpoints/enrollment/tokens` | invitations that could still be used |
+| `GET /iperf-endpoints/enrollment/tokens/{id}` | one invitation, open or spent |
+| `DELETE /iperf-endpoints/enrollment/tokens/{id}` | revoke one |
+| `GET /enroll/{token}/iperf-bootstrap.sh` | the rendered script, no auth |
+| `POST /enroll/{token}/iperf-callback` | the endpoint reports in, no auth |
+
+`name` is required and has to be free: it is also the profile name the
+credentials carry on every probe, so two endpoints under one name would
+overwrite each other's credentials on every probe measuring against both. A
+name already registered is refused with `common.conflict`.
+
+`ssh_source_cidr` names the network the endpoint will accept this platform
+from. It falls back to `IPERF_SSH_SOURCE_CIDR`, and an invitation with neither
+is refused - see
+[Management channel](configuration.md#management-channel) for why there is no
+default. A bare address gains its host prefix; host bits inside a prefix are
+refused rather than masked away, because masking would widen the rule beyond
+what was typed. Several networks are allowed, separated by commas.
+
+Nothing secret is in the rendered script, unlike the probe's relationship to
+its own: fetching it does not spend the invitation, so it stays readable for as
+long as the token lives. The endpoint's password is generated when the job
+runs and travels over the management channel.
+
+Each kind of invitation serves only its own script. A probe's token is refused
+at `iperf-bootstrap.sh` and an endpoint's at `bootstrap.sh` - the probe
+bootstrap installs a management user with the probe's rights, which on a host
+that only measures would be rights nobody decided to grant.
+
+The job that follows asks the endpoint about itself, sets it up, and only then
+writes `runtime/iperf/NAME.env` and `NAME.pem` - the same files
+`./prtg-nats iperf-server` has always written, so an endpoint set up from the
+browser is one the command line can deploy, show and revoke. A failure before
+the record is written leaves nothing behind; the way back is to enrol again,
+which sets a fresh password.
+
 ### Sensors and deployments
 
 | | |
@@ -249,6 +294,10 @@ carries no API version.
 | `POST /certificates/server/renew` | → job, restarts NATS |
 | `GET /iperf-endpoints` | measurement endpoints and who holds credentials |
 | `GET /audit-events` | filter by actor, action, object, result, time |
+
+An endpoint carries `managed`. It is false for one somebody else operates,
+registered here rather than set up from here: its password is not ours to
+rotate, and removing it takes nothing off that host.
 
 ### Web accounts
 

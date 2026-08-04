@@ -60,6 +60,11 @@ PROBE_ASSETS: dict[str, str] = {
 }
 _IPERF_ENDPOINT_DIR = "sensors/iperf-throughput/endpoint"
 IPERF_ASSETS: dict[str, str] = {
+    "iperf-enroll.sh": "libexec/iperf-enroll.sh",
+    "prtg-nats-iperf-helper": "libexec/prtg-nats-iperf-helper",
+    # Installed next to the helper, which calls it rather than reimplementing
+    # what it does. It is also the manual path the sensor's README documents,
+    # so it stays where the sensor keeps it.
     "setup-iperf3-endpoint.sh": f"{_IPERF_ENDPOINT_DIR}/setup-iperf3-endpoint.sh",
 }
 
@@ -291,6 +296,60 @@ class EnrollmentService:
             ),
         }
 
+        return self._fill(template, values)
+
+    def render_iperf_bootstrap(self, record: EnrollmentToken, token: str) -> str:
+        """The same for an iperf measurement endpoint, and shorter.
+
+        Nothing secret is filled in here. The endpoint's password is generated
+        on this side and travels over the management channel this script
+        installs, not through the script itself: fetching it does not spend the
+        invitation, so anything embedded would stay readable for as long as the
+        token lives.
+        """
+        template = (
+            self._settings.asset_dir / "bootstrap" / "iperf-bootstrap.sh.template"
+        )
+        if not template.is_file():
+            raise RuntimeStateError(
+                params={"path": str(template)},
+                details="iperf bootstrap template is missing",
+            )
+
+        ca_pem, ca_sha256 = self.ca_material()
+        return self._fill(
+            template,
+            {
+                "@@BASE_URL@@": self.base_url(),
+                "@@TOKEN@@": token,
+                "@@CA_PEM@@": ca_pem,
+                "@@CA_SHA256@@": ca_sha256,
+                "@@SSH_SOURCE_CIDR@@": self.iperf_source_cidr(record),
+                "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
+            },
+        )
+
+    def iperf_source_cidr(self, record: EnrollmentToken) -> str:
+        """Which network the endpoint will accept this platform from.
+
+        The invitation's own answer wins, and there is deliberately no fallback
+        to NATS_HOST_IP the way the probe path has one. A probe sees us under
+        our internal address; an endpoint on a public network sees us under the
+        address we leave the site with, and nothing here can derive that. A
+        guess would install a management key valid from the wrong network, and
+        the only repair is a walk to that host's console.
+        """
+        cidr = str(record.payload.get("ssh_source_cidr") or "").strip()
+        if not cidr:
+            cidr = (self._runtime.site_settings().iperf_ssh_source_cidr or "").strip()
+        if not cidr:
+            raise RuntimeStateError(
+                details="no source network for the endpoint: set one on the "
+                "invitation, or IPERF_SSH_SOURCE_CIDR for the site"
+            )
+        return cidr
+
+    def _fill(self, template: Path, values: dict[str, str]) -> str:
         script = template.read_text(encoding="utf-8")
         for placeholder, value in values.items():
             script = script.replace(placeholder, value)
@@ -303,12 +362,16 @@ class EnrollmentService:
             )
         return script
 
-    def one_liner(self, token: str) -> str:
-        """The command an operator pastes on the probe.
+    def one_liner(self, token: str, *, script: str = "bootstrap.sh") -> str:
+        """The command an operator pastes on the host.
 
         Fetches the CA over plain HTTP first, checks it against a fingerprint
         that came through the browser, and only then speaks TLS. That is the
         same ceremony install-mpp.sh has always used - no --insecure anywhere.
+
+        The script name is the only difference between a probe and an iperf
+        endpoint here: both ceremonies are the same, and having one of them
+        drift would be a second thing to keep right for no reason.
         """
         site = self._runtime.site_settings()
         _, ca_sha256 = self.ca_material()
@@ -319,7 +382,7 @@ class EnrollmentService:
             f"curl -fsSL {ca_url} -o /tmp/prtg-nats-ca.pem \\\n"
             f'  && echo "{ca_sha256}  /tmp/prtg-nats-ca.pem" | sha256sum -c - \\\n'
             f"  && curl -fsSL --cacert /tmp/prtg-nats-ca.pem \\\n"
-            f"       {self.base_url()}/enroll/{token}/bootstrap.sh | sudo sh"
+            f"       {self.base_url()}/enroll/{token}/{script} | sudo sh"
         )
 
     def management_public_key(self) -> str:

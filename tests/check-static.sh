@@ -80,6 +80,7 @@ if command -v shellcheck >/dev/null 2>&1; then
   printf '\n== shellcheck ==\n'
   if shellcheck --severity=warning \
     prtg-nats install-mpp.sh libexec/*.sh libexec/prtg-nats-probe-helper \
+    libexec/prtg-nats-iperf-helper \
     tests/*.sh completions/*.bash sensors/*/endpoint/*.sh; then
     printf '  ok    no warnings\n'
     passed=$((passed + 1))
@@ -1136,6 +1137,56 @@ if command -v python3 >/dev/null 2>&1; then
 else
   printf '  skipped (python3 not installed)\n'
 fi
+
+# The iperf endpoint bootstrap, the same way. It runs as root on a host that
+# usually stands on a public address, so a typo here is worse than on a probe.
+sed \
+  -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
+  -e 's|@@TOKEN@@|token|' \
+  -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
+  -e 's|@@CA_SHA256@@|0000|' \
+  -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24,203.0.113.7/32|' \
+  -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
+  bootstrap/iperf-bootstrap.sh.template > "${bootstrap_dir}/iperf-bootstrap.sh"
+if sh -n "${bootstrap_dir}/iperf-bootstrap.sh" 2>/dev/null; then
+  printf '  ok    the rendered iperf bootstrap is valid POSIX shell\n'
+  passed=$((passed + 1))
+else
+  printf '  FAIL  the rendered iperf bootstrap is valid POSIX shell\n' >&2
+  sh -n "${bootstrap_dir}/iperf-bootstrap.sh" || true
+  failed=$((failed + 1))
+fi
+
+check "the rendered iperf bootstrap leaves no placeholder behind" \
+  "$(grep -c '@@' "${bootstrap_dir}/iperf-bootstrap.sh" || true)" "0"
+
+# Without the source CIDR the enrolment script refuses, and it refuses on a
+# console the operator has already left. Worse, an empty one would be a
+# management key valid from anywhere.
+check "the iperf enrolment is called with --source-cidr" \
+  "$(grep -c -- '--source-cidr "${SSH_SOURCE_CIDR}"' \
+    "${bootstrap_dir}/iperf-bootstrap.sh")" "1"
+
+# Nothing secret may sit in this file: fetching it does not spend the
+# invitation, so it stays readable for as long as the token lives. The
+# endpoint's password arrives over the management channel instead, and no
+# placeholder here may ever be filled with one.
+check "the iperf bootstrap has no placeholder for a secret" \
+  "$(grep -cE '@@[A-Z_]*(PASSWORD|SECRET|CREDENTIAL|PRIVATE)[A-Z_]*@@' \
+    bootstrap/iperf-bootstrap.sh.template || true)" "0"
+
+# Every asset the bootstrap fetches has to be one the platform is willing to
+# serve. The two lists live in different languages and drift silently: the
+# bootstrap would fail halfway through, as root, on somebody else's machine.
+for asset in $(
+  grep -oE '^fetch [a-z0-9.-]+' bootstrap/iperf-bootstrap.sh.template |
+    awk '{print $2}'
+); do
+  check "the platform serves ${asset}" \
+    "$(grep -q "\"${asset}\"" web/backend/app/services/enrollment.py &&
+      printf 'yes' || printf 'no')" "yes"
+done
+
 rm -rf -- "${bootstrap_dir}"
 
 printf '\n== Result ==\n'

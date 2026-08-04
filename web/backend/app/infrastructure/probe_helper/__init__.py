@@ -1,5 +1,6 @@
 from app.infrastructure.probe_helper.client import (
     MANAGEMENT_USER,
+    HelperTarget,
     HelperTransport,
     ProbeConnection,
     ProbeHelperClient,
@@ -31,6 +32,7 @@ __all__ = [
     "HelperCommand",
     "HelperRequest",
     "HelperResponse",
+    "HelperTarget",
     "HelperTransport",
     "ProbeConnection",
     "ProbeHelperClient",

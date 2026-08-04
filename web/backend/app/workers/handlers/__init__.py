@@ -14,6 +14,7 @@ from typing import Any
 from app.workers.context import JobContext
 from app.workers.handlers import (
     deploy_sensor,
+    iperf_enrollment,
     probe_actions,
     probe_enrollment,
     probe_lifecycle,
@@ -128,6 +129,16 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=probe_enrollment.ENROLL_STEPS,
         handler=probe_enrollment.enroll,
         permission="probe.create",
+    ),
+    iperf_enrollment.ENROLL_JOB_TYPE: JobDefinition(
+        type=iperf_enrollment.ENROLL_JOB_TYPE,
+        steps=iperf_enrollment.ENROLL_STEPS,
+        handler=iperf_enrollment.enroll,
+        permission="iperf.manage",
+        # This job touches no probe. Asking the fleet about itself afterwards
+        # would be a round trip per probe for a host none of them has heard
+        # from yet - the credentials reach them in their own job.
+        refreshes_probes=False,
     ),
     system_actions.EXPORT_JOB_TYPE: JobDefinition(
         type=system_actions.EXPORT_JOB_TYPE,

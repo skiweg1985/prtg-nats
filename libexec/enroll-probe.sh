@@ -16,7 +16,7 @@ die() {
   exit 1
 }
 
-validate_source_cidr() {
+validate_single_cidr() {
   local source_cidr="$1"
   local address="${source_cidr%/*}"
   local prefix="${source_cidr##*/}"
@@ -28,6 +28,29 @@ validate_source_cidr() {
     [[ "${address}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] &&
       ((prefix >= 0 && prefix <= 32))
   fi
+}
+
+# A comma separated list, because "from=" takes one and a server is not always
+# reached from a single network - two uplinks, or a host that answers on an
+# internal address and a public one. Every element is checked on its own: a
+# list is only as good as its weakest entry, and one typo that widens the rule
+# to everything is exactly what this validation exists to prevent.
+validate_source_cidr() {
+  local source_cidr="$1"
+  local elements=()
+  local element=""
+
+  [[ -n "${source_cidr}" ]] || return 1
+  # A leading, trailing or doubled comma would produce an empty pattern, and
+  # sshd's reading of an empty pattern is not something to find out by
+  # experiment on a host we are about to leave alone.
+  [[ "${source_cidr}" != *,,* && "${source_cidr}" != ,* && \
+     "${source_cidr}" != *, ]] || return 1
+  IFS=',' read -r -a elements <<< "${source_cidr}"
+  [[ "${#elements[@]}" -gt 0 ]] || return 1
+  for element in "${elements[@]}"; do
+    validate_single_cidr "${element}" || return 1
+  done
 }
 
 while [[ $# -gt 0 ]]; do

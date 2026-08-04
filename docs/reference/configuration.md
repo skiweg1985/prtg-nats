@@ -78,12 +78,31 @@ unaffected.
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
 | `MPP_SSH_SOURCE_CIDR` | Source range the restricted management key is accepted from, written into the `from="…"` restriction on every probe | CIDR | `NATS_HOST_IP/32` | no | `192.0.2.0/24` |
+| `IPERF_SSH_SOURCE_CIDR` | The same for iperf measurement endpoints. Several ranges are allowed, separated by commas | CIDR list | none | no | `203.0.113.7/32,192.0.2.0/24` |
 
 The default is the tightest one that works: the key is valid from the NATS
 host and nowhere else. Widen it only when the outgoing address is not stable -
 a NAT gateway, or a second management host - and then to the smallest range
 that covers it. A change takes effect on a probe with its next configuration
 rollout.
+
+`IPERF_SSH_SOURCE_CIDR` has no such default on purpose. A probe sees this
+installation under its internal address, which is what `NATS_HOST_IP` holds. A
+measurement endpoint often stands on a public network and sees it under the
+address this site leaves with, and nothing here can derive that one. Left
+unset, every endpoint invitation has to name its own range; setting it here
+pre-fills the field for endpoints that share one.
+
+A range that names the wrong network is the one mistake this platform cannot
+repair by itself: the management key is written on the endpoint, the channel
+never opens, and correcting it means editing
+`/var/lib/prtg-nats-iperf/.ssh/authorized_keys` on that host. The enrolment
+prints the rule it wrote for exactly that reason, and the first successful
+contact logs the address the endpoint actually saw - so the next invitation can
+be filled in with a measured value instead of a guess.
+
+Endpoints reached both internally and from the outside take both ranges at
+once, which is what the comma is for.
 
 ## Web platform
 
