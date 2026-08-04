@@ -941,6 +941,16 @@ check "the installer gets the fingerprint, not the file hash" \
   "$(printf '%s' "${bootstrap_install_call}" |
     grep -c -- '--ca-sha256 "${CA_FINGERPRINT}"')" "1"
 
+# The bootstrap hands over the CA it has already written to the destination,
+# so the installer is asked to copy a file onto itself. "install" refuses
+# that, which turned a run that had installed the package and placed the CA
+# into a reported failure.
+check "the installer survives being handed the CA already in place" \
+  "$(grep -c '"${CA_SOURCE}" -ef "${CA_DESTINATION}"' install-mpp.sh)" "1"
+check "the bootstrap hands it the destination path" \
+  "$(printf '%s' "${bootstrap_install_call}" |
+    grep -c -- '--ca-file "${CA_PATH}"')" "1"
+
 # What the installer says when it fails is quoted straight into the report, so
 # it has to survive the trip: an unescaped quote or backslash in that text
 # would leave the platform with a document it cannot parse, and the reason for
@@ -950,8 +960,10 @@ E: Unable to locate package "prtgmpprobe"
 E: path C:\temp is not a directory
 	indented	with	tabs
 INSTALLER_OUTPUT
+# The function is lifted out of the script that was just rendered and sourced
+# on its own, so the check exercises the code that ships rather than a copy of
+# it kept in step by hand.
 escaped="$(
-  # shellcheck disable=SC1090 - the rendered script is built right above
   sh -c '
     . "$1"
     json_escape_tail "$2"
