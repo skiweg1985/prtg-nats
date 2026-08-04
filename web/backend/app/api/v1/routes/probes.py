@@ -22,6 +22,7 @@ from app.api.deps.common import (
 )
 from app.api.schemas.common import JobAccepted
 from app.api.schemas.probes import (
+    AccessKeyOut,
     DesiredSensorIn,
     DesiredStateIn,
     DesiredStateOut,
@@ -744,14 +745,14 @@ async def validate_probe(
     )
 
 
-@router.get("/{probe_id}/access-key", response_model=dict[str, str])
+@router.get("/{probe_id}/access-key", response_model=AccessKeyOut)
 async def reveal_access_key(
     probe_id: str,
     probes: ProbeServiceDep,
     runtime: RuntimeDep,
     audit: AuditDep,
     _: Annotated[object, Depends(require_permission(Permission.CREDENTIAL_READ))],
-) -> dict[str, str]:
+) -> AccessKeyOut:
     """Show the PRTG access key.
 
     A deliberate, audited disclosure: an operator needs the value to paste into
@@ -768,4 +769,4 @@ async def reveal_access_key(
         object_label=record.nats_username,
         comment="PRTG access key revealed",
     )
-    return {"access_key": access_key}
+    return AccessKeyOut(nats_username=record.nats_username, access_key=access_key)

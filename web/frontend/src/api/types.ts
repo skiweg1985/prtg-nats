@@ -145,6 +145,12 @@ export interface ProbeInventory {
   known_iperf_endpoints: string[]
 }
 
+/** Only ever the answer of the audited reveal endpoint, never part of a list. */
+export interface RevealedAccessKey {
+  nats_username: string
+  access_key: string
+}
+
 export interface ProbeDetail {
   summary: ProbeSummary
   inventory: ProbeInventory

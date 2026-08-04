@@ -10,6 +10,7 @@ import {
   useProbePlan,
   useRefreshProbe,
   useRemoveSensorFromProbe,
+  useRevealAccessKey,
   useUnenrollProbe,
   type UnenrollOptions,
 } from '@/api/hooks'
@@ -280,69 +281,141 @@ export function ProbeDetailPage() {
 function OverviewTab({ detail }: { detail: ProbeDetail }) {
   const { t } = useTranslation()
   const { summary, inventory, observed } = detail
+  const reveal = useRevealAccessKey()
+  // A mutation, not a query: nothing refetches it, and closing the dialog
+  // drops the value out of both this state and the mutation's own.
+  const [accessKey, setAccessKey] = useState<string | null>(null)
+  const probeName = observed?.probe_name ?? inventory.probe_name
+
+  function hideAccessKey() {
+    setAccessKey(null)
+    reveal.reset()
+  }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card title={t('probes.identity')}>
-        <dl>
-          <DetailRow label={t('probes.natsUser')}>
-            <Mono>{summary.nats_username}</Mono>
-          </DetailRow>
-          <DetailRow label={t('probes.probeName')}>
-            {observed?.probe_name ?? inventory.probe_name ?? '—'}
-          </DetailRow>
-          <DetailRow label={t('probes.probeId')}>
-            <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
-          </DetailRow>
-          <DetailRow label={t('probes.sshHost')}>
-            <Mono>
-              {inventory.ssh_host}:{inventory.ssh_port}
-            </Mono>
-          </DetailRow>
-          <DetailRow label={t('probes.accessKey')}>
-            {/* Presence only. The value is behind an audited, explicit reveal. */}
-            {inventory.access_key_present ? (
-              <Badge tone="ok">{t('common.hidden')}</Badge>
-            ) : (
-              <Badge tone="warn">{t('common.none')}</Badge>
-            )}
-          </DetailRow>
-        </dl>
-      </Card>
-
-      <Card title={t('probes.actualState')}>
-        <dl>
-          <DetailRow label={t('probes.columns.service')}>
-            <StateCell kind="service" value={summary.service} />
-          </DetailRow>
-          <DetailRow label={t('probes.columns.version')}>
-            <Mono>{summary.package_version ?? '—'}</Mono>
-          </DetailRow>
-          <DetailRow label={t('probes.columns.nats')}>
-            <StateCell kind="nats" value={summary.nats_connection} />
-          </DetailRow>
-          <DetailRow label={t('probes.caFingerprint')}>
-            <span className="flex items-center gap-2">
-              <StateCell kind="ca" value={summary.ca_state} />
-              <Mono className="text-ink-3">{shortFingerprint(observed?.ca_sha256)}</Mono>
-            </span>
-          </DetailRow>
-          <DetailRow label={t('probes.helper')}>
-            <span className="flex items-center gap-2">
-              {observed?.helper_version != null
-                ? t('probes.helperVersion', { version: observed.helper_version })
-                : t('probes.helperUnknown')}
-              {summary.helper_outdated && (
-                <Badge tone="warn">{t('probes.helperOutdated')}</Badge>
+    <>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title={t('probes.identity')}>
+          <dl>
+            <DetailRow label={t('probes.natsUser')}>
+              <Mono>{summary.nats_username}</Mono>
+            </DetailRow>
+            <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
+            <DetailRow label={t('probes.probeId')}>
+              <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
+            </DetailRow>
+            <DetailRow label={t('probes.sshHost')}>
+              <Mono>
+                {inventory.ssh_host}:{inventory.ssh_port}
+              </Mono>
+            </DetailRow>
+            <DetailRow label={t('probes.accessKey')}>
+              {/* Presence only. The value is behind an audited, explicit reveal. */}
+              {inventory.access_key_present ? (
+                <span className="flex items-center gap-2">
+                  <Badge tone="ok">{t('common.hidden')}</Badge>
+                  <PermissionGate permission="credential.read">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        reveal.mutate(summary.id, {
+                          onSuccess: (revealed) => setAccessKey(revealed.access_key),
+                        })
+                      }
+                      disabled={reveal.isPending}
+                    >
+                      {t('common.reveal')}
+                    </Button>
+                  </PermissionGate>
+                </span>
+              ) : (
+                <Badge tone="warn">{t('common.none')}</Badge>
               )}
-            </span>
-          </DetailRow>
-          <DetailRow label={t('probes.columns.observed')}>
-            {summary.observed_at ? formatRelative(summary.observed_at) : t('common.never')}
-          </DetailRow>
-        </dl>
-      </Card>
-    </div>
+            </DetailRow>
+          </dl>
+        </Card>
+
+        <Card title={t('probes.actualState')}>
+          <dl>
+            <DetailRow label={t('probes.columns.service')}>
+              <StateCell kind="service" value={summary.service} />
+            </DetailRow>
+            <DetailRow label={t('probes.columns.version')}>
+              <Mono>{summary.package_version ?? '—'}</Mono>
+            </DetailRow>
+            <DetailRow label={t('probes.columns.nats')}>
+              <StateCell kind="nats" value={summary.nats_connection} />
+            </DetailRow>
+            <DetailRow label={t('probes.caFingerprint')}>
+              <span className="flex items-center gap-2">
+                <StateCell kind="ca" value={summary.ca_state} />
+                <Mono className="text-ink-3">
+                  {shortFingerprint(observed?.ca_sha256)}
+                </Mono>
+              </span>
+            </DetailRow>
+            <DetailRow label={t('probes.helper')}>
+              <span className="flex items-center gap-2">
+                {observed?.helper_version != null
+                  ? t('probes.helperVersion', { version: observed.helper_version })
+                  : t('probes.helperUnknown')}
+                {summary.helper_outdated && (
+                  <Badge tone="warn">{t('probes.helperOutdated')}</Badge>
+                )}
+              </span>
+            </DetailRow>
+            <DetailRow label={t('probes.columns.observed')}>
+              {summary.observed_at
+                ? formatRelative(summary.observed_at)
+                : t('common.never')}
+            </DetailRow>
+          </dl>
+        </Card>
+
+        {reveal.error && (
+          <div className="lg:col-span-2">
+            <ErrorDetails error={reveal.error} />
+          </div>
+        )}
+      </div>
+
+      {accessKey !== null && (
+        <div
+          className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) hideAccessKey()
+          }}
+        >
+          <div className="w-full max-w-lg">
+            <Card
+              title={t('probes.accessKeyRevealTitle', {
+                probe: probeName ?? summary.nats_username,
+              })}
+            >
+              <p className="text-ink-2 mb-3 text-sm">
+                {t('probes.accessKeyHint')} {t('probes.accessKeyAudited')}
+              </p>
+              <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
+                <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void navigator.clipboard.writeText(accessKey)}
+                >
+                  {t('common.copy')}
+                </Button>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button onClick={hideAccessKey}>{t('common.close')}</Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

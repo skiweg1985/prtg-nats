@@ -127,6 +127,8 @@
     "probeName": "Probe name in PRTG",
     "accessKey": "PRTG access key",
     "accessKeyHint": "Add this value as a new line in the PRTG access-key list.",
+    "accessKeyRevealTitle": "PRTG access key for {{probe}}",
+    "accessKeyAudited": "This disclosure has been recorded in the audit trail.",
     "sshHost": "Management host",
     "caFingerprint": "CA fingerprint",
     "installCa": "Install CA",
