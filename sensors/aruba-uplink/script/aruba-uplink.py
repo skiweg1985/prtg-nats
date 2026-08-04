@@ -28,13 +28,23 @@ that route would mean paramiko in a virtual environment on every probe, or
 sshpass with the password in the process list. The API needs nothing but the
 standard library and answers in JSON.
 
+Gateway and credentials are sensor parameters, as in the bundled example
+remote_ssh_linux_system_load.py. In PRTG they are written as placeholders,
+so nothing site-specific has to be typed anywhere:
+
+    --host %host --user %scriptplaceholder1 --password %scriptplaceholder2
+
+%host is the address of the device the sensor sits on, the two placeholders
+come from the credentials for script sensors in the device settings and are
+inherited from the group. PRTG keeps their values out of the sensor log and
+the settings - which is why redact() keeps them out of our messages too.
+
 Structured after the bundled examples under
 /opt/paessler/share/doc/examples/scripts/python.
 """
 
 # std-lib
 import argparse
-import hashlib
 import html
 import http.client
 import json
@@ -49,38 +59,43 @@ import time
 import urllib.parse
 from typing import Any, NoReturn
 
-CONFIG_ROOT = "/etc/prtg-nats/sensors/aruba-uplink"
-PROFILE_DIR = "%s/profiles" % CONFIG_ROOT
-
 # The state of the previous run. Only what a comparison needs, never a
 # measured value: whoever wants the history has PRTG for it.
 CACHE_PATH = "/tmp/prtg-sensor-aruba-uplink-%d.json" % os.getuid()
-
-PROFILE_HOST = "ARUBA_HOST"
-PROFILE_USER = "ARUBA_USER"
-PROFILE_PASSWORD = "ARUBA_PASSWORD"
-PROFILE_FINGERPRINT = "ARUBA_CERT_SHA256"
 
 # Stable numbers for the "Failure Code" channel. They allow targeted
 # alerting on a specific cause without parsing the message text.
 FAILURE_CODES = {
     "ok": 0,
     "bad-request": 1,
-    "no-profile": 2,
-    "cert-mismatch": 3,
-    "login-failed": 4,
-    "gateway-unreachable": 5,
-    "bad-answer": 6,
-    "no-quality-data": 7,
-    "internal-error": 8,
+    "login-failed": 2,
+    "gateway-unreachable": 3,
+    "bad-answer": 4,
+    "no-quality-data": 5,
+    "internal-error": 6,
 }
 UNKNOWN_FAILURE = 99
 
-# These causes say nothing about the site, only about the sensor and how it
-# was set up. Everything else - a gateway that stopped answering above all -
-# is exactly the incident this sensor exists for and belongs in the
+# This cause says nothing about the site, only about how the sensor was set
+# up. Everything else - a gateway that stopped answering above all - is
+# exactly the incident this sensor exists for and belongs in the
 # measurement channels.
-SENSOR_FAILURES = ("bad-request", "no-profile", "cert-mismatch")
+SENSOR_FAILURES = ("bad-request",)
+
+# Parameters whose value must never appear in a message to PRTG. The
+# credentials arrive over stdin, so they never reach the process list - but
+# argparse quotes the offending value back at you, and a typo next to the
+# password would carry it into the sensor message.
+#
+# The user name is deliberately not here: it is no secret, it stands in the
+# sensor configuration anyway, and blanking a short one would shred every
+# message containing those letters.
+SECRET_PARAMETERS = ("--password",)
+
+# Below this, a value cannot be masked without mangling the message beyond
+# reading - "a" would blank every a. Such a message is dropped entirely
+# instead.
+SHORTEST_MASKABLE = 4
 
 # The path measurement is a secondary one. Losing it leaves every uplink
 # channel intact and saying what it says, so it must not pull the result
@@ -115,29 +130,17 @@ MAX_SHARE = 99
 # the handshake; beyond it something is wrong that no answer will fix.
 BUDGET_EXTRA_SECONDS = 30
 
-NO_PROFILE_MESSAGE = (
-    "No profile configured. Add --profile with the name of the credential "
-    'profile deployed to this probe, for example "--profile site-north". '
-    "It is put in place with \"./prtg-nats sensor profile aruba-uplink USER "
-    'site-north --from-file FILE".'
+NO_CREDENTIALS_MESSAGE = (
+    "No %s configured. The sensor signs in to the gateway with a read-only "
+    'account, so it needs "--user NAME --password SECRET" next to --host.'
 )
-PROFILE_MISSING_MESSAGE = (
-    'No profile "%s" on this probe. Expected %s. Deploy it with '
-    '"./prtg-nats sensor profile aruba-uplink USER %s --from-file FILE".'
+NO_HOST_MESSAGE = (
+    "No gateway configured. Add --host with the address of the Aruba "
+    'gateway of this site, for example "--host 192.0.2.1".'
 )
-PROFILE_INCOMPLETE_MESSAGE = (
-    'The profile "%s" has no %s. The template next to the sensor lists '
-    "every key."
-)
-FINGERPRINT_MISSING_MESSAGE = (
-    "The profile %s carries no %s, so the gateway cannot be told apart from "
-    "anything else answering on that address. Its certificate currently has "
-    "the fingerprint %s - put that into the profile after checking it."
-)
-FINGERPRINT_MISMATCH_MESSAGE = (
-    "The gateway presents a different certificate than the profile pins. "
-    "Expected %s, received %s. Either the certificate was renewed - then "
-    "update the profile - or this is not the gateway."
+BAD_HOST_MESSAGE = (
+    '--host takes a bare address or host name, not "%s". Neither a scheme '
+    "nor a port belongs there; the sensor always talks to port 443."
 )
 SAME_ROLE_MESSAGE = (
     "--primary and --backup cannot both be %s. A site has one main path; "
@@ -201,13 +204,50 @@ class ReportingParser(argparse.ArgumentParser):
         raise ConfigError(message)
 
 
+def redact(message: str, tokens: list[str]) -> str:
+    """Remove values of protected parameters from an error message.
+
+    argparse names the value it stumbled over. With the password sitting in
+    the same parameter string, a single typo would otherwise carry it into
+    the sensor message - and from there into every notification PRTG sends.
+
+    The PRTG manual is explicit about this for script sensors: a credential
+    placeholder must not appear in anything the script prints, and PRTG
+    itself keeps the value out of the sensor log and the settings. This
+    function is what upholds that on our side.
+    """
+    values = []
+    for index, token in enumerate(tokens):
+        for name in SECRET_PARAMETERS:
+            if token == name and index + 1 < len(tokens):
+                values.append(tokens[index + 1])
+            elif token.startswith("%s=" % name):
+                values.append(token[len(name) + 1:])
+    for value in values:
+        if not value:
+            continue
+        if len(value) >= SHORTEST_MASKABLE:
+            message = message.replace(value, "...")
+        elif value in message:
+            # Blanking a two-letter secret would leave a message nobody can
+            # read - and one that still hints at the secret. Dropping it is
+            # the only honest option.
+            return ("Could not read the parameters. Check the configured "
+                    "parameters.")
+    return message
+
+
 def setup():
     argparser = ReportingParser(
         description="The script reads the uplink state of an Aruba gateway.",
     )
 
-    argparser.add_argument("--profile", default="",
-                           help="Name of the credential profile on this probe.")
+    argparser.add_argument("--host", default="",
+                           help="Address of the Aruba gateway of this site.")
+    argparser.add_argument("--user", default="",
+                           help="A read-only account on the gateway.")
+    argparser.add_argument("--password", default="",
+                           help="Its password.")
     argparser.add_argument("--primary", default=KIND_WIRED,
                            help="Which uplink kind is the main path: wired or "
                                 "cellular.")
@@ -222,16 +262,19 @@ def setup():
     argparser.add_argument("--self-check", action="store_true",
                            help="Only verify that the sensor is able to run.")
 
+    tokens: list[str] = []
     try:
         # Is a terminal?
         if sys.stdin.isatty():
+            tokens = sys.argv[1:]
             args = argparser.parse_args()
         else:
             pipestring = sys.stdin.read().rstrip()
-            args = argparser.parse_args(shlex.split(pipestring))
+            tokens = shlex.split(pipestring)
+            args = argparser.parse_args(tokens)
 
     except ConfigError as problem:
-        fail(str(problem))
+        fail(redact(str(problem), tokens))
     except ValueError:
         # shlex.split fails on an unpaired quotation mark.
         fail("Could not read the parameters: an unmatched quote. Check the "
@@ -255,12 +298,17 @@ def validate(args: dict[str, Any]) -> None:
     there instead - it is the only place an administrator can learn what was
     wrong.
     """
-    if not args["profile"]:
-        raise ConfigError(NO_PROFILE_MESSAGE)
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", args["profile"]):
-        raise ConfigError(
-            'The profile name "%s" is not a plain name. Allowed are letters, '
-            "digits, dot, dash and underscore." % args["profile"])
+    if not args["host"]:
+        raise ConfigError(NO_HOST_MESSAGE)
+    # A scheme or a port here would silently end up in the Host header and
+    # produce a connection error nobody can trace back to the parameter.
+    if re.search(r"[/\s:@]", args["host"]):
+        raise ConfigError(BAD_HOST_MESSAGE % args["host"])
+
+    for name, value in (("--user", args["user"]),
+                        ("--password", args["password"])):
+        if not value:
+            raise ConfigError(NO_CREDENTIALS_MESSAGE % name)
 
     if args["primary"] not in (KIND_WIRED, KIND_CELLULAR):
         raise ConfigError(UNKNOWN_KIND_MESSAGE
@@ -281,75 +329,11 @@ def validate(args: dict[str, Any]) -> None:
                               % (name, lowest, highest, value))
 
 
-def profile_path(name: str) -> str:
-    return "%s/%s.env" % (PROFILE_DIR, name)
-
-
-def read_profile(path: str):
-    """Read the deployed profile.
-
-    It reaches the probe through "./prtg-nats sensor profile", in the same
-    protected area as the other credentials. The format is KEY=VALUE lines;
-    the probe rejects everything else already at write time.
-
-    The permission check costs nothing and makes sure a world-readable
-    password is not used unnoticed - a file everyone may read is not a
-    secret, and the sensor should not silently accept that.
-    """
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        return None
-    try:
-        status = os.fstat(descriptor)
-        if status.st_mode & 0o007:
-            return None
-        payload = os.read(descriptor, 65536).decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-    finally:
-        os.close(descriptor)
-
-    values = {}
-    for line in payload.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        values[name.strip()] = value.strip()
-    return values or None
-
-
-def load_credentials(args: dict[str, Any]) -> dict[str, str]:
-    """The profile, checked for completeness.
-
-    Everything raised here is a "no-profile", never a measurement: without
-    credentials the sensor cannot even try, and reporting that as an outage
-    of the site would point at the wrong thing.
-    """
-    path = profile_path(args["profile"])
-    profile = read_profile(path)
-    if profile is None:
-        raise ConfigError(PROFILE_MISSING_MESSAGE
-                          % (args["profile"], path, args["profile"]))
-    for key in (PROFILE_HOST, PROFILE_USER, PROFILE_PASSWORD):
-        if not profile.get(key):
-            raise ConfigError(PROFILE_INCOMPLETE_MESSAGE
-                              % (args["profile"], key))
-    return profile
-
-
-def normalise_fingerprint(value: str) -> str:
-    """Accept a fingerprint the way a human copies it."""
-    return re.sub(r"[^0-9a-f]", "", value.strip().lower())
-
-
 class Gateway:
-    """One connection to the gateway, with the certificate pinned.
+    """One connection to the gateway, shared by all requests.
 
-    All five requests share it. That is not only cheaper than five
-    handshakes - it also means the certificate is checked once, on the
-    connection that then carries everything.
+    Cheaper than five handshakes, and the session token stays with the
+    connection that carries it.
     """
 
     def __init__(self, host: str, timeout: float) -> None:
@@ -357,29 +341,23 @@ class Gateway:
         self.timeout = timeout
         self.token = ""
         # The gateway presents a self-signed certificate, so there is no
-        # authority to verify against and no name to match. The check
-        # happens against the pinned fingerprint instead, one step further
-        # down - which is a stricter statement than any CA could make here.
+        # authority to verify against and no name to match; the connection
+        # is encrypted but the far end is not authenticated. A deliberate
+        # trade against having to carry a fingerprint per site - see the
+        # limits section of the README.
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         self.connection = http.client.HTTPSConnection(
             host, 443, timeout=timeout, context=context)
 
-    def connect(self) -> str:
-        """Open the connection and return the certificate fingerprint."""
+    def connect(self) -> None:
         try:
             self.connection.connect()
-            certificate = self.connection.sock.getpeercert(binary_form=True)
         except (OSError, socket.timeout, ssl.SSLError):
             raise Failed("gateway-unreachable",
-                              "The gateway %s did not accept a connection."
-                              % self.host) from None
-        if not certificate:
-            raise Failed("gateway-unreachable",
-                              "The gateway %s presented no certificate."
-                              % self.host)
-        return hashlib.sha256(certificate).hexdigest()
+                         "The gateway %s did not accept a connection."
+                         % self.host) from None
 
     def request(self, method: str, path: str, body=None, headers=None):
         try:
@@ -390,10 +368,18 @@ class Gateway:
             raise Failed("gateway-unreachable",
                               "The gateway %s stopped answering during the "
                               "measurement." % self.host) from None
+        # A 401 can only mean the credentials were rejected - at the login,
+        # and later when a session expired mid-run. Reporting that as an
+        # unusable answer would send whoever reads the message looking for a
+        # broken gateway instead of a wrong password.
+        if response.status in (401, 403):
+            raise Failed("login-failed",
+                         "The gateway %s refused the credentials. Check "
+                         "--user and --password of this sensor." % self.host)
         if response.status != 200:
             raise Failed("bad-answer",
-                              "The gateway answered %d where 200 was expected."
-                              % response.status)
+                         "The gateway answered %d where 200 was expected."
+                         % response.status)
         try:
             document = json.loads(payload.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
@@ -415,8 +401,8 @@ class Gateway:
             # The gateway's own wording is not repeated: it is written for a
             # browser and would only distract in a PRTG message.
             raise Failed("login-failed",
-                              "The gateway %s refused the credentials of the "
-                              "profile." % self.host)
+                         "The gateway %s refused the credentials. Check "
+                         "--user and --password of this sensor." % self.host)
         self.token = str(result["UIDARUBA"])
 
     def show(self, command: str) -> dict[str, Any]:
@@ -881,17 +867,12 @@ def self_check(args: dict[str, Any]) -> dict[str, Any]:
     """
     try:
         validate(args)
-        credentials = load_credentials(args)
     except ConfigError as problem:
         fail(str(problem))
 
-    pinned = normalise_fingerprint(credentials.get(PROFILE_FINGERPRINT, ""))
-    message = ('The profile "%s" is readable and complete.'
-               % args["profile"])
-    if len(pinned) != 64:
-        message += (" It carries no usable %s yet, so the first run will "
-                    "report the fingerprint of the gateway instead of "
-                    "measuring." % PROFILE_FINGERPRINT)
+    message = ("The parameters are complete and %s is a usable gateway "
+               "address. Whether the credentials work shows on the first "
+               "real run." % args["host"])
     return {
         "version": 2,
         "status": "ok",
@@ -907,20 +888,12 @@ def raise_timeout(_signum, _frame) -> NoReturn:
     raise Timeout()
 
 
-def measure(args: dict[str, Any], credentials: dict[str, str]):
+def measure(args: dict[str, Any]):
     """One pass over the gateway. Always leaves without a session behind."""
-    gateway = Gateway(credentials[PROFILE_HOST], args["timeout_ms"] / 1000.0)
+    gateway = Gateway(args["host"], args["timeout_ms"] / 1000.0)
     try:
-        seen = gateway.connect()
-        pinned = normalise_fingerprint(credentials.get(PROFILE_FINGERPRINT, ""))
-        if len(pinned) != 64:
-            raise Failed("cert-mismatch", FINGERPRINT_MISSING_MESSAGE
-                         % (args["profile"], PROFILE_FINGERPRINT, seen))
-        if pinned != seen:
-            raise Failed("cert-mismatch",
-                         FINGERPRINT_MISMATCH_MESSAGE % (pinned, seen))
-
-        gateway.login(credentials[PROFILE_USER], credentials[PROFILE_PASSWORD])
+        gateway.connect()
+        gateway.login(args["user"], args["password"])
 
         uplinks = parse_uplinks(gateway.show(COMMAND_UPLINK))
         for role in ("primary", "backup"):
@@ -947,7 +920,6 @@ def work(args: dict[str, Any]):
 
     try:
         validate(args)
-        credentials = load_credentials(args)
     except ConfigError as problem:
         fail(str(problem))
 
@@ -955,7 +927,7 @@ def work(args: dict[str, Any]):
     previous = signal.signal(signal.SIGALRM, raise_timeout)
     signal.alarm(int(args["timeout_ms"] / 1000.0) + BUDGET_EXTRA_SECONDS)
     try:
-        uplinks, rates, cellular, quality = measure(args, credentials)
+        uplinks, rates, cellular, quality = measure(args)
     except Failed as problem:
         return failure_result(args, problem.code, problem.message)
     except Timeout:

@@ -1553,8 +1553,9 @@ def check_link_quality_helper():
 
 def aruba_arguments(**overrides):
     arguments = {
-        "self_check": False, "profile": "site-north", "primary": "wired",
-        "backup": "cellular", "backup_share": 25, "timeout_ms": 10000,
+        "self_check": False, "host": "192.0.2.1", "user": "monitoring",
+        "password": "s3cr3t-value", "primary": "wired", "backup": "cellular",
+        "backup_share": 25, "timeout_ms": 10000,
     }
     arguments.update(overrides)
     return arguments
@@ -1615,15 +1616,55 @@ def check_aruba_uplink_output():
     module = load_module("aruba_uplink", script)
 
     completed = run_script(script, "\n")
-    check("a run without a profile yields exit code 0", completed.returncode, 0)
+    check("a run without parameters yields exit code 0",
+          completed.returncode, 0)
     document = json.loads(completed.stdout)
     check("the answer carries the schema version", document.get("version"), 2)
-    check("without a profile it is rejected", document.get("status"), "error")
+    check("without a gateway it is rejected", document.get("status"), "error")
     # The parameters are typed into a text field in PRTG and checked by
     # nothing there. The message is the only place an administrator learns
     # what to write instead.
     check("and a copyable line is in the message",
-          "--profile site-north" in document.get("message", ""), True)
+          "--host 192.0.2.1" in document.get("message", ""), True)
+
+    completed = run_script(script, "--host 192.0.2.1\n")
+    document = json.loads(completed.stdout)
+    check("without credentials it is rejected too",
+          document.get("status"), "error")
+    check("and that message names both parameters",
+          "--user NAME --password SECRET" in document.get("message", ""), True)
+
+    # A scheme or a port would silently land in the Host header and produce
+    # a connection error nobody can trace back to the parameter.
+    for spec in ("https://192.0.2.1", "192.0.2.1:4343"):
+        completed = run_script(
+            script, "--host %s --user u --password p\n" % spec)
+        document = json.loads(completed.stdout)
+        check("%r is rejected as a gateway address" % spec,
+              document.get("status"), "error")
+
+    # The PRTG manual is explicit: a credential placeholder must not appear
+    # in anything the script prints. argparse quotes the offending value
+    # back, so a typo next to the password would leak it into every
+    # notification.
+    completed = run_script(
+        script, "--host 192.0.2.1 --user monitoring "
+                "--password s3cr3t-value --timeout-ms abc\n")
+    document = json.loads(completed.stdout)
+    check("a typo next to the password still fails",
+          document.get("status"), "error")
+    check("but the password does not reach the message",
+          "s3cr3t-value" in document.get("message", ""), False)
+    check("while the parameter at fault is still named",
+          "--timeout-ms" in document.get("message", ""), True)
+    # A secret too short to mask cannot be blanked without shredding the
+    # message - then the whole message goes.
+    completed = run_script(
+        script, "--host 192.0.2.1 --user monitoring --password ab "
+                "--timeout-ms abc\n")
+    document = json.loads(completed.stdout)
+    check("a very short password drops the message entirely",
+          "invalid int value" in document.get("message", ""), False)
 
     completed = run_script(script, "--totally-unknown\n")
     check("an unknown parameter yields exit code 0", completed.returncode, 0)
@@ -1633,7 +1674,9 @@ def check_aruba_uplink_output():
     check("the message names the typo",
           "--totally-unknown" in document.get("message", ""), True)
 
-    completed = run_script(script, "--profile a --primary wired --backup wired\n")
+    completed = run_script(
+        script, "--host 192.0.2.1 --user u --password p "
+                "--primary wired --backup wired\n")
     document = json.loads(completed.stdout)
     check("the same kind twice is rejected", document.get("status"), "error")
     check("and the message names the way out",
@@ -1641,7 +1684,7 @@ def check_aruba_uplink_output():
 
     check_aruba_uplink_parsers(module)
     check_aruba_uplink_channels(module)
-    check_aruba_uplink_profile(module, script)
+    check_aruba_uplink_secrets(module)
 
 
 def check_aruba_uplink_parsers(module):
@@ -1802,60 +1845,32 @@ def check_aruba_uplink_channels(module):
           (0, False, 0.0))
 
 
-def check_aruba_uplink_profile(module, script):
-    """The profile is the only place a password may live."""
-    print("\n== aruba-uplink: profile ==")
+def check_aruba_uplink_secrets(module):
+    """Nothing the sensor prints may carry the password."""
+    print("\n== aruba-uplink: secrets ==")
 
-    directory = tempfile.mkdtemp()
-    profiles = module.PROFILE_DIR
-    try:
-        module.PROFILE_DIR = directory
-        path = os.path.join(directory, "site-north.env")
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write("# a comment\nARUBA_HOST=192.0.2.1\n"
-                         "ARUBA_USER=monitoring\nARUBA_PASSWORD=secret\n"
-                         "ARUBA_CERT_SHA256=%s\n" % ("ab" * 32))
-        os.chmod(path, 0o640)
+    document = module.self_check(aruba_arguments(self_check=True))
+    check("complete parameters pass the self-test",
+          document.get("status"), "ok")
+    # The self-test must not reach out to the gateway: activating a sensor
+    # would otherwise depend on a device across the site.
+    check("and the self-test names the gateway, not the password",
+          ("192.0.2.1" in document["message"],
+           "s3cr3t-value" in json.dumps(document)), (True, False))
 
-        document = module.self_check(aruba_arguments(self_check=True))
-        check("a complete profile passes the self-test",
-              document.get("status"), "ok")
-        # The self-test must not reach out to the gateway: activation of a
-        # sensor would otherwise depend on a device across the site.
-        check("and the message stays free of the password",
-              "secret" in json.dumps(document), False)
-
-        os.chmod(path, 0o644)
-        # A file everyone may read is not a secret any more.
-        check("a world-readable profile is refused",
-              module.read_profile(path), None)
-        os.chmod(path, 0o640)
-
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write("ARUBA_HOST=192.0.2.1\nARUBA_USER=monitoring\n")
-        os.chmod(path, 0o640)
-        try:
-            module.load_credentials(aruba_arguments())
-            message = ""
-        except module.ConfigError as problem:
-            message = str(problem)
-        check("an incomplete profile names the missing key",
-              module.PROFILE_PASSWORD in message, True)
-
-        os.unlink(path)
-        try:
-            module.load_credentials(aruba_arguments())
-            message = ""
-        except module.ConfigError as problem:
-            message = str(problem)
-        check("a missing profile names the deploy command",
-              "sensor profile aruba-uplink" in message, True)
-    finally:
-        module.PROFILE_DIR = profiles
-        shutil.rmtree(directory, ignore_errors=True)
-
-    check("the fingerprint is read the way a human copies it",
-          module.normalise_fingerprint("AB:CD:ef "), "abcdef")
+    tokens = ["--user", "monitoring", "--password", "s3cr3t-value"]
+    check("the password is masked wherever it appears",
+          module.redact("saw s3cr3t-value here", tokens), "saw ... here")
+    # The user name is no secret - it stands in the sensor configuration
+    # anyway, and blanking a short one would shred the whole message.
+    check("the user name is left alone",
+          module.redact("saw monitoring here", tokens), "saw monitoring here")
+    check("a secret too short to mask drops the message",
+          "invalid" in module.redact(
+              "invalid value", ["--password", "va"]), False)
+    check("a message without the secret survives untouched",
+          module.redact("--timeout-ms takes a number", tokens),
+          "--timeout-ms takes a number")
 
 
 if __name__ == "__main__":
