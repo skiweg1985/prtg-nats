@@ -29,6 +29,9 @@ import type {
   ReconciliationPlan,
   RevealedAccessKey,
   SensorDetail,
+  SensorProfile,
+  SensorProfileDetail,
+  SensorProfileFile,
   SensorSummary,
   SystemStatus,
   WebUser,
@@ -46,6 +49,9 @@ export const keys = {
   sensors: ['sensors'] as const,
   sensor: (name: string) => ['sensors', name] as const,
   sensorSchema: (name: string) => ['sensors', name, 'schema'] as const,
+  sensorProfiles: (name: string) => ['sensors', name, 'profiles'] as const,
+  sensorProfile: (name: string, profile: string) =>
+    ['sensors', name, 'profiles', profile] as const,
   deployments: ['deployments'] as const,
   deployment: (id: string) => ['deployments', id] as const,
   jobs: (filters?: Record<string, unknown>) => ['jobs', filters ?? {}] as const,
@@ -181,6 +187,77 @@ export function useRenderParameters(name: string) {
   return useMutation({
     mutationFn: (values: Record<string, unknown>) =>
       api.post<{ parameters: string }>(`/sensors/${name}/render-parameters`, { values }),
+  })
+}
+
+export function useSensorProfiles(name: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.sensorProfiles(name ?? ''),
+    queryFn: () => api.get<SensorProfile[]>(`/sensors/${name}/profiles`),
+    enabled: Boolean(name) && enabled,
+  })
+}
+
+export function useSensorProfile(
+  name: string | undefined,
+  profile: string | undefined,
+) {
+  return useQuery({
+    queryKey: keys.sensorProfile(name ?? '', profile ?? ''),
+    queryFn: () =>
+      api.get<SensorProfileDetail>(`/sensors/${name}/profiles/${profile}`),
+    enabled: Boolean(name && profile),
+  })
+}
+
+/**
+ * Store a variant and hand it to the probes it is meant to be on.
+ *
+ * Files go first: the profile carries their paths, and the sensor checks that
+ * a path it is given exists. Uploading afterwards would deploy a profile that
+ * points at a file the probe has not seen yet.
+ */
+export function useWriteSensorProfile(name: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      profile,
+      values,
+      probeIds,
+      files,
+    }: {
+      profile: string
+      values: Record<string, string>
+      probeIds: string[]
+      files: { key: string; contentBase64: string }[]
+    }) => {
+      for (const file of files) {
+        await api.put<SensorProfileFile>(
+          `/sensors/${name}/profiles/${profile}/files/${file.key}`,
+          { content_base64: file.contentBase64 },
+        )
+      }
+      return api.put<JobAccepted>(`/sensors/${name}/profiles/${profile}`, {
+        values,
+        probes: probeIds,
+      })
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useDeleteSensorProfile(name: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (profile: string) =>
+      api.delete<JobAccepted>(`/sensors/${name}/profiles/${profile}`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
   })
 }
 

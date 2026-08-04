@@ -29,7 +29,7 @@ MAXIMUM_HELPER_BYTES=524288
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=3
+HELPER_VERSION=4
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -1402,6 +1402,84 @@ remove_sensor_profile() {
   printf 'OK sensor-profile-removed %s %s\n' "${name}" "${profile}"
 }
 
+# A profile carries KEY=VALUE lines; a certificate or a key does not fit in
+# one. It travels as a file of its own, and its path becomes a value in the
+# profile - which is how the sensor scripts already expect to be told where
+# such a file is.
+#
+# The name is the key of the profile entry plus an extension, nothing else.
+# Deliberately narrower than a file name: the destination is built here from
+# validated tokens, so the management channel is not a way to write to an
+# arbitrary path even if the far side asked for one.
+validate_profile_file_name() {
+  [[ "$1" =~ ^[A-Z][A-Z0-9_]*\.[A-Za-z0-9]{1,10}$ ]]
+}
+
+write_sensor_file() {
+  local name="$1"
+  local profile="$2"
+  local filename="$3"
+  local directory=""
+  local encoded=""
+  local candidate=""
+  local mode=""
+  local owner=""
+  local service_user=""
+
+  validate_token "${name}" || die "Invalid sensor name"
+  validate_token "${profile}" || die "Invalid profile name"
+  validate_profile_file_name "${filename}" || die "Invalid profile file name"
+  [[ -f "$(sensor_slot_target "${name}" script)" ]] ||
+    die "Sensor ${name} is not installed"
+
+  # The same rule as for the profile itself, and for the same reason: who may
+  # read it follows from who has to read it, decided by what is on disk rather
+  # than by a claim from the caller.
+  directory="${SENSOR_CONFIG_ROOT}/${name}/files/${profile}"
+  if [[ -f "$(sensor_slot_target "${name}" wrapper)" ]]; then
+    install -d -o root -g root -m 0700 \
+      "${SENSOR_CONFIG_ROOT}/${name}" \
+      "${SENSOR_CONFIG_ROOT}/${name}/files" "${directory}"
+    mode=0600
+    owner="root:root"
+  else
+    service_user="$(sensor_service_user)"
+    install -d -o root -g root -m 0755 "${SENSOR_CONFIG_ROOT}/${name}"
+    install -d -o root -g "${service_user}" -m 0750 \
+      "${SENSOR_CONFIG_ROOT}/${name}/files" "${directory}"
+    mode=0640
+    owner="root:${service_user}"
+  fi
+
+  # Base64 on the wire because the channel carries text and a key is bytes.
+  encoded="${directory}/${filename}.b64"
+  candidate="${directory}/${filename}.candidate"
+  read_limited_input "${encoded}" "${MAXIMUM_INPUT_BYTES}"
+  if ! base64 -d < "${encoded}" > "${candidate}" 2>/dev/null; then
+    rm -f -- "${encoded}" "${candidate}"
+    die "Transferred file is not valid base64"
+  fi
+  rm -f -- "${encoded}"
+  [[ -s "${candidate}" ]] || {
+    rm -f -- "${candidate}"
+    die "Transferred file is empty"
+  }
+  chown "${owner}" "${candidate}"
+  chmod "${mode}" "${candidate}"
+  mv "${candidate}" "${directory}/${filename}"
+  printf 'OK sensor-file-written %s %s %s\n' "${name}" "${profile}" "${filename}"
+}
+
+remove_sensor_file() {
+  local name="$1"
+  local profile="$2"
+
+  validate_token "${name}" || die "Invalid sensor name"
+  validate_token "${profile}" || die "Invalid profile name"
+  rm -rf -- "${SENSOR_CONFIG_ROOT:?}/${name}/files/${profile}"
+  printf 'OK sensor-files-removed %s %s\n' "${name}" "${profile}"
+}
+
 remove_sensor() {
   local name="$1"
 
@@ -1601,6 +1679,19 @@ case "${command_name}" in
        -z "${argument_three:-}" ]] ||
       die "sensor-remove-profile requires sensor and profile"
     remove_sensor_profile "${argument_one}" "${argument_two}"
+    ;;
+  sensor-write-file)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -n "${argument_three:-}" ]] ||
+      die "sensor-write-file requires sensor, profile and file name"
+    write_sensor_file \
+      "${argument_one}" "${argument_two}" "${argument_three}"
+    ;;
+  sensor-remove-file)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-remove-file requires sensor and profile"
+    remove_sensor_file "${argument_one}" "${argument_two}"
     ;;
   helper-update)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||

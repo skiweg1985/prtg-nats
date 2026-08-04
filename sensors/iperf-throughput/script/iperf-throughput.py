@@ -61,6 +61,14 @@ PUBLIC_KEY_PATH = "%s/public.pem" % CONFIG_ROOT
 # deployment, and that step gets forgotten.
 PROFILE_PASSWORD = "IPERF3_PASSWORD"
 PROFILE_PUBLIC_KEY = "IPERF3_PUBLIC_KEY_B64"
+# Which endpoint the profile belongs to. With these the profile describes a
+# measurement path and not only the secret to walk it, so a second endpoint is
+# a second profile rather than a second set of parameters in PRTG.
+PROFILE_HOST = "IPERF3_HOST"
+PROFILE_PORT = "IPERF3_PORT"
+PROFILE_USERNAME = "IPERF3_USERNAME"
+
+DEFAULT_PORT = 5201
 
 # The lock spans all sensors that measure throughput - not just the runs of
 # this one. The reason is measured: an internet-speed run in mode maximum
@@ -332,9 +340,12 @@ def setup():
                     "own iperf3 endpoint.",
     )
     argparser.add_argument("--server",
-                           help="Host name or address of the iperf3 endpoint.")
-    argparser.add_argument("--port", type=int, default=5201,
-                           help="Port of the iperf3 endpoint.")
+                           help="Host name or address of the iperf3 endpoint. "
+                                "Without it the one from the deployed "
+                                "profile.")
+    argparser.add_argument("--port", type=int,
+                           help="Port of the iperf3 endpoint. Without it the "
+                                "one from the deployed profile, or 5201.")
     argparser.add_argument("--download-mbit", type=int,
                            help="Download target in megabit per second.")
     argparser.add_argument("--upload-mbit", type=int,
@@ -344,7 +355,8 @@ def setup():
                                 "jitter instead of retransmits and latency.")
     argparser.add_argument("--username",
                            help="User name for the endpoint's authentication. "
-                                "Without it the sensor measures "
+                                "Without it the one from the deployed "
+                                "profile, and without that the sensor measures "
                                 "unauthenticated.")
     argparser.add_argument("--password",
                            help="Password, for probes where no credentials "
@@ -483,6 +495,32 @@ def time_budget(args: dict[str, Any]) -> int:
 
 def profile_path(args: dict[str, Any]) -> str:
     return "%s/%s.env" % (PROFILE_DIR, args["profile"])
+
+
+def merge_profile(args: dict[str, Any]) -> dict[str, Any]:
+    """Let the profile say which endpoint this is, if the parameters do not.
+
+    Direct parameters win, the same rule that already applies to the password:
+    whoever enters a value means it, and a profile sitting nearby must not
+    override it. What this adds is the other direction - a profile that names
+    its endpoint turns "--profile berlin" into a complete configuration, and a
+    second endpoint becomes a second sensor with one parameter instead of four.
+
+    --port is filled in here rather than by argparse: with a default already in
+    place there would be no way to tell "not given" from "deliberately 5201",
+    and the profile could never contribute a port at all.
+    """
+    profile = read_profile(profile_path(args)) or {}
+    if not args.get("server"):
+        args["server"] = profile.get(PROFILE_HOST) or None
+    if not args.get("username"):
+        args["username"] = profile.get(PROFILE_USERNAME) or None
+    if not args.get("port"):
+        try:
+            args["port"] = int(profile.get(PROFILE_PORT, "") or DEFAULT_PORT)
+        except ValueError:
+            args["port"] = DEFAULT_PORT
+    return args
 
 
 def read_profile(path: str):
@@ -1133,6 +1171,10 @@ def self_check(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def work(args: dict[str, Any]):
+    # Before anything reads the endpoint, and before the self-test: a variant
+    # that names its endpoint has to be as good as parameters that do.
+    args = merge_profile(args)
+
     if args["self_check"]:
         return self_check(args)
 

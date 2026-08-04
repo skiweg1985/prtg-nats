@@ -107,6 +107,18 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=sensor_actions.deploy_profiles,
         permission="sensor.deploy",
     ),
+    sensor_actions.WRITE_PROFILE_JOB_TYPE: JobDefinition(
+        type=sensor_actions.WRITE_PROFILE_JOB_TYPE,
+        steps=sensor_actions.WRITE_PROFILE_STEPS,
+        handler=sensor_actions.write_profile,
+        permission="sensor.configure",
+    ),
+    sensor_actions.REMOVE_PROFILE_JOB_TYPE: JobDefinition(
+        type=sensor_actions.REMOVE_PROFILE_JOB_TYPE,
+        steps=sensor_actions.REMOVE_PROFILE_STEPS,
+        handler=sensor_actions.remove_profile,
+        permission="sensor.configure",
+    ),
     system_actions.SETUP_JOB_TYPE: JobDefinition(
         type=system_actions.SETUP_JOB_TYPE,
         steps=system_actions.SETUP_STEPS,

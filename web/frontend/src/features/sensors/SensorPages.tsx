@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 
 import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
-import type { ParameterField, SensorSummary } from '@/api/types'
+import type { ParameterSchema, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -21,6 +22,7 @@ import {
 import { formatBytes, shortFingerprint } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
+import { SensorVariants } from './SensorVariants'
 
 export function SensorListPage() {
   const { t } = useTranslation()
@@ -166,7 +168,9 @@ export function SensorDetailPage() {
         </Card>
       </div>
 
-      <ParameterBuilder sensorName={name} fields={data.parameter_schema?.fields ?? null} />
+      <SensorVariants sensorName={name} schema={data.parameter_schema} />
+      <ParameterReference schema={data.parameter_schema} />
+      <ParameterBuilder sensorName={name} schema={data.parameter_schema} />
 
       {deploying && (
         <DeployDialog
@@ -179,31 +183,179 @@ export function SensorDetailPage() {
   )
 }
 
+/** The label of a field: its translation if there is one, else its own name. */
+function fieldLabel(t: TFunction, field: { name: string; label_key?: string }) {
+  return field.label_key ? t(field.label_key, field.name) : field.name
+}
+
+/**
+ * The description of a field.
+ *
+ * The English plain text ships with the sensor and is kept in step with the
+ * script's own argparse help by tests/sensor-checks.py. A translation key is
+ * optional on top - a reference that shows nothing until every sensor is
+ * translated would be a reference nobody can use yet.
+ */
+function fieldDescription(
+  t: TFunction,
+  field: { description?: string; description_key?: string },
+) {
+  if (field.description_key) return t(field.description_key, field.description ?? '')
+  return field.description ?? ''
+}
+
+/**
+ * What each parameter of a sensor means, to look up rather than to fill in.
+ *
+ * Until now this lived in the sensor's README: whoever wanted to know whether
+ * --ssid is required, or what --stage accepts, read prose or the argparse of
+ * the script. Both are in the repository, neither is in the interface where
+ * the sensor is being set up.
+ */
+export function ParameterReference({ schema }: { schema: ParameterSchema | null }) {
+  const { t } = useTranslation()
+
+  if (!schema || schema.parameters.length === 0) {
+    return (
+      <Card title={t('sensors.reference.title')}>
+        <p className="text-ink-3 text-sm">{t('sensors.noParameterSchema')}</p>
+      </Card>
+    )
+  }
+
+  // Which parameters a variant can supply instead. Collected from the profile
+  // side so the row can say "you may leave this out once a variant carries it".
+  const suppliedBy = new Map<string, string>()
+  for (const entry of [...schema.settings, ...schema.credentials, ...schema.files]) {
+    if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
+  }
+
+  return (
+    <Card title={t('sensors.reference.title')}>
+      <p className="text-ink-3 mb-3 text-sm">{t('sensors.reference.intro')}</p>
+
+      {schema.default_parameter_line && (
+        <div className="bg-surface-2 rounded-inset mb-4 p-3">
+          <p className="text-ink-3 mb-1.5 text-xs">
+            {t('sensors.reference.recommendedLine')}
+          </p>
+          <div className="flex items-start gap-2">
+            <code className="text-ink flex-1 font-mono text-xs break-all">
+              {schema.default_parameter_line}
+            </code>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                void navigator.clipboard.writeText(schema.default_parameter_line)
+              }
+            >
+              {t('common.copy')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-rule text-ink-3 border-b text-left">
+              <th className="py-1.5 pr-3 font-medium">
+                {t('sensors.reference.columns.name')}
+              </th>
+              <th className="py-1.5 pr-3 font-medium">
+                {t('sensors.reference.columns.type')}
+              </th>
+              <th className="py-1.5 pr-3 font-medium">
+                {t('sensors.reference.columns.default')}
+              </th>
+              <th className="py-1.5 font-medium">
+                {t('sensors.reference.columns.description')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {schema.parameters.map((field) => (
+              <tr key={field.name} className="border-rule border-b last:border-0">
+                <td className="py-2 pr-3 align-top">
+                  <Mono>{fieldLabel(t, field)}</Mono>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {field.required && (
+                      <Badge tone="warn">{t('sensors.reference.required')}</Badge>
+                    )}
+                    {field.repeatable && (
+                      <Badge tone="neutral">{t('sensors.reference.repeatable')}</Badge>
+                    )}
+                    {suppliedBy.has(field.name) && (
+                      <Badge tone="neutral">
+                        {t('sensors.reference.fromVariant', {
+                          key: suppliedBy.get(field.name),
+                        })}
+                      </Badge>
+                    )}
+                  </div>
+                </td>
+                <td className="text-ink-2 py-2 pr-3 align-top">
+                  {field.choices && field.choices.length > 0 ? (
+                    <Mono>{field.choices.join(' | ')}</Mono>
+                  ) : (
+                    t(`sensors.reference.types.${field.type}`)
+                  )}
+                </td>
+                <td className="text-ink-2 py-2 pr-3 align-top">
+                  {field.source === 'prtg' ? (
+                    <Mono>{field.prtg_placeholder}</Mono>
+                  ) : field.default !== undefined && field.default !== null ? (
+                    <Mono>{String(field.default)}</Mono>
+                  ) : (
+                    <span className="text-ink-3">—</span>
+                  )}
+                </td>
+                <td className="text-ink-2 py-2 align-top">
+                  {fieldDescription(t, field)}
+                  {field.source === 'prtg' && (
+                    <p className="text-ink-3 mt-1 text-xs">
+                      {t('sensors.reference.fromPrtg')}
+                    </p>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
 /**
  * Builds the parameter line for PRTG from a form.
  *
  * The sensor scripts parse their options with argparse and an operator types
  * them into a PRTG text field by hand. A form that produces the exact string
  * removes the two ways that goes wrong: a misremembered flag name and a typo.
+ *
+ * Parameters PRTG substitutes itself are left out: asking for a password here
+ * that the device settings already hold would invite someone to type it into
+ * the sensor configuration, which is the one place it is not supposed to be.
  */
 function ParameterBuilder({
   sensorName,
-  fields,
+  schema,
 }: {
   sensorName: string
-  fields: ParameterField[] | null
+  schema: ParameterSchema | null
 }) {
   const { t } = useTranslation()
   const [values, setValues] = useState<Record<string, unknown>>({})
   const render = useRenderParameters(sensorName)
 
-  if (!fields || fields.length === 0) {
-    return (
-      <Card title={t('sensors.parameters')}>
-        <p className="text-ink-3 text-sm">{t('sensors.noParameterSchema')}</p>
-      </Card>
-    )
-  }
+  const fields = (schema?.parameters ?? []).filter((field) => field.source !== 'prtg')
+  if (fields.length === 0) return null
+
+  const missing = fields.filter(
+    (field) => field.required && !values[field.name] && field.type !== 'boolean',
+  )
 
   return (
     <Card title={t('sensors.parameters')}>
@@ -213,8 +365,8 @@ function ParameterBuilder({
         {fields.map((field) => (
           <Field
             key={field.name}
-            label={field.label_key ? t(field.label_key, field.name) : field.name}
-            hint={field.description_key ? t(field.description_key) : undefined}
+            label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+            hint={fieldDescription(t, field) || undefined}
           >
             {field.type === 'boolean' ? (
               <input
@@ -259,6 +411,13 @@ function ParameterBuilder({
         <Button variant="primary" size="sm" onClick={() => render.mutate(values)}>
           {t('sensors.parametersResult')}
         </Button>
+        {missing.length > 0 && (
+          <span className="text-ink-3 text-xs">
+            {t('sensors.parametersMissing', {
+              fields: missing.map((field) => field.name).join(', '),
+            })}
+          </span>
+        )}
       </div>
 
       {render.data && (

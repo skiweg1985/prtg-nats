@@ -86,6 +86,7 @@ show as degraded, until its cached state expired - see
 | `/etc/prtg-nats/sensors/NAME/version` | `root:root` | `0644` |
 | `/etc/prtg-nats/sensors/NAME/shebang`, with dependencies only | `root:root` | `0644` |
 | `/etc/prtg-nats/sensors/NAME/profiles/*.env` | `root:root` | `0600` |
+| `/etc/prtg-nats/sensors/NAME/files/VARIANT/*` | `root:root` | `0600` |
 | `/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf` | `root:root` | `0644` |
 
 The service user is determined on the probe (`paessler_mpprobe` on MPP 3.10),
@@ -261,9 +262,68 @@ Older probes answer with `Unsupported management request` and need
 Sensors that get by with the standard library need no `requirements.txt` and
 run on the system Python.
 
-## Credentials
+## What a sensor needs to work
 
-Two ways are available:
+A sensor takes what it needs from four places, and each one has a reason:
+
+| Kind | Where the value ends up | Example |
+| --- | --- | --- |
+| `parameters` | the PRTG parameter line | `--primary wired` |
+| `settings` | `KEY=VALUE` in a profile on the probe | `SSID=Corporate` |
+| `credentials` | the same file, but never read back | `PASSWORD=…` |
+| `files` | a file of its own on the probe; its **path** becomes a profile key | `radius-ca.pem` |
+
+Each sensor declares all four in `parameters.json` beside its manifest. The
+web interface renders that declaration twice: as a **parameter reference** on
+the sensor's page - what each option means, whether it is required, what it
+accepts - and as the form for a variant.
+
+A parameter can also come from PRTG itself rather than from the server.
+`aruba-uplink` takes host and credentials that way, as
+`%host` and `%scriptplaceholder1`, and the reference then shows the
+placeholder instead of asking for a value.
+
+`tests/sensor-checks.py` compares the declaration against the script's own
+argparse - names, types, defaults, choices and help texts - so the reference
+cannot quietly drift from the sensor it describes.
+
+## Variants
+
+A **variant** is settings, credentials and files for one purpose: one SSID,
+one site, one measurement endpoint. On the probe it is the profile that has
+always existed; in PRTG it is one more sensor object carrying a single
+parameter, `--profile standort-nord`. Several variants live side by side on
+the same probe, which is how one probe monitors two networks.
+
+Two ways to get one there, and they write the same files.
+
+**From the web interface.** On the sensor's page, *Variants* offers a form for
+whatever the sensor declares, including an upload for certificates and keys,
+and a choice of the probes it belongs on. A credential is written straight to
+the runtime directory and never returned afterwards - the field stays empty on
+the next edit, and leaving it empty keeps the stored value.
+
+Uploading files needs a probe helper of version 4 or newer; settings and
+credentials work with every version. An older probe answers `Unsupported
+management request` and needs `probe helper-update` first.
+
+**From the command line**, unchanged:
+
+```bash
+./prtg-nats sensor profile wlan-auth mpp-probe-01 office --from-file profile.env
+```
+
+The first call takes the file into the central store and deploys it; later
+calls without `--from-file` distribute the stored state again. Both ways use
+`runtime/sensor-profiles/NAME/PROFILE.env` - in the same protected,
+git-ignored area as the NATS passwords - so a variant filled in from the
+browser is one the command line can deploy again.
+
+Whoever deploys the sensor deploys the variants assigned to that probe with
+it. Files travel first and the profile after them: the profile carries their
+paths, and a sensor checks that a path it is handed exists.
+
+### Why a profile rather than a parameter
 
 1. **As sensor parameters in PRTG.** Simple, but PRTG stores the parameters
    in the core and shows them in the sensor settings.
@@ -271,16 +331,16 @@ Two ways are available:
    password lives in a `0600` file that only the privileged helper reads. The
    service user the sensor runs as cannot get at it.
 
-The second way is the recommended one. Profiles are maintained centrally
-under `runtime/sensor-profiles/NAME/PROFILE.env` - in the same protected,
-git-ignored area as the NATS passwords:
+The second way is the recommended one. The exception is a value PRTG
+substitutes itself - a placeholder never reaches the sensor settings either,
+and it saves carrying the same account per site.
 
-```bash
-./prtg-nats sensor profile wlan-auth mpp-probe-01 office --from-file profile.env
-```
-
-The first call takes the file into the central store and deploys it; later
-calls without `--from-file` distribute the stored state again.
+Certificates and keys land under
+`/etc/prtg-nats/sensors/NAME/files/VARIANT/` with the same owner and mode
+rules as the profile: `root:root 0600` where the sensor has a privileged
+helper to read them, `root:SERVICE-USER 0640` where the script has to read
+them itself. The path is built on the probe from validated tokens, never
+taken from the request.
 
 ## Measurement endpoints
 

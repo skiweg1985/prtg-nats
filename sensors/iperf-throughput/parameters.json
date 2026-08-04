@@ -1,0 +1,73 @@
+{
+  "parameters": [
+    {
+      "name": "--server",
+      "type": "string",
+      "description": "Host name or address of the iperf3 endpoint. Without it the one from the deployed profile."
+    },
+    {
+      "name": "--port",
+      "type": "integer",
+      "description": "Port of the iperf3 endpoint. Without it the one from the deployed profile, or 5201.",
+      "placeholder": "5201"
+    },
+    {
+      "name": "--download-mbit",
+      "type": "integer",
+      "description": "Download target in megabit per second."
+    },
+    {
+      "name": "--upload-mbit",
+      "type": "integer",
+      "description": "Upload target in megabit per second."
+    },
+    {
+      "name": "--udp",
+      "type": "boolean",
+      "description": "Measure with UDP: reports packet loss and jitter instead of retransmits and latency."
+    },
+    {
+      "name": "--username",
+      "type": "string",
+      "description": "User name for the endpoint's authentication. Without it the one from the deployed profile, and without that the sensor measures unauthenticated."
+    },
+    {
+      "name": "--password",
+      "type": "string",
+      "description": "Password, for probes where no credentials file can be placed. Left out, the sensor reads the one deployed on this probe."
+    },
+    {
+      "name": "--public-key",
+      "type": "string",
+      "description": "Path to the endpoint's public key, if it is not in the deployed profile."
+    },
+    {
+      "name": "--profile",
+      "type": "string",
+      "default": "default",
+      "description": "Name of the deployed credential profile. Use one per endpoint when they have different passwords."
+    },
+    {
+      "name": "--seconds",
+      "type": "integer",
+      "default": 5,
+      "description": "How long to transfer per direction. The default of 5 was measured; longer runs read lower on a line that shapes after a burst."
+    },
+    {
+      "name": "--measure-every-minutes",
+      "type": "integer",
+      "default": 60,
+      "description": "Minimum minutes between two real measurements."
+    },
+    {
+      "name": "--timeout-seconds",
+      "type": "integer",
+      "description": "The time budget for the whole test in seconds."
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "description": "Only verify that the sensor is able to run."
+    }
+  ]
+}

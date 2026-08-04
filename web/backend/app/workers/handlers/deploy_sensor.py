@@ -189,6 +189,9 @@ async def deploy_one(
             # self-test proves the sensor can run, not that it may measure, and
             # an endpoint that does not exist yet must not roll the sensor back.
             await _deploy_endpoint_profiles(context, connection, definition, username)
+        # The same for the variants an operator configured: whoever deploys the
+        # sensor deploys what it needs to work with it.
+        await deploy_assigned_variants(context, connection, definition, username)
         return None
 
     except AppError as error:
@@ -291,14 +294,91 @@ def endpoint_profile_content(runtime: RuntimeFileStore, endpoint: str) -> str:
     Shared with the rotation job, which writes the very same file when the
     password changes. Two renderings of one format would be two chances for the
     probes to end up with something the sensor cannot parse.
+
+    Host, port and user name are in it, not only in the comment above them:
+    with those the profile describes a measurement path rather than only the
+    secret to walk it, and a second endpoint becomes a second sensor in PRTG
+    carrying one parameter instead of four.
     """
-    password, public_key_b64, host, port = runtime.read_iperf_profile_material(endpoint)
+    material = runtime.read_iperf_profile_material(endpoint)
     return (
         "# Written by the PRTG-NATS web platform. Do not edit by hand.\n"
-        f"# Endpoint {endpoint} on {host}:{port}\n"
-        f"IPERF3_PASSWORD={password}\n"
-        f"IPERF3_PUBLIC_KEY_B64={public_key_b64}\n"
+        f"# Endpoint {endpoint} on {material.host}:{material.port}\n"
+        f"IPERF3_HOST={material.host}\n"
+        f"IPERF3_PORT={material.port}\n"
+        f"IPERF3_USERNAME={material.username}\n"
+        f"IPERF3_PASSWORD={material.password}\n"
+        f"IPERF3_PUBLIC_KEY_B64={material.public_key_b64}\n"
     )
+
+
+async def deploy_variant(
+    context: JobContext,
+    connection: ProbeConnection,
+    definition: SensorDefinition,
+    username: str,
+    profile: str,
+) -> None:
+    """Put one variant on one probe: its files first, then its profile.
+
+    The order is not a preference. A sensor reads the file paths out of the
+    profile and checks that they exist - wlan-auth refuses with "file-missing"
+    otherwise - so a profile that arrives before its certificate points at
+    nothing for as long as the transfer takes.
+    """
+    for entry in context.runtime.list_sensor_profile_files(definition.name, profile):
+        payload = context.runtime.read_sensor_profile_file(
+            definition.name, profile, entry.key
+        )
+        await context.helper.write_profile_file(
+            connection, definition.name, profile, entry.filename, payload
+        )
+        await context.log(
+            "jobs.sensor.profile_file_deployed",
+            params={
+                "probe": username,
+                "profile": profile,
+                "file": entry.filename,
+                "bytes": entry.size_bytes,
+            },
+            target=username,
+        )
+
+    content = context.runtime.sensor_profile_content(definition.name, profile)
+    await context.helper.write_profile(connection, definition.name, profile, content)
+    context.runtime.assign_profile(username, definition.name, profile)
+    await context.log(
+        "jobs.sensor.profile_deployed",
+        params={"probe": username, "endpoint": profile},
+        target=username,
+    )
+
+
+async def deploy_assigned_variants(
+    context: JobContext,
+    connection: ProbeConnection,
+    definition: SensorDefinition,
+    username: str,
+) -> None:
+    """Every variant this probe is meant to hold, after the sensor is on it.
+
+    Deliberately after the transaction, for the same reason the endpoint
+    credentials are: the self-test proves the sensor can run, not that it may
+    measure, and a variant that fails to transfer must not roll the sensor
+    back to the version before.
+    """
+    for profile in context.runtime.assigned_profiles(username, definition.name):
+        if not context.runtime.sensor_profile_exists(definition.name, profile):
+            # The assignment outlived the variant - someone deleted it while a
+            # probe was unreachable. Saying so beats a stack trace.
+            await context.log(
+                "jobs.sensor.profile_missing",
+                level=LogLevel.WARNING,
+                params={"probe": username, "profile": profile},
+                target=username,
+            )
+            continue
+        await deploy_variant(context, connection, definition, username, profile)
 
 
 async def _deploy_endpoint_profiles(

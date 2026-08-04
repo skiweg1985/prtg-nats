@@ -13,6 +13,7 @@ every failure a string to grep. Speaking it directly is less code, not more.
 from __future__ import annotations
 
 import asyncio
+import base64
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -395,6 +396,38 @@ class ProbeHelperClient:
     ) -> HelperResponse:
         return await self._call(
             connection, HelperCommand.SENSOR_REMOVE_PROFILE, sensor, profile
+        )
+
+    async def write_profile_file(
+        self,
+        connection: ProbeConnection,
+        sensor: str,
+        profile: str,
+        filename: str,
+        payload: bytes,
+    ) -> HelperResponse:
+        """Place a certificate or key belonging to a variant.
+
+        Base64 because the channel carries text and a key is bytes; the profile
+        itself is KEY=VALUE lines and needs no such wrapping. The helper builds
+        the destination path from its own validated tokens, so only the file
+        name travels, never a path.
+        """
+        return await self._call(
+            connection,
+            HelperCommand.SENSOR_WRITE_FILE,
+            sensor,
+            profile,
+            filename,
+            payload=base64.b64encode(payload).decode("ascii"),
+        )
+
+    async def remove_profile_files(
+        self, connection: ProbeConnection, sensor: str, profile: str
+    ) -> HelperResponse:
+        """Take every file of one variant off the probe."""
+        return await self._call(
+            connection, HelperCommand.SENSOR_REMOVE_FILE, sensor, profile
         )
 
     # --- Retirement ---------------------------------------------------------

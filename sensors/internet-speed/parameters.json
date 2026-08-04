@@ -1,0 +1,53 @@
+{
+  "parameters": [
+    {
+      "name": "--mode",
+      "type": "choice",
+      "choices": ["maximum", "minimum"],
+      "description": "Measure the peak (maximum). The value \"minimum\" has moved to the iperf-throughput sensor."
+    },
+    {
+      "name": "--min-download-mbit",
+      "type": "integer",
+      "group": "moved",
+      "description": "Moved to the iperf-throughput sensor."
+    },
+    {
+      "name": "--min-upload-mbit",
+      "type": "integer",
+      "group": "moved",
+      "description": "Moved to the iperf-throughput sensor."
+    },
+    {
+      "name": "--measure-every-minutes",
+      "type": "integer",
+      "default": 60,
+      "description": "Minimum minutes between two real measurements."
+    },
+    {
+      "name": "--timeout-seconds",
+      "type": "integer",
+      "description": "The time budget for the whole test in seconds."
+    },
+    {
+      "name": "--server",
+      "type": "string",
+      "description": "Pin the test to one speedtest.net server ID."
+    },
+    {
+      "name": "--source",
+      "type": "string",
+      "description": "Source address the measurement binds to."
+    },
+    {
+      "name": "--no-secure",
+      "type": "boolean",
+      "description": "Use HTTP instead of HTTPS towards speedtest.net."
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "description": "Only verify that the sensor is able to run."
+    }
+  ]
+}

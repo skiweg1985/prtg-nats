@@ -1,19 +1,29 @@
-"""Sensor maintenance on one probe: removal and endpoint profiles."""
+"""Sensor maintenance on one probe: removal, endpoint profiles and variants."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
+from app.domain.enums import LogLevel
 from app.infrastructure.probe_helper import ProbeConnection
 from app.workers.context import JobContext
-from app.workers.handlers.deploy_sensor import _deploy_endpoint_profiles
+from app.workers.handlers.deploy_sensor import (
+    _deploy_endpoint_profiles,
+    deploy_variant,
+)
 
 REMOVE_STEPS: tuple[str, ...] = ("check_reachable", "remove", "bookkeeping")
 REMOVE_JOB_TYPE = "sensor.remove"
 
 PROFILES_STEPS: tuple[str, ...] = ("check_reachable", "deploy_profiles")
 PROFILES_JOB_TYPE = "sensor.deploy_profiles"
+
+WRITE_PROFILE_STEPS: tuple[str, ...] = ("resolve_targets", "deploy")
+WRITE_PROFILE_JOB_TYPE = "sensor.write_profile"
+
+REMOVE_PROFILE_STEPS: tuple[str, ...] = ("resolve_targets", "remove")
+REMOVE_PROFILE_JOB_TYPE = "sensor.remove_profile"
 
 
 def _connection(context: JobContext, username: str) -> ProbeConnection:
@@ -93,3 +103,96 @@ async def deploy_profiles(context: JobContext) -> dict[str, Any]:
     definition = context.catalog.get(sensor)
     await _deploy_endpoint_profiles(context, connection, definition, username)
     return {"probe": username, "sensor": sensor}
+
+
+async def write_profile(context: JobContext) -> dict[str, Any]:
+    """Put one variant onto the probes it is assigned to.
+
+    The payload names the variant, never its values: they were written to
+    runtime/sensor-profiles/ by the request that created this job, and are read
+    from there. That way no credential is ever stored in the job table, and a
+    retry deploys the state as it stands rather than a stale copy.
+    """
+    sensor: str = context.payload["sensor"]
+    profile: str = context.payload["profile"]
+    probes: list[str] = list(context.payload["probes"])
+
+    await context.step("resolve_targets")
+    definition = context.catalog.get(sensor)
+    await context.log(
+        "jobs.sensor.profile_resolved",
+        params={"sensor": sensor, "profile": profile, "probes": len(probes)},
+    )
+
+    await context.step("deploy")
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for username in probes:
+        try:
+            connection = _connection(context, username)
+            await deploy_variant(context, connection, definition, username, profile)
+            succeeded.append(username)
+        except AppError as error:
+            failed.append({"probe": username, "code": error.code})
+            await context.log(
+                "jobs.sensor.profile_failed",
+                level=LogLevel.ERROR,
+                params={"probe": username, "profile": profile, "reason": error.code},
+                target=username,
+                raw=error.details,
+            )
+    return {
+        "sensor": sensor,
+        "profile": profile,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+async def remove_profile(context: JobContext) -> dict[str, Any]:
+    """Take one variant off the probes that hold it.
+
+    Best effort per probe: a variant that cannot be removed from an unreachable
+    probe must not stop it being removed from the reachable ones, or a rotated
+    credential would stay in place wherever the first failure happened.
+    """
+    sensor: str = context.payload["sensor"]
+    profile: str = context.payload["profile"]
+    probes: list[str] = list(context.payload["probes"])
+
+    await context.step("resolve_targets")
+    await context.log(
+        "jobs.sensor.profile_resolved",
+        params={"sensor": sensor, "profile": profile, "probes": len(probes)},
+    )
+
+    await context.step("remove")
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for username in probes:
+        try:
+            connection = _connection(context, username)
+            await context.helper.remove_profile(connection, sensor, profile)
+            await context.helper.remove_profile_files(connection, sensor, profile)
+            context.runtime.unassign_profile(username, sensor, profile)
+            succeeded.append(username)
+            await context.log(
+                "jobs.sensor.profile_removed",
+                params={"probe": username, "sensor": sensor, "profile": profile},
+                target=username,
+            )
+        except AppError as error:
+            failed.append({"probe": username, "code": error.code})
+            await context.log(
+                "jobs.sensor.profile_failed",
+                level=LogLevel.ERROR,
+                params={"probe": username, "profile": profile, "reason": error.code},
+                target=username,
+                raw=error.details,
+            )
+    return {
+        "sensor": sensor,
+        "profile": profile,
+        "succeeded": succeeded,
+        "failed": failed,
+    }

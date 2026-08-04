@@ -56,8 +56,25 @@ FIELD_SEPARATOR = "\t"
 # installed sensor it had not touched yet - a failed update took the working
 # version with it. The protocol is unchanged, so the minimum stays at 1, but a
 # probe below 3 should be updated before the next rollout.
-CURRENT_HELPER_VERSION = 3
+#
+# Version 4 adds sensor-write-file and sensor-remove-file, so a variant can
+# carry a certificate or a key and not only KEY=VALUE lines. The minimum stays
+# at 1 because everything else is unchanged: a probe below 4 takes settings and
+# credentials as before and refuses only the files, which is reported as the
+# helper being behind rather than as a broken request.
+CURRENT_HELPER_VERSION = 4
 MINIMUM_HELPER_VERSION = 1
+
+# Where a variant's files land on the probe. The helper builds the same path
+# from its own validated tokens - this side only needs to know it, because the
+# path is what goes into the profile as the value the sensor script reads.
+PROBE_SENSOR_CONFIG_ROOT = "/etc/prtg-nats/sensors"
+
+
+def probe_profile_file_path(sensor: str, profile: str, filename: str) -> str:
+    """The absolute path a deployed file of one variant has on the probe."""
+    return f"{PROBE_SENSOR_CONFIG_ROOT}/{sensor}/files/{profile}/{filename}"
+
 
 # What the helper answers to a request it does not know. Recognised verbatim
 # because it is the one refusal that says "the probe is behind" rather than
@@ -99,6 +116,8 @@ class HelperCommand(StrEnum):
     SENSOR_RELEASE_INTERFACE = "sensor-release-interface"
     SENSOR_WRITE_PROFILE = "sensor-write-profile"
     SENSOR_REMOVE_PROFILE = "sensor-remove-profile"
+    SENSOR_WRITE_FILE = "sensor-write-file"
+    SENSOR_REMOVE_FILE = "sensor-remove-file"
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"

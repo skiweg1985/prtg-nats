@@ -1,0 +1,199 @@
+{
+  "parameters": [
+    {
+      "name": "--interface",
+      "type": "string",
+      "default": "wlan0",
+      "description": "The reserved wireless test interface."
+    },
+    {
+      "name": "--ssid",
+      "type": "string",
+      "description": "The SSID to authenticate against."
+    },
+    {
+      "name": "--auth",
+      "type": "choice",
+      "choices": ["psk", "peap", "eap-tls"],
+      "description": "The authentication method."
+    },
+    {
+      "name": "--profile",
+      "type": "string",
+      "description": "Credential profile stored on the probe."
+    },
+    {
+      "name": "--psk",
+      "type": "string",
+      "description": "The WPA2 passphrase."
+    },
+    {
+      "name": "--identity",
+      "type": "string",
+      "description": "The enterprise user name."
+    },
+    {
+      "name": "--password",
+      "type": "string",
+      "description": "The enterprise password."
+    },
+    {
+      "name": "--anonymous-identity",
+      "type": "string",
+      "description": "The outer identity for the tunnel."
+    },
+    {
+      "name": "--ca-cert",
+      "type": "string",
+      "description": "CA certificate file that signed the RADIUS server."
+    },
+    {
+      "name": "--domain-suffix-match",
+      "type": "string",
+      "description": "Required suffix of the RADIUS server certificate."
+    },
+    {
+      "name": "--no-verify-server",
+      "type": "boolean",
+      "description": "Skip the RADIUS server certificate check."
+    },
+    {
+      "name": "--client-cert",
+      "type": "string",
+      "description": "Client certificate file for EAP-TLS."
+    },
+    {
+      "name": "--private-key",
+      "type": "string",
+      "description": "Private key file for EAP-TLS."
+    },
+    {
+      "name": "--private-key-passwd",
+      "type": "string",
+      "description": "Passphrase of the private key."
+    },
+    {
+      "name": "--bssid",
+      "type": "string",
+      "description": "Restrict the test to one access point."
+    },
+    {
+      "name": "--hidden",
+      "type": "boolean",
+      "description": "The SSID is not broadcast."
+    },
+    {
+      "name": "--stage",
+      "type": "choice",
+      "choices": ["assoc", "dhcp"],
+      "default": "dhcp",
+      "description": "Stop after authentication or after DHCP."
+    },
+    {
+      "name": "--timeout",
+      "type": "integer",
+      "default": 45,
+      "description": "The time budget for the whole test in seconds."
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "description": "Only verify that the privileged helper is reachable."
+    }
+  ],
+
+  "settings": [
+    {
+      "name": "SSID",
+      "type": "string",
+      "required": true,
+      "maps_to": "--ssid",
+      "description": "The network this variant signs in to."
+    },
+    {
+      "name": "AUTH",
+      "type": "choice",
+      "choices": ["psk", "peap", "eap-tls"],
+      "required": true,
+      "maps_to": "--auth",
+      "description": "The authentication method. It decides which of the fields below are needed."
+    },
+    {
+      "name": "IDENTITY",
+      "type": "string",
+      "maps_to": "--identity",
+      "group": "peap",
+      "description": "The enterprise user name, for PEAP."
+    },
+    {
+      "name": "ANONYMOUS_IDENTITY",
+      "type": "string",
+      "maps_to": "--anonymous-identity",
+      "group": "peap",
+      "description": "The outer identity for the tunnel, if the RADIUS server expects one."
+    },
+    {
+      "name": "DOMAIN_SUFFIX_MATCH",
+      "type": "string",
+      "maps_to": "--domain-suffix-match",
+      "description": "Required suffix of the RADIUS server certificate."
+    },
+    {
+      "name": "BSSID",
+      "type": "string",
+      "maps_to": "--bssid",
+      "description": "Restrict this variant to one access point."
+    }
+  ],
+
+  "credentials": [
+    {
+      "name": "PSK",
+      "type": "string",
+      "maps_to": "--psk",
+      "group": "psk",
+      "description": "The WPA2 passphrase, for AUTH=psk."
+    },
+    {
+      "name": "PASSWORD",
+      "type": "string",
+      "maps_to": "--password",
+      "group": "peap",
+      "description": "The enterprise password, for AUTH=peap."
+    },
+    {
+      "name": "PRIVATE_KEY_PASSWD",
+      "type": "string",
+      "maps_to": "--private-key-passwd",
+      "group": "eap-tls",
+      "description": "Passphrase of the private key, if it carries one."
+    }
+  ],
+
+  "files": [
+    {
+      "name": "CA_CERT",
+      "kind": "certificate",
+      "extension": ".pem",
+      "maps_to": "--ca-cert",
+      "description": "The authority that signed the RADIUS server certificate. Without it the server is not verified."
+    },
+    {
+      "name": "CLIENT_CERT",
+      "kind": "certificate",
+      "extension": ".pem",
+      "maps_to": "--client-cert",
+      "group": "eap-tls",
+      "description": "The probe's own certificate, for AUTH=eap-tls."
+    },
+    {
+      "name": "PRIVATE_KEY",
+      "kind": "key",
+      "secret": true,
+      "extension": ".pem",
+      "maps_to": "--private-key",
+      "group": "eap-tls",
+      "description": "The private key belonging to the client certificate."
+    }
+  ]
+}
