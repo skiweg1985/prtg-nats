@@ -84,6 +84,12 @@ class IperfEndpointRecord:
     kind: str
     updated_at: datetime | None
     has_public_key: bool
+    # Whether this platform set the host up and can still reach it. False for
+    # an endpoint somebody else operates, which was registered here by hand:
+    # its password is not ours to rotate and removing it here takes nothing off
+    # that host. Absent in a record the shell tooling wrote, and read as true
+    # there - that path only ever produced endpoints it had just set up.
+    managed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +121,15 @@ class SiteSettings:
     ca_organization: str
     prtg_core_ip: str | None
     ssh_source_cidr: str | None
+    # The same rule for iperf endpoints, and deliberately without the fallback
+    # the line above has. A probe stands on the internal network and
+    # NATS_HOST_IP is the address it sees us under; a measurement endpoint
+    # often stands on a public one and sees us under the address we leave the
+    # site with, which nothing here can derive. Left unset, every invitation
+    # has to name it - a wrong guess would write a management key that is
+    # valid from the wrong network, and there is no round trip that corrects
+    # it afterwards.
+    iperf_ssh_source_cidr: str | None = None
     # The interface usually answers on the same name as NATS; a deployment
     # that splits them sets WEB_FQDN, exactly as the proxy already expects.
     web_fqdn_override: str | None = None
@@ -161,6 +176,7 @@ class RuntimeFileStore:
             "CA_ORGANIZATION",
             "PRTG_CORE_IP",
             "MPP_SSH_SOURCE_CIDR",
+            "IPERF_SSH_SOURCE_CIDR",
             "WEB_FQDN",
         ):
             from_environment = os.environ.get(key)
@@ -179,6 +195,7 @@ class RuntimeFileStore:
                 values.get("MPP_SSH_SOURCE_CIDR")
                 or (f"{host_ip}/32" if host_ip else None)
             ),
+            iperf_ssh_source_cidr=values.get("IPERF_SSH_SOURCE_CIDR") or None,
             web_fqdn_override=values.get("WEB_FQDN") or None,
         )
 
@@ -340,6 +357,7 @@ class RuntimeFileStore:
                     kind=values.get("IPERF_KIND", "iperf3"),
                     updated_at=_as_datetime(values.get("IPERF_UPDATED")),
                     has_public_key=(directory / f"{path.stem}.pem").is_file(),
+                    managed=_as_bool(values.get("IPERF_MANAGED"), default=True),
                 )
             )
         return endpoints
@@ -389,6 +407,70 @@ class RuntimeFileStore:
         path.touch(mode=0o600, exist_ok=True)
         path.chmod(0o600)
         path.write_text(content, encoding="utf-8")
+
+    def write_iperf_record(
+        self,
+        *,
+        name: str,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        public_key_pem: str | None = None,
+        managed: bool = True,
+        kind: str = "iperf3",
+    ) -> None:
+        """The endpoint's record and its public key, in the format
+        ``./prtg-nats iperf-server`` has always written.
+
+        Byte-compatible on purpose: the shell tooling still reads these files,
+        and an endpoint set up from the browser has to be one the command line
+        can deploy, show and revoke without knowing where it came from.
+
+        The public key is optional because a rotation does not produce a new
+        one - the key pair on the endpoint stays untouched, and overwriting the
+        stored copy with nothing would cost every probe its ability to encrypt
+        the credentials it sends.
+        """
+        if not NAME_PATTERN.match(name):
+            raise NotFoundError.of("iperf_endpoint", name)
+        directory = self._settings.iperf_dir
+        directory.mkdir(parents=True, exist_ok=True)
+        record = directory / f"{name}.env"
+        content = (
+            f"IPERF_NAME={name}\n"
+            f"IPERF_KIND={kind}\n"
+            f"IPERF_HOST={host}\n"
+            f"IPERF_PORT={port}\n"
+            f"IPERF_USERNAME={username}\n"
+            f"IPERF_PASSWORD={password}\n"
+            f"IPERF_MANAGED={'true' if managed else 'false'}\n"
+            f"IPERF_UPDATED={datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
+        )
+        record.touch(mode=0o600, exist_ok=True)
+        record.chmod(0o600)
+        record.write_text(content, encoding="utf-8")
+
+        if public_key_pem is None:
+            return
+        key_file = directory / f"{name}.pem"
+        key_file.touch(mode=0o600, exist_ok=True)
+        key_file.chmod(0o600)
+        key_file.write_text(public_key_pem, encoding="utf-8")
+
+    def remove_iperf_record(self, name: str) -> None:
+        """Forget an endpoint here. What runs on that host is not touched by
+        this - removing the service is a request over its own channel."""
+        if not NAME_PATTERN.match(name):
+            raise NotFoundError.of("iperf_endpoint", name)
+        directory = self._settings.iperf_dir
+        (directory / f"{name}.env").unlink(missing_ok=True)
+        (directory / f"{name}.pem").unlink(missing_ok=True)
+
+    def iperf_endpoint_exists(self, name: str) -> bool:
+        if not NAME_PATTERN.match(name):
+            return False
+        return (self._settings.iperf_dir / f"{name}.env").is_file()
 
     def _sidecar(self, nats_username: str, suffix: str) -> Path:
         if not NATS_USERNAME_PATTERN.match(nats_username):
@@ -477,6 +559,17 @@ class RuntimeFileStore:
             for line in content.splitlines()
             if line.strip() and not line.startswith("#")
         )
+
+
+def _as_bool(value: str | None, *, default: bool) -> bool:
+    """A missing key keeps the default; anything else has to say so plainly.
+
+    The default matters: records the shell tooling wrote carry no such key, and
+    that path only ever produced endpoints it had just set up itself.
+    """
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"true", "yes", "1"}
 
 
 def _as_int(value: str | None, default: int) -> int:

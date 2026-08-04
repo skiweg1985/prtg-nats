@@ -23,6 +23,7 @@ export_public_key=""
 port=5201
 force=no
 force_credentials=no
+remove=no
 
 usage() {
   cat <<'USAGE'
@@ -51,6 +52,10 @@ who may sudo -- the script raises itself.
   --force                 replace an existing key pair *and* the credentials.
                           Every probe already deployed loses access until it
                           gets both the new password and the new key.
+  --remove                take the endpoint back off this host: stop the
+                          service, drop the authentication and delete the key
+                          pair and the credentials. The iperf3 package stays
+                          installed -- something else may be using it.
   -h, --help              show this help
 
 Without either --force option the script keeps whatever is already in place
@@ -106,6 +111,10 @@ while [[ $# -gt 0 ]]; do
       force_credentials=yes
       shift
       ;;
+    --remove)
+      remove=yes
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -137,6 +146,28 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 command -v systemctl >/dev/null 2>&1 ||
   die "This script needs systemd; the iperf3 service is managed as a unit"
+
+# The counterpart to everything below, and deliberately in this file rather
+# than in a second script: what is taken back has to be exactly what was put
+# there, and that stays true only as long as both live next to each other.
+if [[ "${remove}" == "yes" ]]; then
+  printf '== Removing the endpoint ==\n'
+  systemctl disable --now "${SERVICE}" >/dev/null 2>&1 || true
+  # The drop-in is the whole of the authentication. Without it the packaged
+  # unit is back, which is an endpoint anybody may measure against - so the
+  # service is stopped above before this file disappears, not after.
+  rm -f -- "${DROP_IN}"
+  rmdir -- "${DROP_IN_DIR}" 2>/dev/null || true
+  systemctl daemon-reload
+  # The private key decrypts what the probes send; the credentials file is
+  # the hash they authenticate against. Neither has any use here afterwards.
+  rm -rf -- "${CONFIG_DIR}"
+  note "service stopped and disabled"
+  note "authentication drop-in, key pair and credentials removed"
+  note "the iperf3 package is still installed; remove it yourself if nothing"
+  note "else on this host needs it"
+  exit 0
+fi
 
 printf '== iperf3 ==\n'
 if command -v iperf3 >/dev/null 2>&1; then

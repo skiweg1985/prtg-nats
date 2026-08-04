@@ -1,0 +1,158 @@
+#!/bin/sh
+#
+# Runs on the iperf3 measurement endpoint, as root, once. Rendered per
+# invitation by app/services/enrollment.py, which fills in the double-at
+# placeholders below and refuses to serve the script if any of them is left
+# over - an unrendered placeholder would reach a root shell.
+#
+# What it does, in the order it matters:
+#   1. installs the CA, so everything after this is verified
+#   2. installs the restricted management access (libexec/iperf-enroll.sh,
+#      fetched and executed, never reimplemented here)
+#   3. reports back: this host's SSH host keys, and the address it reached the
+#      platform under
+#
+# It deliberately does not set up iperf3 itself. That happens over the
+# management channel afterwards, which is the channel everything later depends
+# on - doing it here would mean testing it twice and trusting it once. It is
+# the same split probe-bootstrap.sh.template makes for the probe configuration,
+# and for the same reason.
+#
+# Nothing secret is in this file. The password the endpoint will authenticate
+# probes against is generated on the platform and travels over the management
+# channel, not through here: fetching this script does not spend the
+# invitation, so anything embedded here would be readable for as long as the
+# token lives.
+
+set -eu
+
+BASE_URL="@@BASE_URL@@"
+TOKEN="@@TOKEN@@"
+CA_SHA256="@@CA_SHA256@@"
+SSH_SOURCE_CIDR="@@SSH_SOURCE_CIDR@@"
+
+STAGE=""
+ACCESS_INSTALLED="false"
+PLATFORM_ADDRESS=""
+
+say() { printf '  %s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+cleanup() {
+  [ -n "${STAGE}" ] && rm -rf "${STAGE}"
+  return 0
+}
+trap cleanup EXIT INT TERM
+
+[ "$(id -u)" -eq 0 ] || die "This has to run as root - prefix it with sudo."
+for tool in curl sha256sum install id; do
+  command -v "${tool}" >/dev/null 2>&1 || die "${tool} is required but missing."
+done
+command -v bash >/dev/null 2>&1 ||
+  die "bash is required; the enrolment script and the helper are bash."
+
+umask 077
+STAGE="$(mktemp -d /tmp/prtg-nats-iperf-enroll.XXXXXX)"
+CA_PATH="${STAGE}/nats-ca.pem"
+
+printf '\n== PRTG NATS iperf endpoint enrolment ==\n\n'
+
+# --- 1. The CA ---------------------------------------------------------------
+# Embedded rather than fetched: this script arrived over TLS verified against
+# this very certificate, so it is already as trusted as the channel. It stays
+# in the staging directory and goes with it - unlike a probe, this host never
+# speaks to the platform again after the report below. The platform comes to
+# it, over SSH.
+say "Checking the CA"
+cat > "${CA_PATH}" <<'PRTG_NATS_CA_EOF'
+@@CA_PEM@@
+PRTG_NATS_CA_EOF
+
+actual="$(sha256sum "${CA_PATH}" | cut -d' ' -f1)"
+[ "${actual}" = "${CA_SHA256}" ] || die "CA fingerprint mismatch: ${actual}"
+say "CA fingerprint ${CA_SHA256}"
+
+# The address curl actually connected to, not the one DNS happens to resolve
+# here. It is the platform's answer to a question it cannot answer itself:
+# behind NAT it does not know which address it appears under, and that address
+# is what the "from=" rule in authorized_keys has to name. A curl too old for
+# %{remote_ip} writes the literal back, which the check below discards.
+fetch() {
+  reported="$(
+    curl -fsSL --cacert "${CA_PATH}" -w '%{remote_ip}' \
+      "${BASE_URL}/enroll/${TOKEN}/asset/$1" -o "$2"
+  )" || die "Could not fetch $1 from ${BASE_URL}"
+  case "${reported}" in
+    *[!0-9.:abcdefABCDEF]*|'') ;;
+    *) PLATFORM_ADDRESS="${reported}" ;;
+  esac
+}
+
+# --- 2. The management access ------------------------------------------------
+# iperf-enroll.sh is served by the platform and run unchanged. The from=,
+# restrict and forced-command rules that make this access safe are defined in
+# that one file and nowhere else. setup-iperf3-endpoint.sh travels with it
+# because the helper calls it rather than reimplementing what it does.
+say "Installing the restricted management access"
+fetch iperf-enroll.sh "${STAGE}/iperf-enroll.sh"
+fetch prtg-nats-iperf-helper "${STAGE}/prtg-nats-iperf-helper"
+fetch setup-iperf3-endpoint.sh "${STAGE}/setup-iperf3-endpoint.sh"
+cat > "${STAGE}/management.pub" <<'PRTG_NATS_KEY_EOF'
+@@MANAGEMENT_PUBLIC_KEY@@
+PRTG_NATS_KEY_EOF
+
+bash "${STAGE}/iperf-enroll.sh" \
+  --public-key "${STAGE}/management.pub" \
+  --helper "${STAGE}/prtg-nats-iperf-helper" \
+  --setup-script "${STAGE}/setup-iperf3-endpoint.sh" \
+  --source-cidr "${SSH_SOURCE_CIDR}"
+ACCESS_INSTALLED="true"
+say "Management user prtg-nats-iperf is ready"
+
+# --- 3. Report back ----------------------------------------------------------
+# The host keys are read from disk rather than scanned over the network: this
+# is the host itself, so there is nothing to be in the middle of. They travel
+# over the token-authenticated channel, which is what makes pinning them
+# better than a blind scan from the platform.
+say "Reporting back to the platform"
+
+keys=""
+for pub in /etc/ssh/ssh_host_*_key.pub; do
+  [ -f "${pub}" ] || continue
+  line="$(cut -d' ' -f1,2 < "${pub}")"
+  [ -n "${keys}" ] && keys="${keys},"
+  keys="${keys}\"${line}\""
+done
+[ -n "${keys}" ] || die "No SSH host keys found - is sshd installed?"
+
+ssh_port="$(
+  awk '/^[Pp]ort[ \t]+[0-9]+/ { print $2; exit }' /etc/ssh/sshd_config 2>/dev/null
+)"
+[ -n "${ssh_port:-}" ] || ssh_port=22
+
+if [ -n "${PLATFORM_ADDRESS}" ]; then
+  platform_address="\"${PLATFORM_ADDRESS}\""
+else
+  platform_address="null"
+fi
+
+payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"platform_address":%s}' \
+  "$(hostname -f 2>/dev/null || hostname)" "${ssh_port}" "${keys}" \
+  "${ACCESS_INSTALLED}" "${platform_address}")"
+
+printf '%s' "${payload}" > "${STAGE}/callback.json"
+curl -fsS --cacert "${CA_PATH}" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@${STAGE}/callback.json" \
+  "${BASE_URL}/enroll/${TOKEN}/iperf-callback" > "${STAGE}/answer" \
+  || die "The platform did not accept the report. The management access is
+installed; retry with a fresh invitation from the interface."
+
+printf '\n== Done ==\n\n'
+say "The platform is now setting up the iperf3 endpoint on this host."
+say "Watch it finish in the web interface."
+printf '\n'
+say "Two things the platform cannot do from where it stands:"
+say "  - open the measurement port for TCP *and* UDP towards this host"
+say "  - make sure port ${ssh_port} is reachable from ${SSH_SOURCE_CIDR}"
+printf '\n'

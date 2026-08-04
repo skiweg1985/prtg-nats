@@ -1,8 +1,10 @@
 """iperf3 measurement endpoints.
 
-Read-only for now. The endpoints are set up by ``./prtg-nats iperf-server
-install``, which needs an interactive SSH session; that workflow moves into the
-platform with the probe onboarding wizard.
+Listing them is here; setting one up is in the enrolment routes, next to the
+probes', because it is the same ceremony with a different script. ``./prtg-nats
+iperf-server install`` still works and writes the same files - an endpoint set
+up from the browser is one the command line can deploy, show and revoke without
+knowing where it came from.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ async def list_endpoints(
             kind=endpoint.kind,
             updated_at=endpoint.updated_at,
             has_public_key=endpoint.has_public_key,
+            managed=endpoint.managed,
             deployed_to=sorted(deployed.get(endpoint.name, [])),
         )
         for endpoint in endpoints

@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+
+# Runs on the iperf3 measurement endpoint, as root, behind the SSH forced
+# command that libexec/iperf-enroll.sh installs. It speaks the same protocol as
+# prtg-nats-probe-helper: one tab separated request line on stdin, an optional
+# payload after it, and "OK <command>" with key=value lines back.
+#
+# The vocabulary is four requests and is meant to stay that way. An endpoint
+# measures - it is not a probe. Anything that is not needed to set it up, renew
+# its password or take it off again is a request this channel should not offer,
+# because the channel reaches a host that usually stands on a public address.
+#
+# The work itself is not implemented here. setup-iperf3-endpoint.sh already
+# does it and is the manual path the sensor's README documents; calling it
+# keeps one implementation for both ways an operator can arrive.
+
+set -Eeuo pipefail
+umask 077
+
+CONFIG_DIR="/etc/iperf3"
+DROP_IN_DIR="/etc/systemd/system/iperf3.service.d"
+SERVICE="iperf3.service"
+MANAGEMENT_HOME="/var/lib/prtg-nats-iperf"
+# Written by iperf-enroll.sh, both of them. Spelled out rather than derived
+# from $0: under the forced command $0 is whatever sshd decided to call us.
+HELPER_PATH="/usr/local/sbin/prtg-nats-iperf-helper"
+SETUP_SCRIPT="/usr/local/sbin/setup-iperf3-endpoint.sh"
+# Raised when a request is added or an answer changes meaning. The platform
+# compares it against what it expects; a helper from before the number existed
+# reports none at all, which counts as older than any of these.
+HELPER_VERSION=1
+# A password, not a file. Generous enough for a passphrase somebody chose by
+# hand, small enough that this channel is not a way to fill a disk.
+MAXIMUM_PASSWORD_BYTES=512
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+# Same shape libexec/common.sh validates and setup-iperf3-endpoint.sh accepts.
+validate_user_name() {
+  [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]
+}
+
+validate_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && (($1 >= 1 && $1 <= 65535))
+}
+
+# --- Reading -----------------------------------------------------------------
+#
+# Every reader here answers "none" rather than nothing, and none of them ends
+# a pipeline early. Under "set -o pipefail" a "head -1" that closes the pipe
+# takes the whole function down with a SIGPIPE, which would turn a missing
+# optional value into a failed request.
+
+iperf3_version() {
+  local version=""
+
+  command -v iperf3 >/dev/null 2>&1 || {
+    printf 'none'
+    return 0
+  }
+  version="$(iperf3 --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+  printf '%s' "${version:-none}"
+}
+
+service_state() {
+  local state=""
+
+  # "is-active" reports the state on stdout and leaves with a non-zero status
+  # for anything but active, so its answer is taken and its status ignored.
+  state="$(systemctl is-active "${SERVICE}" 2>/dev/null || true)"
+  printf '%s' "${state:-unknown}"
+}
+
+# The port the service actually listens on, read from the drop-in rather than
+# from anything we were told. A drop-in somebody edited by hand is exactly the
+# drift this answer exists to surface.
+configured_port() {
+  local drop_in="${DROP_IN_DIR}/auth.conf"
+  local port=""
+
+  [[ -f "${drop_in}" ]] || {
+    printf 'none'
+    return 0
+  }
+  port="$(
+    awk '{
+      for (i = 1; i <= NF; i++)
+        if ($i == "--port") { print $(i + 1); exit }
+    }' "${drop_in}"
+  )"
+  [[ "${port}" =~ ^[0-9]+$ ]] || port="none"
+  printf '%s' "${port}"
+}
+
+configured_username() {
+  local name=""
+
+  [[ -f "${CONFIG_DIR}/credentials.csv" ]] || {
+    printf 'none'
+    return 0
+  }
+  name="$(awk -F, 'NR == 1 { print $1 }' "${CONFIG_DIR}/credentials.csv")"
+  printf '%s' "${name:-none}"
+}
+
+public_key_digest() {
+  local digest=""
+
+  [[ -f "${CONFIG_DIR}/public.pem" ]] || {
+    printf 'none'
+    return 0
+  }
+  digest="$(sha256sum "${CONFIG_DIR}/public.pem" | awk '{print $1}')"
+  printf '%s' "${digest:-none}"
+}
+
+# Which address this host sees us arrive from. It is the answer to the one
+# question the platform cannot answer for itself: an installation behind NAT
+# does not know the address it appears under, and that address is what the
+# "from=" restriction in authorized_keys has to name. sshd sets SSH_CLIENT
+# after authentication, so it is not something a client can claim; the sudo
+# rule keeps it precisely so this line can report it.
+peer_address() {
+  local client="${SSH_CLIENT:-}"
+
+  [[ -n "${client}" ]] || {
+    printf 'none'
+    return 0
+  }
+  printf '%s' "${client}" | awk '{print $1}'
+}
+
+endpoint_info() {
+  printf 'OK endpoint-info\n'
+  printf 'helper=%s\n' "${HELPER_VERSION}"
+  printf 'hostname=%s\n' "$(hostname -f 2>/dev/null || hostname)"
+  printf 'iperf3=%s\n' "$(iperf3_version)"
+  printf 'service=%s\n' "$(service_state)"
+  printf 'port=%s\n' "$(configured_port)"
+  printf 'username=%s\n' "$(configured_username)"
+  printf 'public_key_sha256=%s\n' "$(public_key_digest)"
+  printf 'peer=%s\n' "$(peer_address)"
+}
+
+# --- Writing -----------------------------------------------------------------
+
+read_password() {
+  local destination="$1"
+  local remaining=""
+
+  head -c "$((MAXIMUM_PASSWORD_BYTES + 1))" > "${destination}"
+  [[ "$(wc -c < "${destination}")" -le "${MAXIMUM_PASSWORD_BYTES}" ]] ||
+    die "The password exceeds ${MAXIMUM_PASSWORD_BYTES} bytes"
+  [[ -s "${destination}" ]] || die "endpoint-setup requires a password on stdin"
+  # setup-iperf3-endpoint.sh reads the first line and strips CR and LF. What it
+  # must not receive is a control character inside the password: it would end
+  # up in the hash written here and never in the one a probe computes, and the
+  # endpoint would reject every probe for a reason nobody can see.
+  remaining="$(
+    LC_ALL=C tr -d '\15\12\40-\176\200-\377' < "${destination}" |
+      wc -c |
+      tr -d '[:space:]'
+  )"
+  [[ "${remaining}" == "0" ]] || die "The password contains control characters"
+}
+
+# One request for the first setup and for every later password change. It is
+# idempotent by design: afterwards the endpoint holds exactly the password the
+# platform just sent, whatever it held before. The key pair is deliberately
+# left alone - replacing it costs every already-served probe its access, and
+# nothing here is a reason to do that.
+setup_endpoint() {
+  local user_name="$1"
+  local port="$2"
+  local stage=""
+  local log=""
+  local status=0
+
+  validate_user_name "${user_name}" || die "Invalid iperf user name"
+  validate_port "${port}" || die "Invalid port"
+  [[ -f "${SETUP_SCRIPT}" ]] ||
+    die "The endpoint setup script is missing: ${SETUP_SCRIPT}"
+
+  stage="$(mktemp -d /tmp/prtg-iperf-helper.XXXXXX)"
+  # The password is in there. It goes when this returns, whichever way.
+  trap 'rm -rf -- "${stage}"' RETURN
+  read_password "${stage}/password"
+
+  log="${stage}/setup.log"
+  # The output is captured rather than passed through: this channel answers in
+  # a protocol, and a setup run's prose would arrive ahead of the "OK" line and
+  # make the response unparseable. On failure it is the only explanation there
+  # is, so the tail of it travels back as the refusal.
+  set +e
+  bash "${SETUP_SCRIPT}" \
+    --user "${user_name}" \
+    --port "${port}" \
+    --password-file "${stage}/password" \
+    --export-public-key "${stage}/public.pem" \
+    --force-credentials \
+    > "${log}" 2>&1
+  status=$?
+  set -e
+  [[ "${status}" -eq 0 ]] ||
+    die "The endpoint setup failed: $(tail -n 5 "${log}" | tr '\n' ' ')"
+  [[ -f "${stage}/public.pem" ]] ||
+    die "The setup run did not export the public key"
+
+  printf 'OK endpoint-setup\n'
+  printf 'port=%s\n' "${port}"
+  printf 'username=%s\n' "${user_name}"
+  # Base64 on one line: a PEM carries newlines, and the response format is
+  # key=value. The platform stores it as the file it was.
+  printf 'public_key_b64=%s\n' "$(base64 < "${stage}/public.pem" | tr -d '\n')"
+  printf 'public_key_sha256=%s\n' "$(sha256sum "${stage}/public.pem" | awk '{print $1}')"
+}
+
+remove_endpoint() {
+  local stage=""
+  local status=0
+
+  [[ -f "${SETUP_SCRIPT}" ]] ||
+    die "The endpoint setup script is missing: ${SETUP_SCRIPT}"
+  stage="$(mktemp -d /tmp/prtg-iperf-helper.XXXXXX)"
+  trap 'rm -rf -- "${stage}"' RETURN
+
+  set +e
+  bash "${SETUP_SCRIPT}" --remove > "${stage}/remove.log" 2>&1
+  status=$?
+  set -e
+  [[ "${status}" -eq 0 ]] ||
+    die "Could not remove the endpoint: $(
+      tail -n 5 "${stage}/remove.log" | tr '\n' ' '
+    )"
+  printf 'OK endpoint-removed\n'
+}
+
+# The counterpart to iperf-enroll.sh, and the last thing this channel does.
+# The helper and the setup script stay on disk: bash reads a script while it
+# runs it, so a helper that deletes itself is a helper that may not finish the
+# request. Without the key and the sudo rule neither can be reached.
+remove_access() {
+  rm -f -- \
+    "${MANAGEMENT_HOME}/.ssh/authorized_keys" \
+    /etc/sudoers.d/prtg-nats-iperf
+  printf 'OK management-access-removed\n'
+}
+
+# --- Dispatch ----------------------------------------------------------------
+
+[[ "${EUID}" -eq 0 ]] || die "Helper must run as root through its sudo rule"
+[[ -x "${HELPER_PATH}" ]] ||
+  die "The helper is not installed at ${HELPER_PATH}"
+
+IFS=$'\t' read -r command_name argument_one argument_two argument_three ||
+  die "Missing management request"
+
+case "${command_name}" in
+  endpoint-info)
+    [[ -z "${argument_one:-}" ]] || die "endpoint-info takes no arguments"
+    endpoint_info
+    ;;
+  endpoint-setup)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "endpoint-setup requires user and port"
+    setup_endpoint "${argument_one}" "${argument_two}"
+    ;;
+  endpoint-remove)
+    [[ -z "${argument_one:-}" ]] || die "endpoint-remove takes no arguments"
+    remove_endpoint
+    ;;
+  unenroll)
+    [[ -z "${argument_one:-}" ]] || die "unenroll takes no arguments"
+    remove_access
+    ;;
+  *)
+    die "Unsupported management request"
+    ;;
+esac

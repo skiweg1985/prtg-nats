@@ -1,8 +1,10 @@
-"""The wire format of the probe management channel.
+"""The wire format of the management channel.
 
 Every enrolled probe carries ``libexec/prtg-nats-probe-helper`` behind an SSH
-forced command. It reads exactly one tab-separated request line, optionally
-followed by payload on stdin, and answers with a line-oriented response.
+forced command, and every enrolled iperf endpoint carries
+``libexec/prtg-nats-iperf-helper`` the same way. Both read exactly one
+tab-separated request line, optionally followed by payload on stdin, and answer
+with a line-oriented response - one format, two vocabularies.
 
 This module owns the format and nothing else - no transport, no I/O - so the
 parsing rules are testable against captured fixtures without a probe in sight.
@@ -64,11 +66,17 @@ UNSUPPORTED_REQUEST_MESSAGE = "Unsupported management request"
 
 
 class HelperCommand(StrEnum):
-    """Every request the helper accepts.
+    """Every request either helper accepts.
 
-    Mirrors the dispatch in libexec/prtg-nats-probe-helper. Adding one here
-    without adding it there produces "Unsupported management request", which is
-    exactly the failure mode we want: loud and immediate.
+    Mirrors the dispatch in libexec/prtg-nats-probe-helper and, for the
+    endpoint block at the bottom, in libexec/prtg-nats-iperf-helper. Adding one
+    here without adding it there produces "Unsupported management request",
+    which is exactly the failure mode we want: loud and immediate.
+
+    One enum for both because the wire format is one format. Which host
+    understands which request is decided by the client that sends it - an
+    endpoint has no sensors and a probe has no iperf3 service, so a request
+    aimed at the wrong one is refused on arrival rather than half executed.
     """
 
     STATUS = "status"
@@ -94,7 +102,15 @@ class HelperCommand(StrEnum):
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"
+    # Spoken by both helpers, and meaning the same thing on both: remove the
+    # management access from the host side. It is always the last request a
+    # channel carries.
     UNENROLL = "unenroll"
+
+    # --- iperf measurement endpoints ---------------------------------------
+    ENDPOINT_INFO = "endpoint-info"
+    ENDPOINT_SETUP = "endpoint-setup"
+    ENDPOINT_REMOVE = "endpoint-remove"
 
 
 @dataclass(frozen=True, slots=True)

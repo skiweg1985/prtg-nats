@@ -178,27 +178,72 @@ def test_sensor_list_records_are_parsed() -> None:
     assert sensors[1].helper_state == "active"
 
 
-def test_every_command_exists_on_the_probe() -> None:
-    """A command this side can send that the probe cannot answer is a bug.
+# Which helper answers what. One enum describes the wire format, two scripts
+# implement it, and this is the only place that says which request belongs to
+# which - so a command added to the enum without a home fails here rather than
+# on a customer's machine.
+ENDPOINT_ONLY = {
+    HelperCommand.ENDPOINT_INFO,
+    HelperCommand.ENDPOINT_SETUP,
+    HelperCommand.ENDPOINT_REMOVE,
+}
+# Spoken by both, and meaning the same on both: remove the management access.
+SHARED = {HelperCommand.UNENROLL}
 
-    The helper replies "Unsupported management request" to anything its
-    dispatch does not list, and that failure would surface on a customer's
-    machine rather than here.
-    """
-    helper = (REPO_ROOT / "libexec" / "prtg-nats-probe-helper").read_text(
-        encoding="utf-8"
-    )
+
+def _dispatch(helper_name: str) -> str:
+    helper = (REPO_ROOT / "libexec" / helper_name).read_text(encoding="utf-8")
     # The newline the split consumed goes back on, so the first case label
     # matches the same way as every other one.
     dispatch = "\n" + helper.partition('\ncase "${command_name}" in\n')[2]
-    assert dispatch.strip(), "the helper's dispatch moved; this test needs updating"
+    assert dispatch.strip(), f"{helper_name}'s dispatch moved; this test needs updating"
+    return dispatch
 
-    missing = [
+
+def test_every_command_exists_on_the_host_that_answers_it() -> None:
+    """A command this side can send that the far side cannot answer is a bug.
+
+    Both helpers reply "Unsupported management request" to anything their
+    dispatch does not list, and that failure would surface on a customer's
+    machine rather than here.
+    """
+    probe = _dispatch("prtg-nats-probe-helper")
+    endpoint = _dispatch("prtg-nats-iperf-helper")
+
+    missing_on_probe = [
         command.value
         for command in HelperCommand
-        if f"\n  {command.value})\n" not in dispatch
+        if command not in ENDPOINT_ONLY and f"\n  {command.value})\n" not in probe
     ]
-    assert not missing, f"the probe helper does not handle: {missing}"
+    assert not missing_on_probe, f"the probe helper does not handle: {missing_on_probe}"
+
+    missing_on_endpoint = [
+        command.value
+        for command in HelperCommand
+        if command in (ENDPOINT_ONLY | SHARED)
+        and f"\n  {command.value})\n" not in endpoint
+    ]
+    assert not missing_on_endpoint, (
+        f"the iperf helper does not handle: {missing_on_endpoint}"
+    )
+
+
+def test_the_endpoint_helper_answers_nothing_a_probe_would() -> None:
+    """The endpoint's vocabulary stays four requests wide.
+
+    It reaches a host that usually stands on a public address, so a request
+    that grew onto it by accident - a sensor rollout, a configuration write -
+    would be rights nobody decided to grant.
+    """
+    endpoint = _dispatch("prtg-nats-iperf-helper")
+
+    unexpected = [
+        command.value
+        for command in HelperCommand
+        if command not in (ENDPOINT_ONLY | SHARED)
+        and f"\n  {command.value})\n" in endpoint
+    ]
+    assert not unexpected, f"the iperf helper answers more than it should: {unexpected}"
 
 
 def test_an_unknown_request_is_reported_as_an_outdated_helper() -> None:

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.domain.enums import LogLevel
 from app.infrastructure.docker import DockerAdapter
+from app.infrastructure.iperf_helper import IperfHelperClient, build_client
 from app.infrastructure.probe_helper import ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
@@ -35,6 +36,18 @@ class JobContext:
     # Values that must not be persisted - an SSH bootstrap password, for
     # instance. Lives for the duration of the run and nowhere else.
     secrets: dict[str, str]
+    # Built on first use rather than handed in like ``helper``: two job types
+    # out of a dozen speak to an iperf endpoint, and every other caller that
+    # assembles a context - the runner, the recovery CLI, every handler test -
+    # would otherwise have to carry a client it never uses. A test that does
+    # exercise those two sets this to a fake and the property leaves it alone.
+    iperf_helper: IperfHelperClient | None = None
+
+    @property
+    def endpoints(self) -> IperfHelperClient:
+        if self.iperf_helper is None:
+            self.iperf_helper = build_client(self.settings)
+        return self.iperf_helper
 
     @property
     def payload(self) -> dict[str, Any]:

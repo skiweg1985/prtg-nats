@@ -56,6 +56,18 @@ UNGUARDED: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/enroll/{token}/callback",
     ): "where the host reports in and spends its invitation",
+    # The same three for an iperf measurement endpoint. Its bootstrap carries
+    # nothing secret at all - the endpoint's password is generated here and
+    # travels over the management channel that run installs, never through the
+    # script - so holding the token buys even less than it does above.
+    (
+        "GET",
+        "/api/v1/enroll/{token}/iperf-bootstrap.sh",
+    ): "the endpoint cannot authenticate before it is enrolled",
+    (
+        "POST",
+        "/api/v1/enroll/{token}/iperf-callback",
+    ): "where the endpoint reports in and spends its invitation",
 }
 
 

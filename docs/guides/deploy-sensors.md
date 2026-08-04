@@ -289,8 +289,13 @@ party service - `iperf-throughput` does that against an iperf3 measurement
 endpoint. Such a far end is more than a credential profile: it is a machine
 that wants setting up, and both sides have to know the same secret.
 
-That is why it has its own command, and it works like `install-mpp`: one SSH
-sign-in, and the machine is operational.
+There are two ways to set one up, and they write the same files. From the web
+interface an endpoint enrols itself, the way a probe does: the platform hands
+out a command, somebody runs it on the endpoint, and the platform takes over
+from there - see
+[Enrolling an iperf measurement endpoint](../reference/api.md#enrolling-an-iperf-measurement-endpoint).
+From the command line it works like `install-mpp`: one SSH sign-in, and the
+machine is operational.
 
 ```bash
 sudo ./prtg-nats iperf-server install root@iperf.example.com
@@ -322,9 +327,20 @@ without them would only report `credentials-unreadable`; `sensor deploy`
 therefore takes care of the step itself. Which sensors are affected is stated
 by the `SENSOR_IPERF` field in their manifest.
 
-**The endpoint gets no permanent access.** Unlike a probe it is not managed,
-only measured; every intervention signs in anew. That includes the password
-change - which in turn updates every probe that already has the endpoint.
+**What access stays behind depends on which way it was set up.** An endpoint
+installed with `iperf-server install` keeps none: every intervention signs in
+anew over SSH as an administrator, the password change included. An endpoint
+enrolled from the web interface keeps the same kind of restricted access a
+probe has - an SSH forced command, bound to a source network, that answers four
+requests and nothing else: ask about itself, set itself up, remove the
+endpoint, remove the access. That is what makes rotating the password and
+taking the endpoint off again something the platform can do, instead of a walk
+to a console.
+
+`IPERF_SSH_SOURCE_CIDR` decides which network that access is accepted from, and
+it has no default -
+[Management channel](../reference/configuration.md#management-channel) explains
+why an endpoint cannot inherit the probes' answer.
 
 For an endpoint this server cannot reach over SSH,
 [the sensor README](../../sensors/iperf-throughput/README.md#set-up-the-endpoint-by-hand)

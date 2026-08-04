@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.infrastructure.probe_helper import HelperRequest, ProbeConnection
+from app.infrastructure.probe_helper import HelperRequest, HelperTarget
 from app.persistence import session as session_module
 from app.persistence.models import Base
 
@@ -46,11 +46,23 @@ def project_dir(tmp_path: Path) -> Path:
     # filling in, or a script the platform serves but no longer ships.
     for folder, names in (
         ("config", ("nats-server.conf.template", "mpprobe-config.yaml.template")),
-        ("bootstrap", ("probe-bootstrap.sh.template",)),
-        ("libexec", ("enroll-probe.sh", "prtg-nats-probe-helper")),
+        (
+            "bootstrap",
+            ("probe-bootstrap.sh.template", "iperf-bootstrap.sh.template"),
+        ),
+        (
+            "libexec",
+            (
+                "enroll-probe.sh",
+                "prtg-nats-probe-helper",
+                "iperf-enroll.sh",
+                "prtg-nats-iperf-helper",
+            ),
+        ),
+        ("sensors/iperf-throughput/endpoint", ("setup-iperf3-endpoint.sh",)),
     ):
         target = tmp_path / folder
-        target.mkdir(exist_ok=True)
+        target.mkdir(parents=True, exist_ok=True)
         for name in names:
             source = REPO_ROOT / folder / name
             assert source.is_file(), f"asset moved; conftest needs updating: {source}"
@@ -168,11 +180,14 @@ async def client(app: Any) -> AsyncIterator[AsyncClient]:
 
 
 class ScriptedTransport:
-    """A probe-helper transport driven by a lookup table.
+    """A helper transport driven by a lookup table.
 
     Keyed by command name. A value that is an Exception is raised, anything else
-    is returned as the probe's answer. Every request is recorded so a test can
+    is returned as the host's answer. Every request is recorded so a test can
     assert on the exchange, not only on the outcome.
+
+    Serves both channels: a probe is recorded under its NATS account and an
+    iperf endpoint under its name, which is what ``label`` is for.
     """
 
     def __init__(self, responses: dict[str, object] | None = None) -> None:
@@ -180,9 +195,9 @@ class ScriptedTransport:
         self.calls: list[tuple[str, HelperRequest]] = []
 
     async def run(
-        self, connection: ProbeConnection, request: HelperRequest, timeout: int
+        self, connection: HelperTarget, request: HelperRequest, timeout: int
     ) -> str:
-        self.calls.append((connection.nats_username, request))
+        self.calls.append((connection.label, request))
         answer = self.responses.get(
             request.command.value, f"OK {request.command.value}\n"
         )

@@ -428,6 +428,9 @@ export interface IperfEndpoint {
   kind: string
   updated_at: string | null
   has_public_key: boolean
+  /** False for an endpoint somebody else operates: its password is not ours
+   *  to rotate, and removing it here takes nothing off that host. */
+  managed: boolean
   deployed_to: string[]
 }
 
