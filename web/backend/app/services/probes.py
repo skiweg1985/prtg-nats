@@ -266,26 +266,9 @@ class ProbeService:
         exactly what the operator needs to see, and raising here would leave
         the table with an empty cell instead.
         """
-        inventory = self._runtime.read_probe(nats_username)
-        connection = self.connection_for(inventory)
         now = datetime.now(UTC)
-
-        # The probe is asked before anything is written. ensure_record flushes,
-        # which opens SQLite's single write transaction - held across the helper
-        # call it would lock out every other writer for as long as an
-        # unreachable host takes to time out.
         try:
-            info = await self._helper.probe_info(connection)
-            observed = parse_probe_info(nats_username, info, now)
-            try:
-                sensor_response = await self._helper.sensor_list(connection)
-                observed = _with_sensors(observed, parse_sensor_list(sensor_response))
-            except ProbeUnreachableError:
-                # The probe answered probe-info a moment ago; a sensor-list
-                # failure is worth noting but does not make the probe unknown.
-                logger.warning(
-                    "sensor list unavailable", extra={"probe": nats_username}
-                )
+            observed = await self._observe(nats_username, now)
         except Exception as exc:
             code = getattr(exc, "code", "probe.unreachable")
             observed = ObservedProbeState(
@@ -300,6 +283,93 @@ class ProbeService:
         await self._store_observed(record, observed)
         return observed
 
+    async def refresh_after_job(self, nats_username: str) -> bool:
+        """Bring the cache in line with what a job just did, or leave it be.
+
+        Without this the interface spends the whole staleness window comparing
+        a desired state the job has just changed against an observation from
+        before it ran - reporting a sensor it installed as missing, a service
+        it restarted as inactive, a CA it placed as absent.
+
+        What differs from refresh_observed_state is the handling of a probe
+        that does not answer. There, "unreachable" is the answer and belongs in
+        the cache. Here it usually is not: this runs seconds after a job that
+        may have restarted the MPP service, so a host still coming back up
+        would be written down as down - for five minutes, with a critical alert
+        to go with it. A half answer is refused for the same reason: an
+        observation without a sensor list reads as "every sensor missing",
+        which is the very thing this exists to prevent.
+
+        So either the cache now holds a complete, current answer, or it is
+        marked for the next sync pass and nothing is overwritten. Returns
+        whether the probe answered.
+        """
+        try:
+            observed = await self._observe(
+                nats_username, datetime.now(UTC), sensors_required=True
+            )
+        except Exception:
+            logger.info(
+                "probe did not answer after its job; left to the next sync pass",
+                extra={"probe": nats_username},
+            )
+            await self.mark_refresh_due(nats_username)
+            return False
+
+        record = await self.ensure_record(nats_username)
+        await self._store_observed(record, observed)
+        return True
+
+    async def mark_refresh_due(self, nats_username: str) -> None:
+        """Put a probe in front of the next inventory sync pass.
+
+        Nothing is overwritten - what the cache holds is still the last thing
+        the probe actually said, and observed_at still says truthfully when it
+        said it. Only the claim that it is worth trusting is withdrawn.
+        """
+        # Deliberately not ensure_record: this runs when a probe could not be
+        # reached, and one reason for that is a probe that is no longer there.
+        # Creating a record for it would put back what a job removed.
+        record = await self._db.scalar(
+            select(ProbeRecord).where(ProbeRecord.nats_username == nats_username)
+        )
+        if record is None:
+            return
+        row = await self._db.scalar(
+            select(ProbeObservedState).where(ProbeObservedState.probe_id == record.id)
+        )
+        if row is None:
+            # Nothing cached at all, which the sync already treats as due.
+            return
+        row.refresh_due = True
+
+    async def _observe(
+        self, nats_username: str, now: datetime, *, sensors_required: bool = False
+    ) -> ObservedProbeState:
+        """Ask the probe, and raise if it does not answer.
+
+        The probe is asked before anything is written. ensure_record flushes,
+        which opens SQLite's single write transaction - held across the helper
+        call it would lock out every other writer for as long as an unreachable
+        host takes to time out.
+        """
+        inventory = self._runtime.read_probe(nats_username)
+        connection = self.connection_for(inventory)
+        info = await self._helper.probe_info(connection)
+        observed = parse_probe_info(nats_username, info, now)
+        try:
+            sensor_response = await self._helper.sensor_list(connection)
+        except ProbeUnreachableError:
+            # The probe answered probe-info a moment ago; a sensor-list failure
+            # is worth noting but does not make the probe unknown - unless the
+            # caller is about to judge the sensors, in which case not knowing
+            # them is the whole problem.
+            if sensors_required:
+                raise
+            logger.warning("sensor list unavailable", extra={"probe": nats_username})
+            return observed
+        return _with_sensors(observed, parse_sensor_list(sensor_response))
+
     async def _store_observed(
         self, record: ProbeRecord, observed: ObservedProbeState
     ) -> None:
@@ -313,6 +383,7 @@ class ProbeService:
             self._db.add(row)
         row.observed_at = observed.observed_at
         row.reachable = observed.reachable
+        row.refresh_due = False
         row.document = observed.to_document()
         row.error_code = observed.error_code
         row.error_details = observed.error_details

@@ -10,7 +10,9 @@ What the runner guarantees:
   transaction;
 * a job runs only while it holds every resource it declared;
 * a job that raises still ends in a terminal state with its reason recorded;
-* locks are released whatever happens, including a crash, via the lease reaper.
+* locks are released whatever happens, including a crash, via the lease reaper;
+* a probe a job worked on is asked how it looks afterwards, so the interface
+  does not spend the staleness window reporting what the job has just fixed.
 """
 
 from __future__ import annotations
@@ -29,10 +31,12 @@ from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.probe_helper import ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
+from app.persistence.models.inventory import ProbeRecord
 from app.persistence.models.jobs import Job
 from app.persistence.session import session_scope
 from app.services.events import EventBroadcaster
-from app.services.jobs import JobService
+from app.services.jobs import JobService, declared_probe_ids
+from app.services.probes import ProbeService
 from app.workers.context import JobContext
 from app.workers.handlers import get_definition
 
@@ -40,6 +44,10 @@ logger = get_logger(__name__)
 
 IDLE_POLL_SECONDS = 1.0
 REAPER_INTERVAL_SECONDS = 60.0
+# How many probes to ask about themselves at once after a rollout. The same
+# bound the inventory sync uses, and for the same reason: a fleet-wide job must
+# not end in fifty simultaneous SSH connections.
+REFRESH_CONCURRENCY = 6
 # A running job this process does not know about was left behind by one that
 # died. The grace period only covers the moment between the claiming UPDATE
 # and its commit; anything older than that has no worker coming back for it.
@@ -165,6 +173,7 @@ class JobRunner:
 
     async def _run_job(self, job_id: str) -> None:
         secrets = self._job_secrets.pop(job_id, {})
+        touched: list[str] = []
         async with session_scope() as db:
             jobs = JobService(db, self._broadcaster, autocommit=True)
             job = await db.get(Job, job_id)
@@ -173,6 +182,12 @@ class JobRunner:
             definition = get_definition(job.type)
             if definition is None:
                 return
+
+            # Read while the records are certainly still there. A job that
+            # removes a probe is excluded by its definition, but reading this
+            # up front costs nothing and does not depend on that staying true.
+            if definition.refreshes_probes:
+                touched = await self._probe_usernames(db, declared_probe_ids(job))
 
             context = JobContext(
                 job=job,
@@ -261,6 +276,60 @@ class JobRunner:
                 )
             finally:
                 await jobs.release_locks(job.id)
+
+        # Outside the session and after the locks are gone. The refresh talks
+        # SSH, and the inventory sync learned what a helper call inside a
+        # transaction costs: SQLite has one writer, so every other worker and
+        # every API request would wait behind it. A follow-up job may take the
+        # probe in the meantime and observe it mid-change - the same race the
+        # sync worker lives with, and it settles the same way, because that job
+        # refreshes when it ends too.
+        if touched:
+            await self._refresh_after_job(touched)
+
+    async def _refresh_after_job(self, usernames: list[str]) -> None:
+        """Ask the probes a job worked on how it left them.
+
+        The job changed what the platform wants from a probe. Nothing changed
+        what the platform knows about it, and until this runs the two are
+        compared against each other: a sensor installed a moment ago reads as
+        missing, a service just restarted reads as down, and the probe is
+        reported degraded for as long as the cached observation counts as
+        fresh - five minutes by default, with an alert on the dashboard.
+        """
+        semaphore = asyncio.Semaphore(REFRESH_CONCURRENCY)
+
+        async def refresh(username: str) -> None:
+            # A session per probe, opened only once the probe has answered -
+            # refresh_after_job asks first and writes second.
+            async with semaphore, session_scope() as db:
+                probes = ProbeService(
+                    db, self._settings, self._runtime, self._helper, self._catalog
+                )
+                await probes.refresh_after_job(username)
+
+        results = await asyncio.gather(
+            *(refresh(username) for username in usernames), return_exceptions=True
+        )
+        for username, result in zip(usernames, results, strict=True):
+            if isinstance(result, BaseException):
+                # The job itself is finished and recorded; failing to tidy up
+                # after it must not turn a successful rollout into a traceback
+                # in the log and nothing else.
+                logger.warning(
+                    "could not refresh probe state after a job",
+                    extra={"probe": username, "error": str(result)},
+                )
+
+    @staticmethod
+    async def _probe_usernames(db, probe_ids: list[str]) -> list[str]:  # type: ignore[no-untyped-def]
+        """Record ids to NATS usernames - the name everything else speaks."""
+        if not probe_ids:
+            return []
+        rows = await db.scalars(
+            select(ProbeRecord.nats_username).where(ProbeRecord.id.in_(probe_ids))
+        )
+        return list(rows)
 
     @staticmethod
     async def _mark_steps_failed(jobs: JobService, job: Job) -> None:

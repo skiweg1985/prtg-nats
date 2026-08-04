@@ -23,14 +23,16 @@ from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import (
     HelperRequest,
+    HelperTransport,
     ProbeConnection,
     ProbeHelperClient,
 )
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import ProbeObservedState
+from app.services.probes import ProbeService
 from app.workers.inventory_sync import InventorySync
-from tests.conftest import write_probe_inventory
+from tests.conftest import ScriptedTransport, write_probe_inventory
 
 PROBE = "mpp-berlin-01"
 # Long enough to measure against, short enough not to slow the suite down.
@@ -53,7 +55,7 @@ class SlowTransport:
         return f"OK {request.command.value}\n"
 
 
-def build_sync(settings: Settings, transport: SlowTransport) -> InventorySync:
+def build_sync(settings: Settings, transport: HelperTransport) -> InventorySync:
     return InventorySync(
         settings=settings,
         runtime=RuntimeFileStore(settings),
@@ -175,3 +177,71 @@ async def test_the_lock_is_measurably_free_for_the_whole_wait(
         f"the write lock was unavailable for {blocked_for:.1f}s during a "
         f"{HELPER_DELAY:.1f}s pass"
     )
+
+
+# --- What a job asks the sync to look at ------------------------------------
+#
+# A job that changed a probe it could not then ask marks the cached state
+# instead of overwriting it. Age alone would leave that probe out of the next
+# few passes, which is the bug the job was trying not to cause.
+
+
+async def seed_observed_state(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    transport: ScriptedTransport,
+) -> None:
+    """A cached answer as fresh as one a pass has just written."""
+    async with session_factory() as db:
+        probes = ProbeService(
+            db,
+            settings,
+            RuntimeFileStore(settings),
+            ProbeHelperClient(transport),
+            SensorCatalog(settings.sensor_source_dir),
+        )
+        await probes.refresh_observed_state(PROBE)
+        await db.commit()
+
+
+async def test_a_probe_marked_for_refresh_is_asked_before_it_goes_stale(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    write_probe_inventory(project_dir, PROBE)
+    transport = ScriptedTransport()
+    await seed_observed_state(settings, session_factory, transport)
+
+    async with session_factory() as db:
+        row = await db.scalar(select_observed())
+        assert row is not None
+        row.refresh_due = True
+        await db.commit()
+
+    asked_before = len(transport.calls)
+    await build_sync(settings, transport).run_once()
+
+    assert len(transport.calls) > asked_before, (
+        "a probe a job could not ask was left waiting for the staleness window"
+    )
+    async with session_factory() as db:
+        row = await db.scalar(select_observed())
+        assert row is not None
+        assert not row.refresh_due, "the mark outlived the answer it asked for"
+
+
+async def test_a_fresh_probe_nobody_flagged_is_left_alone(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """The control: the flag is what changed the decision, not the seeding."""
+    write_probe_inventory(project_dir, PROBE)
+    transport = ScriptedTransport()
+    await seed_observed_state(settings, session_factory, transport)
+
+    asked_before = len(transport.calls)
+    await build_sync(settings, transport).run_once()
+
+    assert len(transport.calls) == asked_before

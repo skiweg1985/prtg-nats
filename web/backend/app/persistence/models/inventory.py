@@ -104,6 +104,13 @@ class ProbeObservedState(Base, IdMixin, TimestampMixin):
     )
     observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     reachable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Set when something changed the probe but the probe could not be asked
+    # about it - a job that finished against a host that was still restarting.
+    # The sync worker treats it like a stale timestamp, which puts the probe in
+    # the next pass instead of the one after the staleness window. Kept apart
+    # from observed_at so the interface can still say truthfully when the probe
+    # last answered.
+    refresh_due: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Full ObservedProbeState as produced by the probe helper adapter.
     document: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     # Populated when the probe did not answer, so the list can explain itself.

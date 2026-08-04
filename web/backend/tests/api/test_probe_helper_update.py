@@ -91,8 +91,16 @@ async def test_the_helper_is_sent_with_a_signature_over_its_own_bytes(
     await drain(build_runner(settings, transport))
 
     # Asked before and after, so the version in the log is what the new helper
-    # says about itself rather than what the old one was told to write.
-    assert transport.commands() == ["probe-info", "helper-update", "probe-info"]
+    # says about itself rather than what the old one was told to write. The
+    # pair at the end is the runner refreshing the cached state, which is how
+    # the new version reaches the interface without waiting for a sync pass.
+    assert transport.commands() == [
+        "probe-info",
+        "helper-update",
+        "probe-info",
+        "probe-info",
+        "sensor-list",
+    ]
 
     _, request = transport.calls[1]
     assert request.payload is not None
