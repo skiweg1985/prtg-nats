@@ -1,7 +1,7 @@
 ---
 title: Monitoring
 role: operator
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Monitoring
@@ -136,6 +136,23 @@ block the run; it appears as its own line with the reason.
 
 If the NATS monitoring is not reachable, the output says so explicitly instead
 of falsely reporting the whole fleet as disconnected.
+
+### What makes a probe degraded
+
+The interface shows the same fleet as one badge per probe. It reads
+**degraded** when the probe is reachable but something needs doing: the MPP
+service is not running, the CA is missing or wrong, the probe is not signed in
+to NATS, or a sensor is missing, outdated or modified. Those all have a remedy,
+and "Fix deviations" on the probe page carries it out.
+
+Two findings deliberately do not turn the badge: a sensor installed on the
+probe that the desired state does not name, and a probe name that differs from
+the one configured. Neither has a remedy the platform is entitled to choose -
+adopting an unrequested sensor is at least as likely to be what you want as
+removing it - so neither would ever clear on its own. They are reported on the
+probe's own page, under "Configuration", in grey rather than orange. A warning
+nobody can clear is one everybody learns to ignore, and that costs the ones
+that matter.
 
 ## The web platform
 

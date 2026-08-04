@@ -13,7 +13,7 @@ import {
   useUnenrollProbe,
   type UnenrollOptions,
 } from '@/api/hooks'
-import type { Deviation, ProbeDetail, SensorState } from '@/api/types'
+import type { Deviation, DeviationSeverity, ProbeDetail, SensorState } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -33,6 +33,24 @@ import { formatRelative, shortFingerprint } from '@/utils/format'
 
 const TABS = ['overview', 'sensors', 'deviations', 'diagnostics'] as const
 type Tab = (typeof TABS)[number]
+
+/**
+ * How loudly a finding is drawn.
+ *
+ * An informational one has no remedy the platform is entitled to choose - an
+ * adopted sensor is as likely to be wanted as removed - so it never clears by
+ * itself. Drawn in the warning colour it becomes a mark nobody can get rid of,
+ * which is how a colour stops meaning anything.
+ */
+const SEVERITY_TONE: Record<DeviationSeverity, 'danger' | 'warn' | 'neutral'> = {
+  critical: 'danger',
+  warning: 'warn',
+  info: 'neutral',
+}
+
+function needsAttention(deviations: Deviation[]): boolean {
+  return deviations.some((deviation) => deviation.severity !== 'info')
+}
 
 export function ProbeDetailPage() {
   const { t } = useTranslation()
@@ -261,7 +279,10 @@ export function ProbeDetailPage() {
           >
             {t(`probes.tabs.${entry === 'deviations' ? 'configuration' : entry}`)}
             {entry === 'deviations' && data.deviations.length > 0 && (
-              <Badge tone="warn" className="ml-2">
+              <Badge
+                tone={needsAttention(data.deviations) ? 'warn' : 'neutral'}
+                className="ml-2"
+              >
                 {data.deviations.length}
               </Badge>
             )}
@@ -534,7 +555,7 @@ function DeviationRow({ deviation }: { deviation: Deviation }) {
   const { t } = useTranslation()
   return (
     <li className="border-rule flex items-start gap-3 border-b px-4 py-2.5 last:border-0">
-      <Dot tone={deviation.severity === 'critical' ? 'danger' : 'warn'} />
+      <Dot tone={SEVERITY_TONE[deviation.severity]} />
       <div className="min-w-0 flex-1">
         <p className="text-ink text-sm">
           {t(`deviations.${deviation.kind}`, {
