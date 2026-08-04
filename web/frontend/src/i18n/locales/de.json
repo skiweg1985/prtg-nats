@@ -198,8 +198,10 @@
         "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
         "doneTitle": "Die Probe ist angemeldet",
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
+        "donePrtg": "In PRTG fehlen noch zwei Schritte, ohne die die Probe dort nicht auftaucht: den Access Key als neue Zeile in die Access-Key-Liste des Cores eintragen und die Probe anschließend genehmigen. Den Access Key zeigt die Seite der Probe unter „PRTG Access Key“.",
         "failedTitle": "Die Anmeldung wurde nicht fertig",
         "failedBody": "Das Protokoll unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederholen Sie den Auftrag; muss der Host den Befehl erneut ausführen, erstellen Sie eine neue Einladung.",
+        "toProbe": "Zur Probe",
         "toProbes": "Zur Probenliste",
         "toJob": "Auftrag öffnen",
         "reportedBy": "Host"

@@ -198,8 +198,10 @@
         "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
+        "donePrtg": "Two steps in PRTG are still missing, and without them the probe never appears there: add the access key as a new line to the core's access-key list, then approve the probe. The probe's own page shows the access key under \"PRTG access key\".",
         "failedTitle": "The enrolment did not finish",
         "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
+        "toProbe": "Open the probe",
         "toProbes": "To the probe list",
         "toJob": "Open the job",
         "reportedBy": "Host"

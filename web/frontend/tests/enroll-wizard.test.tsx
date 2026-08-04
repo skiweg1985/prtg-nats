@@ -244,6 +244,97 @@ describe('EnrollWizard', () => {
     expect(createdBodies).toHaveLength(0)
   })
 
+  /**
+   * The wizard's success banner is the last thing anybody reads before
+   * leaving, and two of the steps it describes cannot be taken here: the
+   * access key goes into the PRTG core by hand and the probe is approved
+   * there. It used to end at "the probe is enrolled", which reads as done.
+   */
+  async function reachTheEnd(user: ReturnType<typeof userEvent.setup>) {
+    server.use(
+      http.get('/api/v1/jobs/:id', ({ params }) =>
+        HttpResponse.json({
+          id: params.id,
+          type: 'probe.enroll',
+          status: 'successful',
+          steps: [{ name: 'pin_host_key', status: 'succeeded' }],
+          created_at: new Date().toISOString(),
+        }),
+      ),
+    )
+    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    await screen.findByText(/waiting for the probe/i)
+
+    invitation = {
+      ...INVITATION,
+      redeemed_at: new Date().toISOString(),
+      job_id: 'JOB1',
+    }
+    openInvitations = []
+    await screen.findByText(/the probe is enrolled/i, {}, { timeout: 6000 })
+  }
+
+  it('names the two PRTG steps that are still missing', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await reachTheEnd(user)
+
+    expect(screen.getByText(/access-key list/)).toBeInTheDocument()
+    expect(screen.getByText(/approve the probe/)).toBeInTheDocument()
+  })
+
+  it('links to the probe itself, where the access key can be revealed', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    // The probe reaches the list through the enrolment that just finished.
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          {
+            id: 'P9',
+            nats_username: 'mpp-berlin',
+            display_name: null,
+            host: '192.0.2.11',
+            probe_name: 'berlin',
+            status: 'healthy',
+            service: 'active',
+            package_version: '3.10.0-1',
+            ca_state: 'ok',
+            nats_connection: 'connected',
+            sensor_count: 0,
+            deviation_count: 0,
+            observed_at: null,
+            stale: false,
+            running_job_id: null,
+            error_code: null,
+          },
+        ]),
+      ),
+    )
+    wrap()
+
+    await reachTheEnd(user)
+
+    const link = await screen.findByRole('link', { name: /open the probe/i })
+    expect(link).toHaveAttribute('href', '/probes/P9')
+  })
+
+  it('falls back to the probe list while the probe is not in it yet', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    // The default handler only knows mpp-hamburg, so the id cannot be looked
+    // up - a dead link would be worse than one more click.
+    await reachTheEnd(user)
+
+    const link = await screen.findByRole('link', { name: /to the probe list/i })
+    expect(link).toHaveAttribute('href', '/probes')
+  })
+
   it('names an account that already exists instead of failing later', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()

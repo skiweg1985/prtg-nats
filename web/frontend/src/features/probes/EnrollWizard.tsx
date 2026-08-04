@@ -368,6 +368,13 @@ function ProgressStep({
   })
   const log = useJobLog(jobId)
   const live = job.data?.status === 'running' || job.data?.status === 'queued'
+  // The enrolment job carries the NATS account as its target, not the probe
+  // id, so the link to the probe's own page has to be looked up. Until the
+  // list has caught up, the list itself stays the destination.
+  const probes = useProbes()
+  const probeId = probes.data?.find(
+    (probe) => probe.nats_username === invitation.nats_username,
+  )?.id
 
   return (
     <div className="space-y-4">
@@ -385,10 +392,16 @@ function ProgressStep({
         <Banner tone="ok" title={t('probes.enroll.step3.doneTitle')}>
           <div className="space-y-2">
             <p>{t('probes.enroll.step3.doneBody')}</p>
+            {/* The two steps the platform cannot take: they happen in the PRTG
+                core by hand, and until they have, the probe is not there at
+                all. Saying so here is the only place it can be said in time. */}
+            <p>{t('probes.enroll.step3.donePrtg')}</p>
             <div className="flex gap-2">
-              <Link to="/probes">
+              <Link to={probeId ? `/probes/${probeId}` : '/probes'}>
                 <Button variant="primary" size="sm">
-                  {t('probes.enroll.step3.toProbes')}
+                  {probeId
+                    ? t('probes.enroll.step3.toProbe')
+                    : t('probes.enroll.step3.toProbes')}
                 </Button>
               </Link>
               <Link to={`/jobs/${jobId}`}>
