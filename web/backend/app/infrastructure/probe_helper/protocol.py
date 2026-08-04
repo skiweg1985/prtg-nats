@@ -40,10 +40,15 @@ FIELD_SEPARATOR = "\t"
 
 # HELPER_VERSION in libexec/prtg-nats-probe-helper, and the lowest one this
 # platform is willing to talk to. Raised together with the helper's own number
-# whenever a request is added that something here relies on. A helper from
-# before the number existed reports none at all and counts as older than any
-# of these.
-CURRENT_HELPER_VERSION = 1
+# whenever a request is added, or an answer changes its meaning, in a way
+# something here relies on. A helper from before the number existed reports
+# none at all and counts as older than any of these.
+#
+# Version 2 answers sensor-list with the checksum of the catalogue file rather
+# than of the rewritten one. Version 1 still speaks the same protocol, so the
+# minimum stays where it is - it merely reports every sensor with dependencies
+# as modified, which an offered helper update resolves.
+CURRENT_HELPER_VERSION = 2
 MINIMUM_HELPER_VERSION = 1
 
 # What the helper answers to a request it does not know. Recognised verbatim

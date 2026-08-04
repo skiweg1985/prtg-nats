@@ -481,6 +481,74 @@ check "no lock hangs on the own cache" \
 check "sensor status knows the fleet view" \
   "$(./prtg-nats sensor | grep -c 'sensor status USER|--all')" "1"
 
+# A sensor with dependencies is never installed byte for byte as the catalogue
+# holds it: the helper points its shebang at the sensor's own virtual
+# environment. The digest it answers with has to match the catalogue file all
+# the same, or the platform reports the sensor as modified from the moment it
+# is installed - and redeploying does not help, because the next install
+# writes the same interpreter back in.
+check "the sensor list asks for the normalised digest" \
+  "$(grep -c 'sensor_script_checksum "${name}" "${script}"' \
+    libexec/prtg-nats-probe-helper)" "1"
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum_dir="$(mktemp -d)"
+  catalogue_script=sensors/internet-speed/script/internet-speed.py
+  installed_script="${checksum_dir}/internet-speed.py"
+  catalogue_digest="$(sha256sum "${catalogue_script}" | awk '{print $1}')"
+  mkdir -p "${checksum_dir}/config/internet-speed"
+
+  # The two functions are lifted out of the helper and run on their own, so
+  # the check exercises the code that ships rather than a copy of it.
+  reported_digest() {
+    # shellcheck disable=SC2034  # the two roots are read by the sourced code
+    (
+      SENSOR_CONFIG_ROOT="${checksum_dir}/config"
+      SENSOR_VENV_ROOT="${checksum_dir}/venv"
+      # shellcheck disable=SC1090  # a process substitution, not a fixed path
+      source <(sed -n '/^sensor_shebang_path()/,/^}/p
+        /^sensor_script_checksum()/,/^}/p' libexec/prtg-nats-probe-helper)
+      sensor_script_checksum internet-speed "$1"
+    )
+  }
+  differs_from_catalogue() {
+    [[ "$(reported_digest "$1")" != "${catalogue_digest}" ]] &&
+      printf 'changed'
+  }
+
+  # What install_sensor_files leaves behind: the rewritten script, and the
+  # line the catalogue shipped recorded beside it.
+  head -n 1 "${catalogue_script}" \
+    > "${checksum_dir}/config/internet-speed/shebang"
+  sed "1s|^#!.*|#!${checksum_dir}/venv/internet-speed/bin/python3|" \
+    "${catalogue_script}" > "${installed_script}"
+  check "the digest answers for the file the catalogue holds" \
+    "$(reported_digest "${installed_script}")" "${catalogue_digest}"
+
+  # Everything the check exists for has to survive the normalisation.
+  printf '\n# edited on the probe\n' >> "${installed_script}"
+  check "an edit on the probe still shows" \
+    "$(differs_from_catalogue "${installed_script}")" "changed"
+  # A shebang this helper did not write sends the sensor to another
+  # interpreter, so it is a deviation rather than something to normalise away.
+  sed '1s|^#!.*|#!/opt/elsewhere/bin/python3|' "${catalogue_script}" \
+    > "${installed_script}"
+  check "a shebang from elsewhere stays visible" \
+    "$(differs_from_catalogue "${installed_script}")" "changed"
+
+  # Without the recorded line there is nothing to put back, and guessing one
+  # would be the wrong answer dressed as the right one.
+  sed "1s|^#!.*|#!${checksum_dir}/venv/internet-speed/bin/python3|" \
+    "${catalogue_script}" > "${installed_script}"
+  rm -f -- "${checksum_dir}/config/internet-speed/shebang"
+  check "a sensor without a recorded shebang is hashed as it lies" \
+    "$(reported_digest "${installed_script}")" \
+    "$(sha256sum "${installed_script}" | awk '{print $1}')"
+
+  rm -rf -- "${checksum_dir}"
+else
+  printf '  skipped (sha256sum not installed)\n'
+fi
+
 # The endpoint is the second machine this tool sets up over SSH. What
 # holds for the probe holds for it too: help without a configured
 # environment, and every deploy has a counterpart.

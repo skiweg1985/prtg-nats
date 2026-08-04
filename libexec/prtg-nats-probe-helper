@@ -29,7 +29,7 @@ MAXIMUM_HELPER_BYTES=524288
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=1
+HELPER_VERSION=2
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -634,6 +634,12 @@ sensor_slot_target() {
   esac
 }
 
+# Not a transferred slot: this helper writes the file itself, from the script
+# it was handed. See install_sensor_files for what it is good for.
+sensor_shebang_path() {
+  printf '%s/%s/shebang\n' "${SENSOR_CONFIG_ROOT}" "$1"
+}
+
 # Syntax check without side effects: compile() compiles in memory only.
 # py_compile is out, because it atomically moves the generated file to its
 # target path and, as root, would even replace a device like /dev/null.
@@ -922,7 +928,20 @@ install_sensor_files() {
 
   cp -p "${transaction}/slot-script" "${prepared}"
   if [[ -n "${venv}" ]]; then
+    # The line the catalogue shipped is kept before it is overwritten, because
+    # the platform compares the installed script against the catalogue file
+    # byte for byte. Without it a sensor with dependencies would report as
+    # modified from the moment it is installed, and redeploying would not help
+    # - the next install writes the same interpreter back in. list_sensors
+    # puts this line in again before it hashes.
+    head -n 1 "${transaction}/slot-script" \
+      > "$(sensor_shebang_path "${name}")"
+    chmod 0644 "$(sensor_shebang_path "${name}")"
     sed -i "1s|^#!.*|#!${venv}/bin/python3|" "${prepared}"
+  else
+    # A sensor that lost its requirements runs on the system Python again and
+    # keeps the shebang it came with. A leftover file would claim otherwise.
+    rm -f -- "$(sensor_shebang_path "${name}")"
   fi
   install -o root -g "${service_user}" -m 0750 \
     "${prepared}" "$(sensor_slot_target "${name}" script)"
@@ -1108,11 +1127,34 @@ list_sensors() {
     printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\n' \
       "${name}" \
       "${version}" \
-      "$(sha256sum "${script}" | awk '{print $1}')" \
+      "$(sensor_script_checksum "${name}" "${script}")" \
       "$(sensor_interface_list "${name}")" \
       "$(sensor_helper_state "${name}")"
   done
   shopt -u nullglob
+}
+
+# The digest the platform holds is the one of the catalogue file, so this is
+# the one that has to be answered - and the installed script differs from it
+# by exactly the shebang install_sensor_files rewrote. That line goes back in
+# first, and only where this helper is the one that wrote it: a shebang
+# anybody else changed points the sensor at another interpreter and stays
+# visible as the deviation it is.
+sensor_script_checksum() {
+  local name="$1"
+  local script="$2"
+  local shebang=""
+  local own=""
+
+  shebang="$(sensor_shebang_path "${name}")"
+  own="#!${SENSOR_VENV_ROOT}/${name}/bin/python3"
+  if [[ -f "${shebang}" && "$(head -n 1 "${script}")" == "${own}" ]]; then
+    { cat "${shebang}"; tail -n +2 "${script}"; } |
+      sha256sum |
+      awk '{print $1}'
+    return 0
+  fi
+  sha256sum "${script}" | awk '{print $1}'
 }
 
 # A sensor without a listening socket only reports in PRTG that it cannot

@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 role: everyone
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # Troubleshooting
@@ -30,6 +30,7 @@ the probe's own words behind a disclosure control. See
 | `result_evaluation was not available` | an old, incompatible ping v2 sensor | recreate the sensor in PRTG; this is not a NATS connection error |
 | A job stays on `running` and cancel does nothing | its worker is gone, usually the API container was restarted mid-job | [A job stays on running](#a-job-stays-on-running-and-cancel-does-nothing) |
 | `probe.package_missing`, or `Unit prtg.mpprobe.service not found` while configuring | the probe carries no `prtgmpprobe`, usually after an unenrollment with `--uninstall-mpp` | [Re-enrolling a probe whose package was removed](#re-enrolling-a-probe-whose-package-was-removed) |
+| `Sensor NAME was modified on the probe`, and redeploying does not clear it | a probe helper older than version 2 reports the digest of the rewritten shebang | [A sensor reports as modified right after deployment](#a-sensor-reports-as-modified-right-after-deployment) |
 
 The official installation and wizard details are in the
 [Paessler MPP manual](https://manuals.paessler.com/multiplatformprobemanual.pdf).
@@ -125,6 +126,33 @@ If the bootstrap itself could not install the package, it reports back anyway
 and the job carries the installer's own words in its technical details - a
 `dpkg` lock, an unreachable `packages.paessler.com`, an interrupted package
 run. Fix what it names, then enrol again.
+
+### A sensor reports as modified right after deployment
+
+"Modified" means the script on the probe and the one in the catalogue have
+the same version but different bytes. Usually somebody edited the file, and
+`sensor deploy` puts it back. A sensor that returns to that state
+immediately, without anyone having touched it, is a different case.
+
+A sensor that ships a `requirements.txt` gets its own virtual environment,
+and the helper points the installed script's shebang at it - one line that
+differs from the catalogue file by design. Helper version 1 hashed the file
+as it lay, so it answered with a digest that could never match. Every
+redeployment ended the same way, because the next install wrote the same
+interpreter back in. `internet-speed` is the only sensor in this repository
+with dependencies, so it is the one this shows up on.
+
+Helper version 2 records the line the catalogue shipped and puts it back
+before it hashes; an edit anywhere else in the file, and a shebang the helper
+did not write itself, both still show. Update the helper:
+
+```bash
+sudo ./prtg-nats probe helper-update mpp-probe-01
+```
+
+The probe page offers the same under "Update helper". The deviation
+disappears with the next status query - the sensor itself needs no
+redeployment, because nothing was ever wrong with the installed file.
 
 ### A job stays on running and cancel does nothing
 
