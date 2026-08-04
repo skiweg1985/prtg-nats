@@ -24,6 +24,7 @@ from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
 from app.services.events import StreamEvent, job_topic
+from app.services.jobs import JobService
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -96,73 +97,92 @@ async def job_events(
     cannot lose a line. Closes once the job reaches a terminal state - a stream
     that stays open on a finished job is a leak with a nice name.
     """
-    job = await jobs.get(job_id)
-    backlog = [
-        JobEventOut.model_validate(event).model_dump(mode="json")
-        for event in await jobs.events(job_id, after_sequence=after)
-    ]
-    already_finished = job.status.is_terminal
-    final_status = {"id": job.id, "status": job.status.value, "progress": job.progress}
+    # Listening first, reading second. The other way round - which is what this
+    # did - leaves a window between the last stored event and the subscription:
+    # the worker keeps logging while the backlog is being read, the response is
+    # assembled and the ASGI server gets around to calling the generator, and
+    # every line written in there is in neither half. The same window swallowed
+    # the terminal status and left the stream sending keepalives at a job that
+    # had long finished.
+    topic = job_topic(job_id)
+    queue = await broadcaster.register(topic)
+    try:
+        job = await jobs.get(job_id)
+        backlog = await _read_backlog(jobs, job_id, after=after)
+        already_finished = job.status.is_terminal
+        final_status = {
+            "id": job.id,
+            "status": job.status.value,
+            "progress": job.progress,
+        }
 
-    # Everything the stream sends is now in memory, and the session has to go
-    # before the response starts. A dependency with yield is not torn down until
-    # the response ends, which for a stream is as long as the operator leaves
-    # the page open - and authentication has already dirtied this session's
-    # last_seen_at, so the first query flushed an UPDATE and opened SQLite's one
-    # write transaction. Held that long, every job worker's claim waits on it
-    # and fails with "database is locked".
-    await db.commit()
-    await db.close()
+        # Everything the stream sends is now in memory, and the session has to
+        # go before the response starts. A dependency with yield is not torn
+        # down until the response ends, which for a stream is as long as the
+        # operator leaves the page open - and authentication has already
+        # dirtied this session's last_seen_at, so the first query flushed an
+        # UPDATE and opened SQLite's one write transaction. Held that long,
+        # every job worker's claim waits on it and fails with "database is
+        # locked".
+        await db.commit()
+        await db.close()
+    except BaseException:
+        await broadcaster.unregister(topic, queue)
+        raise
+
+    # Everything up to here is already on its way to the client; a live event
+    # repeating one of those lines is a duplicate, not news.
+    replayed_through = max((event["sequence"] for event in backlog), default=after)
 
     async def stream() -> AsyncIterator[bytes]:
-        for event in backlog:
-            yield _sse("job.event", event)
-
-        if already_finished:
-            yield _sse("job.status", final_status)
-            yield b"event: end\ndata: {}\n\n"
-            return
-
-        subscription = broadcaster.subscribe(job_topic(job_id))
-        iterator = subscription.__aiter__()
-        # The wait for the next line is a task of its own, outliving the
-        # keepalive. wait_for cancels what it waits on when it times out, and a
-        # cancelled __anext__ runs the subscription's finally and closes it for
-        # good: the stream would then die on the first idle interval instead of
-        # sending a comment and carrying on.
-        pending: asyncio.Task[StreamEvent] = asyncio.ensure_future(iterator.__anext__())
         try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                done, _pending = await asyncio.wait(
-                    {pending}, timeout=SSE_KEEPALIVE_SECONDS
-                )
-                if not done:
-                    yield b": keepalive\n\n"
-                    continue
+            for event in backlog:
+                yield _sse("job.event", event)
 
-                try:
+            if already_finished:
+                yield _sse("job.status", final_status)
+                yield b"event: end\ndata: {}\n\n"
+                return
+
+            # The wait for the next line is a task of its own, outliving the
+            # keepalive. wait_for cancels what it waits on when it times out,
+            # and a cancelled get() would take the queued line with it: the
+            # stream would then lose an event on every idle interval instead of
+            # sending a comment and carrying on.
+            pending: asyncio.Task[StreamEvent] = asyncio.ensure_future(queue.get())
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    done, _pending = await asyncio.wait(
+                        {pending}, timeout=SSE_KEEPALIVE_SECONDS
+                    )
+                    if not done:
+                        yield b": keepalive\n\n"
+                        continue
+
                     update = pending.result()
-                except StopAsyncIteration:  # the broadcaster went away
-                    break
-                pending = asyncio.ensure_future(iterator.__anext__())
+                    pending = asyncio.ensure_future(queue.get())
 
-                yield _sse(update.kind, update.payload)
-                if (
-                    update.kind == "job.status"
-                    and update.payload.get("status") in _TERMINAL_VALUES
-                ):
-                    yield b"event: end\ndata: {}\n\n"
-                    break
+                    if (
+                        update.kind == "job.event"
+                        and int(update.payload.get("sequence", 0)) <= replayed_through
+                    ):
+                        continue
+
+                    yield _sse(update.kind, update.payload)
+                    if (
+                        update.kind == "job.status"
+                        and update.payload.get("status") in _TERMINAL_VALUES
+                    ):
+                        yield b"event: end\ndata: {}\n\n"
+                        break
+            finally:
+                pending.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pending
         finally:
-            # StopAsyncIteration is suppressed rather than allowed out: raised
-            # inside an async generator it becomes a RuntimeError the ASGI
-            # server reports as a failed application.
-            pending.cancel()
-            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
-                await pending
-            await subscription.aclose()
+            await broadcaster.unregister(topic, queue)
 
     return StreamingResponse(
         stream(),
@@ -228,6 +248,33 @@ async def cancel_job(
         object_label=job.type,
     )
     return JobSummaryOut.model_validate(job)
+
+
+_BACKLOG_PAGE = 1000
+
+
+async def _read_backlog(
+    jobs: JobService, job_id: str, *, after: int
+) -> list[dict[str, Any]]:
+    """Every stored line after ``after``, in pages.
+
+    One query used to do this, with the service's own limit of a thousand
+    quietly cutting it off - and nothing came back for the rest, because the
+    stream carried on from the live end. A long rollout therefore lost the
+    middle of its own log to a page size.
+    """
+    backlog: list[dict[str, Any]] = []
+    cursor = after
+    while True:
+        page = await jobs.events(job_id, after_sequence=cursor, limit=_BACKLOG_PAGE)
+        if not page:
+            return backlog
+        backlog.extend(
+            JobEventOut.model_validate(event).model_dump(mode="json") for event in page
+        )
+        cursor = page[-1].sequence
+        if len(page) < _BACKLOG_PAGE:
+            return backlog
 
 
 _TERMINAL_VALUES = {status.value for status in JobStatus if status.is_terminal}
