@@ -58,6 +58,13 @@ it. The updater is created through the Docker API without Compose labels:
 without one is never in that list and survives the replacement of the process
 that started it.
 
+That last sentence is a claim about how somebody else's software behaves, and
+a design resting on an unverified claim rests on nothing, so
+[tests/e2e-update.sh](../../../tests/e2e-update.sh) proves it against a real
+daemon: the unlabelled container is still there afterwards, its log still
+holds what it wrote *after* the recreate, and - the control that keeps the
+first two from being vacuous - a real orphan in the same sweep is collected.
+
 It mounts the checkout **at its own host path**, not at a tidy `/checkout`.
 Compose resolves a relative bind like `./web/Caddyfile` against the project
 directory and hands the daemon an absolute path it reads as a host path.
