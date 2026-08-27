@@ -172,7 +172,7 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
     if not ca_path.is_file():
         raise RuntimeStateError(details="CA is missing; initialise the runtime first")
     await context.helper.install_ca(connection, ca_path.read_text(encoding="utf-8"))
-    await context.log("jobs.probe.ca_installed", params={"host": host})
+    await context.log("jobs.probe.ca_installed", params={"probe": host})
 
     # --- 6. The configuration ----------------------------------------------
     await context.step("configure")
