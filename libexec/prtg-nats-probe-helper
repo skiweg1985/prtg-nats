@@ -814,12 +814,21 @@ ensure_venv_support() {
 # channel cannot be used to pull in arbitrary packages through it. A new
 # sensor with such a dependency belongs here, not in its manifest.
 #
-# Package name and program name are identical here; were that ever not the
-# case, this table would have to carry both.
+# What a sensor needs from the system, as "PROGRAM PACKAGE...". The program
+# is what the check looks for, the packages are the ways to get it - tried in
+# order, first one that provides the program wins.
+#
+# For iperf3 the two are the same word. For dhcpcd they are not, and the
+# package that carries it differs by release: dhcpcd-base since Bookworm,
+# dhcpcd5 before it. Listing both is what makes the sensor deployable on
+# either without the operator having to know which.
 sensor_system_package() {
   case "$1" in
     iperf-throughput)
-      printf 'iperf3\n'
+      printf 'iperf3 iperf3\n'
+      ;;
+    wlan-auth)
+      printf 'dhcpcd dhcpcd-base dhcpcd5\n'
       ;;
     *)
       :
@@ -834,20 +843,56 @@ sensor_system_package() {
 # restores the previous state. Checking this one place is better than having
 # two places that catch the same thing.
 ensure_sensor_package() {
-  local package="$1"
+  local specification="$1"
+  local package=""
+  local program=""
+  local -a fields=()
+  local -a candidates=()
 
-  [[ -n "${package}" ]] || return 0
-  command -v "${package}" >/dev/null 2>&1 && return 0
+  [[ -n "${specification}" ]] || return 0
+  read -r -a fields <<< "${specification}"
+  program="${fields[0]}"
+  candidates=("${fields[@]:1}")
+  [[ -n "${program}" && "${#candidates[@]}" -gt 0 ]] || return 0
+  command -v "${program}" >/dev/null 2>&1 && return 0
 
+  # No recommends: a probe gets the tool a sensor asks for, not the set of
+  # programs a desktop would want alongside it.
   if command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${package}" \
-      >/dev/null 2>&1 || true
+    for package in "${candidates[@]}"; do
+      DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        --no-install-recommends "${package}" >/dev/null 2>&1 || continue
+      command -v "${program}" >/dev/null 2>&1 && break
+    done
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y "${package}" >/dev/null 2>&1 || true
+    for package in "${candidates[@]}"; do
+      dnf install -y "${package}" >/dev/null 2>&1 || continue
+      command -v "${program}" >/dev/null 2>&1 && break
+    done
   fi
 
-  command -v "${package}" >/dev/null 2>&1
+  command -v "${program}" >/dev/null 2>&1 || return 1
+  quiesce_sensor_daemon "${program}"
+}
+
+# A tool installed for a sensor must not bring a daemon along with it.
+#
+# dhcpcd5 activates dhcpcd.service, which would then run alongside
+# NetworkManager and fight it over every interface no test has reserved. The
+# sensor calls the binary directly and wants nothing running in between.
+#
+# Only reached right after an install, so a probe that was already using the
+# daemon for its own networking is never touched: the check above returns
+# early when the program is present.
+quiesce_sensor_daemon() {
+  local unit="$1.service"
+
+  systemctl list-unit-files "${unit}" >/dev/null 2>&1 || return 0
+  systemctl cat "${unit}" >/dev/null 2>&1 || return 0
+  systemctl disable --now "${unit}" >/dev/null 2>&1 || true
+  systemctl mask "${unit}" >/dev/null 2>&1 || true
+  return 0
 }
 
 # Establishes the prerequisites for sensors with dependencies and reports

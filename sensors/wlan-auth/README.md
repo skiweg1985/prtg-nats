@@ -14,11 +14,14 @@ measured, but the offered address is not put on the interface.
 
 - A **dedicated Wi-Fi interface** for tests. The probe has to be on the
   network by another route, usually Ethernet.
-- `wpa_supplicant`, `iw` and `dhcpcd` on the probe. `dhcpcd` is not part of
-  the base install since Raspberry Pi OS Bookworm, where NetworkManager
-  took over: install `dhcpcd-base` there. That package brings the binary
-  the test mode needs without the daemon, which would otherwise fight
-  NetworkManager over the remaining interfaces.
+- `wpa_supplicant` and `dhcpcd` on the probe. The rollout installs
+  `dhcpcd` where it is missing — it left the base install with Raspberry
+  Pi OS Bookworm, where NetworkManager took over. It takes `dhcpcd-base`,
+  which carries the binary without the daemon that would otherwise fight
+  NetworkManager over every interface no test has reserved, and falls
+  back to `dhcpcd5` on releases that predate it. A deployment that cannot
+  get the tool fails its self-check and rolls back, rather than leaving a
+  sensor that only reports the gap on its first scan.
 - The test interface is reserved (see below). Without a reservation the
   sensor refuses every run.
 
