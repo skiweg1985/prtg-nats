@@ -365,6 +365,24 @@ def collect_link_details(run, result):
             result["details"][key] = value
 
 
+def clear_process_group(process):
+    """Take the whole session down, not just the process we started.
+
+    dhcpcd 9 splits its privileges across child processes and does not
+    take them with it when it segfaults on the way out. Left alone they
+    outlive the run in the helper's cgroup, so systemd never sees the
+    unit finish and waits out its stop timeout on every single call.
+    """
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run_dhcp(interface, budget):
     """DHCP in test mode: a complete cycle without setting the address.
 
@@ -374,29 +392,45 @@ def run_dhcp(interface, budget):
     """
     seconds = max(3, int(budget))
     started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
-            capture_output=True, text=True, timeout=seconds + 5,
-        )
-    except subprocess.TimeoutExpired:
+    # A file, not a pipe: the children below inherit the handle and outlive
+    # their parent, so a pipe would reach EOF only once they are gone - and
+    # reading it would be the very thing that waits for them.
+    with tempfile.TemporaryFile() as sink:
+        try:
+            # Its own session, so the whole group can be cleared out below.
+            process = subprocess.Popen(
+                ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
+                stdout=sink, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            raise Blocked("internal-error", "Could not run dhcpcd")
+        try:
+            process.wait(timeout=seconds + 5)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        finally:
+            clear_process_group(process)
+        duration = int((time.monotonic() - started) * 1000)
+        sink.seek(0)
+        output = sink.read().decode("utf-8", "replace")
+
+    if timed_out:
         raise Failed("dhcp-timeout", "No DHCP answer within the time budget")
-    except OSError:
-        raise Blocked("internal-error", "Could not run dhcpcd")
-    duration = int((time.monotonic() - started) * 1000)
 
     # The lease decides, not the exit status: dhcpcd 9.4.1 on Bookworm
     # prints a complete lease in test mode and then segfaults while
     # cleaning up. The DHCP server has answered at that point, and that is
     # what the sensor measures.
     lease = {}
-    for line in completed.stdout.splitlines():
+    for line in output.splitlines():
         key, _, value = line.strip().partition("=")
         if key in ("new_ip_address", "new_dhcp_server_identifier",
                    "new_routers"):
             lease[key] = value.strip("'")
     if "new_ip_address" not in lease:
-        if completed.returncode != 0:
+        if process.returncode != 0:
             raise Failed("dhcp-timeout", "The DHCP request was not answered")
         raise Failed("dhcp-timeout", "The DHCP server offered no address")
     return duration, lease
