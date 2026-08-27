@@ -394,21 +394,20 @@ def clear_process_group(process):
         pass
 
 
-# The script udhcpc hands a lease to. It writes the values out in the shape
-# dhcpcd prints them, so one parser reads both clients - and it configures
-# nothing, which is what makes this a test rather than a connection.
-UDHCPC_SCRIPT = """#!/bin/sh
-case "$1" in
-  bound|renew) ;;
-  *) exit 0 ;;
-esac
-printf 'new_ip_address=%s\\n' "$ip"
-printf 'new_dhcp_server_identifier=%s\\n' "$serverid"
-printf 'new_routers=%s\\n' "$router"
-"""
+# udhcpc insists on a script to hand the lease to, and runs its own if none
+# is named - which would put the address on the interface and make this a
+# connection rather than a test. /bin/true is the script that does nothing.
+#
+# Not one of ours: a script of ours would have to live somewhere it can be
+# executed, and the run directory is mounted noexec. The lease is read from
+# what udhcpc says instead.
+UDHCPC_SCRIPT = "/bin/true"
 
+# "udhcpc: lease of 10.0.0.5 obtained from 10.0.0.1, lease time 28800"
+UDHCPC_LEASE = re.compile(
+    r"lease of (?P<address>\S+) obtained from (?P<server>[^,\s]+)")
 
-def dhcp_command(interface, seconds, script_path):
+def dhcp_command(interface, seconds):
     """The DHCP client to run, and how to ask it for one lease.
 
     udhcpc first. dhcpcd 9 confines its own child processes with seccomp,
@@ -418,20 +417,44 @@ def dhcp_command(interface, seconds, script_path):
     kernel kills the client with SIGSYS before it sends a single packet,
     which reads exactly like a DHCP server that never answered.
 
-    udhcpc carries no sandbox, ships with busybox on every Raspberry Pi OS,
-    and leaves the interface alone as long as its script does.
+    udhcpc carries no sandbox and ships with busybox on every Raspberry Pi
+    OS. With /bin/true as its script it configures nothing, which is what
+    keeps this a measurement.
     """
     tries = max(2, min(4, seconds // 3))
+    udhcpc = ["-i", interface, "-n", "-q", "-f",
+              "-t", str(tries), "-T", "3", "-s", UDHCPC_SCRIPT]
     if shutil.which("busybox"):
-        return ["busybox", "udhcpc", "-i", interface, "-n", "-q", "-f",
-                "-t", str(tries), "-T", "3", "-s", script_path]
+        return ["busybox", "udhcpc", *udhcpc]
     if shutil.which("udhcpc"):
-        return ["udhcpc", "-i", interface, "-n", "-q", "-f",
-                "-t", str(tries), "-T", "3", "-s", script_path]
+        return ["udhcpc", *udhcpc]
     return ["dhcpcd", "-4", "-T", "-t", str(seconds), interface]
 
 
-def run_dhcp(interface, budget, workdir):
+def parse_lease(output):
+    """The lease, from whichever client reported it.
+
+    dhcpcd prints assignments, udhcpc writes a sentence. Both name the
+    address and the server that offered it, which is the whole measurement.
+    """
+    lease = {}
+    for line in output.splitlines():
+        key, _, value = line.strip().partition("=")
+        if key in ("new_ip_address", "new_dhcp_server_identifier"):
+            value = value.strip("'")
+            if value:
+                lease[key] = value
+    if "new_ip_address" in lease:
+        return lease
+
+    found = UDHCPC_LEASE.search(output)
+    if found:
+        lease["new_ip_address"] = found.group("address")
+        lease["new_dhcp_server_identifier"] = found.group("server")
+    return lease
+
+
+def run_dhcp(interface, budget):
     """DHCP in test mode: a complete cycle without setting the address.
 
     The client asks for a lease and reports it; nothing is put on the
@@ -439,11 +462,7 @@ def run_dhcp(interface, budget, workdir):
     without leaving a route or an address on a test interface.
     """
     seconds = max(3, int(budget))
-    script_path = os.path.join(workdir, "udhcpc.sh")
-    with open(os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                      0o700), "w", encoding="utf-8") as handle:
-        handle.write(UDHCPC_SCRIPT)
-    command = dhcp_command(interface, seconds, script_path)
+    command = dhcp_command(interface, seconds)
 
     started = time.monotonic()
     # A file, not a pipe: the children below inherit the handle and outlive
@@ -481,14 +500,7 @@ def run_dhcp(interface, budget, workdir):
     # prints a complete lease in test mode and then segfaults while
     # cleaning up. The DHCP server has answered at that point, and that is
     # what the sensor measures.
-    lease = {}
-    for line in output.splitlines():
-        key, _, value = line.strip().partition("=")
-        if key in ("new_ip_address", "new_dhcp_server_identifier",
-                   "new_routers"):
-            value = value.strip("'")
-            if value:
-                lease[key] = value
+    lease = parse_lease(output)
     if "new_ip_address" not in lease:
         raise dhcp_failure(command, process.returncode, output)
     return duration, lease
@@ -649,7 +661,7 @@ def perform_test(job):
 
         if job["stage"] == "dhcp":
             duration, lease = run_dhcp(
-                interface, deadline - time.monotonic(), workdir)
+                interface, deadline - time.monotonic())
             result["timings"]["dhcp_ms"] = duration
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
