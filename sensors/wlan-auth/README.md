@@ -14,14 +14,19 @@ measured, but the offered address is not put on the interface.
 
 - A **dedicated Wi-Fi interface** for tests. The probe has to be on the
   network by another route, usually Ethernet.
-- `wpa_supplicant` and `dhcpcd` on the probe. The rollout installs
-  `dhcpcd` where it is missing — it left the base install with Raspberry
-  Pi OS Bookworm, where NetworkManager took over. It takes `dhcpcd-base`,
-  which carries the binary without the daemon that would otherwise fight
-  NetworkManager over every interface no test has reserved, and falls
-  back to `dhcpcd5` on releases that predate it. A deployment that cannot
-  get the tool fails its self-check and rolls back, rather than leaving a
-  sensor that only reports the gap on its first scan.
+- `wpa_supplicant` on the probe, and a DHCP client for the DHCP stage.
+  The rollout asks for `busybox`, whose `udhcpc` carries it out; it is on
+  every Raspberry Pi OS, so normally nothing is installed. `dhcpcd` still
+  works where it is present and is used when busybox is not — but not on
+  a 32-bit userland under a 64-bit kernel, the ordinary shape of Raspberry
+  Pi OS armhf on 64-bit hardware. There its seccomp filter does not match
+  the processes it guards, and the kernel kills the client with SIGSYS
+  before it sends a packet. The sensor reports that as `dhcp-client-broken`
+  rather than blaming the DHCP server.
+- The radio must not be blocked. A probe that has never used Wi-Fi ships
+  with it soft-blocked; the sensor lifts that itself, because the
+  interface was reserved for exactly this. A block set in hardware stays,
+  and is reported as `iface-blocked`.
 - The test interface is reserved (see below). Without a reservation the
   sensor refuses every run.
 

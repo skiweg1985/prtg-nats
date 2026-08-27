@@ -818,17 +818,19 @@ ensure_venv_support() {
 # is what the check looks for, the packages are the ways to get it - tried in
 # order, first one that provides the program wins.
 #
-# For iperf3 the two are the same word. For dhcpcd they are not, and the
-# package that carries it differs by release: dhcpcd-base since Bookworm,
-# dhcpcd5 before it. Listing both is what makes the sensor deployable on
-# either without the operator having to know which.
+# For iperf3 the two are the same word. Where they differ, or where a release
+# moved a program between packages, the list is what keeps a sensor
+# deployable without the operator having to know which name applies.
+#
+# wlan-auth asks for busybox, whose udhcpc carries out the DHCP stage. It is
+# already on every Raspberry Pi OS, so this normally installs nothing.
 sensor_system_package() {
   case "$1" in
     iperf-throughput)
       printf 'iperf3 iperf3\n'
       ;;
     wlan-auth)
-      printf 'dhcpcd dhcpcd-base dhcpcd5\n'
+      printf 'busybox busybox\n'
       ;;
     *)
       :
