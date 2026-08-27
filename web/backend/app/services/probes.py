@@ -216,6 +216,11 @@ class ProbeService:
             for d in definitions
             if (script := d.file_for("script")) is not None
         }
+        catalogue_helper_checksums = {
+            d.name: wrapper.sha256
+            for d in definitions
+            if (wrapper := d.file_for("wrapper")) is not None
+        }
 
         sensors: tuple[SensorComparison, ...] = ()
         deviations: tuple[Deviation, ...] = ()
@@ -226,6 +231,7 @@ class ProbeService:
                     observed,
                     catalogue_versions=catalogue_versions,
                     catalogue_checksums=catalogue_checksums,
+                    catalogue_helper_checksums=catalogue_helper_checksums,
                 )
             )
             deviations = tuple(
@@ -234,6 +240,7 @@ class ProbeService:
                     observed,
                     catalogue_versions=catalogue_versions,
                     catalogue_checksums=catalogue_checksums,
+                    catalogue_helper_checksums=catalogue_helper_checksums,
                     expected_ca_sha256=expected_ca_sha256,
                 )
             )

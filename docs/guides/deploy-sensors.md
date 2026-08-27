@@ -192,11 +192,15 @@ SENSOR_REQUIREMENTS=
 
 `SENSOR_VERSION` goes up with every change to a file the manifest names —
 the privileged helper included. It is what the platform compares against
-the version a probe reports, and for the helper it is the only thing it
-can compare: a probe answers with the checksum of its sensor script, and
-a helper that changed without the version changing therefore reads as
-current everywhere. Both a script fix and a helper fix are one step up;
-the number is an identity, not a semantic version.
+the version a probe reports. Both a script fix and a helper fix are one
+step up; the number is an identity, not a semantic version.
+
+Beyond the version, a probe reports the digest of its sensor script and of
+its privileged helper, and the platform compares both against the
+catalogue. A file that differs while the version matches is reported as
+drifted — somebody edited it on the probe, or a deployment stopped
+halfway. The helper digest needs helper version 6; an older probe omits it,
+and an absent digest is never a deviation.
 
 A sensor that needs a program from the system gets it during the rollout:
 `sensor_system_package` in `libexec/prtg-nats-probe-helper` maps the sensor

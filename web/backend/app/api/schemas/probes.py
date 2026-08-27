@@ -52,6 +52,10 @@ class SensorStateOut(ApiModel):
     expected_sha256: str | None
     interfaces: list[str] = Field(default_factory=list)
     helper_state: str | None = None
+    # Which half drifted is the first question a drifted sensor raises, so
+    # the helper's digests travel alongside the script's.
+    installed_helper_sha256: str | None = None
+    expected_helper_sha256: str | None = None
 
 
 class DeviationOut(ApiModel):

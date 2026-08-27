@@ -258,6 +258,9 @@ async def reconcile(context: JobContext) -> dict[str, Any]:
         catalogue_checksums={
             d.name: f.sha256 for d in definitions if (f := d.file_for("script"))
         },
+        catalogue_helper_checksums={
+            d.name: f.sha256 for d in definitions if (f := d.file_for("wrapper"))
+        },
         expected_ca_sha256=ca_info.sha256,
     )
     plan = build_plan(username, deviations)

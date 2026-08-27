@@ -35,6 +35,9 @@ class InstalledSensor:
     sha256: str | None
     interfaces: tuple[str, ...] = ()
     helper_state: str | None = None
+    # Absent from a helper below version 6. None therefore means "not
+    # reported", never "no helper" - that is what helper_state says.
+    helper_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +220,7 @@ def parse_sensor_list(response: HelperResponse) -> tuple[InstalledSensor, ...]:
                 sha256=normalise_optional(record.get("sha256")),
                 interfaces=tuple(interfaces.split(",")) if interfaces else (),
                 helper_state=normalise_optional(record.get("helper")),
+                helper_sha256=normalise_optional(record.get("helper_sha256")),
             )
         )
     return tuple(sensors)

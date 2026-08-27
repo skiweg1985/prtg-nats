@@ -36,6 +36,8 @@ class SensorComparison:
     expected_sha256: str | None
     interfaces: tuple[str, ...] = ()
     helper_state: str | None = None
+    installed_helper_sha256: str | None = None
+    expected_helper_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +79,7 @@ def compare_sensors(
     *,
     catalogue_versions: dict[str, str],
     catalogue_checksums: dict[str, str] | None = None,
+    catalogue_helper_checksums: dict[str, str] | None = None,
 ) -> list[SensorComparison]:
     """Line up wanted sensors against installed ones.
 
@@ -85,6 +88,7 @@ def compare_sensors(
     exception and stays honoured.
     """
     checksums = catalogue_checksums or {}
+    helper_checksums = catalogue_helper_checksums or {}
     comparisons: list[SensorComparison] = []
     seen: set[str] = set()
 
@@ -96,7 +100,10 @@ def compare_sensors(
             SensorComparison(
                 name=wanted.name,
                 status=_sensor_status(
-                    installed, target_version, checksums.get(wanted.name)
+                    installed,
+                    target_version,
+                    checksums.get(wanted.name),
+                    helper_checksums.get(wanted.name),
                 ),
                 desired_version=target_version,
                 installed_version=installed.version if installed else None,
@@ -104,6 +111,10 @@ def compare_sensors(
                 expected_sha256=checksums.get(wanted.name),
                 interfaces=installed.interfaces if installed else (),
                 helper_state=installed.helper_state if installed else None,
+                installed_helper_sha256=(
+                    installed.helper_sha256 if installed else None
+                ),
+                expected_helper_sha256=helper_checksums.get(wanted.name),
             )
         )
 
@@ -132,6 +143,7 @@ def _sensor_status(
     installed: InstalledSensor | None,
     target_version: str | None,
     expected_sha256: str | None,
+    expected_helper_sha256: str | None = None,
 ) -> SensorInstallationStatus:
     if installed is None:
         return SensorInstallationStatus.ABSENT
@@ -141,6 +153,19 @@ def _sensor_status(
     # a deployment stopped halfway. Both need the same remedy and neither is
     # "current".
     if expected_sha256 and installed.sha256 and installed.sha256 != expected_sha256:
+        return SensorInstallationStatus.DRIFTED
+    # The privileged helper counts the same way. It is the half that runs as
+    # root, so a copy nobody can account for matters more there than in the
+    # script - and until it was reported, an edited helper read as current.
+    #
+    # Both sides must name a digest. A helper below version 6 reports none,
+    # and treating silence as a difference would mark every probe that has
+    # not been updated yet.
+    if (
+        expected_helper_sha256
+        and installed.helper_sha256
+        and installed.helper_sha256 != expected_helper_sha256
+    ):
         return SensorInstallationStatus.DRIFTED
     return SensorInstallationStatus.CURRENT
 
@@ -165,6 +190,7 @@ def find_deviations(
     *,
     catalogue_versions: dict[str, str],
     catalogue_checksums: dict[str, str] | None = None,
+    catalogue_helper_checksums: dict[str, str] | None = None,
     expected_ca_sha256: str | None = None,
 ) -> list[Deviation]:
     """Everything that differs, ordered by how much it hurts."""
@@ -235,6 +261,7 @@ def find_deviations(
         observed,
         catalogue_versions=catalogue_versions,
         catalogue_checksums=catalogue_checksums,
+        catalogue_helper_checksums=catalogue_helper_checksums,
     ):
         deviation = _sensor_deviation(observed.nats_username, comparison)
         if deviation is not None:

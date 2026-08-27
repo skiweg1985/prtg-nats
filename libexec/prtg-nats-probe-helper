@@ -29,7 +29,7 @@ MAXIMUM_HELPER_BYTES=524288
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=5
+HELPER_VERSION=6
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -1191,12 +1191,13 @@ list_sensors() {
     [[ -f "${script}" ]] || continue
     version="none"
     [[ ! -f "${directory}version" ]] || version="$(<"${directory}version")"
-    printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\n' \
+    printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\thelper_sha256=%s\n' \
       "${name}" \
       "${version}" \
       "$(sensor_script_checksum "${name}" "${script}")" \
       "$(sensor_interface_list "${name}")" \
-      "$(sensor_helper_state "${name}")"
+      "$(sensor_helper_state "${name}")" \
+      "$(sensor_helper_checksum "${name}")"
   done
   shopt -u nullglob
 }
@@ -1226,6 +1227,23 @@ sensor_script_checksum() {
 
 # A sensor without a listening socket only reports in PRTG that it cannot
 # reach its helper. The state therefore belongs in the overview.
+# The digest of the privileged helper, so a platform can tell an installed
+# one from the catalogue's.
+#
+# No shebang dance as in sensor_script_checksum: a helper is installed byte
+# for byte, only the sensor script has its interpreter line rewritten to
+# point at a virtual environment.
+sensor_helper_checksum() {
+  local wrapper=""
+
+  wrapper="$(sensor_slot_target "$1" wrapper)"
+  [[ -f "${wrapper}" ]] || {
+    printf 'none\n'
+    return 0
+  }
+  sha256sum "${wrapper}" | awk '{print $1}'
+}
+
 sensor_helper_state() {
   local name="$1"
 
