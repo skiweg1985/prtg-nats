@@ -8,7 +8,12 @@ import {
   useDeployments,
   useSystemStatus,
 } from '@/api/hooks'
-import type { AuditEvent, Certificate, Deployment } from '@/api/types'
+import type {
+  AuditEvent,
+  Certificate,
+  Deployment,
+  DeploymentTarget,
+} from '@/api/types'
 import { PermissionGate, useAuth, useTheme } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -109,8 +114,61 @@ export function DeploymentListPage() {
         isLoading={isLoading}
         emptyTitle={t('deployments.empty')}
         onRowClick={(row) => row.job_id && navigate(`/jobs/${row.job_id}`)}
+        expandedContent={(row) => <DeploymentTargets targets={row.targets} />}
       />
     </div>
+  )
+}
+
+/**
+ * What happened on each probe of one rollout.
+ *
+ * The row above says "3 of 5 succeeded", which is the wrong half of the
+ * answer: the two that did not are the reason anybody opened this page. Every
+ * field here was recorded per target when the job ran and had nowhere to go.
+ */
+function DeploymentTargets({ targets }: { targets: DeploymentTarget[] }) {
+  const { t } = useTranslation()
+
+  if (targets.length === 0) {
+    return <p className="text-ink-3 text-sm">{t('deployments.noTargets')}</p>
+  }
+
+  return (
+    <ul className="space-y-2">
+      {targets.map((target) => (
+        <li key={target.probe_id} className="text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <JobStatusBadge status={target.status} />
+            <Mono className="text-ink-2">{target.probe_label}</Mono>
+            {target.error_code && (
+              // The label fills the {{probe}} the probe-side messages carry -
+              // the target row is the one thing this record knows for certain.
+              // A code with no message of its own falls back to the code, which
+              // is still something to search for.
+              <span className="text-danger text-xs">
+                {t(`errors.${target.error_code}`, {
+                  probe: target.probe_label,
+                  defaultValue: target.error_code,
+                })}
+              </span>
+            )}
+            {target.finished_at && (
+              <span className="text-ink-3 ml-auto text-xs">
+                {formatRelative(target.finished_at)}
+              </span>
+            )}
+          </div>
+          {/* The machine's own words, never translated - the same rule the
+              error panel follows. */}
+          {target.error_details && (
+            <pre className="text-ink-3 mt-1 max-h-24 overflow-auto font-mono text-xs whitespace-pre-wrap">
+              {target.error_details}
+            </pre>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }
 
