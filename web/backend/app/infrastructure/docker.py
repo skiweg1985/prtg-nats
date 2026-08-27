@@ -73,6 +73,9 @@ class UpdaterCommand(StrEnum):
 
     PROBE = "probe"
     APPLY = "apply"
+    # Build and replace without touching the checkout: the state where
+    # somebody pulled on the host and never rebuilt.
+    REBUILD = "rebuild"
 
 
 @dataclass(frozen=True, slots=True)

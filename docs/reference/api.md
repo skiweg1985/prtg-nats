@@ -77,7 +77,7 @@ with a backoff rather than leaving the log where it stopped.
 | `POST /system/restart` | restart NATS → job |
 | `GET /system/update` | which version is installed, and what the branch has |
 | `POST /system/update/check` | ask the repository now instead of on the hour |
-| `POST /system/update` | update to the tip of the branch → job |
+| `POST /system/update` | update to the tip of the branch, or rebuild in place → job |
 
 `GET /dashboard` is one call on purpose. A dashboard assembled from eight
 parallel requests is eight chances to show a half-drawn page.
@@ -109,7 +109,14 @@ The answer comes from a cache the background check refreshes hourly; the check
 endpoint forces a fresh look. Both need `system.read`, because reading it is
 `git ls-remote` and writes nothing.
 
-Starting an update needs `system.update`, held only by administrators: the
+`POST /system/update` takes an optional `mode`. The default, `update`, fetches
+and moves the checkout to the branch tip before building. `rebuild` builds and
+replaces what the checkout already holds, fetching nothing and moving nothing -
+for the state a `git pull` on the host leaves behind when nobody follows it
+with a build. Its `fetch` and `checkout` steps are reported as skipped rather
+than quietly counted as done.
+
+Starting either needs `system.update`, held only by administrators: the
 updater runs with the Docker socket, so whoever triggers one decides what runs
 as root on the host. It is refused while any other job is queued or running -
 a rollout interrupted by the restart comes back looking like a failure with no

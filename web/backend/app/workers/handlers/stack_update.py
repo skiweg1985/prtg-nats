@@ -26,7 +26,7 @@ import asyncio
 from typing import Any
 
 from app.core.errors import StackUpdateBlockedError, StackUpdateUnavailableError
-from app.domain.enums import LogLevel
+from app.domain.enums import JobStepStatus, LogLevel
 from app.infrastructure.docker import UpdaterCommand
 from app.persistence.models.updates import StackUpdate
 from app.services.provisioning import ProvisioningService
@@ -56,7 +56,17 @@ _PHASE_MARKER = "::phase"
 
 
 async def run(context: JobContext) -> dict[str, Any]:
+    """Update to the branch tip, or rebuild what the checkout already holds.
+
+    One handler for both because they differ in two steps out of seven. The
+    rebuild exists for the state an operator can otherwise only leave from a
+    console: the checkout was pulled and never built, so the stack runs code
+    that is already on the host. Everything needed to fix that is here - the
+    only thing it must not do is fetch, because the checkout is already where
+    it should be.
+    """
     service = StackUpdateService(context.settings, context.docker)
+    rebuild_only = context.payload.get("mode") == "rebuild"
 
     await context.step("preflight")
     readiness = await service.readiness()
@@ -79,19 +89,30 @@ async def run(context: JobContext) -> dict[str, Any]:
     if probe.dirty:
         # Never over uncommitted work. The update would either refuse halfway
         # through or take somebody's changes with it, and both are worse than
-        # saying so now.
+        # saying so now. A rebuild is refused for the same reason: it would
+        # build an image from edited files that matches no commit, and the
+        # version it then reports would be a fiction.
         raise StackUpdateBlockedError(params={"reason": "checkout_dirty"})
-    if not probe.remote_head:
-        raise StackUpdateBlockedError(params={"reason": "branch_missing"})
-    if probe.remote_head == probe.head:
-        raise StackUpdateBlockedError(params={"reason": "already_current"})
 
-    target = probe.remote_head
-    previous = probe.head
-    await context.log(
-        "jobs.stack.target",
-        params={"from": previous[:12], "to": target[:12], "branch": probe.branch},
-    )
+    if rebuild_only:
+        # What the checkout already holds. Nothing is fetched and nothing is
+        # moved, so there is also nothing to roll back from.
+        target = probe.head
+        previous = probe.head
+    else:
+        if not probe.remote_head:
+            raise StackUpdateBlockedError(params={"reason": "branch_missing"})
+        if probe.remote_head == probe.head:
+            raise StackUpdateBlockedError(params={"reason": "already_current"})
+        target = probe.remote_head
+        previous = probe.head
+    if rebuild_only:
+        await context.log("jobs.stack.rebuilding", params={"commit": target[:12]})
+    else:
+        await context.log(
+            "jobs.stack.target",
+            params={"from": previous[:12], "to": target[:12], "branch": probe.branch},
+        )
 
     # The backup is the only thing standing between a failed migration and a
     # rebuild from scratch, so it happens before anything moves.
@@ -103,15 +124,25 @@ async def run(context: JobContext) -> dict[str, Any]:
         params={"archive": export.archive, "sha256": export.sha256},
     )
 
-    await context.step("fetch")
+    # A rebuild fetches nothing and moves nothing, so those two steps are
+    # marked skipped rather than quietly reported as done. The step list is
+    # meant to be a truthful picture of what ran.
+    if rebuild_only:
+        for skipped in ("fetch", "checkout"):
+            await context.jobs.finish_step(context.job, skipped, JobStepStatus.SKIPPED)
+    else:
+        await context.step("fetch")
+
     await context.log("jobs.stack.handover")
 
     # From here the updater drives. One container for the whole sequence: it
     # has to keep going after this process is gone, and a container per step
     # would stop at the step that kills its caller.
+    command = UpdaterCommand.REBUILD if rebuild_only else UpdaterCommand.APPLY
+    arguments = () if rebuild_only else (probe.branch, target, previous)
     container_id = await context.docker.create_updater(
-        UpdaterCommand.APPLY,
-        (probe.branch, target, previous),
+        command,
+        arguments,
         project=project,
         name=f"prtg-nats-updater-{context.job.id}",
     )
@@ -133,7 +164,8 @@ async def run(context: JobContext) -> dict[str, Any]:
     await context.db.commit()
 
     await context.docker.start_container(container_id)
-    await context.step("checkout")
+    if not rebuild_only:
+        await context.step("checkout")
 
     # Follow along for as long as this process exists. The build is the long
     # part and it runs while the API is still up, so most of the update is

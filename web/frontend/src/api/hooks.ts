@@ -118,11 +118,17 @@ export function useCheckForUpdate() {
   })
 }
 
-/** Start the update. Returns the job that carries it. */
+/**
+ * Start the update, or a rebuild of what the checkout already holds.
+ *
+ * The second is for the state a `git pull` on the host leaves behind: the code
+ * is there, the image is not built from it. Same job, two steps fewer.
+ */
 export function useStartUpdate() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>('/system/update', {}),
+    mutationFn: (mode: 'update' | 'rebuild' = 'update') =>
+      api.post<JobAccepted>('/system/update', { mode }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.jobs() })
     },

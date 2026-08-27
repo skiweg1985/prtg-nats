@@ -122,6 +122,26 @@ describe('UpdatesPage', () => {
     expect(screen.queryByText('Up to date')).not.toBeInTheDocument()
   })
 
+  it('offers a rebuild instead of sending the operator to a console', async () => {
+    /**
+     * The state a `git pull` on the host leaves behind. Everything needed to
+     * resolve it is already here - the checkout holds the code, the platform
+     * can build and replace - so pointing at a shell was a gap, not a policy.
+     */
+    await changeLanguage('en')
+    version = {
+      ...BASE,
+      state: 'rebuild_pending',
+      checkout_commit: 'bbbbbbbbbbbb2222',
+      remote_commit: 'bbbbbbbbbbbb2222',
+    }
+    renderPage()
+
+    expect(
+      await screen.findByRole('button', { name: 'Rebuild now' }),
+    ).toBeEnabled()
+  })
+
   it('tells a pulled-but-unbuilt checkout apart from a current one', async () => {
     /**
      * `git pull` on the host without a rebuild. The checkout matches the
@@ -141,6 +161,9 @@ describe('UpdatesPage', () => {
     expect(
       screen.getByText(/pulled on this host without rebuilding/),
     ).toBeInTheDocument()
+    // And it no longer sends the reader to a console for something the page
+    // can do itself.
+    expect(screen.queryByText(/prtg-nats update on the host/)).toBeNull()
   })
 
   it('offers no button while the checkout has uncommitted changes', async () => {

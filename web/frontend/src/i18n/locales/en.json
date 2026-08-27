@@ -525,6 +525,7 @@
         "checkout_found": "Updating the checkout at {{path}}",
         "handover": "Handing over to the updater; this page keeps following it",
         "outcome_unknown": "The updater container {{container}} is gone, so what it did cannot be established",
+        "rebuilding": "Rebuilding what the checkout already holds ({{commit}})",
         "rolled_back": "The build failed; the checkout was put back to {{commit}} and nothing was replaced",
         "target": "Updating {{branch}} from {{from}} to {{to}}",
         "timeout": "The updater is taking longer than expected; it keeps running and the outcome is recorded when it ends",
@@ -860,7 +861,7 @@
     },
     "rebuild_pending": {
       "title": "The checkout is ahead of what is running",
-      "body": "Somebody has pulled on this host without rebuilding, so the stack still runs the older code. Run ./prtg-nats update on the host to build what the checkout already holds."
+      "body": "Somebody has pulled on this host without rebuilding, so the stack still runs the older code. Rebuilding installs what the checkout already holds; nothing is fetched and the checkout is not moved."
     },
     "dirty_blocks": {
       "title": "The checkout has uncommitted changes",
@@ -880,6 +881,7 @@
       "unknown": "The reason could not be determined."
     },
     "last_update": "Last updated from here",
-    "view_log": "view log"
+    "view_log": "view log",
+    "rebuild": "Rebuild now"
   }
 }
