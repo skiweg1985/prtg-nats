@@ -204,7 +204,9 @@ echo '--host 192.0.2.1 --user monitoring --password SECRET --self-check' | syste
 
 The self-test checks the parameters but does not reach out to the gateway.
 Activating a sensor must not depend on a device on the other side of the
-site; whether the credentials work shows on the first real run.
+site; whether the credentials work shows on the first real run. Without
+parameters it passes as well - that is the form the deployment uses, long
+before a gateway is entered in PRTG.
 
 A real measurement:
 

@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Manage sensor scripts centrally
@@ -193,6 +193,11 @@ CI:
   pattern.
 - `--self-check` is mandatory: with it the sensor verifies only its own
   ability to run and returns valid Script v2 JSON. Deployment depends on it.
+  It arrives **without any other parameter** - the deployment runs it before
+  anyone has entered a gateway, a target or a password in PRTG, so a sensor
+  that insists on its parameters here rolls back every one of its own
+  rollouts. Parameters that do come along are checked; missing ones are not
+  a failure at this point.
 - A caught exception is never copied into the sensor message - it can contain
   credentials.
 

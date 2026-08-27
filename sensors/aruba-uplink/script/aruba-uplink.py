@@ -858,21 +858,33 @@ def failure_result(args: dict[str, Any], code: str,
 
 
 def self_check(args: dict[str, Any]) -> dict[str, Any]:
-    """Check the ability to run - without touching the network.
+    """Check the ability to run - and the parameters, if any came along.
 
-    Deployment pipes this through the hardened service unit and requires an
-    "ok" before it activates the sensor. Reaching out to the gateway here
-    would make the activation of a sensor depend on a device on the other
-    side of the site.
+    Deployment pipes a bare --self-check through the hardened service unit
+    and requires an "ok" before it activates the sensor. At that point the
+    gateway and its credentials are not known anywhere: they are entered in
+    PRTG afterwards. So an invocation without parameters has to pass -
+    otherwise every rollout of this sensor rolls itself back.
+
+    If parameters do come along, they are checked. That is the only way to
+    check a configuration before it is entered in PRTG - nobody checks it
+    there any more. Reaching out to the gateway stays out of it either way,
+    it would make the activation of a sensor depend on a device on the
+    other side of the site.
     """
-    try:
-        validate(args)
-    except ConfigError as problem:
-        fail(str(problem))
+    configured = bool(args["host"] or args["user"] or args["password"])
+    if configured:
+        try:
+            validate(args)
+        except ConfigError as problem:
+            fail(str(problem))
 
-    message = ("The parameters are complete and %s is a usable gateway "
-               "address. Whether the credentials work shows on the first "
-               "real run." % args["host"])
+    message = ("The sensor runs and reads its parameters. The gateway and "
+               "its credentials come from PRTG on the first real run.")
+    if configured:
+        message = ("The parameters are complete and %s is a usable gateway "
+                   "address. Whether the credentials work shows on the first "
+                   "real run." % args["host"])
     return {
         "version": 2,
         "status": "ok",
