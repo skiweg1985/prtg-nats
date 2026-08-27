@@ -29,12 +29,14 @@ well, or through a persistent `DOCKER-USER` policy.
 
 ## 2. Get the repository
 
-Replace `<REPOSITORY-URL>` with the actual address of this repository:
-
 ```bash
-sudo git clone <REPOSITORY-URL> /opt/prtg-nats-server
-cd /opt/prtg-nats-server
+sudo git clone --branch dev git@github.com:skiweg1985/prtg-nats.git /opt/prtg-nats
+cd /opt/prtg-nats
 ```
+
+The production checkout follows `dev`, the repository's default branch.
+Configure an authorized GitHub SSH key on the host before cloning; the updater
+can use a separate read-only deploy key later.
 
 ## 3. Site settings
 
@@ -79,9 +81,12 @@ sudo ./prtg-nats probe configure PROBE-USER   # per registered probe
 
 The PRTG core has to be changed in the same operation.
 
-The probe configuration always receives `NATS_FQDN`, never `NATS_HOST_IP`: the
-server certificate carries only the FQDN as a SAN, and an IP address would make
-the TLS check on the probe fail.
+The generated probe configuration uses `NATS_FQDN` by default because a name
+survives a move to another host. The server certificate also carries
+`NATS_HOST_IP` as an IP SAN, so a probe without access to the internal DNS can
+use the configured address without disabling TLS verification. An installation
+created before the IP SAN was added needs one
+`sudo ./prtg-nats renew-certificate` before using that fallback.
 
 Port `80` has to be free on the host address:
 

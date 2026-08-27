@@ -1,7 +1,7 @@
 ---
 title: Monitoring
 role: operator
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Monitoring
@@ -170,7 +170,7 @@ API is in [the REST API reference](../reference/api.md#observability).
 | Component | Command |
 | --- | --- |
 | NATS | `sudo ./prtg-nats logs --since=30m` |
-| The stack | `docker compose --project-directory /opt/prtg-nats-server logs` |
+| The stack | `docker compose --project-directory /opt/prtg-nats logs` |
 | MPP probe | `sudo journalctl -u prtg.mpprobe.service -n 300 --no-pager` |
 | PRTG core | `C:\ProgramData\Paessler\PRTG Network Monitor\Logs\probeadapter` |
 
@@ -195,8 +195,8 @@ The short list, for an installation that should page somebody:
 | `JetStream File Storage` | against the volume size | JetStream fills the persistent volume |
 
 Certificate expiry is also surfaced by the web platform, which warns
-`certificate_expiry_warning_days` ahead of time - 30 by default, see
-[the configuration reference](../reference/configuration.md#adapters-and-background-work).
+`certificate_expiry_warning_days` ahead of time - 30 by default. See
+[Background work settings](../reference/configuration.md#adapters-and-background-work).
 
 ## When something is wrong
 
