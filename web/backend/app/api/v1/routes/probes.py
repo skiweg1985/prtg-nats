@@ -29,6 +29,7 @@ from app.api.schemas.probes import (
     DeviationOut,
     ObservedStateOut,
     PlannedActionOut,
+    ProbeActionIn,
     ProbeDetailOut,
     ProbeInventoryOut,
     ProbeSummaryOut,
@@ -41,7 +42,7 @@ from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.models import DesiredProbeState, DesiredSensor, ProbeSummary
 from app.infrastructure.nats_runtime import NatsRuntime
-from app.persistence.models.inventory import ProbeDesiredState
+from app.persistence.models.inventory import ProbeDesiredState, ProbeRecord
 from app.services.audit import AuditWriter
 from app.services.auth import Principal
 from app.services.jobs import JobRequest, JobService, ResourceRef
@@ -141,6 +142,261 @@ async def list_probes(
         connected, expected_ca_sha256=system.expected_ca_fingerprint()
     )
     return [_summary_out(summary) for summary in summaries]
+
+
+# --- Actions on a selection -------------------------------------------------
+#
+# Every route here is registered before the "/{probe_id}/..." ones below, and
+# that is load-bearing rather than tidy: FastAPI serves the first route whose
+# path matches, so with the single-probe routes first, "/probes/actions/refresh"
+# would be read as a refresh of the probe named "actions".
+#
+# The job they create is the one a rollout already uses: a single job holding
+# one lock per probe, so a selection of twelve queues behind whatever else is
+# working on those twelve instead of racing it.
+
+
+async def _selected_records(
+    probes: ProbeService, payload: ProbeActionIn
+) -> list[ProbeRecord]:
+    """Resolve every id before any job exists.
+
+    One unknown id fails the request with 404 and nothing has run. Resolving
+    them inside the job would leave a half-applied action and a job to read.
+    """
+    return [await probes.get_record(probe_id) for probe_id in payload.probe_ids]
+
+
+async def _fleet_job(
+    records: list[ProbeRecord],
+    jobs: JobService,
+    audit: AuditWriter,
+    principal: Principal,
+    *,
+    job_type: str,
+    steps: tuple[str, ...],
+    action: str,
+    extra_payload: dict[str, object] | None = None,
+) -> JobAccepted:
+    """One action, one job, however many probes were selected."""
+    single = records[0] if len(records) == 1 else None
+    job = await jobs.create(
+        JobRequest(
+            type=job_type,
+            steps=steps,
+            resources=tuple(ResourceRef("probe", record.id) for record in records),
+            # A selection has no one target: naming twelve probes in the label
+            # would fill the job list with a paragraph, and "jobs for this
+            # probe" would then answer with a job that is mostly about others.
+            # The per-probe outcome is in the job log, where it belongs.
+            target_type="probe" if single else None,
+            target_id=single.id if single else None,
+            target_label=(
+                single.nats_username if single else f"{len(records)} probe(s)"
+            ),
+            payload={
+                "probes": [record.nats_username for record in records],
+                **(extra_payload or {}),
+            },
+        ),
+        principal,
+    )
+    # One entry per probe, not one per request: "who installed the CA on
+    # berlin-01" has to be answerable whether it was pressed on a detail page
+    # or came out of a selection of twelve.
+    for record in records:
+        audit.record(
+            action=action,
+            object_type="probe",
+            object_id=record.id,
+            object_label=record.nats_username,
+            job_id=job.id,
+        )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.post(
+    "/actions/refresh",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def refresh_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_READ))
+    ],
+) -> JobAccepted:
+    """Ask a selection of probes for their state.
+
+    A job where the single-probe route is a synchronous call: one round trip
+    is worth waiting for, a dozen over SSH is not.
+    """
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_actions.REFRESH_JOB_TYPE,
+        steps=probe_actions.REFRESH_STEPS,
+        action="probe.refresh",
+    )
+
+
+@router.post(
+    "/actions/validate",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def validate_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_READ))
+    ],
+) -> JobAccepted:
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_actions.VALIDATE_JOB_TYPE,
+        steps=probe_actions.VALIDATE_STEPS,
+        action="probe.validate",
+    )
+
+
+@router.post(
+    "/actions/install-ca",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def install_ca_on_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_actions.INSTALL_CA_JOB_TYPE,
+        steps=probe_actions.INSTALL_CA_STEPS,
+        action="probe.install_ca",
+    )
+
+
+@router.post(
+    "/actions/helper-update",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def update_helper_on_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    """Renew the helper on a selection.
+
+    The probe list already knows which rows need it - helper_outdated is a
+    column - and this is what turns that column into one action instead of one
+    visit per row.
+    """
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_actions.HELPER_UPDATE_JOB_TYPE,
+        steps=probe_actions.HELPER_UPDATE_STEPS,
+        action="probe.helper_update",
+    )
+
+
+@router.post(
+    "/actions/configure",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def configure_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_lifecycle.CONFIGURE_JOB_TYPE,
+        steps=probe_lifecycle.CONFIGURE_STEPS,
+        action="probe.configure",
+    )
+
+
+@router.post(
+    "/actions/reconcile",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def reconcile_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_RECONCILE))
+    ],
+) -> JobAccepted:
+    """Execute the plan on a selection - never a preview.
+
+    The dry run stays on the single-probe route: a preview is something an
+    operator reads, and twelve of them at once is not a thing to read.
+    """
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_lifecycle.RECONCILE_JOB_TYPE,
+        steps=probe_lifecycle.RECONCILE_STEPS,
+        action="probe.reconcile",
+        # Each probe plans against its own desired state; there is no such
+        # thing as one desired state for a selection.
+        extra_payload={
+            "desired_by_probe": {
+                record.nats_username: await probes.desired_document(record)
+                for record in records
+            }
+        },
+    )
 
 
 @router.get("/{probe_id}", response_model=ProbeDetailOut)

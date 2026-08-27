@@ -104,6 +104,18 @@
     "subtitle": "The systems that run the monitoring scripts",
     "empty": "No probe is enrolled yet.",
     "emptyHint": "Nothing is enrolled yet. Adding a probe takes one command, run on the probe itself.",
+    "filters": {
+      "helperOutdated": "Helper outdated only",
+      "deviations": "With deviations only",
+      "empty": "No probe matches these filters."
+    },
+    "fleet": {
+      "confirmTitle": "Apply “{{action}}” to several probes",
+      "confirmBody_one": "This runs as one job on this probe.",
+      "confirmBody_other": "This runs as one job across these {{count}} probes, one after another.",
+      "skipped_one": "One selected probe is left out because the action does not apply to it.",
+      "skipped_other": "{{count}} selected probes are left out because the action does not apply to them."
+    },
     "columns": {
       "name": "Probe",
       "host": "Host",
@@ -424,6 +436,9 @@
         "helper_before": "{{probe}} carries helper version {{version}}",
         "helper_sent": "{{probe}}: helper transferred and accepted as version {{version}}",
         "helper_updated": "{{probe}} now answers with helper version {{version}}",
+        "fanout_started": "{{probes}} probes selected, one after another",
+        "action_failed": "{{probe}}: failed ({{reason}})",
+        "fanout_finished": "{{succeeded}} succeeded, {{failed}} failed",
         "identity_resolved": "{{probe}}: identity resolved as {{probe_name}}",
         "config_rendered": "{{probe}}: configuration rendered",
         "config_staged": "{{probe}}: credentials and configuration staged",

@@ -135,6 +135,32 @@ comes back up, so its status passes through `detached` on the way. See
 | `DELETE /probes/{id}` | unenrol the probe → job |
 | `GET /probes/{id}/access-key` | the PRTG access key, audited |
 
+Six of those actions also take a selection. `POST /probes/actions/{action}`
+with a body of `{"probe_ids": [...]}` creates one job holding one lock per
+probe - the shape a sensor rollout already uses - and applies the action to
+them one after another:
+
+| | |
+| --- | --- |
+| `POST /probes/actions/refresh` | ask a selection now → job |
+| `POST /probes/actions/validate` | → job |
+| `POST /probes/actions/install-ca` | → job |
+| `POST /probes/actions/helper-update` | renew the helper on a selection → job |
+| `POST /probes/actions/configure` | roll the configuration out → job |
+| `POST /probes/actions/reconcile` | execute the plan, never a preview → job |
+
+Each takes the permission its single-probe route takes. Every id is resolved
+before the job exists, so an unknown one fails the request with `404` and
+nothing has run. One probe that cannot be reached does not take the rest of the
+selection with it: the job records an outcome per probe, finishes
+`partially_successful` and carries `succeeded` and `failed` in its result. A
+selection of exactly one behaves like the single-probe route - it fails with
+that probe's own error code rather than with a count.
+
+`POST /probes/actions/refresh` is a job where `POST /probes/{id}/refresh` is
+synchronous. One round trip is worth holding a request open for; a dozen over
+SSH is not.
+
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
 

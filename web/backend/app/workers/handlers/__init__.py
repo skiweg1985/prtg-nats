@@ -68,6 +68,15 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=probe_actions.helper_update,
         permission="probe.update",
     ),
+    probe_actions.REFRESH_JOB_TYPE: JobDefinition(
+        type=probe_actions.REFRESH_JOB_TYPE,
+        steps=probe_actions.REFRESH_STEPS,
+        handler=probe_actions.refresh,
+        permission="probe.read",
+        # Asking a second time is what this job already did, once per probe,
+        # and wrote down.
+        refreshes_probes=False,
+    ),
     probe_lifecycle.CONFIGURE_JOB_TYPE: JobDefinition(
         type=probe_lifecycle.CONFIGURE_JOB_TYPE,
         steps=probe_lifecycle.CONFIGURE_STEPS,

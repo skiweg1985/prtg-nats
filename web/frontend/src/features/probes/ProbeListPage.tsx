@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { useProbes } from '@/api/hooks'
+import type { ApiError } from '@/api/client'
 import type { ProbeSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,6 +13,7 @@ import { ProbeStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
+import { FleetActionBar } from './FleetActions'
 
 export function ProbeListPage() {
   const { t } = useTranslation()
@@ -19,8 +21,29 @@ export function ProbeListPage() {
   const { data, isLoading, error, refetch } = useProbes()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deploying, setDeploying] = useState(false)
+  // The two questions this list gets asked that search cannot answer: which
+  // probes are due a helper, and which ones drifted. Both are columns already;
+  // the filters only save clicking them together by hand.
+  const [onlyHelperOutdated, setOnlyHelperOutdated] = useState(false)
+  const [onlyDeviations, setOnlyDeviations] = useState(false)
+  const [actionError, setActionError] = useState<ApiError | Error | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
+
+  const rows = (data ?? []).filter(
+    (row) =>
+      (!onlyHelperOutdated || row.helper_outdated) &&
+      (!onlyDeviations || row.deviation_count > 0),
+  )
+  // Out of the full list, not out of the filtered one: a probe that was picked
+  // before a filter was set is still picked, and the confirmation names it.
+  const selectedProbes = (data ?? []).filter((row) => selected.has(row.id))
+  const filtered = onlyHelperOutdated || onlyDeviations
+
+  function clearFilters() {
+    setOnlyHelperOutdated(false)
+    setOnlyDeviations(false)
+  }
 
   const columns: Column<ProbeSummary>[] = [
     {
@@ -134,31 +157,71 @@ export function ProbeListPage() {
         </div>
       </header>
 
+      {/* No retry button: what failed was an action on a selection that is
+          still selected, so pressing it again is the button in the bar. It
+          clears itself when the next one starts. */}
+      {actionError && <ErrorDetails error={actionError} />}
+
       <DataTable
-        rows={data}
+        rows={data ? rows : undefined}
         columns={columns}
         rowKey={(row) => row.id}
         isLoading={isLoading}
-        emptyTitle={t('probes.empty')}
-        emptyHint={t('probes.emptyHint')}
+        // A filter that matches nothing is not an empty fleet, and telling
+        // somebody to enrol their first probe when they have twelve is how an
+        // empty state stops being read at all.
+        emptyTitle={filtered ? t('probes.filters.empty') : t('probes.empty')}
+        emptyHint={filtered ? undefined : t('probes.emptyHint')}
         // An empty fleet is where someone is looking for exactly this.
         emptyAction={
-          <PermissionGate permission="probe.create">
-            <Button variant="primary" onClick={() => navigate('/probes/new')}>
-              {t('probes.enroll.action')}
+          filtered ? (
+            <Button variant="secondary" onClick={clearFilters}>
+              {t('common.clearFilters')}
             </Button>
-          </PermissionGate>
+          ) : (
+            <PermissionGate permission="probe.create">
+              <Button variant="primary" onClick={() => navigate('/probes/new')}>
+                {t('probes.enroll.action')}
+              </Button>
+            </PermissionGate>
+          )
         }
         onRowClick={(row) => navigate(`/probes/${row.id}`)}
+        filters={
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterToggle
+              label={t('probes.filters.helperOutdated')}
+              active={onlyHelperOutdated}
+              onToggle={() => setOnlyHelperOutdated(!onlyHelperOutdated)}
+            />
+            <FilterToggle
+              label={t('probes.filters.deviations')}
+              active={onlyDeviations}
+              onToggle={() => setOnlyDeviations(!onlyDeviations)}
+            />
+            {filtered && (
+              <Button size="sm" variant="ghost" onClick={clearFilters}>
+                {t('common.clearFilters')}
+              </Button>
+            )}
+          </div>
+        }
         selection={{
           selected,
           onChange: setSelected,
           actions: (
-            <PermissionGate permission="deployment.create">
-              <Button size="sm" variant="primary" onClick={() => setDeploying(true)}>
-                {t('sensors.deploy')}
-              </Button>
-            </PermissionGate>
+            <>
+              <PermissionGate permission="deployment.create">
+                <Button size="sm" variant="primary" onClick={() => setDeploying(true)}>
+                  {t('sensors.deploy')}
+                </Button>
+              </PermissionGate>
+              <FleetActionBar
+                probes={selectedProbes}
+                onError={setActionError}
+                onDone={() => setSelected(new Set())}
+              />
+            </>
           ),
         }}
       />
@@ -174,5 +237,26 @@ export function ProbeListPage() {
         />
       )}
     </div>
+  )
+}
+
+function FilterToggle({
+  label,
+  active,
+  onToggle,
+}: {
+  label: string
+  active: boolean
+  onToggle: () => void
+}) {
+  return (
+    <Button
+      size="sm"
+      variant={active ? 'primary' : 'ghost'}
+      aria-pressed={active}
+      onClick={onToggle}
+    >
+      {label}
+    </Button>
   )
 }
