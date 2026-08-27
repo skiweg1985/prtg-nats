@@ -125,6 +125,29 @@ class ProbeThatStopsAnswering(Probe):
         return answer
 
 
+class ProbeStillRestarting(Probe):
+    """Answers the whole time, but reports the service as down afterwards.
+
+    The management channel runs over SSH and is back long before the MPP is,
+    so the platform gets a complete answer that happens to say the one thing
+    it cannot take at face value right after a rollout.
+    """
+
+    def __init__(self, sha256: str) -> None:
+        super().__init__(sha256)
+        self._done = False
+
+    async def run(
+        self, connection: ProbeConnection, request: HelperRequest, timeout: int
+    ) -> str:
+        answer = await super().run(connection, request, timeout)
+        if request.command.value == "sensor-commit":
+            self._done = True
+        if self._done and request.command.value == "probe-info":
+            return PROBE_INFO.replace("service=active", "service=inactive")
+        return answer
+
+
 def build_runner(settings: Settings, transport: ScriptedTransport) -> JobRunner:
     return JobRunner(
         settings=settings,
@@ -275,3 +298,33 @@ async def test_a_probe_that_stops_answering_keeps_its_last_good_state(
         assert row.refresh_due, "nothing will ask this probe again before it expires"
 
     assert (await summary_of(client, PROBE))["status"] != "unreachable"
+
+
+async def test_a_service_still_coming_up_is_asked_again_within_the_minute(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """An answer of "inactive" seconds after a restart is not worth five minutes.
+
+    Where a rollout changed the NATS account, the old process ignores SIGTERM
+    while it retries a connection the server no longer accepts, and systemd
+    spends its full stop timeout before the new one starts. Asked in that
+    window, the probe truthfully says the service is down - and the interface
+    would repeat it until the observation goes stale.
+    """
+    write_probe_inventory(project_dir, PROBE)
+    write_sensor(project_dir, SENSOR, version=SENSOR_VERSION)
+    transport = ProbeStillRestarting(catalogue_sha256(settings))
+    await sign_in(client)
+
+    probe_id = str((await summary_of(client, PROBE))["id"])
+    await deploy(client, probe_id)
+    await drain(build_runner(settings, transport))
+
+    async with session_factory() as db:
+        row = await db.scalar(select(ProbeObservedState))
+        assert row is not None
+        assert row.reachable, "the probe answered; only its service had not"
+        assert row.refresh_due, "the next sync pass will not correct this in a minute"

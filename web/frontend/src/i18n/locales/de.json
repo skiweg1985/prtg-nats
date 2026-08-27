@@ -401,6 +401,7 @@
         "identity_resolved": "{{probe}}: Identität aufgelöst als {{probe_name}}",
         "config_rendered": "{{probe}}: Konfiguration gerendert",
         "config_staged": "{{probe}}: Zugangsdaten und Konfiguration bereitgestellt",
+        "config_activating": "{{probe}}: Dienst wird neu gestartet - bis zu anderthalb Minuten, wenn der alte Prozess seine Verbindung nicht aufgibt",
         "config_activated": "{{probe}}: Konfiguration aktiviert, Dienst neu gestartet",
         "config_rolled_back": "{{probe}}: vorherige Konfiguration wiederhergestellt",
         "configured": "{{probe}}: Konfiguration ist aktiv",
