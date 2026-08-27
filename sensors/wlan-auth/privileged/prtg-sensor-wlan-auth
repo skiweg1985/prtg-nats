@@ -385,8 +385,10 @@ def run_dhcp(interface, budget):
         raise Blocked("internal-error", "Could not run dhcpcd")
     duration = int((time.monotonic() - started) * 1000)
 
-    if completed.returncode != 0:
-        raise Failed("dhcp-timeout", "The DHCP request was not answered")
+    # The lease decides, not the exit status: dhcpcd 9.4.1 on Bookworm
+    # prints a complete lease in test mode and then segfaults while
+    # cleaning up. The DHCP server has answered at that point, and that is
+    # what the sensor measures.
     lease = {}
     for line in completed.stdout.splitlines():
         key, _, value = line.strip().partition("=")
@@ -394,6 +396,8 @@ def run_dhcp(interface, budget):
                    "new_routers"):
             lease[key] = value.strip("'")
     if "new_ip_address" not in lease:
+        if completed.returncode != 0:
+            raise Failed("dhcp-timeout", "The DHCP request was not answered")
         raise Failed("dhcp-timeout", "The DHCP server offered no address")
     return duration, lease
 
