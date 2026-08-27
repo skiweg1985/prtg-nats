@@ -18,7 +18,7 @@ source "${SCRIPT_DIR}/mpp-config.sh"
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
   while IFS='=' read -r env_key env_value; do
     case "${env_key}" in
-      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION)
+      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION|WEB_FQDN|WEB_HTTPS_PORT)
         if [[ -z "${!env_key+x}" ]]; then
           printf -v "${env_key}" '%s' "${env_value}"
         fi
@@ -33,6 +33,7 @@ fi
 NATS_PORT="${NATS_PORT:-23561}"
 CA_HTTP_PORT="${CA_HTTP_PORT:-80}"
 CA_ORGANIZATION="${CA_ORGANIZATION:-PRTG NATS}"
+WEB_HTTPS_PORT="${WEB_HTTPS_PORT:-443}"
 if ! [[ "${NATS_PORT}" =~ ^[0-9]{1,5}$ ]] ||
   ((NATS_PORT < 1 || NATS_PORT > 65535)); then
   printf 'Invalid NATS_PORT: %s\n' "${NATS_PORT}" >&2
@@ -55,6 +56,7 @@ require_configured_value NATS_FQDN 'FQDN of the NATS server'
 require_configured_value NATS_HOST_IP 'IP address for the container ports'
 
 MPP_SSH_SOURCE_CIDR="${MPP_SSH_SOURCE_CIDR:-${NATS_HOST_IP}/32}"
+WEB_FQDN="${WEB_FQDN:-${NATS_FQDN}}"
 NATS_USERNAME="${NATS_USERNAME:-prtg-nats}"
 die() {
   printf 'ERROR: %s\n' "$*" >&2

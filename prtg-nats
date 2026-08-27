@@ -19,7 +19,7 @@ PRTG-NATS bootstrap and deployment tooling
 
 Regular administration happens in the web interface:
   docker compose up -d
-  https://<NATS_FQDN>:8443
+  https://<NATS_FQDN>
 
 Usage:
   ./prtg-nats <command> [options]
@@ -233,6 +233,43 @@ validate_organization() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9\ .,_-]{0,63}$ ]]
 }
 
+# The address an operator types into a browser. The port is left out when it
+# is the default one - that is how the browser shows it afterwards, and how it
+# should end up in a runbook. Takes the name as an argument because the setup
+# dialog knows it before it has been written anywhere.
+web_interface_address() {
+  local fqdn="${1}"
+  local port="${2:-${WEB_HTTPS_PORT:-443}}"
+
+  if [[ "${port}" == "443" ]]; then
+    printf 'https://%s' "${fqdn}"
+  else
+    printf 'https://%s:%s' "${fqdn}" "${port}"
+  fi
+}
+
+# The name the PRTG core and the probes connect through, and the one the
+# certificates are issued for. "hostname -f" is not enough on its own: on a
+# host without a search domain it answers the short name, and a short name in
+# the certificate is only noticed at the failed handshake weeks later. So the
+# suggestion is whatever the system can offer that is actually qualified, and
+# nothing at all when it can offer none.
+suggest_nats_fqdn() {
+  local candidate=""
+
+  for candidate in \
+    "$(hostname -f 2>/dev/null || true)" \
+    $(hostname -A 2>/dev/null || true) \
+    "$(hostname -s 2>/dev/null || true).$(dnsdomainname 2>/dev/null || true)"; do
+    candidate="${candidate%.}"
+    [[ "${candidate}" == *.* ]] || continue
+    mpp_validate_nats_host "${candidate}" || continue
+    printf '%s' "${candidate}"
+    return 0
+  done
+  return 0
+}
+
 # Writes .env from a guided dialog. Site values deliberately have no built-in
 # default; they are created here once and live in the file afterwards.
 configure_environment() {
@@ -256,8 +293,7 @@ configure_environment() {
 
   # Suggestions: existing values win, otherwise whatever the system offers.
   suggested_fqdn="$(environment_value NATS_FQDN)"
-  [[ -n "${suggested_fqdn}" ]] ||
-    suggested_fqdn="$(hostname -f 2>/dev/null || true)"
+  [[ -n "${suggested_fqdn}" ]] || suggested_fqdn="$(suggest_nats_fqdn)"
   suggested_address="$(environment_value NATS_HOST_IP)"
   # A suggestion is convenience, not a requirement: without "ip" or without a
   # default route the question is asked without one instead of aborting.
@@ -269,9 +305,27 @@ configure_environment() {
     )" || suggested_address=""
   fi
 
-  nats_fqdn="$(
-    ask_value 'FQDN of the NATS server' "${suggested_fqdn}" mpp_validate_nats_host
-  )"
+  while :; do
+    nats_fqdn="$(
+      ask_value 'FQDN of the NATS server' "${suggested_fqdn}" \
+        mpp_validate_nats_host
+    )"
+    # A short name is accepted, but not silently: it goes into the server
+    # certificate, and a core that connects through the qualified name would
+    # fail the handshake with nothing here to explain it.
+    if [[ "${nats_fqdn}" == *.* ]]; then
+      break
+    fi
+    printf '\n"%s" is not a fully qualified name. The PRTG core and every\n' \
+      "${nats_fqdn}"
+    printf 'probe connect through this name, and it is the only one in the\n'
+    printf 'server certificate.\n'
+    read -r -p 'Use it anyway? [y/N]: ' confirmation
+    case "$(printf '%s' "${confirmation}" | tr '[:upper:]' '[:lower:]')" in
+      y|yes|j|ja) break ;;
+    esac
+    suggested_fqdn=""
+  done
   host_address="$(
     ask_value 'IP address for the container ports' "${suggested_address}" \
       validate_ip_address
@@ -307,7 +361,10 @@ configure_environment() {
     "${nats_fqdn}" "${ca_port}"
   printf '  PRTG core        %s\n' "${core_address}"
   printf '  CA organisation  %s\n' "${ca_organization}"
-  printf '  Management key   only from %s\n\n' "${ssh_source_cidr}"
+  printf '  Management key   only from %s\n' "${ssh_source_cidr}"
+  printf '  Web interface    %s\n\n' \
+    "$(web_interface_address "${nats_fqdn}" \
+      "$(environment_value WEB_HTTPS_PORT)")"
   read -r -p 'Apply? [y/N]: ' confirmation
   case "$(printf '%s' "${confirmation}" | tr '[:upper:]' '[:lower:]')" in
     y|yes|j|ja) ;;
@@ -335,6 +392,16 @@ configure_environment() {
     printf 'CA_ORGANIZATION=%s\n' "${ca_organization}"
     printf 'PRTG_CORE_IP=%s\n' "${core_address}"
     printf 'MPP_SSH_SOURCE_CIDR=%s\n' "${ssh_source_cidr}"
+    # Not asked for above, but the file is rewritten from scratch - without
+    # this, editing the site settings would quietly reset a moved web port or
+    # a separate interface name back to the default.
+    local carried=""
+    for carried in IPERF_SSH_SOURCE_CIDR WEB_FQDN WEB_HTTPS_PORT; do
+      suggested_value="$(environment_value "${carried}")"
+      if [[ -n "${suggested_value}" ]]; then
+        printf '%s=%s\n' "${carried}" "${suggested_value}"
+      fi
+    done
   } > "${temporary}"
   chmod 600 "${temporary}"
   mv "${temporary}" "${ENVIRONMENT_FILE}"
@@ -376,7 +443,8 @@ show_site_settings() {
 
   printf 'Site settings (%s)\n\n' "${ENVIRONMENT_FILE}"
   for variable in NATS_FQDN NATS_PORT NATS_HOST_IP CA_HTTP_PORT \
-    CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR; do
+    CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR WEB_FQDN \
+    WEB_HTTPS_PORT; do
     from_file="$(environment_value "${variable}")"
     printf '  %-20s %-28s %s\n' \
       "${variable}" "${!variable:-—}" \
@@ -385,6 +453,8 @@ show_site_settings() {
   printf '\n  NATS endpoint      tls://%s:%s\n' "${NATS_FQDN}" "${NATS_PORT}"
   printf '  CA download        http://%s:%s/nats-ca.pem\n' \
     "${NATS_FQDN}" "${CA_HTTP_PORT}"
+  printf '  Web interface      %s\n' \
+    "$(web_interface_address "${WEB_FQDN}" "${WEB_HTTPS_PORT}")"
   printf '\nChange them with "./prtg-nats config --edit".\n'
 }
 
@@ -1543,11 +1613,11 @@ case "${command_name}" in
         exit 1
         ;;
     esac
-    cat <<'EOF'
+    cat <<EOF
 
 The stack is up. Continue in the web interface:
 
-  https://<NATS_FQDN>:8443
+  $(web_interface_address "${WEB_FQDN}" "${WEB_HTTPS_PORT}")
 
 The first visit creates the administrator account.
 EOF

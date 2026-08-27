@@ -1,7 +1,7 @@
 ---
 title: Architecture overview
 role: developer
-updated: 2026-08-03
+updated: 2026-08-27
 ---
 
 # Architecture overview
@@ -26,7 +26,7 @@ flowchart LR
         NATS["NATS + JetStream"]
         CA["CA download<br>ca.pem over HTTP"]
     end
-    Browser["Operator<br>browser"] -->|"HTTPS 8443"| Web
+    Browser["Operator<br>browser"] -->|"HTTPS 443"| Web
     Core["PRTG core"] -->|"TLS 23561"| NATS
     MPP["MPP probes<br>prtgmpprobe"] -->|"TLS 23561"| NATS
     MPP -.->|"first install only"| CA
@@ -53,7 +53,7 @@ flowchart LR
         Rest["REST API<br>roles, audit, SSE"]
         Runner["Job runner<br>workers, locks"]
     end
-    Caddy["Caddy<br>TLS 8443, /api"] --> Rest
+    Caddy["Caddy<br>TLS 443, /api"] --> Rest
     Rest --> Docker["Docker socket<br>start, reload"]
     Runner -->|"SSH"| MPP["MPP probe<br>helper channel"]
     Rest <--> Runtime["runtime/<br>certificates, accounts, db"]

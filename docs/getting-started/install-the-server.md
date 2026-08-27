@@ -1,7 +1,7 @@
 ---
 title: Install the server
 role: operator
-updated: 2026-08-03
+updated: 2026-08-27
 ---
 
 # Install the server
@@ -19,7 +19,7 @@ up with the same stack.
 - DNS resolution of `nats.example.com` to the host address
 - TCP `23561` from the PRTG core and from every probe to the NATS host
 - TCP `80` from the probe and administration networks, for the public CA
-- TCP `8443` from the administration network, for the web interface
+- TCP `443` from the administration network, for the web interface
 - TCP `22` from the NATS host to centrally managed probes
 
 The monitoring port `8222` must not be reachable from the network. With
@@ -58,9 +58,13 @@ sudo ./prtg-nats config --edit
 `./prtg-nats config` without an argument shows the effective values and whether
 each comes from `.env` or is a default. The dialog suggests the FQDN and the
 address from the system, checks every entry, and then writes `.env` with mode
-`600`. A second run offers the existing values as defaults and copies the
-previous file to `.env.bak-<timestamp>` beside it first. For automation, `.env`
-can still be written by hand following `.env.example`.
+`600`. It only suggests a name that is actually qualified - a host whose
+`hostname -f` answers the short name is asked instead of being handed a
+suggestion that would end up in the certificate - and it asks back before
+accepting a name without a domain. A second run offers the existing values as
+defaults and copies the previous file to `.env.bak-<timestamp>` beside it
+first. For automation, `.env` can still be written by hand following
+`.env.example`.
 
 `NATS_FQDN` and `NATS_PORT` are the single source for the NATS endpoint. They
 apply at once to the server configuration, the Docker port binding, the check
@@ -165,8 +169,10 @@ directory is not it.
 
 The reverse proxy `prtg-nats-web-proxy` publishes `public/nats-ca.pem` and the
 health CGI over plain HTTP, as `http://nats.example.com/nats-ca.pem`, and the
-interface over HTTPS on `8443`. It mounts `public/` and `web-certs/` read-only
-and has no access to private keys, credentials or the NATS configuration.
+interface over HTTPS on `443`. A plain-HTTP request for anything other than
+those two files is redirected to the interface, so the host name alone is
+enough to find it. It mounts `public/` and `web-certs/` read-only and has no
+access to private keys, credentials or the NATS configuration.
 
 Show the public key and its fingerprint:
 
@@ -209,7 +215,7 @@ fail remotely.
 
 ## 7. Next steps
 
-1. Open the web interface at `https://nats.example.com:8443`. The first visit
+1. Open the web interface at `https://nats.example.com`. The first visit
    creates the administrator account - see
    [the web platform](../web/install.md).
 2. [Connect the PRTG core](connect-prtg-core.md), once.
