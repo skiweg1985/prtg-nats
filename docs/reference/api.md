@@ -97,8 +97,10 @@ and a repository that did not answer is `unreachable`, never `current`. An
 image built without the `GIT_COMMIT` build argument reports `unknown` instead
 of guessing.
 
-It also reports when this installation was last updated from the interface,
-and to what. That is the question still open once the state reads current - an
+It also reports when this installation was last updated from the interface, to
+what, and by which job - a successful update ends by reloading the page, which
+takes the log the operator was watching with it, and that id is the way back
+to it. That is the question still open once the state reads current - an
 installation is up to date either because it was updated an hour ago or
 because nothing has changed in months. Empty on one that has only ever been
 updated from the host, because nothing here recorded those.

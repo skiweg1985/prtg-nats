@@ -511,6 +511,11 @@ class StackVersionOut(ApiModel):
     # which is honest: nothing here recorded those.
     last_update_at: datetime | None
     last_update_commit: str
+    # The job that did it. A successful update ends by reloading the page -
+    # the interface itself was replaced - and the log the operator was
+    # watching goes with it. This is the way back to it without hunting
+    # through the job list for the right row.
+    last_update_job_id: str
     # Where the checkout lives on the host, so an operator can see which one
     # is about to be updated before pressing anything.
     checkout_dir: str | None

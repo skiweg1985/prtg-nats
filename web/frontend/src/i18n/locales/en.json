@@ -896,6 +896,7 @@
       "updater_image_missing": "The updater image does not exist yet. Run ./prtg-nats update on the host once; every update after that works from here.",
       "unknown": "The reason could not be determined."
     },
-    "last_update": "Last updated from here"
+    "last_update": "Last updated from here",
+    "view_log": "view log"
   }
 }

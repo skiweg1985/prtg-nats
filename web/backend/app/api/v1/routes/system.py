@@ -539,6 +539,7 @@ async def stack_version(
         checked_at=cached.checked_at if cached else None,
         last_update_at=last_update.finished_at if last_update else None,
         last_update_commit=last_commit,
+        last_update_job_id=last_update.id if last_update else "",
         checkout_dir=str(project.working_dir) if project else None,
         available=readiness.available,
         unavailable_reason=readiness.reason,

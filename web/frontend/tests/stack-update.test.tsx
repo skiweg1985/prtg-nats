@@ -36,6 +36,7 @@ const BASE = {
   checked_at: '2026-08-27T10:00:00Z',
   last_update_at: null,
   last_update_commit: '',
+  last_update_job_id: '',
   checkout_dir: '/opt/prtg-nats-server',
   available: true,
   unavailable_reason: null,
@@ -246,11 +247,17 @@ describe('UpdatesPage', () => {
       ...BASE,
       last_update_at: '2026-08-27T09:00:00Z',
       last_update_commit: 'eeeeeeeeeeee5555',
+      last_update_job_id: 'J9',
     }
     renderPage()
 
     expect(await screen.findByText('Last updated from here')).toBeInTheDocument()
     expect(screen.getByText('eeeeeeeeeeee')).toBeInTheDocument()
+    // The way back to the log the reload took away.
+    expect(screen.getByRole('link', { name: 'view log' })).toHaveAttribute(
+      'href',
+      '/jobs/J9',
+    )
   })
 
   it('leaves the row out when nothing was updated from here', async () => {

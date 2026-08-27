@@ -896,6 +896,7 @@
       "updater_image_missing": "Das Updater-Image existiert noch nicht. Einmal ./prtg-nats update auf dem Host ausführen; jedes weitere Update geht dann von hier.",
       "unknown": "Der Grund ließ sich nicht ermitteln."
     },
-    "last_update": "Zuletzt von hier aktualisiert"
+    "last_update": "Zuletzt von hier aktualisiert",
+    "view_log": "Protokoll ansehen"
   }
 }

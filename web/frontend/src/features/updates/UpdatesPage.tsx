@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
 import {
   useCheckForUpdate,
@@ -220,6 +221,14 @@ function VersionCard({ data }: { data: StackVersion }) {
               <Mono className="text-ink-3 ml-2">
                 {short(data.last_update_commit)}
               </Mono>
+            )}
+            {data.last_update_job_id && (
+              <Link
+                to={`/jobs/${data.last_update_job_id}`}
+                className="text-accent ml-2 text-xs hover:underline"
+              >
+                {t('updates.view_log')}
+              </Link>
             )}
           </DetailRow>
         )}
