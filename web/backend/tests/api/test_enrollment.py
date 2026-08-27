@@ -747,3 +747,52 @@ async def test_a_probe_that_carries_the_package_enrols_as_before(
     job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
     assert job["status"] == "successful", job.get("error_details")
     assert "write-config" in transport.commands()
+
+
+async def test_a_probe_keeps_the_access_key_it_already_carries(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """A key already issued is one PRTG may have in its list.
+
+    Handing out a new one means the operator has to add it to the core before
+    the probe is let back in. The shell tooling has always kept it; this is
+    the path that used to replace it, because the runtime holds no key until
+    the inventory is written - on a first enrolment, and on every enrolment
+    after a runtime was rebuilt.
+    """
+    await _sign_in(client)
+    await _initialise(project_dir)
+    token = (await _invite(client))["token"]
+    transport.responses["probe-info"] = (
+        "OK probe-info\n"
+        "package=3.10.0-1\n"
+        "service=active\n"
+        "id=11111111-2222-3333-4444-555555555555\n"
+        "access_key=berlin-99999999-8888-7777-6666-555555555555\n"
+    )
+
+    callback = await client.post(
+        f"/api/v1/enroll/{token}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+        },
+    )
+    job_id = callback.json()["job_id"]
+
+    await _drain(_build_runner(settings, transport))
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "successful", job.get("error_details")
+
+    runtime = RuntimeFileStore(settings)
+    assert (
+        runtime.read_access_key("mpp-berlin")
+        == "berlin-99999999-8888-7777-6666-555555555555"
+    )
