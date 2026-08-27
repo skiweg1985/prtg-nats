@@ -839,7 +839,7 @@
     "no_changes": "Nothing new on this branch",
     "install": "Install the update",
     "running": "Running",
-    "running_unknown": "unknown - this image was built without a version stamp",
+    "running_unknown": "unknown - built without a version stamp; the next ./prtg-nats update fills it in",
     "checkout": "Checkout",
     "branch": "Branch",
     "checkout_dir": "Checkout on the host",
