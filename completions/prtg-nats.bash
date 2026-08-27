@@ -286,7 +286,7 @@ _prtg_nats() {
             candidates="install uninstall"
             ;;
           *)
-            candidates="--link-only --completion-only bash zsh"
+            candidates="--link-only --completion-only --relink bash zsh"
             ;;
         esac
         ;;
