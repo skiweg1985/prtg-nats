@@ -23,6 +23,7 @@ from app.domain.models import parse_probe_info
 from app.infrastructure import known_hosts
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.infrastructure.probe_helper import ProbeConnection
+from app.infrastructure.probe_helper.protocol import normalise_optional
 from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
 from app.workers.handlers import probe_lifecycle
@@ -146,9 +147,17 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
     probe_name: str = payload.get("probe_name") or probe_config.default_probe_name(host)
     # Keep whatever the probe already carries: re-enrolling a host that PRTG
     # already knows must not hand it a new identity and orphan its history.
+    #
+    # The key comes off the probe when the runtime has none, which is the case
+    # on every first enrolment and after a runtime was rebuilt. Read from the
+    # answer rather than from ObservedProbeState, which keeps only whether a
+    # key exists: the value is a secret, and its place is the inventory file,
+    # not the observation cache the interface reads.
     probe_id = observed.probe_id or probe_config.generate_probe_id()
-    access_key = context.runtime.read_access_key(username) or (
-        probe_config.default_access_key(probe_name)
+    access_key = (
+        context.runtime.read_access_key(username)
+        or normalise_optional(response.value("access_key"))
+        or probe_config.default_access_key(probe_name)
     )
     context.runtime.write_probe_inventory(
         nats_username=username,
