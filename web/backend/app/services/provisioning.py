@@ -95,7 +95,9 @@ class ProvisioningService:
 
         self._create_directories()
         self._pki.create_ca(organization=site.ca_organization)
-        self._pki.issue_server_certificate(fqdn=site.nats_fqdn, archive=False)
+        self._pki.issue_server_certificate(
+            fqdn=site.nats_fqdn, host_ip=site.nats_host_ip, archive=False
+        )
         # The reverse proxy serves the interface with a certificate from this
         # same CA, so trusting the CA once covers the browser, the NATS server
         # and the enrolment channel.
@@ -200,7 +202,9 @@ class ProvisioningService:
         site = self._runtime.site_settings()
         if not site.nats_fqdn:
             raise RuntimeStateError(details="NATS_FQDN is not configured")
-        self._pki.issue_server_certificate(fqdn=site.nats_fqdn, archive=True)
+        self._pki.issue_server_certificate(
+            fqdn=site.nats_fqdn, host_ip=site.nats_host_ip, archive=True
+        )
         self._pki.issue_web_certificate(
             fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=True
         )

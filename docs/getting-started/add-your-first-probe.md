@@ -29,7 +29,10 @@ or by hand, the random password is stored in the runtime volume under
 
 Prerequisites:
 
-- the new Linux host can reach `nats.example.com:23561`;
+- the new Linux host can reach `nats.example.com:23561`, and resolves that
+  name - a probe in a network with its own resolver often does not, and then
+  the address from `NATS_HOST_IP` stands in its place: the server certificate
+  covers both;
 - the host can reach `http://nats.example.com/nats-ca.pem`, or the CA can be
   copied over a secure administrative channel;
 - the new host can reach the internal Gitea and `packages.paessler.com`;

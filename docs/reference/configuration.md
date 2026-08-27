@@ -58,8 +58,11 @@ ask at a prompt that a script running from a pipe cannot answer.
 
 > [!NOTE]
 > A generated probe configuration always receives `NATS_FQDN`, never
-> `NATS_HOST_IP`. The server certificate carries only the FQDN as a SAN, so an
-> address would make the TLS check on the probe fail.
+> `NATS_HOST_IP` - a name survives a move to another host, an address does
+> not. The server certificate carries both, so a probe that cannot resolve
+> the name has a way in: point it at the address and the TLS check still
+> passes. An installation from before this change needs
+> `sudo ./prtg-nats renew-certificate` once for the address to appear.
 
 ## Ports and certificate
 
