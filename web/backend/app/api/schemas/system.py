@@ -487,6 +487,9 @@ class StackVersionOut(ApiModel):
     # What the running image was built from. Empty when it was built without
     # the build argument, and then `state` is "unknown" rather than a guess.
     running_commit: str
+    # What `git describe` called the running build, when the repository has
+    # tags to describe it with. Empty otherwise, and the commit stands in.
+    running_version: str
     # What the working tree on the host is at.
     checkout_commit: str
     checkout_dirty: bool
@@ -511,6 +514,11 @@ class StackVersionOut(ApiModel):
     # which is honest: nothing here recorded those.
     last_update_at: datetime | None
     last_update_commit: str
+    # The job that did it. A successful update ends by reloading the page -
+    # the interface itself was replaced - and the log the operator was
+    # watching goes with it. This is the way back to it without hunting
+    # through the job list for the right row.
+    last_update_job_id: str
     # Where the checkout lives on the host, so an operator can see which one
     # is about to be updated before pressing anything.
     checkout_dir: str | None

@@ -429,6 +429,8 @@ export interface StackCommit {
  */
 export interface StackVersion {
   running_commit: string
+  /** What `git describe` called it, when the repository has tags. */
+  running_version: string
   checkout_commit: string
   checkout_dirty: boolean
   remote_commit: string
@@ -446,6 +448,8 @@ export interface StackVersion {
   /** When this installation was last updated from here, and to what. */
   last_update_at: string | null
   last_update_commit: string
+  /** The job that ran it, so its log can be reached after the reload. */
+  last_update_job_id: string
   checkout_dir: string | null
   available: boolean
   unavailable_reason: string | null

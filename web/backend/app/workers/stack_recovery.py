@@ -83,13 +83,24 @@ async def _settle_one(
         # log_cursor counts the lines the job already carries, so this is
         # exactly the part the operator lost when the connection dropped.
         tail = "\n".join(whole.splitlines()[record.log_cursor :])
-    if tail.strip():
+    # The phase markers have done their work already - the steps they drive
+    # were advanced by the process that watched them live. Here they would
+    # only be noise in the technical detail.
+    body = "\n".join(
+        line for line in tail.splitlines() if not line.strip().startswith("::phase")
+    ).strip()
+    if body:
+        headline = next(
+            (line.strip() for line in reversed(body.splitlines()) if line.strip()),
+            "",
+        )
         await jobs.log(
             job,
             "jobs.stack.updater_output",
             level=LogLevel.INFO,
             step=RECREATE_STEP,
-            raw=tail.strip()[-8000:],
+            params={"line": headline[:200]},
+            raw=body[-8000:],
         )
 
     if exit_code is None:

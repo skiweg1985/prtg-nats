@@ -49,6 +49,11 @@ STEPS: tuple[str, ...] = (
 _BUILD_TIMEOUT_SECONDS = 40 * 60
 _POLL_SECONDS = 2.0
 
+# What the updater prefixes a phase announcement with. A contract between the
+# two rather than the caller recognising status wording, which would break the
+# progress display the first time somebody improved a sentence.
+_PHASE_MARKER = "::phase"
+
 
 async def run(context: JobContext) -> dict[str, Any]:
     service = StackUpdateService(context.settings, context.docker)
@@ -171,9 +176,7 @@ async def _follow(context: JobContext, record: StackUpdate) -> None:
         output = await context.docker.container_logs(record.container_id)
         lines = output.splitlines()
         if len(lines) > seen:
-            fresh = "\n".join(lines[seen:]).strip()
-            if fresh:
-                await context.log("jobs.stack.updater_output", raw=fresh[-8000:])
+            await _report(context, lines[seen:])
             seen = len(lines)
             record.log_cursor = seen
             await context.db.flush()
@@ -183,3 +186,45 @@ async def _follow(context: JobContext, record: StackUpdate) -> None:
         waited += _POLL_SECONDS
 
     await context.log("jobs.stack.timeout", level=LogLevel.WARNING)
+
+
+async def _report(context: JobContext, lines: list[str]) -> None:
+    """Turn a batch of updater output into steps and one readable line.
+
+    Two things are wrong with simply appending the batch. The steps stop
+    advancing at the handover, so every line from the build onwards is filed
+    under whatever step was current when this process stopped calling step() -
+    a log that says the build happened while "moving the checkout" was in
+    progress. And a batch logged under one fixed message reads as eight
+    identical rows saying "output from the updater", with the only thing worth
+    reading folded away behind a disclosure control.
+
+    So the phase markers drive the step list, and the last real line of the
+    batch becomes the visible text. The whole batch stays as the technical
+    detail, which is what an operator opens when the summary is not enough.
+    """
+    visible: list[str] = []
+    for line in lines:
+        marker = line.strip()
+        if marker.startswith(_PHASE_MARKER):
+            phase = marker[len(_PHASE_MARKER) :].strip()
+            # Only steps this job declared. The updater and the step list are
+            # edited in different files, and a typo in one should not put the
+            # job into a step nobody can render.
+            if phase in STEPS:
+                await context.step(phase)
+            continue
+        visible.append(line)
+
+    body = "\n".join(visible).strip()
+    if not body:
+        return
+
+    # The last line that says something, as the summary. Build output ends on
+    # whatever the tool last printed, and that is the most recent news.
+    headline = next((line.strip() for line in reversed(visible) if line.strip()), "")
+    await context.log(
+        "jobs.stack.updater_output",
+        params={"line": headline[:200]},
+        raw=body[-8000:],
+    )

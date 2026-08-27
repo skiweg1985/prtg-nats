@@ -514,6 +514,7 @@ async def stack_version(
 
     return StackVersionOut(
         running_commit=running,
+        running_version=settings.git_version,
         checkout_commit=checkout,
         checkout_dirty=cached.checkout_dirty if cached else False,
         remote_commit=remote,
@@ -539,6 +540,7 @@ async def stack_version(
         checked_at=cached.checked_at if cached else None,
         last_update_at=last_update.finished_at if last_update else None,
         last_update_commit=last_commit,
+        last_update_job_id=last_update.id if last_update else "",
         checkout_dir=str(project.working_dir) if project else None,
         available=readiness.available,
         unavailable_reason=readiness.reason,

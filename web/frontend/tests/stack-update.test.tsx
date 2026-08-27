@@ -25,6 +25,7 @@ import { changeLanguage } from '@/i18n'
 
 const BASE = {
   running_commit: 'aaaaaaaaaaaa1111',
+  running_version: '',
   checkout_commit: 'aaaaaaaaaaaa1111',
   checkout_dirty: false,
   remote_commit: 'aaaaaaaaaaaa1111',
@@ -36,6 +37,7 @@ const BASE = {
   checked_at: '2026-08-27T10:00:00Z',
   last_update_at: null,
   last_update_commit: '',
+  last_update_job_id: '',
   checkout_dir: '/opt/prtg-nats-server',
   available: true,
   unavailable_reason: null,
@@ -235,6 +237,19 @@ describe('UpdatesPage', () => {
     await waitFor(() => expect(health).toHaveBeenCalled(), { timeout: 6000 })
   })
 
+  it('shows the release name next to the commit, once there is one', async () => {
+    /**
+     * A tag says which release this is; the hash says exactly which build.
+     * During a release both matter, so neither replaces the other.
+     */
+    await changeLanguage('en')
+    version = { ...BASE, running_version: 'v0.2.0-3-gaaaaaaa' }
+    renderPage()
+
+    expect(await screen.findByText('v0.2.0-3-gaaaaaaa')).toBeInTheDocument()
+    expect(screen.getAllByText('aaaaaaaaaaaa').length).toBeGreaterThan(0)
+  })
+
   it('says when it was last updated, once it has been', async () => {
     /**
      * The question still open once the state reads current. An installation
@@ -246,11 +261,17 @@ describe('UpdatesPage', () => {
       ...BASE,
       last_update_at: '2026-08-27T09:00:00Z',
       last_update_commit: 'eeeeeeeeeeee5555',
+      last_update_job_id: 'J9',
     }
     renderPage()
 
     expect(await screen.findByText('Last updated from here')).toBeInTheDocument()
     expect(screen.getByText('eeeeeeeeeeee')).toBeInTheDocument()
+    // The way back to the log the reload took away.
+    expect(screen.getByRole('link', { name: 'view log' })).toHaveAttribute(
+      'href',
+      '/jobs/J9',
+    )
   })
 
   it('leaves the row out when nothing was updated from here', async () => {

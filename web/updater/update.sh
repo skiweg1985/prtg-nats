@@ -63,6 +63,16 @@ git_ssh_env() {
   export GIT_SSH_COMMAND="${command}"
 }
 
+# Which phase the updater has reached, for the job's step list.
+#
+# An explicit marker rather than leaving the caller to recognise "Building the
+# images..." in the output: that would make a progress display depend on the
+# wording of a status line, and the first time somebody improved that wording
+# the steps would silently stop advancing.
+phase_marker() {
+  printf '::phase %s\n' "$1"
+}
+
 json_string() {
   # Enough escaping for what git hands us: quotes and backslashes in a commit
   # subject, and every control character flattened to a space.
@@ -159,6 +169,7 @@ list_commits() {
 phase_fetch() {
   require_checkout || return 1
   git_ssh_env
+  phase_marker fetch
   printf 'Fetching %s...\n' "${1:-origin}"
   git fetch --prune origin || return 1
   printf 'Fetched.\n'
@@ -182,6 +193,7 @@ phase_checkout() {
   [[ -n "${branch}" ]] || die 'no branch given'
   [[ -n "${target}" ]] || die 'no target commit given'
 
+  phase_marker checkout
   git cat-file -e "${target}^{commit}" 2>/dev/null ||
     die "commit ${target} is not in this repository"
 
@@ -202,6 +214,7 @@ phase_checkout() {
 # exists for exactly this case would never run.
 phase_build() {
   require_checkout || return 1
+  phase_marker build
   printf 'Building the images...\n'
   GIT_COMMIT="$(git rev-parse HEAD)" \
     GIT_REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')" \
@@ -218,6 +231,7 @@ phase_build() {
 # "coming back" page instead of a connection error.
 phase_recreate() {
   require_checkout || return 1
+  phase_marker recreate
   printf 'Recreating the stack...\n'
   GIT_COMMIT="$(git rev-parse HEAD)" \
     GIT_REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')" \

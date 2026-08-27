@@ -113,6 +113,8 @@ services:
         # than inventing an answer.
         GIT_COMMIT: ${GIT_COMMIT:-}
         GIT_REF: ${GIT_REF:-}
+        # What `git describe` calls this, once the repository has tags.
+        GIT_VERSION: ${GIT_VERSION:-}
     container_name: prtg-nats-web-api
     environment:
       PRTG_NATS_WEB_ENVIRONMENT: production
