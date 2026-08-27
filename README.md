@@ -32,7 +32,7 @@ flowchart LR
         NATS["NATS + JetStream"]
         CA["CA download<br>ca.pem over HTTP"]
     end
-    Browser["Operator<br>browser"] -->|"HTTPS 8443"| Web
+    Browser["Operator<br>browser"] -->|"HTTPS 443"| Web
     Core["PRTG core"] -->|"TLS 23561"| NATS
     MPP["MPP probes<br>prtgmpprobe"] -->|"TLS 23561"| NATS
     MPP -.->|"first install only"| CA
@@ -99,7 +99,7 @@ it is used alongside the shell tooling rather than instead of it.
 docker compose up -d
 ```
 
-Then open `https://<NATS_FQDN>:8443`. The first visit asks you to create the
+Then open `https://<NATS_FQDN>`. The first visit asks you to create the
 administrator; there is no default password.
 
 What it gives you over the shell:

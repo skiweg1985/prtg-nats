@@ -212,12 +212,16 @@ class EnrollmentService:
         """Where the host reaches this platform, over TLS.
 
         The name, not the address: it is the name in the certificate the probe
-        just learned to trust.
+        just learned to trust. The port is left out when it is the default
+        one - this URL is pasted into a one-liner and read back from runbooks.
         """
         site = self._runtime.site_settings()
         if not site.web_fqdn:
             raise RuntimeStateError(details="NATS_FQDN is not configured")
-        return f"https://{site.web_fqdn}:{self._settings.web_https_port}"
+        port = self._settings.web_https_port
+        if port == 443:
+            return f"https://{site.web_fqdn}"
+        return f"https://{site.web_fqdn}:{port}"
 
     def ca_material(self) -> tuple[str, str]:
         """The CA and its fingerprint, as the probe will see them."""

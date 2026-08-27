@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     # Where the reverse proxy answers. Not used to listen - used to tell a
     # probe where to come back to, so it has to match what compose publishes.
-    web_https_port: int = Field(default=8443, validation_alias="WEB_HTTPS_PORT")
+    web_https_port: int = Field(default=443, validation_alias="WEB_HTTPS_PORT")
 
     # --- Sessions -----------------------------------------------------------
     session_cookie_name: str = "prtg_nats_session"

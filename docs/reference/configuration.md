@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Configuration reference
@@ -108,12 +108,17 @@ once, which is what the comma is for.
 
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
-| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `8443` | no | `8443` |
+| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `443` | no | `8443` |
 | `WEB_FQDN` | Name the certificate of the web interface is issued for | hostname | value of `NATS_FQDN` | no | `admin.example.com` |
 
 The default for `WEB_FQDN` is right for a single-server installation. Set it
 only when the interface is reached under a different name than the NATS
 endpoint.
+
+`WEB_HTTPS_PORT` defaults to `443` because a port above 1024 is filtered in
+enough client networks to make it a poor default - and a browser that reaches
+`CA_HTTP_PORT` over plain HTTP is redirected to whatever this port is, so
+moving it stays invisible to whoever only types the host name.
 
 ## Where the shell tooling looks for the runtime
 

@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Operations and maintenance
@@ -17,7 +17,7 @@ certificates, following jobs - happens in the web interface:
 docker compose up -d
 ```
 
-Then open `https://<NATS_FQDN>:8443`. Details in
+Then open `https://<NATS_FQDN>`. Details in
 [../web/install.md](../web/install.md). The former terminal menu (`tui`) was
 replaced by the web interface; the commands that remain are listed in
 [../reference/cli.md](../reference/cli.md).
@@ -158,7 +158,7 @@ is a new password on every endpoint and every probe that uses it.
 "copy the directory" is not the answer any more:
 
 ```bash
-curl -sS --cacert nats-ca.pem -b cookies https://HOST:8443/api/v1/system/export -X POST
+curl -sS --cacert nats-ca.pem -b cookies https://HOST/api/v1/system/export -X POST
 ```
 
 The system page offers the same as a job. Both write

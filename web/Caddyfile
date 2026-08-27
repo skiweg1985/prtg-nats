@@ -81,7 +81,7 @@ https://{$WEB_FQDN}:{$WEB_HTTPS_PORT}, https://{$WEB_BIND_IP}:{$WEB_HTTPS_PORT} 
 # Plain HTTP, on purpose and only here. A probe has to obtain the CA before it
 # can verify anything served with it; the fingerprint is compared out of band,
 # exactly as install-mpp.sh already does with --ca-sha256. Nothing else is
-# reachable on this listener - every other path answers 404.
+# served here - everything else is sent on to the interface over TLS.
 #
 # No host matcher: the two files here are public and identical whatever name
 # the request arrives under, and an installation reached through an alias or a
@@ -101,8 +101,19 @@ http://:{$CA_HTTP_PORT} {
 		file_server
 	}
 
+	# Somebody who types the bare host name lands here, on the listener that
+	# only carries two files. Sending them to the interface is the whole
+	# point: a 404 on the front page reads like nothing is installed, and
+	# nothing here tells them the interface is one port over.
+	#
+	# {host} rather than the configured name, so a request that arrived on
+	# the bare address stays on the address - the certificate covers both,
+	# and an installation without a DNS entry yet would otherwise be
+	# redirected to a name the browser cannot resolve. The port is always
+	# written out; a browser drops it again from the address bar when it is
+	# the default one.
 	handle {
-		respond "Not found" 404
+		redir https://{host}:{$WEB_HTTPS_PORT}{uri}
 	}
 
 	header {

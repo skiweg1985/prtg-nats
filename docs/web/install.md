@@ -1,7 +1,7 @@
 ---
 title: Install the web platform
 role: operator
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Install the web platform
@@ -44,15 +44,16 @@ That builds two images and starts five services:
 | `prtg-nats-web-frontend` | builds the interface into a volume and exits |
 | `prtg-nats-web-proxy` | Caddy: terminates TLS, serves the interface and the public CA |
 
-The interface is then at `https://<NATS_FQDN>:8443`. The port is configurable
-with `WEB_HTTPS_PORT` in `.env`.
+The interface is then at `https://<NATS_FQDN>`. The port is configurable with
+`WEB_HTTPS_PORT` in `.env`; whoever calls the host over plain HTTP is sent
+there, so the port never has to be guessed.
 
 ## First sign-in
 
 There is no default account and no default password. The first person to open
 the interface is asked to create the administrator:
 
-1. Open `https://<NATS_FQDN>:8443`.
+1. Open `https://<NATS_FQDN>`.
 2. Enter a user name and a password of at least twelve characters.
 3. That account holds the `administrator` role and can create the others.
 
