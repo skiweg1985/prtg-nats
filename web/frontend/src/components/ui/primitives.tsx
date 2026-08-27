@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useEffect, useRef } from 'react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
 
 /**
@@ -239,6 +240,116 @@ export function Banner({
         <div className="text-sm normal-case">{children}</div>
       </div>
       {action}
+    </div>
+  )
+}
+
+/**
+ * What every overlay in this interface is built from.
+ *
+ * There were eight hand-built copies of the markup below before this existed,
+ * and all eight got the keyboard wrong in the same three ways: Escape did not
+ * close them, Tab walked out of the dialog and on through the page behind it,
+ * and closing left the focus wherever it had drifted to. None of that is
+ * decoration - a dialog the keyboard can leave but not re-enter is one an
+ * operator has to reach for the mouse to answer.
+ *
+ * Deliberately not a portal: the overlay is fixed to the viewport and carries
+ * the dialog z-index, so where it sits in the tree changes nothing about where
+ * it is drawn.
+ */
+
+// Everything the browser would stop at on the way through, which is what the
+// trap has to work with.
+const FOCUSABLE = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
+export function Dialog({
+  title,
+  onClose,
+  size = 'sm',
+  children,
+}: {
+  title: string
+  /** Escape, a click beside the panel, and nothing else - the content owns
+      its own buttons and decides what closing means. */
+  onClose: () => void
+  size?: 'sm' | 'md' | 'lg'
+  children: ReactNode
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  // Read through a ref so the effect can run once. Callers pass a fresh arrow
+  // function on every render; as a dependency it would tear the listener down
+  // and put the focus back on each one.
+  const close = useRef(onClose)
+  close.current = onClose
+
+  useEffect(() => {
+    const opener = document.activeElement
+    const panelElement = panel.current
+    // Into the dialog on open, or the first Tab would start at the top of the
+    // page behind it.
+    const first = panelElement?.querySelector<HTMLElement>(FOCUSABLE)
+    ;(first ?? panelElement)?.focus()
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        close.current()
+        return
+      }
+      if (event.key !== 'Tab' || panelElement === null) return
+      const stops = [...panelElement.querySelectorAll<HTMLElement>(FOCUSABLE)]
+      if (stops.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const last = stops[stops.length - 1]
+      const leaving = event.shiftKey
+        ? document.activeElement === stops[0]
+        : document.activeElement === last
+      // Also when the focus is outside already: a click on the overlay puts it
+      // on the body, and Tab from there would walk the page behind.
+      if (leaving || !panelElement.contains(document.activeElement)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : stops[0]).focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (opener instanceof HTMLElement) opener.focus()
+    }
+  }, [])
+
+  return (
+    <div
+      className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        className={clsx(
+          'max-h-full w-full overflow-auto',
+          size === 'sm' && 'max-w-md',
+          size === 'md' && 'max-w-lg',
+          size === 'lg' && 'max-w-2xl',
+        )}
+      >
+        <Card title={title}>{children}</Card>
+      </div>
     </div>
   )
 }

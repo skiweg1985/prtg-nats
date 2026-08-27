@@ -33,6 +33,7 @@ import {
   Button,
   Card,
   DetailRow,
+  Dialog,
   Dot,
   EmptyState,
   Mono,
@@ -191,89 +192,78 @@ export function ProbeDetailPage() {
       </header>
 
       {confirmUnenroll && (
-        <div
-          className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setConfirmUnenroll(false)
-          }}
-        >
-          <div className="w-full max-w-md">
-            <Card title={t('confirm.title')}>
-              <p className="text-ink-2 text-sm">
-                {t('probes.unenrollWarning', { probe: summary.nats_username })}
-              </p>
+        <Dialog title={t('confirm.title')} onClose={() => setConfirmUnenroll(false)}>
+          <p className="text-ink-2 text-sm">
+            {t('probes.unenrollWarning', { probe: summary.nats_username })}
+          </p>
 
-              <fieldset className="mt-4 space-y-3 border-t pt-3">
-                <legend className="sr-only">{t('probes.cleanup.legend')}</legend>
-                <PermissionGate permission="sensor.remove">
-                  <CleanupOption
-                    label={t('probes.cleanup.removeSensors')}
-                    hint={t('probes.cleanup.removeSensorsHint', {
-                      count: data.sensors.length,
-                    })}
-                    checked={cleanup.removeSensors}
-                    onChange={(checked) =>
-                      setCleanup({ ...cleanup, removeSensors: checked })
-                    }
-                  />
-                </PermissionGate>
-                <PermissionGate permission="probe.update">
-                  <CleanupOption
-                    label={t('probes.cleanup.uninstallMpp')}
-                    hint={t('probes.cleanup.uninstallMppHint')}
-                    checked={cleanup.uninstallMpp}
-                    onChange={(checked) =>
-                      setCleanup({ ...cleanup, uninstallMpp: checked })
-                    }
-                  />
-                </PermissionGate>
-                <PermissionGate permission="credential.rotate">
-                  <CleanupOption
-                    label={t('probes.cleanup.deleteAccount')}
-                    hint={t('probes.cleanup.deleteAccountHint')}
-                    checked={cleanup.deleteAccount}
-                    onChange={(checked) =>
-                      setCleanup({ ...cleanup, deleteAccount: checked })
-                    }
-                  />
-                </PermissionGate>
-              </fieldset>
+          <fieldset className="mt-4 space-y-3 border-t pt-3">
+            <legend className="sr-only">{t('probes.cleanup.legend')}</legend>
+            <PermissionGate permission="sensor.remove">
+              <CleanupOption
+                label={t('probes.cleanup.removeSensors')}
+                hint={t('probes.cleanup.removeSensorsHint', {
+                  count: data.sensors.length,
+                })}
+                checked={cleanup.removeSensors}
+                onChange={(checked) =>
+                  setCleanup({ ...cleanup, removeSensors: checked })
+                }
+              />
+            </PermissionGate>
+            <PermissionGate permission="probe.update">
+              <CleanupOption
+                label={t('probes.cleanup.uninstallMpp')}
+                hint={t('probes.cleanup.uninstallMppHint')}
+                checked={cleanup.uninstallMpp}
+                onChange={(checked) =>
+                  setCleanup({ ...cleanup, uninstallMpp: checked })
+                }
+              />
+            </PermissionGate>
+            <PermissionGate permission="credential.rotate">
+              <CleanupOption
+                label={t('probes.cleanup.deleteAccount')}
+                hint={t('probes.cleanup.deleteAccountHint')}
+                checked={cleanup.deleteAccount}
+                onChange={(checked) =>
+                  setCleanup({ ...cleanup, deleteAccount: checked })
+                }
+              />
+            </PermissionGate>
+          </fieldset>
 
-              {cleanup.uninstallMpp && !cleanup.removeSensors && data.sensors.length > 0 && (
-                <p className="text-ink-3 mt-3 text-xs">
-                  {t('probes.cleanup.sensorsSurviveHint')}
-                </p>
-              )}
+          {cleanup.uninstallMpp && !cleanup.removeSensors && data.sensors.length > 0 && (
+            <p className="text-ink-3 mt-3 text-xs">
+              {t('probes.cleanup.sensorsSurviveHint')}
+            </p>
+          )}
 
-              {unenroll.error && (
-                <div className="mt-3">
-                  <ErrorDetails error={unenroll.error} />
-                </div>
-              )}
-              <div className="mt-4 flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setConfirmUnenroll(false)}>
-                  {t('common.cancel')}
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() =>
-                    unenroll.mutate(
-                      { id: probeId, ...cleanup },
-                      {
-                        onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                      },
-                    )
-                  }
-                  disabled={unenroll.isPending}
-                >
-                  {t('probes.unenroll')}
-                </Button>
-              </div>
-            </Card>
+          {unenroll.error && (
+            <div className="mt-3">
+              <ErrorDetails error={unenroll.error} />
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmUnenroll(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() =>
+                unenroll.mutate(
+                  { id: probeId, ...cleanup },
+                  {
+                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                  },
+                )
+              }
+              disabled={unenroll.isPending}
+            >
+              {t('probes.unenroll')}
+            </Button>
           </div>
-        </div>
+        </Dialog>
       )}
 
       {lastFailure && (
@@ -426,39 +416,30 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
       </div>
 
       {accessKey !== null && (
-        <div
-          className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) hideAccessKey()
-          }}
+        <Dialog
+          title={t('probes.accessKeyRevealTitle', {
+            probe: probeName ?? summary.nats_username,
+          })}
+          onClose={hideAccessKey}
+          size="md"
         >
-          <div className="w-full max-w-lg">
-            <Card
-              title={t('probes.accessKeyRevealTitle', {
-                probe: probeName ?? summary.nats_username,
-              })}
+          <p className="text-ink-2 mb-3 text-sm">
+            {t('probes.accessKeyHint')} {t('probes.accessKeyAudited')}
+          </p>
+          <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
+            <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void navigator.clipboard.writeText(accessKey)}
             >
-              <p className="text-ink-2 mb-3 text-sm">
-                {t('probes.accessKeyHint')} {t('probes.accessKeyAudited')}
-              </p>
-              <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
-                <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void navigator.clipboard.writeText(accessKey)}
-                >
-                  {t('common.copy')}
-                </Button>
-              </div>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={hideAccessKey}>{t('common.close')}</Button>
-              </div>
-            </Card>
+              {t('common.copy')}
+            </Button>
           </div>
-        </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={hideAccessKey}>{t('common.close')}</Button>
+          </div>
+        </Dialog>
       )}
     </>
   )

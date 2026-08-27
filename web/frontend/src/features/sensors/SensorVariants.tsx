@@ -17,6 +17,7 @@ import {
   Badge,
   Button,
   Card,
+  Dialog,
   EmptyState,
   Field,
   Input,
@@ -256,162 +257,153 @@ function VariantDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+    <Dialog
+      title={
+        existing
+          ? t('sensors.variants.editTitle', { name: existing })
+          : t('sensors.variants.addTitle')
+      }
+      onClose={onClose}
+      size="lg"
     >
-      <div className="max-h-full w-full max-w-2xl overflow-auto">
-        <Card
-          title={
-            existing
-              ? t('sensors.variants.editTitle', { name: existing })
-              : t('sensors.variants.addTitle')
-          }
-        >
-          {existing && isLoading ? (
-            <Skeleton className="h-48" />
-          ) : (
-            <div className="space-y-4">
-              <Field
-                label={t('sensors.variants.name')}
-                hint={t('sensors.variants.nameHint')}
-                error={
-                  name && !nameIsValid ? t('sensors.variants.nameInvalid') : undefined
-                }
-              >
-                <Input
-                  value={name}
-                  disabled={Boolean(existing)}
-                  placeholder="standort-nord"
-                  onChange={(event) => setName(event.target.value)}
+      {existing && isLoading ? (
+        <Skeleton className="h-48" />
+      ) : (
+        <div className="space-y-4">
+          <Field
+            label={t('sensors.variants.name')}
+            hint={t('sensors.variants.nameHint')}
+            error={
+              name && !nameIsValid ? t('sensors.variants.nameInvalid') : undefined
+            }
+          >
+            <Input
+              value={name}
+              disabled={Boolean(existing)}
+              placeholder="standort-nord"
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+
+          {schema.settings.length > 0 && (
+            <FieldGroup title={t('sensors.variants.settings')}>
+              {schema.settings.map((field) => (
+                <ProfileInput
+                  key={field.name}
+                  field={field}
+                  value={values[field.name] ?? ''}
+                  onChange={(value) => update(field.name, value)}
                 />
-              </Field>
-
-              {schema.settings.length > 0 && (
-                <FieldGroup title={t('sensors.variants.settings')}>
-                  {schema.settings.map((field) => (
-                    <ProfileInput
-                      key={field.name}
-                      field={field}
-                      value={values[field.name] ?? ''}
-                      onChange={(value) => update(field.name, value)}
-                    />
-                  ))}
-                </FieldGroup>
-              )}
-
-              {schema.credentials.length > 0 && (
-                <FieldGroup title={t('sensors.variants.credentials')}>
-                  {schema.credentials.map((field) => (
-                    <Field
-                      key={field.name}
-                      label={label(t, field)}
-                      hint={
-                        stored?.secrets_set.includes(field.name)
-                          ? t('sensors.variants.secretStored')
-                          : hint(t, field)
-                      }
-                    >
-                      <Input
-                        type="password"
-                        autoComplete="new-password"
-                        value={values[field.name] ?? ''}
-                        placeholder={
-                          stored?.secrets_set.includes(field.name)
-                            ? '••••••••'
-                            : undefined
-                        }
-                        onChange={(event) => update(field.name, event.target.value)}
-                      />
-                    </Field>
-                  ))}
-                </FieldGroup>
-              )}
-
-              {schema.files.length > 0 && (
-                <FieldGroup title={t('sensors.variants.files')}>
-                  {schema.files.map((field) => {
-                    const uploaded = stored?.files.find(
-                      (entry) => entry.key === field.name,
-                    )
-                    return (
-                      <Field
-                        key={field.name}
-                        label={label(t, field)}
-                        hint={
-                          files[field.name]
-                            ? files[field.name].name
-                            : uploaded
-                              ? t('sensors.variants.fileStored', {
-                                  fingerprint: shortFingerprint(uploaded.sha256),
-                                })
-                              : hint(t, field)
-                        }
-                      >
-                        <input
-                          type="file"
-                          className="text-ink-2 text-sm"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0]
-                            if (file) readFile(field, file)
-                          }}
-                        />
-                      </Field>
-                    )
-                  })}
-                </FieldGroup>
-              )}
-
-              <FieldGroup title={t('sensors.variants.probes')}>
-                <p className="text-ink-3 text-xs">{t('sensors.variants.probesHint')}</p>
-                <div className="max-h-40 space-y-1 overflow-auto">
-                  {(probes ?? []).map((probe) => (
-                    <label key={probe.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={chosen.has(probe.id)}
-                        onChange={(event) => {
-                          const next = new Set(chosen)
-                          if (event.target.checked) next.add(probe.id)
-                          else next.delete(probe.id)
-                          setSelected(next)
-                        }}
-                      />
-                      <Mono>{probe.nats_username}</Mono>
-                    </label>
-                  ))}
-                </div>
-              </FieldGroup>
-
-              {write.error && <ErrorDetails error={write.error} />}
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={!nameIsValid || missing.length > 0 || write.isPending}
-                  onClick={submit}
-                >
-                  {t('common.save')}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={onClose}>
-                  {t('common.cancel')}
-                </Button>
-                {missing.length > 0 && (
-                  <span className="text-ink-3 text-xs">
-                    {t('sensors.variants.missing', { fields: missing.join(', ') })}
-                  </span>
-                )}
-              </div>
-            </div>
+              ))}
+            </FieldGroup>
           )}
-        </Card>
-      </div>
-    </div>
+
+          {schema.credentials.length > 0 && (
+            <FieldGroup title={t('sensors.variants.credentials')}>
+              {schema.credentials.map((field) => (
+                <Field
+                  key={field.name}
+                  label={label(t, field)}
+                  hint={
+                    stored?.secrets_set.includes(field.name)
+                      ? t('sensors.variants.secretStored')
+                      : hint(t, field)
+                  }
+                >
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={values[field.name] ?? ''}
+                    placeholder={
+                      stored?.secrets_set.includes(field.name)
+                        ? '••••••••'
+                        : undefined
+                    }
+                    onChange={(event) => update(field.name, event.target.value)}
+                  />
+                </Field>
+              ))}
+            </FieldGroup>
+          )}
+
+          {schema.files.length > 0 && (
+            <FieldGroup title={t('sensors.variants.files')}>
+              {schema.files.map((field) => {
+                const uploaded = stored?.files.find(
+                  (entry) => entry.key === field.name,
+                )
+                return (
+                  <Field
+                    key={field.name}
+                    label={label(t, field)}
+                    hint={
+                      files[field.name]
+                        ? files[field.name].name
+                        : uploaded
+                          ? t('sensors.variants.fileStored', {
+                              fingerprint: shortFingerprint(uploaded.sha256),
+                            })
+                          : hint(t, field)
+                    }
+                  >
+                    <input
+                      type="file"
+                      className="text-ink-2 text-sm"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (file) readFile(field, file)
+                      }}
+                    />
+                  </Field>
+                )
+              })}
+            </FieldGroup>
+          )}
+
+          <FieldGroup title={t('sensors.variants.probes')}>
+            <p className="text-ink-3 text-xs">{t('sensors.variants.probesHint')}</p>
+            <div className="max-h-40 space-y-1 overflow-auto">
+              {(probes ?? []).map((probe) => (
+                <label key={probe.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(probe.id)}
+                    onChange={(event) => {
+                      const next = new Set(chosen)
+                      if (event.target.checked) next.add(probe.id)
+                      else next.delete(probe.id)
+                      setSelected(next)
+                    }}
+                  />
+                  <Mono>{probe.nats_username}</Mono>
+                </label>
+              ))}
+            </div>
+          </FieldGroup>
+
+          {write.error && <ErrorDetails error={write.error} />}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!nameIsValid || missing.length > 0 || write.isPending}
+              onClick={submit}
+            >
+              {t('common.save')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            {missing.length > 0 && (
+              <span className="text-ink-3 text-xs">
+                {t('sensors.variants.missing', { fields: missing.join(', ') })}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </Dialog>
   )
 }
 

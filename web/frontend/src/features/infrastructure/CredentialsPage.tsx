@@ -17,6 +17,7 @@ import {
   Badge,
   Button,
   Card,
+  Dialog,
   Field,
   Input,
   Mono,
@@ -166,73 +167,55 @@ export function CredentialsPage() {
       {reveal.error && <ErrorDetails error={reveal.error} />}
 
       {revealed && (
-        <div
-          className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setRevealed(null)
-          }}
+        <Dialog
+          title={t('credentials.revealTitle', { account: revealed.username })}
+          onClose={() => setRevealed(null)}
+          size="md"
         >
-          <div className="w-full max-w-lg">
-            <Card title={t('credentials.revealTitle', { account: revealed.username })}>
-              <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
-              <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
-                <Mono className="min-w-0 flex-1 break-all">{revealed.password}</Mono>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void navigator.clipboard.writeText(revealed.password)}
-                >
-                  {t('common.copy')}
-                </Button>
-              </div>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>
-              </div>
-            </Card>
+          <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
+          <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
+            <Mono className="min-w-0 flex-1 break-all">{revealed.password}</Mono>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void navigator.clipboard.writeText(revealed.password)}
+            >
+              {t('common.copy')}
+            </Button>
           </div>
-        </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>
+          </div>
+        </Dialog>
       )}
 
       {confirmDelete && (
-        <div
-          className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setConfirmDelete(null)
-          }}
-        >
-          <div className="w-full max-w-md">
-            <Card title={t('confirm.title')}>
-              <p className="text-ink-2 text-sm">
-                {t('credentials.deleteWarning', { account: confirmDelete })}
-              </p>
-              {remove.error && (
-                <div className="mt-3">
-                  <ErrorDetails error={remove.error} />
-                </div>
-              )}
-              <div className="mt-4 flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
-                  {t('common.cancel')}
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() =>
-                    remove.mutate(confirmDelete, {
-                      onSuccess: () => setConfirmDelete(null),
-                    })
-                  }
-                  disabled={remove.isPending}
-                >
-                  {t('credentials.delete')}
-                </Button>
-              </div>
-            </Card>
+        <Dialog title={t('confirm.title')} onClose={() => setConfirmDelete(null)}>
+          <p className="text-ink-2 text-sm">
+            {t('credentials.deleteWarning', { account: confirmDelete })}
+          </p>
+          {remove.error && (
+            <div className="mt-3">
+              <ErrorDetails error={remove.error} />
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() =>
+                remove.mutate(confirmDelete, {
+                  onSuccess: () => setConfirmDelete(null),
+                })
+              }
+              disabled={remove.isPending}
+            >
+              {t('credentials.delete')}
+            </Button>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   )
