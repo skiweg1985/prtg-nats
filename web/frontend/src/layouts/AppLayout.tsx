@@ -1,17 +1,11 @@
 import clsx from 'clsx'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { useCapabilities, useLogout } from '@/api/hooks'
-import { useAuth, useTheme } from '@/app/providers'
+import { useAuth } from '@/app/providers'
 import { Badge, Button } from '@/components/ui/primitives'
-import {
-  LANGUAGE_LABELS,
-  SUPPORTED_LANGUAGES,
-  changeLanguage,
-  currentLanguage,
-  type Language,
-} from '@/i18n'
 
 /**
  * The frame. A single left rail with the object types, a thin header for
@@ -60,12 +54,23 @@ const SECONDARY: NavEntry[] = [
 
 export function AppLayout() {
   const { t } = useTranslation()
-  const { principal, can } = useAuth()
+  const { principal } = useAuth()
   const { data: capabilities } = useCapabilities()
   const logout = useLogout()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const location = useLocation()
 
-  const visible = (entries: NavEntry[]) =>
-    entries.filter((entry) => !entry.permission || can(entry.permission))
+  // Arriving somewhere is the end of navigating there.
+  useEffect(() => setMenuOpen(false), [location.pathname])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
 
   return (
     <div className="bg-paper flex min-h-screen">
@@ -78,18 +83,7 @@ export function AppLayout() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-3">
-          <NavGroup entries={visible(PRIMARY)} />
-
-          {visible(INFRASTRUCTURE).length > 0 && (
-            <>
-              <p className="label-mono mt-5 mb-1.5 px-2">{t('nav.infrastructure')}</p>
-              <NavGroup entries={visible(INFRASTRUCTURE)} />
-            </>
-          )}
-
-          <div className="border-rule mt-5 border-t pt-3">
-            <NavGroup entries={visible(SECONDARY)} />
-          </div>
+          <NavSections />
         </nav>
 
         {capabilities && !capabilities.docker && (
@@ -101,15 +95,22 @@ export function AppLayout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-rule bg-surface sticky top-0 z-(--z-header) flex items-center gap-3 border-b px-4 py-2">
-          <nav className="flex gap-1 md:hidden">
-            {visible(PRIMARY).map((entry) => (
-              <NavItem key={entry.to} entry={entry} compact />
-            ))}
-          </nav>
+          {/* Everything below md: reaches its destinations through here. The
+              rail is hidden at that width, and the row of primary entries this
+              replaces left infrastructure, the audit trail, updates and the
+              settings reachable only by typing the address. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="md:hidden"
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-expanded={menuOpen}
+            aria-controls="app-menu"
+          >
+            <span aria-hidden>☰</span> {t('nav.menu')}
+          </Button>
 
           <div className="ml-auto flex items-center gap-2">
-            <LanguageSwitcher />
-            <ThemeSwitcher />
             {principal && (
               <>
                 <span className="text-ink-3 hidden text-sm sm:inline">
@@ -129,6 +130,15 @@ export function AppLayout() {
           </div>
         </header>
 
+        {menuOpen && (
+          <nav
+            id="app-menu"
+            className="border-rule bg-surface border-b px-2 py-3 md:hidden"
+          >
+            <NavSections />
+          </nav>
+        )}
+
         {principal?.is_development && (
           <p className="bg-warn-soft text-warn border-warn/25 border-b px-4 py-1.5 text-xs">
             {t('auth.developmentBanner')}
@@ -140,6 +150,35 @@ export function AppLayout() {
         </main>
       </div>
     </div>
+  )
+}
+
+/**
+ * The whole of the navigation, rendered by the rail and by the narrow-screen
+ * menu alike. Two copies of this list is how one of them ends up missing half
+ * the destinations, which is exactly what happened.
+ */
+function NavSections() {
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  const visible = (entries: NavEntry[]) =>
+    entries.filter((entry) => !entry.permission || can(entry.permission))
+
+  return (
+    <>
+      <NavGroup entries={visible(PRIMARY)} />
+
+      {visible(INFRASTRUCTURE).length > 0 && (
+        <>
+          <p className="label-mono mt-5 mb-1.5 px-2">{t('nav.infrastructure')}</p>
+          <NavGroup entries={visible(INFRASTRUCTURE)} />
+        </>
+      )}
+
+      <div className="border-rule mt-5 border-t pt-3">
+        <NavGroup entries={visible(SECONDARY)} />
+      </div>
+    </>
   )
 }
 
@@ -155,7 +194,7 @@ function NavGroup({ entries }: { entries: NavEntry[] }) {
   )
 }
 
-function NavItem({ entry, compact }: { entry: NavEntry; compact?: boolean }) {
+function NavItem({ entry }: { entry: NavEntry }) {
   const { t } = useTranslation()
   return (
     <NavLink
@@ -164,7 +203,6 @@ function NavItem({ entry, compact }: { entry: NavEntry; compact?: boolean }) {
       className={({ isActive }) =>
         clsx(
           'rounded-control block px-2.5 py-1.5 text-sm transition-colors duration-100',
-          compact && 'px-2 py-1 text-xs',
           isActive
             ? 'bg-accent-soft text-accent font-medium'
             : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
@@ -173,40 +211,5 @@ function NavItem({ entry, compact }: { entry: NavEntry; compact?: boolean }) {
     >
       {t(entry.labelKey)}
     </NavLink>
-  )
-}
-
-function LanguageSwitcher() {
-  const { t } = useTranslation()
-  return (
-    <select
-      value={currentLanguage()}
-      onChange={(event) => changeLanguage(event.target.value as Language)}
-      aria-label={t('settings.language')}
-      className="rounded-control border-rule-2 bg-surface text-ink-2 border px-2 py-1 text-xs"
-    >
-      {SUPPORTED_LANGUAGES.map((language) => (
-        <option key={language} value={language}>
-          {LANGUAGE_LABELS[language]}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function ThemeSwitcher() {
-  const { t } = useTranslation()
-  const { choice, setChoice } = useTheme()
-  return (
-    <select
-      value={choice}
-      onChange={(event) => setChoice(event.target.value as 'light' | 'dark' | 'system')}
-      aria-label={t('settings.theme')}
-      className="rounded-control border-rule-2 bg-surface text-ink-2 border px-2 py-1 text-xs"
-    >
-      <option value="system">{t('settings.themeSystem')}</option>
-      <option value="light">{t('settings.themeLight')}</option>
-      <option value="dark">{t('settings.themeDark')}</option>
-    </select>
   )
 }

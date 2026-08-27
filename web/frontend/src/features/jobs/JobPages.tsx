@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { ApiError } from '@/api/client'
@@ -20,9 +20,34 @@ import {
 import { JobStatusBadge } from '@/components/ui/status'
 import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
 
+/**
+ * The job states worth a button of their own.
+ *
+ * In the URL rather than in component state, because these are the two
+ * questions the dashboard asks on somebody's behalf - "which three failed"
+ * leads here, not to fifty rows to read through.
+ */
+const JOB_FILTERS = ['running', 'failed'] as const
+type JobFilter = (typeof JOB_FILTERS)[number]
+
+function asJobFilter(value: string | null): JobFilter | null {
+  return JOB_FILTERS.find((entry) => entry === value) ?? null
+}
+
 export function JobListPage() {
   const { t } = useTranslation()
-  const { data, isLoading, error, refetch } = useJobs()
+  const [params, setParams] = useSearchParams()
+  const status = asJobFilter(params.get('status'))
+  // Filtered by the server, not in the browser: the list is the last fifty
+  // jobs, so filtering what arrived would search a window rather than the
+  // history - and "no failures" would mean "none among the last fifty".
+  const { data, isLoading, error, refetch } = useJobs(
+    status ? { status } : {},
+  )
+
+  function setStatus(next: JobFilter | null) {
+    setParams(next ? { status: next } : {}, { replace: true })
+  }
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -102,8 +127,30 @@ export function JobListPage() {
         columns={columns}
         rowKey={(row) => row.id}
         isLoading={isLoading}
-        emptyTitle={t('jobs.empty')}
+        emptyTitle={status ? t('jobs.emptyFiltered') : t('jobs.empty')}
+        emptyAction={
+          status ? (
+            <Button variant="secondary" onClick={() => setStatus(null)}>
+              {t('common.clearFilters')}
+            </Button>
+          ) : undefined
+        }
         rowHref={(row) => `/jobs/${row.id}`}
+        filters={
+          <div className="flex flex-wrap items-center gap-2">
+            {JOB_FILTERS.map((entry) => (
+              <Button
+                key={entry}
+                size="sm"
+                variant={status === entry ? 'primary' : 'ghost'}
+                aria-pressed={status === entry}
+                onClick={() => setStatus(status === entry ? null : entry)}
+              >
+                {t(`jobs.filters.${entry}`)}
+              </Button>
+            ))}
+          </div>
+        }
       />
     </div>
   )

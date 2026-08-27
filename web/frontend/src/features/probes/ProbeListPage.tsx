@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { useProbes } from '@/api/hooks'
@@ -24,9 +24,26 @@ export function ProbeListPage() {
   // The two questions this list gets asked that search cannot answer: which
   // probes are due a helper, and which ones drifted. Both are columns already;
   // the filters only save clicking them together by hand.
-  const [onlyHelperOutdated, setOnlyHelperOutdated] = useState(false)
-  const [onlyDeviations, setOnlyDeviations] = useState(false)
+  //
+  // In the URL rather than in state, so the dashboard can ask one of them on
+  // somebody's behalf - "probes with deviations: 3" is a link now, not a
+  // label - and so the filtered list survives a reload and can be sent to a
+  // colleague.
+  const [params, setParams] = useSearchParams()
+  const active = new Set(params.getAll('filter'))
+  const onlyHelperOutdated = active.has('helper')
+  const onlyDeviations = active.has('deviations')
   const [actionError, setActionError] = useState<ApiError | Error | null>(null)
+
+  function toggleFilter(name: 'helper' | 'deviations') {
+    const next = new Set(active)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    setParams(
+      [...next].map((entry): [string, string] => ['filter', entry]),
+      { replace: true },
+    )
+  }
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -41,8 +58,7 @@ export function ProbeListPage() {
   const filtered = onlyHelperOutdated || onlyDeviations
 
   function clearFilters() {
-    setOnlyHelperOutdated(false)
-    setOnlyDeviations(false)
+    setParams([], { replace: true })
   }
 
   const columns: Column<ProbeSummary>[] = [
@@ -192,12 +208,12 @@ export function ProbeListPage() {
             <FilterToggle
               label={t('probes.filters.helperOutdated')}
               active={onlyHelperOutdated}
-              onToggle={() => setOnlyHelperOutdated(!onlyHelperOutdated)}
+              onToggle={() => toggleFilter('helper')}
             />
             <FilterToggle
               label={t('probes.filters.deviations')}
               active={onlyDeviations}
-              onToggle={() => setOnlyDeviations(!onlyDeviations)}
+              onToggle={() => toggleFilter('deviations')}
             />
             {filtered && (
               <Button size="sm" variant="ghost" onClick={clearFilters}>

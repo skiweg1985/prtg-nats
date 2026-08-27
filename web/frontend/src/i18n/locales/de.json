@@ -5,6 +5,7 @@
   },
   "nav": {
     "dashboard": "Übersicht",
+    "menu": "Menü",
     "probes": "Probes",
     "sensors": "Sensoren",
     "deployments": "Ausrollvorgänge",
@@ -353,6 +354,11 @@
     "title": "Jobs",
     "subtitle": "Alles, was dauert oder scheitern kann",
     "empty": "Es wurde noch kein Job ausgeführt.",
+    "filters": {
+      "running": "Nur laufende",
+      "failed": "Nur gescheiterte"
+    },
+    "emptyFiltered": "Kein Job passt zu diesem Filter.",
     "columns": {
       "type": "Job",
       "target": "Ziel",

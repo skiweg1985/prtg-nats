@@ -5,6 +5,7 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "menu": "Menu",
     "probes": "Probes",
     "sensors": "Sensors",
     "deployments": "Deployments",
@@ -353,6 +354,11 @@
     "title": "Jobs",
     "subtitle": "Everything that takes time or can fail",
     "empty": "No job has run yet.",
+    "filters": {
+      "running": "Running only",
+      "failed": "Failed only"
+    },
+    "emptyFiltered": "No job matches this filter.",
     "columns": {
       "type": "Job",
       "target": "Target",
