@@ -500,6 +500,8 @@ async def stack_version(
         checkout_commit=checkout,
         checkout_dirty=cached.checkout_dirty if cached else False,
         remote_commit=remote,
+        # What was actually found beats what was configured: an installation
+        # with no branch pinned still has one, and it is the checkout's.
         branch=(cached.branch if cached else "") or settings.update_branch,
         state=service.state(
             running=running,
@@ -574,6 +576,11 @@ async def start_update(
     if not readiness.available:
         raise StackUpdateUnavailableError(params={"reason": readiness.reason or ""})
 
+    # The branch this installation actually follows, for the job's label. The
+    # setting can be empty, and "update to " reads like a bug.
+    cached = await service.cached(db)
+    branch_label = (cached.branch if cached else "") or settings.update_branch or "HEAD"
+
     busy = await db.scalar(
         select(func.count())
         .select_from(Job)
@@ -594,7 +601,7 @@ async def start_update(
             # update that has long finished.
             resources=(ResourceRef("stack", "installation"),),
             target_type="system",
-            target_label=settings.update_branch,
+            target_label=branch_label,
         ),
         principal,  # type: ignore[arg-type]
     )

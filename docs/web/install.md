@@ -101,12 +101,18 @@ what the branch has, and the button runs the same sequence as a job with a log
 and an audit trail. [Operations](../guides/operations.md#updating-the-repository)
 covers what it refuses and why.
 
-From the host, unchanged, and the answer when the interface is what is broken:
+From the host, and the answer when the interface is what is broken:
 
 ```bash
 git pull
-docker compose up -d --build
+sudo ./prtg-nats update
 ```
+
+`prtg-nats update` rather than `docker compose up -d --build`, and not out of
+habit: it stamps the commit of this checkout into the images it builds, and
+compose on its own does not. An installation built the second way runs
+perfectly well and cannot say which version it is - the *Updates* page reports
+it as unknown, because inventing an answer would be worse.
 
 The interface can only update an installation whose updater image exists, and
 an installation being updated *to* this version does not have one yet. That

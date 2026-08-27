@@ -96,16 +96,21 @@ class StackUpdateService:
         if project is None:
             raise RuntimeError("the checkout could not be located")
 
+        # No branch configured and none asked for: let the updater use the one
+        # the checkout is on. Passing an empty argument instead would have it
+        # look up a branch called "", which fails in a way that reads like the
+        # repository is unreachable.
         target = branch or self._settings.update_branch
+        arguments = (target,) if target else ()
         run = await self._docker.run_updater(
             UpdaterCommand.PROBE,
-            (target,),
+            arguments,
             project=project,
             # Unique per run: two checks must never collide over a name, and a
             # leftover from a crashed run must not block the next one.
             name=f"prtg-nats-updater-probe-{int(datetime.now(UTC).timestamp())}",
         )
-        return _parse_probe(run.output, fallback_branch=target)
+        return _parse_probe(run.output, fallback_branch=target or "HEAD")
 
     # --- The cached answer the interface reads ------------------------------
 
