@@ -423,6 +423,10 @@ An installation that has just been updated *to* the version introducing this
 has no updater image yet, so that one update is still the command line. The
 page says as much.
 
+The same page also resolves the state a `git pull` on the host leaves behind -
+the code is there, the images are not built from it. *Rebuild now* installs
+what the checkout already holds, without fetching or moving anything.
+
 **From the command line**, unchanged, and still the answer when the interface
 is what is broken:
 

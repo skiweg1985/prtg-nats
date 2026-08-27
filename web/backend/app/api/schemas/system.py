@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -466,6 +466,17 @@ class IperfEndpointOut(ApiModel):
 
 
 DashboardOut.model_rebuild()
+
+
+class StackUpdateRequest(ApiModel):
+    """What kind of update to run.
+
+    "rebuild" builds and replaces what the checkout already holds, without
+    fetching or moving it - the state left behind by a `git pull` on the host
+    that nobody followed with a build.
+    """
+
+    mode: Literal["update", "rebuild"] = "update"
 
 
 class StackCommitOut(ApiModel):

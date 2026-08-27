@@ -525,6 +525,7 @@
         "checkout_found": "Checkout unter {{path}} wird aktualisiert",
         "handover": "Übergabe an den Updater; diese Seite verfolgt ihn weiter",
         "outcome_unknown": "Der Updater-Container {{container}} ist nicht mehr da, sein Ergebnis lässt sich nicht mehr feststellen",
+        "rebuilding": "Es wird neu gebaut, was der Checkout schon hat ({{commit}})",
         "rolled_back": "Der Build ist fehlgeschlagen; der Checkout steht wieder auf {{commit}}, ersetzt wurde nichts",
         "target": "{{branch}} wird von {{from}} auf {{to}} aktualisiert",
         "timeout": "Der Updater braucht länger als erwartet; er läuft weiter, das Ergebnis wird festgehalten, sobald er fertig ist",
@@ -860,7 +861,7 @@
     },
     "rebuild_pending": {
       "title": "Der Checkout ist weiter als das, was läuft",
-      "body": "Auf dem Host wurde gepullt, aber nicht neu gebaut - der Stack läuft weiterhin auf dem älteren Code. Mit ./prtg-nats update auf dem Host wird gebaut, was der Checkout schon hat."
+      "body": "Auf dem Host wurde gepullt, aber nicht neu gebaut - der Stack läuft weiterhin auf dem älteren Code. Neu bauen spielt ein, was der Checkout schon hat; es wird nichts geholt und der Checkout nicht bewegt."
     },
     "dirty_blocks": {
       "title": "Der Checkout hat uncommittete Änderungen",
@@ -880,6 +881,7 @@
       "unknown": "Der Grund ließ sich nicht ermitteln."
     },
     "last_update": "Zuletzt von hier aktualisiert",
-    "view_log": "Protokoll ansehen"
+    "view_log": "Protokoll ansehen",
+    "rebuild": "Jetzt neu bauen"
   }
 }

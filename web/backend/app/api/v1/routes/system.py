@@ -34,6 +34,7 @@ from app.api.schemas.system import (
     NatsStateOut,
     SiteSettingsOut,
     StackCommitOut,
+    StackUpdateRequest,
     StackVersionOut,
     SystemStatusOut,
 )
@@ -579,8 +580,13 @@ async def start_update(
     settings: SettingsDep,
     audit: AuditDep,
     principal: Annotated[object, Depends(require_permission(Permission.SYSTEM_UPDATE))],
+    body: StackUpdateRequest | None = None,
 ) -> JobAccepted:
-    """Update the installation to the tip of its branch.
+    """Update the installation to the tip of its branch, or rebuild in place.
+
+    The rebuild is the same machinery with two steps left out, for the state
+    where somebody pulled on the host and never built: the checkout already
+    holds the code, and nothing about fixing that needs a console.
 
     Administrator only. Whoever can do this decides which code runs as root on
     this host - the updater holds the Docker socket - so it sits behind its own
@@ -612,10 +618,12 @@ async def start_update(
     if busy:
         raise StackUpdateBlockedError(params={"reason": "jobs_running"})
 
+    mode = body.mode if body else "update"
     job = await jobs.create(
         JobRequest(
             type=stack_update_handler.JOB_TYPE,
             steps=stack_update_handler.STEPS,
+            payload={"mode": mode},
             # One resource, and deliberately not nats:server. A handover leaves
             # the lock held by a job no worker is carrying, and the lease then
             # keeps the backup and the restart out for half an hour over an
@@ -626,7 +634,11 @@ async def start_update(
         ),
         principal,  # type: ignore[arg-type]
     )
-    audit.record(action="system.update", object_type="system", job_id=job.id)
+    audit.record(
+        action="system.update" if mode == "update" else "system.rebuild",
+        object_type="system",
+        job_id=job.id,
+    )
     return JobAccepted(
         job_id=job.id,
         status=job.status.value,

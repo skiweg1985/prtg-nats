@@ -272,6 +272,23 @@ cmd_apply() {
   printf 'Update complete.\n'
 }
 
+# Build and replace, without touching the checkout.
+#
+# For the state where somebody pulled on the host and never rebuilt: the
+# checkout is already where it should be, and fetching or moving it would be
+# work with nothing to do. Which also means there is nothing to roll back if
+# the build fails - the checkout was never moved, so the running stack is
+# simply left alone.
+cmd_rebuild() {
+  if ! phase_build; then
+    printf 'The build failed. Nothing was replaced.\n' >&2
+    exit 2
+  fi
+
+  phase_recreate
+  printf 'Rebuild complete.\n'
+}
+
 # --- dispatch --------------------------------------------------------------
 
 case "${1:-}" in
@@ -282,6 +299,10 @@ probe)
 apply)
   shift
   cmd_apply "$@"
+  ;;
+rebuild)
+  shift
+  cmd_rebuild "$@"
   ;;
 fetch)
   shift

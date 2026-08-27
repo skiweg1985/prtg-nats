@@ -59,12 +59,15 @@ export function UpdatesPage() {
   const job = useJob(phase === 'waiting' ? undefined : (jobId ?? undefined))
   const log = useJobLog(jobId ?? undefined)
 
-  const onStart = useCallback(async () => {
-    const accepted = await start.mutateAsync()
+  const onStart = useCallback(
+    async (mode: 'update' | 'rebuild' = 'update') => {
+    const accepted = await start.mutateAsync(mode)
     sessionStorage.setItem(WATCHED_JOB_KEY, accepted.job_id)
     setJobId(accepted.job_id)
     setPhase('running')
-  }, [start])
+    },
+    [start],
+  )
 
   const goAway = useCallback(() => {
     setPhase('waiting')
@@ -144,11 +147,7 @@ export function UpdatesPage() {
 
       {data.available && phase === 'idle' && (
         <PermissionGate permission="system.update">
-          <ActionCard
-            data={data}
-            onStart={() => void onStart()}
-            busy={start.isPending}
-          />
+          <ActionCard data={data} onStart={onStart} busy={start.isPending} />
         </PermissionGate>
       )}
 
@@ -260,7 +259,7 @@ function ActionCard({
   busy,
 }: {
   data: StackVersion
-  onStart: () => void
+  onStart: (mode?: 'update' | 'rebuild') => void
   busy: boolean
 }) {
   const { t } = useTranslation()
@@ -274,7 +273,18 @@ function ActionCard({
 
   if (data.state === 'rebuild_pending')
     return (
-      <Card title={t('updates.changes')}>
+      <Card
+        title={t('updates.changes')}
+        action={
+          <Button
+            variant="primary"
+            onClick={() => void onStart('rebuild')}
+            disabled={busy}
+          >
+            {t('updates.rebuild')}
+          </Button>
+        }
+      >
         <Banner tone="warn" title={t('updates.rebuild_pending.title')}>
           {t('updates.rebuild_pending.body')}
         </Banner>
@@ -289,7 +299,7 @@ function ActionCard({
       action={
         <Button
           variant="primary"
-          onClick={onStart}
+          onClick={() => void onStart('update')}
           disabled={busy || data.checkout_dirty}
         >
           {t('updates.install')}
