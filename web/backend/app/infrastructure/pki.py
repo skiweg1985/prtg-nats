@@ -211,15 +211,28 @@ class Pki:
 
     # --- Server certificate -------------------------------------------------
 
-    def issue_server_certificate(self, *, fqdn: str, archive: bool) -> None:
+    def issue_server_certificate(
+        self, *, fqdn: str, host_ip: str | None, archive: bool
+    ) -> None:
         """Issue (or renew) the NATS server certificate.
 
         With ``archive`` the previous pair is kept under runtime/archive/, the
         way the retired renew script did - a rollback is a copy, not a mystery.
+
+        The host address is a SAN for the same reason the interface
+        certificate carries one, only with more at stake: a probe usually sits
+        in a network the FQDN of this installation does not resolve in - a
+        customer site, a branch office, a segment with its own resolver. With
+        the name alone such a probe has no way in at all, because reaching the
+        server by address then fails on the certificate rather than on DNS.
         """
+        sans: list[x509.GeneralName] = [_host_san(fqdn)]
+        if host_ip and host_ip != fqdn:
+            sans.append(_host_san(host_ip))
+
         self._issue_leaf(
             common_name=fqdn,
-            sans=[_host_san(fqdn)],
+            sans=sans,
             cert_path=self._settings.cert_dir / "server.pem",
             key_path=self._settings.cert_dir / "server-key.pem",
             archive=archive,

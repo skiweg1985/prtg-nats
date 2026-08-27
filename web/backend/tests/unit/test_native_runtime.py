@@ -33,7 +33,7 @@ def test_ca_and_server_certificate_match_the_shell_shapes(
 ) -> None:
     pki = Pki(settings)
     pki.create_ca(organization="Example Org")
-    pki.issue_server_certificate(fqdn="nats.example.test", archive=False)
+    pki.issue_server_certificate(fqdn="nats.example.test", host_ip=None, archive=False)
 
     ca = x509.load_pem_x509_certificate((settings.cert_dir / "ca.pem").read_bytes())
     assert "PRTG Docker NATS CA" in ca.subject.rfc4514_string()
@@ -64,7 +64,7 @@ def test_a_bare_ip_host_becomes_an_ip_san(
     """
     pki = Pki(settings)
     pki.create_ca(organization="Example Org")
-    pki.issue_server_certificate(fqdn="192.0.2.79", archive=False)
+    pki.issue_server_certificate(fqdn="192.0.2.79", host_ip=None, archive=False)
 
     server = x509.load_pem_x509_certificate(
         (settings.cert_dir / "server.pem").read_bytes()
@@ -144,6 +144,31 @@ def test_the_interface_certificate_gets_an_address_san_too(
     assert san.value.get_values_for_type(x509.DNSName) == []
 
 
+def test_the_server_certificate_carries_the_host_address(
+    settings: Settings, template_dir: Path
+) -> None:
+    """A probe often sits where this installation's FQDN does not resolve.
+
+    Without the address in the certificate such a probe has no way in at all:
+    the name does not resolve, and reaching the server by address then fails
+    on the certificate instead of on DNS.
+    """
+    pki = Pki(settings)
+    pki.create_ca(organization="Example Org")
+    pki.issue_server_certificate(
+        fqdn="nats.example.test", host_ip="192.0.2.10", archive=False
+    )
+
+    server = x509.load_pem_x509_certificate(
+        (settings.cert_dir / "server.pem").read_bytes()
+    )
+    san = server.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    assert san.value.get_values_for_type(x509.DNSName) == ["nats.example.test"]
+    assert [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)] == [
+        "192.0.2.10"
+    ]
+
+
 def test_an_interface_certificate_without_a_host_address(
     settings: Settings, template_dir: Path
 ) -> None:
@@ -165,10 +190,10 @@ def test_renewal_archives_the_previous_certificate(
 ) -> None:
     pki = Pki(settings)
     pki.create_ca(organization="Example Org")
-    pki.issue_server_certificate(fqdn="nats.example.test", archive=False)
+    pki.issue_server_certificate(fqdn="nats.example.test", host_ip=None, archive=False)
     first = (settings.cert_dir / "server.pem").read_bytes()
 
-    pki.issue_server_certificate(fqdn="nats.example.test", archive=True)
+    pki.issue_server_certificate(fqdn="nats.example.test", host_ip=None, archive=True)
     second = (settings.cert_dir / "server.pem").read_bytes()
 
     assert first != second
