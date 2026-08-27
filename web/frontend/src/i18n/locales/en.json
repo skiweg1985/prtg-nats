@@ -877,6 +877,7 @@
       "checkout_not_found": "The stack was not started with Compose, so the checkout it was built from cannot be located.",
       "updater_image_missing": "The updater image does not exist yet. Run ./prtg-nats update on the host once; every update after that works from here.",
       "unknown": "The reason could not be determined."
-    }
+    },
+    "last_update": "Last updated from here"
   }
 }

@@ -34,6 +34,8 @@ const BASE = {
   error: '',
   commits: [],
   checked_at: '2026-08-27T10:00:00Z',
+  last_update_at: null,
+  last_update_commit: '',
   checkout_dir: '/opt/prtg-nats-server',
   available: true,
   unavailable_reason: null,
@@ -231,5 +233,35 @@ describe('UpdatesPage', () => {
 
     // And it keeps asking, rather than settling into the error state.
     await waitFor(() => expect(health).toHaveBeenCalled(), { timeout: 6000 })
+  })
+
+  it('says when it was last updated, once it has been', async () => {
+    /**
+     * The question still open once the state reads current. An installation
+     * is up to date either because it was updated an hour ago or because
+     * nothing has changed in months, and those are different situations.
+     */
+    await changeLanguage('en')
+    version = {
+      ...BASE,
+      last_update_at: '2026-08-27T09:00:00Z',
+      last_update_commit: 'eeeeeeeeeeee5555',
+    }
+    renderPage()
+
+    expect(await screen.findByText('Last updated from here')).toBeInTheDocument()
+    expect(screen.getByText('eeeeeeeeeeee')).toBeInTheDocument()
+  })
+
+  it('leaves the row out when nothing was updated from here', async () => {
+    /**
+     * An empty row would read as "never updated". The truth is narrower:
+     * updates run from the host leave no record in this database.
+     */
+    await changeLanguage('en')
+    renderPage()
+
+    expect(await screen.findByText('Up to date')).toBeInTheDocument()
+    expect(screen.queryByText('Last updated from here')).not.toBeInTheDocument()
   })
 })

@@ -97,6 +97,12 @@ and a repository that did not answer is `unreachable`, never `current`. An
 image built without the `GIT_COMMIT` build argument reports `unknown` instead
 of guessing.
 
+It also reports when this installation was last updated from the interface,
+and to what. That is the question still open once the state reads current - an
+installation is up to date either because it was updated an hour ago or
+because nothing has changed in months. Empty on one that has only ever been
+updated from the host, because nothing here recorded those.
+
 The answer comes from a cache the background check refreshes hourly; the check
 endpoint forces a fresh look. Both need `system.read`, because reading it is
 `git ls-remote` and writes nothing.

@@ -490,6 +490,23 @@ async def stack_version(
     project = await service.project() if readiness.available else None
     cached = await service.cached(db)
 
+    # The last one that got there. Ordered by when it finished rather than
+    # when it started: a job that ran for twenty minutes and one that ran for
+    # two can overlap, and what is being asked is when this installation
+    # changed, not when somebody pressed the button.
+    last_update = await db.scalar(
+        select(Job)
+        .where(
+            Job.type == stack_update_handler.JOB_TYPE,
+            Job.status == JobStatus.SUCCESSFUL,
+        )
+        .order_by(Job.finished_at.desc())
+        .limit(1)
+    )
+    last_commit = ""
+    if last_update is not None and isinstance(last_update.result, dict):
+        last_commit = str(last_update.result.get("commit") or "")
+
     running = service.running_commit()
     checkout = cached.checkout_commit if cached else ""
     remote = cached.remote_commit if cached else ""
@@ -520,6 +537,8 @@ async def stack_version(
             for entry in (cached.commits if cached else [])
         ],
         checked_at=cached.checked_at if cached else None,
+        last_update_at=last_update.finished_at if last_update else None,
+        last_update_commit=last_commit,
         checkout_dir=str(project.working_dir) if project else None,
         available=readiness.available,
         unavailable_reason=readiness.reason,
