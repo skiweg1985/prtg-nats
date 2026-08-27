@@ -209,14 +209,29 @@ process list. Why no sudo: see
 [the sensor guide](../../docs/guides/deploy-sensors.md#how-a-sensor-gets-root-privileges).
 
 1. The target interface is checked: present, a radio interface, reserved,
-   without a default route. A lock file prevents parallel runs.
-2. A short-lived `wpa_supplicant` instance starts with a generated
+   without a default route. A lock file keeps parallel runs apart; a run
+   that meets a busy interface waits up to 15 seconds for it before it
+   reports `iface-busy`.
+2. Behind the lock the interface is taken back: a supplicant or a `dhcpcd`
+   left by a run that never finished is ended, stale work directories go,
+   address and route are flushed. NetworkManager's own supplicant is left
+   alone — it carries no configuration below `/run`, which is what tells
+   the two apart.
+3. A short-lived `wpa_supplicant` instance starts with a generated
    configuration under `/run` (mode `0600`).
-3. Association and completed key negotiation are read off the event stream
+4. Association and completed key negotiation are read off the event stream
    with timestamps, plus signal and frequency.
-4. With `--stage dhcp`, a complete DHCP cycle follows in test mode.
-5. Cleanup always happens: end the instance, power the interface down,
+5. With `--stage dhcp`, a complete DHCP cycle follows in test mode.
+6. Cleanup always happens: end the instance, power the interface down,
    delete generated files — even on timeout or abort.
+
+The scan interval in PRTG has to stay above the time budget of a run.
+A failing test uses its budget in full — `--timeout` seconds, 45 by
+default — so an interval below that starts the next run while the previous
+one still holds the radio. The waiting above absorbs an overlap of a few
+seconds, not a permanent one: the sensor then reports `iface-busy` instead
+of measuring. A budget of 45 seconds and an interval of 120 leaves room
+for both.
 
 All variable values go into the `wpa_supplicant` configuration as hex
 strings. Quotation marks or line breaks in an SSID or a password therefore
