@@ -116,6 +116,14 @@ async def run(context: JobContext) -> dict[str, Any]:
 
     # The backup is the only thing standing between a failed migration and a
     # rebuild from scratch, so it happens before anything moves.
+    #
+    # A rebuild takes it too, and that is not caution by habit. The state it
+    # exists for is one where the running image is older than the checkout, so
+    # the image it builds is newer than what is running - and every migration
+    # between those two commits runs when the new container starts. The
+    # database side of a rebuild is exactly as irreversible as an update's;
+    # only the checkout is left alone. Skipping it here to save a minute would
+    # remove the one way back from a migration that does not fit.
     await context.step("backup")
     provisioning = ProvisioningService(context.settings, context.docker)
     export = await asyncio.to_thread(provisioning.export_runtime)

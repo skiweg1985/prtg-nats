@@ -105,6 +105,12 @@ that will not boot.
 
 So there is none. The way back is the runtime export the job takes as its
 first step, which is also why the backup is first and not last.
+
+A rebuild is no gentler here, which is worth saying because it looks like it
+should be. It exists for the state where the running image is older than the
+checkout, so the image it builds is newer than what is running, and every
+migration between those two commits runs when the new container starts. Only
+the checkout is left alone; the database side is identical.
 `tests/unit/test_schema_migrations.py` pins the behaviour so this stays a
 statement about the code rather than about our memory of it.
 
