@@ -34,7 +34,7 @@ The whole stack, including NATS:
 docker compose up -d
 ```
 
-That builds two images and starts five services:
+That builds three images and starts five services:
 
 | Service | What it does |
 | --- | --- |
@@ -43,6 +43,7 @@ That builds two images and starts five services:
 | `prtg-nats-web-api` | the management API and the job workers |
 | `prtg-nats-web-frontend` | builds the interface into a volume and exits |
 | `prtg-nats-web-proxy` | Caddy: terminates TLS, serves the interface and the public CA |
+| `prtg-nats-updater-build` | builds the image an update runs from, then exits |
 
 The interface is then at `https://<NATS_FQDN>`. The port is configurable with
 `WEB_HTTPS_PORT` in `.env`; whoever calls the host over plain HTTP is sent

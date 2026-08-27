@@ -144,23 +144,35 @@ class StackUpdateService:
     def state(*, running: str, checkout: str, remote: str, reachable: bool) -> str:
         """One word for the situation, decided in one place.
 
-        The order of these tests is the point. "unknown" first, because an
-        image built without a stamp cannot be compared to anything and a
-        confident answer would be a made-up one. "unreachable" before any
-        comparison against the branch, so a broken deploy key never reads as
-        "up to date".
+        The order of these tests is the point, and the first version had it
+        wrong in a way that only showed on a real installation: it answered
+        "unknown" whenever the image carried no version stamp, and stopped
+        there. An operator whose branch had moved on was told the version was
+        unknown and offered nothing - the one thing they could have acted on
+        was the thing being withheld.
+
+        A missing stamp makes exactly one statement uncertain, "the running
+        code is behind the checkout". It says nothing about whether the branch
+        has moved, which is a comparison between two things that are both
+        known. So that question is asked first now, and the stamp only decides
+        how confidently the rest can be described.
         """
-        if not running:
-            return "unknown"
-        # A checkout ahead of the running image: pulled, not rebuilt. Said
-        # before anything about the branch, because rebuilding is the next
-        # step either way.
-        if checkout and checkout != running:
-            return "rebuild_pending"
+        # A repository that did not answer, before any comparison against it -
+        # otherwise a broken deploy key reads as "up to date".
         if not reachable:
             return "unreachable"
+        # Something new on the branch. Needs no stamp: both sides of this
+        # comparison come from the checkout and the remote. Ahead of the
+        # rebuild case on purpose - an update does the rebuild too, so
+        # offering it is the more useful answer when both are true.
         if remote and checkout and remote != checkout:
             return "update_available"
+        # A checkout ahead of the running image: pulled, not rebuilt.
+        if running and checkout and checkout != running:
+            return "rebuild_pending"
+        # Level with the branch, but what is running cannot be established.
+        if not running:
+            return "unknown"
         return "current"
 
 

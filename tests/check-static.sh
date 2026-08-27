@@ -140,6 +140,32 @@ done < <(
     sed 's/^wait_until_healthy //' | sort -u
 )
 
+# A service that is built and also carries a fixed image name is one compose
+# will try to pull, because the name looks like a registry reference. There is
+# no registry here, the pull fails, and it fails the whole command - which is
+# how `prtg-nats update` stopped working on an installation that had just been
+# told to update itself. pull_policy: build is what says "never pull this".
+#
+# Only services with both matter: the ones with build and no image are named
+# after the project and compose never tries to fetch them.
+while IFS= read -r service_name; do
+  [[ -n "${service_name}" ]] || continue
+  service_block="$(
+    awk -v want="  ${service_name}:" '
+      $0 == want { inside = 1; next }
+      inside && /^  [a-z]/ { exit }
+      inside { print }
+    ' "${PROJECT_DIR}/compose.yaml"
+  )"
+  printf '%s\n' "${service_block}" | grep -q '^    image:' || continue
+  printf '%s\n' "${service_block}" | grep -q '^    build:' ||
+    printf '%s\n' "${service_block}" | grep -q '^      context:' || continue
+  check "built service ${service_name} with a fixed image name says pull_policy: build" \
+    "$(printf '%s\n' "${service_block}" | grep -c '^    pull_policy: build' ||
+      true)" \
+    "1"
+done < <(printf '%s\n' "${compose_services}")
+
 while IFS= read -r service_name; do
   [[ -n "${service_name}" ]] || continue
   check "restarted service ${service_name} is defined in compose.yaml" \

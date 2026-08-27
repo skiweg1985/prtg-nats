@@ -58,11 +58,42 @@ def test_an_unreachable_repository_never_reads_as_up_to_date() -> None:
 def test_an_unstamped_image_admits_it_does_not_know() -> None:
     """Built without GIT_COMMIT - by hand, or by an older compose file.
 
-    There is nothing to compare, so the honest answer is that this is unknown.
-    Guessing from the checkout would state something about the running code
-    that nobody verified.
+    Nothing can be said about the running code, so the state says so. Note
+    what it is *not* saying: the branch is level with the checkout here, and
+    that part is known.
     """
     assert state(running="", checkout="abc", remote="abc", reachable=True) == "unknown"
+
+
+def test_a_missing_stamp_does_not_hide_an_available_update() -> None:
+    """The regression a real installation found.
+
+    The first version answered "unknown" the moment the stamp was missing and
+    stopped there, so an operator whose branch had moved on was told the
+    version was unknown and offered nothing - the one thing they could have
+    acted on was the thing being withheld.
+
+    A missing stamp makes exactly one statement uncertain: that the running
+    code is behind the checkout. Whether the branch has moved is a comparison
+    between two things that are both known, and it does not need the stamp.
+    """
+    assert (
+        state(running="", checkout="abc", remote="def", reachable=True)
+        == "update_available"
+    )
+
+
+def test_an_update_is_offered_even_when_a_rebuild_is_also_due() -> None:
+    """Both true at once, and the update is the more useful answer.
+
+    It fetches, moves the checkout and rebuilds, so it resolves the pending
+    rebuild on the way. Reporting rebuild_pending here would send an operator
+    to the console to build a version that is already out of date.
+    """
+    assert (
+        state(running="old", checkout="mid", remote="new", reachable=True)
+        == "update_available"
+    )
 
 
 def test_the_probe_object_is_found_among_the_warnings() -> None:

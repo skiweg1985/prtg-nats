@@ -187,6 +187,13 @@ services:
       context: .
       dockerfile: web/updater/Dockerfile
     image: prtg-nats-updater:current
+    # Never pulled, always built. Without this, `compose pull` tries to fetch
+    # prtg-nats-updater from a registry that does not have it and fails the
+    # whole command - which took `prtg-nats update` down with it. The other
+    # two built services get away without it only because they carry no
+    # `image:` at all; this one needs the fixed name, because the platform
+    # starts containers from it by that name.
+    pull_policy: build
     container_name: prtg-nats-updater-build
     command: ["noop"]
     restart: "no"
