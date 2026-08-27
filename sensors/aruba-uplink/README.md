@@ -90,6 +90,7 @@ the sensor configuration.
 | `--primary` | `wired` | which uplink kind is the main path: `wired` or `cellular` |
 | `--backup` | `cellular` | the alternative path: `cellular`, `wired` or `none` |
 | `--backup-share` | `25` | percentage of traffic on the backup from which it counts as moved over |
+| `--billing-day` | `1` | day of the month the mobile data volume starts over on, `0` for a counter that never resets |
 | `--timeout-ms` | `10000` | milliseconds to wait for a single answer |
 | `--self-check` | — | only verify the ability to run |
 
@@ -142,7 +143,7 @@ A site where LTE is the main path and the fixed line the fallback:
 | LTE RSRP | received power of the mobile link |
 | On Primary Uplink | the main path carries the traffic |
 | LTE SINR | signal-to-noise ratio; says more about usability than the level |
-| LTE Data Usage | volume in the billing period |
+| LTE Data Usage | mobile data volume of the current period, counted by the sensor |
 | Primary Latency / Jitter / Packet Loss / Quality | path measurement of the main path |
 | Backup Latency / Jitter / Packet Loss / Quality | the same for the alternative path |
 
@@ -178,6 +179,44 @@ not a broken sensor, it is the incident this sensor exists for.
 `no-quality-data` is the one exception that keeps *Test Result* green. The
 path measurement is a secondary one; losing it leaves every uplink channel
 intact and saying what it says.
+
+## Data volume
+
+`LTE Data Usage` does **not** come from the gateway's own `Data usage`
+field. That field is a signed 32-bit byte counter: past 2 GiB in a period
+it turns negative and works its way back towards zero, so it never rises
+above 2048 MB and a threshold on the volume never fires. Measured on an
+Aruba 9004-LTE running AOS-10.7.1.0:
+
+```text
+Data limit                : 50000 MB
+Data billing date         : 1
+Data usage                : -1148 MB
+```
+
+Setting `Data limit` and `Data billing date` on the device does not help —
+the counter stays broken with them. None of the eleven AOS releases up to
+10.8.1.0 fixes it, and it is not listed as a known issue either.
+
+The sensor therefore counts for itself, out of `Intf Rx Bytes` and
+`Intf Tx Bytes` of the cellular uplink in `show uplink stats`. Those
+counters are wide enough to hold a month and are read from the same answer
+the traffic share already comes from, so it costs no extra request.
+
+What it stores between runs is the counter reading the period started at,
+not the traffic of each run. The volume is therefore a single difference,
+and a probe that was down for an hour does not lose that hour. A gateway
+restart sets its interface counters back to zero; what had been carried
+before is kept, so a reboot does not reset the volume with them.
+
+`--billing-day` says when the period starts over — the first of the month
+by default. A day of 29 to 31 moves to the last day a month has, so
+February does not run for two. `--billing-day 0` never resets and gives a
+counter that only grows, for a site with no billing period to speak of.
+
+If the gateway reports a negative counter, the sensor message says so. The
+number is not used, but whoever compares the channel against the device has
+to learn why the two disagree.
 
 ## Create the sensor in PRTG
 
@@ -270,8 +309,15 @@ are a defect nobody would spot in the individual channels.
 - One sensor addresses one gateway. A site with two gateways needs two
   sensors.
 - The state file lives in `/tmp` and does not survive a reboot of the
-  probe. The changeover count then starts at 0 again — measured values are
-  unaffected, they all come from the gateway.
-- `Data usage` is what the gateway counts, not what the provider bills.
-  Without `Data limit` and `Data billing date` set on the device, the
-  number keeps running without a reference period.
+  probe. The changeover count then starts at 0 again, and the data volume
+  begins a new period from the current counter reading. Every other
+  measured value is unaffected — they all come from the gateway.
+- The data volume is what crossed the interface, not what the provider
+  bills. Providers count differently, and the sensor cannot see a
+  correction the provider applies later.
+- The volume misses two stretches, both by nature: the traffic between the
+  billing day and the first run after it, and the traffic between the last
+  run before a gateway restart and the restart itself. At a few minutes per
+  run, both are minutes rather than hours. A sensor freshly deployed
+  mid-month starts counting where it is, so the first period is short by
+  everything before it.

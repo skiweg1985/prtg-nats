@@ -45,6 +45,8 @@ Structured after the bundled examples under
 
 # std-lib
 import argparse
+import calendar
+import datetime
 import html
 import http.client
 import json
@@ -125,6 +127,15 @@ MIN_TIMEOUT_MS = 2000
 MAX_TIMEOUT_MS = 60000
 MIN_SHARE = 1
 MAX_SHARE = 99
+# 0 means "never reset". A site without a billing period wants a plain
+# counter, and asking it to invent a day it does not have would be worse.
+MIN_BILLING_DAY = 0
+MAX_BILLING_DAY = 31
+
+# The gateway counts its own data usage in these units, so the channel keeps
+# them: two numbers for the same thing that differ by 5 % would send whoever
+# compares them looking for a leak that is not there.
+BYTES_PER_MB = 1048576
 
 # A run talks to the gateway five times. The budget covers all of them plus
 # the handshake; beyond it something is wrong that no answer will fix.
@@ -257,6 +268,10 @@ def setup():
     argparser.add_argument("--backup-share", type=int, default=25,
                            help="Percentage of traffic on the backup from "
                                 "which the traffic counts as moved over.")
+    argparser.add_argument("--billing-day", type=int, default=1,
+                           help="Day of the month the mobile data volume "
+                                "starts over on, 0 for a counter that never "
+                                "resets.")
     argparser.add_argument("--timeout-ms", type=int, default=10000,
                            help="Milliseconds to wait for a single answer.")
     argparser.add_argument("--self-check", action="store_true",
@@ -322,6 +337,8 @@ def validate(args: dict[str, Any]) -> None:
 
     for name, value, lowest, highest in (
         ("--backup-share", args["backup_share"], MIN_SHARE, MAX_SHARE),
+        ("--billing-day", args["billing_day"], MIN_BILLING_DAY,
+         MAX_BILLING_DAY),
         ("--timeout-ms", args["timeout_ms"], MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
     ):
         if not lowest <= value <= highest:
@@ -488,6 +505,35 @@ def parse_uplink_stats(lines: list[str]) -> dict[str, int]:
     return rates
 
 
+def parse_uplink_totals(lines: list[str]) -> dict[str, int]:
+    """Bytes carried per uplink kind since the gateway last started.
+
+    The same sections as parse_uplink_stats, but the cumulative counters
+    instead of the rates. "Intf" is the interface itself and therefore holds
+    everything that crossed the uplink; the "VPN" line below it counts a
+    subset and would understate a site whose traffic does not all go through
+    the tunnel.
+
+    These counters are wide enough to be trusted, which the gateway's own
+    "Data usage" field is not - see the data volume section of the README.
+    """
+    totals: dict[str, int] = {}
+    current = ""
+    for line in lines:
+        heading = re.match(r"\s*(Wired|Cellular)\s+VLAN\s*:", line, re.I)
+        if heading:
+            current = DEVICE_KINDS[heading.group(1).lower()]
+            totals.setdefault(current, 0)
+            continue
+        if not current:
+            continue
+        counted = re.search(
+            r"Intf Rx Bytes\s*:\s*(\d+)\s+Intf Tx Bytes\s*:\s*(\d+)", line)
+        if counted:
+            totals[current] += int(counted.group(1)) + int(counted.group(2))
+    return totals
+
+
 def parse_link_quality(lines: list[str]) -> dict[str, dict[str, float]]:
     """Latency, jitter, loss and R value per uplink kind.
 
@@ -602,6 +648,76 @@ def cellular_values(document: dict[str, Any]) -> dict[str, float]:
     return result
 
 
+def day_in_month(day: int, year: int, month: int) -> int:
+    """The billing day as it falls in one particular month.
+
+    A day of 29 to 31 does not exist in every month. Moving it to the last
+    day that month has keeps the period monthly - skipping it would let a
+    February run on for two.
+    """
+    return min(day, calendar.monthrange(year, month)[1])
+
+
+def billing_period_start(day: int, today: datetime.date) -> str:
+    """The day the current volume period began, as an ISO date.
+
+    Empty for a billing day of 0: that is the plain counter, which has no
+    period to begin.
+    """
+    if day <= 0:
+        return ""
+    if today.day >= day_in_month(day, today.year, today.month):
+        return today.replace(
+            day=day_in_month(day, today.year, today.month)).isoformat()
+    year = today.year - 1 if today.month == 1 else today.year
+    month = 12 if today.month == 1 else today.month - 1
+    return datetime.date(year, month,
+                         day_in_month(day, year, month)).isoformat()
+
+
+def usage_since(previous, counter: int, billing_day: int,
+                today: datetime.date):
+    """The mobile data volume of the current period, and the state to keep.
+
+    Deliberately not the sum of the deltas between runs: a probe that was
+    down for an hour would lose that hour for good. What is stored is the
+    counter reading the period started at, so the volume stays a single
+    difference no matter how often the sensor ran in between.
+
+    "carry" holds what was counted before the gateway last restarted. Its
+    interface counters begin at zero again after a restart, and without
+    carry the volume would start over with them.
+
+    Returns None as the volume while nothing can be said yet - the first run
+    has no reading to measure against, and reporting the counter itself
+    would claim months of traffic as this period's volume.
+    """
+    start = billing_period_start(billing_day, today)
+    fresh = {"period_start": start, "baseline": counter, "carry": 0,
+             "last": counter}
+    if not isinstance(previous, dict) or "last" not in previous:
+        return None, fresh
+
+    baseline = int(previous.get("baseline", 0))
+    carry = int(previous.get("carry", 0))
+    last = int(previous.get("last", 0))
+    # A counter that went backwards means the gateway restarted: it counts
+    # from zero again, so what it had carried in this period moves into
+    # carry. Only what is above the baseline - the rest was already there
+    # when the period began and never belonged to this volume.
+    if counter < last:
+        carry += last - baseline
+        baseline = 0
+    # The traffic between the billing day and the first run after it is not
+    # in any counter this sensor can reach. At a few minutes per run that is
+    # a rounding error; claiming the whole month instead would not be.
+    if previous.get("period_start") != start:
+        return 0, fresh
+    return (carry + counter - baseline,
+            {"period_start": start, "baseline": baseline, "carry": carry,
+             "last": counter})
+
+
 def read_state(path: str):
     """The state of the previous run.
 
@@ -652,13 +768,18 @@ def write_state(path: str, state: dict[str, Any]) -> None:
             pass
 
 
-def track_changes(summary: dict[str, Any], now: float) -> int:
-    """Count the state changes of the last 24 hours.
+def track_state(summary: dict[str, Any], counter: int, billing_day: int,
+                now: float):
+    """The changeovers of the last 24 hours and the mobile data volume.
 
     A single changeover is an event and needs no alarm; twenty of them are a
     defect that nobody would spot in the individual channels. What counts as
     a change is the triple of the three yes/no statements - not a byte rate,
     which fluctuates by nature.
+
+    Both answers come from the same file, and therefore from one read and
+    one write. Two functions each doing their own would have the second drop
+    what the first had just stored.
     """
     marker = [bool(summary["primary_up"]), bool(summary["backup_up"]),
               bool(summary["on_primary"])]
@@ -673,8 +794,12 @@ def track_changes(summary: dict[str, Any], now: float) -> int:
     # that never happened.
     if "marker" in stored and stored["marker"] != marker:
         history.append(now)
-    write_state(CACHE_PATH, {"marker": marker, "history": history[-100:]})
-    return len(history)
+    usage, usage_state = usage_since(stored.get("usage"), counter,
+                                     billing_day,
+                                     datetime.date.fromtimestamp(now))
+    write_state(CACHE_PATH, {"marker": marker, "history": history[-100:],
+                             "usage": usage_state})
+    return len(history), usage
 
 
 def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
@@ -707,6 +832,11 @@ def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
         "backup_share": backup_share,
         "utilisation": float(primary.get("utilisation", 0.0)),
         "connected": sum(1 for entry in uplinks.values() if entry.get("up")),
+        # Filled in by work() once the state of the previous run is read.
+        # Zero until then, and marked as not yet known: a volume of 0 and a
+        # volume nobody has measured look the same in a channel.
+        "data_usage_mb": 0.0,
+        "data_usage_known": False,
     }
 
 
@@ -789,7 +919,7 @@ def present(args: dict[str, Any], summary: dict[str, Any],
         channels.append(number(21, "LTE SINR", cellular.get("sinr", 0.0),
                                kind="custom", display_unit="dB"))
         channels.append(number(22, "LTE Data Usage",
-                               cellular.get("data_usage", 0.0),
+                               summary["data_usage_mb"],
                                kind="custom", display_unit="MB"))
 
     channels.extend(quality_channels(PRIMARY_BASE, "Primary",
@@ -805,12 +935,14 @@ def present(args: dict[str, Any], summary: dict[str, Any],
     return {
         "version": 2,
         "status": "ok",
-        "message": describe(args, summary, quality, code, message)[:2000],
+        "message": describe(args, summary, cellular, quality, code,
+                            message)[:2000],
         "channels": channels,
     }
 
 
 def describe(args: dict[str, Any], summary: dict[str, Any],
+             cellular: dict[str, float],
              quality: dict[str, dict[str, float]], code: str,
              message: str) -> str:
     if code not in MEASUREMENT_OK:
@@ -837,6 +969,16 @@ def describe(args: dict[str, Any], summary: dict[str, Any],
                         measured["loss_percent"], measured["quality"]))
     elif message:
         parts.append(message)
+
+    if KIND_CELLULAR in (args["primary"], args["backup"]):
+        if not summary.get("data_usage_known"):
+            parts.append("the mobile data volume is counted from this run on")
+        # Whoever compares the channel against the gateway needs to know why
+        # the two disagree - otherwise the sensor looks like the broken one.
+        if cellular.get("data_usage", 0.0) < 0:
+            parts.append("the gateway\'s own data counter reads %.0f MB and "
+                         "is not used"
+                         % cellular.get("data_usage", 0.0))
     return ", ".join(parts)
 
 
@@ -853,7 +995,8 @@ def failure_result(args: dict[str, Any], code: str,
     if code in SENSOR_FAILURES:
         fail("%s (%s)" % (message, code))
     empty = {"primary_up": False, "backup_up": False, "on_primary": False,
-             "backup_share": 0.0, "utilisation": 0.0, "connected": 0}
+             "backup_share": 0.0, "utilisation": 0.0, "connected": 0,
+             "data_usage_mb": 0.0, "data_usage_known": False}
     return present(args, empty, {}, {}, 0, 0, code, message)
 
 
@@ -915,7 +1058,11 @@ def measure(args: dict[str, Any]):
                              % (kind, role,
                                 ", ".join(sorted(uplinks)) or "none"))
 
-        rates = parse_uplink_stats(data_lines(gateway.show(COMMAND_STATS)))
+        # One answer, two readings: the rates say which uplink carries the
+        # traffic right now, the counters below them how much it has carried.
+        stats = data_lines(gateway.show(COMMAND_STATS))
+        rates = parse_uplink_stats(stats)
+        totals = parse_uplink_totals(stats)
         cellular = {}
         if KIND_CELLULAR in (args["primary"], args["backup"]):
             cellular = cellular_values(gateway.show(COMMAND_CELLULAR))
@@ -923,7 +1070,7 @@ def measure(args: dict[str, Any]):
     finally:
         gateway.close()
 
-    return uplinks, rates, cellular, quality
+    return uplinks, rates, totals, cellular, quality
 
 
 def work(args: dict[str, Any]):
@@ -939,7 +1086,7 @@ def work(args: dict[str, Any]):
     previous = signal.signal(signal.SIGALRM, raise_timeout)
     signal.alarm(int(args["timeout_ms"] / 1000.0) + BUDGET_EXTRA_SECONDS)
     try:
-        uplinks, rates, cellular, quality = measure(args)
+        uplinks, rates, totals, cellular, quality = measure(args)
     except Failed as problem:
         return failure_result(args, problem.code, problem.message)
     except Timeout:
@@ -956,7 +1103,11 @@ def work(args: dict[str, Any]):
         signal.signal(signal.SIGALRM, previous)
 
     summary = summarise(args, uplinks, rates)
-    changes = track_changes(summary, time.time())
+    changes, usage = track_state(summary, totals.get(KIND_CELLULAR, 0),
+                                 args["billing_day"], time.time())
+    if usage is not None:
+        summary["data_usage_mb"] = usage / BYTES_PER_MB
+        summary["data_usage_known"] = True
     duration_ms = int((time.time() - started) * 1000)
 
     code, message = "ok", ""
