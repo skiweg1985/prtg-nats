@@ -102,6 +102,8 @@ export interface SensorState {
   installed_version: string | null
   installed_sha256: string | null
   expected_sha256: string | null
+  installed_helper_sha256: string | null
+  expected_helper_sha256: string | null
   interfaces: string[]
   helper_state: string | null
 }

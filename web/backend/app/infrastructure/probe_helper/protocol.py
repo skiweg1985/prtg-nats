@@ -66,7 +66,11 @@ FIELD_SEPARATOR = "\t"
 # interfaces of a probe instead of asking somebody to type a name. The minimum
 # stays at 1: a probe below 5 refuses the request as unknown, which reads as
 # the helper being behind, and reserving still works from the shell.
-CURRENT_HELPER_VERSION = 5
+# Version 6 adds helper_sha256 to sensor-list, so a privileged helper changed
+# on the probe becomes visible. Before it, only the sensor script carried a
+# digest, and a helper edited in place read as current. The minimum stays at
+# 1: a probe below 6 omits the field, and an absent digest is not a deviation.
+CURRENT_HELPER_VERSION = 6
 MINIMUM_HELPER_VERSION = 1
 
 # Where a variant's files land on the probe. The helper builds the same path
