@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # update page confidently wrong rather than usefully unsure.
     git_commit: str = ""
     git_ref: str = ""
+    # What `git describe --tags` called this build: "v0.2.0" on a tag,
+    # "v0.2.0-3-gabc123" three commits past one. Empty until the repository
+    # has tags at all, and then the commit is what the interface shows -
+    # a version number nobody assigned is worse than an honest hash.
+    git_version: str = ""
 
     # --- Where the installation keeps its files -----------------------------
     # Two roots, because they have different lifetimes. Assets ship with the

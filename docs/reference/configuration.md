@@ -232,6 +232,7 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
 | `PRTG_NATS_WEB_GIT_REF` | The branch that build came from, same source | string | – | no |
+| `PRTG_NATS_WEB_GIT_VERSION` | What `git describe --tags` called that build, e.g. `v0.2.0` or `v0.2.0-3-gabc123`. Empty until the repository has tags, and the commit is shown instead | string | – | no |
 
 Updating this installation from the interface needs a route to the repository.
 The updater uses a deploy key at `runtime/private/ssh/git-deploy` if one is

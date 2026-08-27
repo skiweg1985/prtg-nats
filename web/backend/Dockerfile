@@ -50,11 +50,13 @@ COPY install-mpp.sh /opt/prtg-nats/
 # the layers above it and every update rebuilds the world.
 ARG GIT_COMMIT=""
 ARG GIT_REF=""
+ARG GIT_VERSION=""
 
 ENV PRTG_NATS_WEB_ASSET_DIR=/opt/prtg-nats \
     PRTG_NATS_WEB_RUNTIME_DIR=/srv/prtg-nats/runtime \
     PRTG_NATS_WEB_GIT_COMMIT=${GIT_COMMIT} \
-    PRTG_NATS_WEB_GIT_REF=${GIT_REF}
+    PRTG_NATS_WEB_GIT_REF=${GIT_REF} \
+    PRTG_NATS_WEB_GIT_VERSION=${GIT_VERSION}
 
 EXPOSE 8100
 

@@ -537,7 +537,7 @@
         "timeout": "The updater is taking longer than expected; it keeps running and the outcome is recorded when it ends",
         "update_failed": "The update failed (exit code {{code}})",
         "updated": "The stack now runs {{commit}}",
-        "updater_output": "Output from the updater"
+        "updater_output": "{{line}}"
       }
     }
   },

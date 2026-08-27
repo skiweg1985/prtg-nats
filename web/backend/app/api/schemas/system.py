@@ -487,6 +487,9 @@ class StackVersionOut(ApiModel):
     # What the running image was built from. Empty when it was built without
     # the build argument, and then `state` is "unknown" rather than a guess.
     running_commit: str
+    # What `git describe` called the running build, when the repository has
+    # tags to describe it with. Empty otherwise, and the commit stands in.
+    running_version: str
     # What the working tree on the host is at.
     checkout_commit: str
     checkout_dirty: bool

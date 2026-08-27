@@ -176,7 +176,18 @@ function VersionCard({ data }: { data: StackVersion }) {
       <dl className="space-y-1">
         <DetailRow label={t('updates.running')}>
           {data.running_commit ? (
-            <Mono>{short(data.running_commit)}</Mono>
+            <>
+              {/* The name when there is one, and the commit either way: a
+                  tag says which release this is, the hash says exactly
+                  which build, and during a release they are worth seeing
+                  together. */}
+              {data.running_version && (
+                <span className="mr-2 font-medium">{data.running_version}</span>
+              )}
+              <Mono className={data.running_version ? 'text-ink-3' : undefined}>
+                {short(data.running_commit)}
+              </Mono>
+            </>
           ) : (
             <span className="text-ink-3">{t('updates.running_unknown')}</span>
           )}

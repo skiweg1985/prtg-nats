@@ -43,7 +43,10 @@ proxy restart against the missing state in the meantime and are restarted once
 it is there.
 
 `build` and `up` stamp the commit of this checkout into the images they build,
-which is what lets the interface say which version is running. A checkout with
+and `git describe --tags` alongside it, which is what lets the interface say
+which version is running. Until the repository carries tags there is nothing
+to describe, and the commit stands in - a version number nobody assigned would
+be worse than an honest hash. A checkout with
 uncommitted changes is stamped as such rather than as the commit it started
 from - an image built from edited files matches no commit, and naming one
 would make the update page state something untrue.

@@ -90,7 +90,8 @@ compose() {
 export_build_stamp() {
   GIT_COMMIT=""
   GIT_REF=""
-  export GIT_COMMIT GIT_REF
+  GIT_VERSION=""
+  export GIT_COMMIT GIT_REF GIT_VERSION
 
   command -v git >/dev/null 2>&1 || return 0
   git -C "${PROJECT_DIR}" rev-parse --git-dir >/dev/null 2>&1 || return 0
@@ -100,6 +101,18 @@ export_build_stamp() {
     [[ -z "$(git -C "${PROJECT_DIR}" status --porcelain 2>/dev/null)" ]] ||
     GIT_COMMIT="${GIT_COMMIT}-dirty"
   GIT_REF="$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
+
+  # A name a person can say out loud, when the repository offers one.
+  # --tags counts lightweight tags too, so tagging does not have to be a
+  # ceremony; --dirty marks a build from edited files, the same way the
+  # commit above does. Empty until somebody tags something, and the
+  # interface then falls back to the commit rather than inventing a number.
+  #
+  #   v0.2.0            built exactly on the tag
+  #   v0.2.0-3-gabc123  three commits past it, which is the honest answer
+  GIT_VERSION="$(git -C "${PROJECT_DIR}" describe --tags --dirty 2>/dev/null ||
+    printf '')"
+  export GIT_VERSION
 }
 
 # Containers of this stack that a different checkout started.

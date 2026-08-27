@@ -429,6 +429,8 @@ export interface StackCommit {
  */
 export interface StackVersion {
   running_commit: string
+  /** What `git describe` called it, when the repository has tags. */
+  running_version: string
   checkout_commit: string
   checkout_dirty: boolean
   remote_commit: string

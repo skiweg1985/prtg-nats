@@ -537,7 +537,7 @@
         "timeout": "Der Updater braucht länger als erwartet; er läuft weiter, das Ergebnis wird festgehalten, sobald er fertig ist",
         "update_failed": "Das Update ist fehlgeschlagen (Exit-Code {{code}})",
         "updated": "Der Stack läuft jetzt auf {{commit}}",
-        "updater_output": "Ausgabe des Updaters"
+        "updater_output": "{{line}}"
       }
     }
   },

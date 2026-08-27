@@ -514,6 +514,7 @@ async def stack_version(
 
     return StackVersionOut(
         running_commit=running,
+        running_version=settings.git_version,
         checkout_commit=checkout,
         checkout_dirty=cached.checkout_dirty if cached else False,
         remote_commit=remote,
