@@ -178,6 +178,14 @@ SENSOR_PRIVILEGED=privileged/prtg-sensor-example
 SENSOR_REQUIREMENTS=
 ```
 
+`SENSOR_VERSION` goes up with every change to a file the manifest names —
+the privileged helper included. It is what the platform compares against
+the version a probe reports, and for the helper it is the only thing it
+can compare: a probe answers with the checksum of its sensor script, and
+a helper that changed without the version changing therefore reads as
+current everywhere. Both a script fix and a helper fix are one step up;
+the number is an identity, not a semantic version.
+
 ## Rules for a sensor script
 
 `./tests/check-static.sh` enforces these; without them a sensor does not pass
