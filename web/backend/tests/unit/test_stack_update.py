@@ -9,6 +9,9 @@ an image built without a version stamp must not be compared to anything.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from app.core.config import Settings
 from app.services.stack_update import StackUpdateService, _parse_probe
 
 state = StackUpdateService.state
@@ -93,3 +96,29 @@ def test_output_without_any_object_is_a_failure_not_an_empty_reading() -> None:
     )
     assert result.reachable is False
     assert "not a git checkout" in result.error
+
+
+def test_no_branch_configured_means_the_checkout_decides(tmp_path: Path) -> None:
+    """The default that a real installation caught.
+
+    A fixed "main" looked like the careful choice - follow what was
+    configured, not what somebody moved the checkout to. On an installation
+    tracking dev it produced "the branch main does not exist on origin" on the
+    very first look, for an installation that was entirely up to date, and the
+    page said unreachable when nothing was wrong.
+
+    Empty now means the checkout decides, and the updater is asked without a
+    branch argument at all rather than with an empty one - which would have it
+    look up a branch called "" and fail in exactly the same misleading way.
+    """
+    assert Settings(project_dir=tmp_path).update_branch == ""
+
+
+def test_the_probe_falls_back_to_the_checkouts_own_branch() -> None:
+    """With no branch asked for, what the updater reports is what counts."""
+    output = (
+        '{"branch":"dev","head":"aaa","dirty":false,"remote_head":"bbb",'
+        '"behind":1,"ahead":0,"reachable":true,"error":"","commits":[]}'
+    )
+    result = _parse_probe(output, fallback_branch="HEAD")
+    assert result.branch == "dev"

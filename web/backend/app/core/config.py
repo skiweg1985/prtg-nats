@@ -28,10 +28,17 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # --- Updating this installation from its own checkout -------------------
-    # The branch an update follows. Not the branch the checkout happens to be
-    # on: that one can be moved by hand, and an update should follow what the
-    # installation was configured to track.
-    update_branch: str = "main"
+    # The branch an update follows. Empty means the one the checkout is on,
+    # which is the right default and was learned the hard way: a fixed "main"
+    # looked like the careful choice - follow what was configured, not what
+    # somebody moved the checkout to - and on an installation tracking dev it
+    # produced "the branch main does not exist on origin" on the first look,
+    # for an installation that was perfectly up to date.
+    #
+    # Set it to pin an installation to a branch on purpose. Left alone, the
+    # checkout decides, which is what an operator who ran `git checkout dev`
+    # already expects.
+    update_branch: str = ""
 
     # --- Which commit this image was built from -----------------------------
     # Stamped in by the build, because a container has no checkout to ask.

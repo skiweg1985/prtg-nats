@@ -839,7 +839,7 @@
     "no_changes": "Auf diesem Branch gibt es nichts Neues",
     "install": "Update einspielen",
     "running": "Läuft",
-    "running_unknown": "unbekannt - dieses Image wurde ohne Versionsstempel gebaut",
+    "running_unknown": "unbekannt - ohne Versionsstempel gebaut; das nächste ./prtg-nats update trägt ihn nach",
     "checkout": "Checkout",
     "branch": "Branch",
     "checkout_dir": "Checkout auf dem Host",

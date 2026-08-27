@@ -228,7 +228,7 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS` | How often `runtime/` is re-read | int | `60` | no |
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
-| `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Not the branch the checkout happens to be on: that one can be moved by hand | string | `main` | no |
+| `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Empty means the one the checkout is on, which is what an operator who ran `git checkout dev` expects; set it to pin an installation to a branch on purpose | string | – | no |
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
 | `PRTG_NATS_WEB_GIT_REF` | The branch that build came from, same source | string | – | no |
