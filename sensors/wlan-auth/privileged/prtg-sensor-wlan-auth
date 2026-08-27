@@ -47,7 +47,9 @@ LOCK_WAIT_SECONDS = 15
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
 # names the programs rather than the packages behind them.
-REQUIRED_PROGRAMS = ("wpa_supplicant", "wpa_cli", "dhcpcd", "ip")
+REQUIRED_PROGRAMS = ("wpa_supplicant", "wpa_cli", "ip")
+# Any one of these can carry out the DHCP stage; see dhcp_command.
+DHCP_PROGRAMS = ("busybox", "udhcpc", "dhcpcd")
 RUN_DIR = "/run"
 
 # Field: (required for this method, adoptable from the profile)
@@ -392,28 +394,75 @@ def clear_process_group(process):
         pass
 
 
-def run_dhcp(interface, budget):
+# The script udhcpc hands a lease to. It writes the values out in the shape
+# dhcpcd prints them, so one parser reads both clients - and it configures
+# nothing, which is what makes this a test rather than a connection.
+UDHCPC_SCRIPT = """#!/bin/sh
+case "$1" in
+  bound|renew) ;;
+  *) exit 0 ;;
+esac
+printf 'new_ip_address=%s\\n' "$ip"
+printf 'new_dhcp_server_identifier=%s\\n' "$serverid"
+printf 'new_routers=%s\\n' "$router"
+"""
+
+
+def dhcp_command(interface, seconds, script_path):
+    """The DHCP client to run, and how to ask it for one lease.
+
+    udhcpc first. dhcpcd 9 confines its own child processes with seccomp,
+    and where the kernel is 64-bit while userland is 32-bit - the ordinary
+    shape of Raspberry Pi OS armhf on 64-bit hardware - the filter does not
+    match the processes it guards. Every syscall falls through and the
+    kernel kills the client with SIGSYS before it sends a single packet,
+    which reads exactly like a DHCP server that never answered.
+
+    udhcpc carries no sandbox, ships with busybox on every Raspberry Pi OS,
+    and leaves the interface alone as long as its script does.
+    """
+    tries = max(2, min(4, seconds // 3))
+    if shutil.which("busybox"):
+        return ["busybox", "udhcpc", "-i", interface, "-n", "-q", "-f",
+                "-t", str(tries), "-T", "3", "-s", script_path]
+    if shutil.which("udhcpc"):
+        return ["udhcpc", "-i", interface, "-n", "-q", "-f",
+                "-t", str(tries), "-T", "3", "-s", script_path]
+    return ["dhcpcd", "-4", "-T", "-t", str(seconds), interface]
+
+
+def run_dhcp(interface, budget, workdir):
     """DHCP in test mode: a complete cycle without setting the address.
 
-    dhcpcd -T requests a lease and prints it, but does not configure the
-    interface. The sensor thereby measures the DHCP server's response
-    time without leaving a route or address on the test interface.
+    The client asks for a lease and reports it; nothing is put on the
+    interface. The sensor thereby measures how long the DHCP server takes
+    without leaving a route or an address on a test interface.
     """
     seconds = max(3, int(budget))
+    script_path = os.path.join(workdir, "udhcpc.sh")
+    with open(os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                      0o700), "w", encoding="utf-8") as handle:
+        handle.write(UDHCPC_SCRIPT)
+    command = dhcp_command(interface, seconds, script_path)
+
     started = time.monotonic()
     # A file, not a pipe: the children below inherit the handle and outlive
     # their parent, so a pipe would reach EOF only once they are gone - and
     # reading it would be the very thing that waits for them.
+    #
+    # stderr goes to the same place. It is where both clients say why they
+    # gave up, and discarding it once cost a long afternoon: a client killed
+    # before it sent anything looks, from stdout alone, exactly like a DHCP
+    # server that stayed silent.
     with tempfile.TemporaryFile() as sink:
         try:
             # Its own session, so the whole group can be cleared out below.
             process = subprocess.Popen(
-                ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
-                stdout=sink, stderr=subprocess.DEVNULL,
-                start_new_session=True,
+                command, stdout=sink, stderr=sink, start_new_session=True,
             )
         except OSError:
-            raise Blocked("internal-error", "Could not run dhcpcd")
+            raise Blocked("internal-error",
+                          "Could not run %s" % os.path.basename(command[0]))
         try:
             process.wait(timeout=seconds + 5)
             timed_out = False
@@ -437,12 +486,42 @@ def run_dhcp(interface, budget):
         key, _, value = line.strip().partition("=")
         if key in ("new_ip_address", "new_dhcp_server_identifier",
                    "new_routers"):
-            lease[key] = value.strip("'")
+            value = value.strip("'")
+            if value:
+                lease[key] = value
     if "new_ip_address" not in lease:
-        if process.returncode != 0:
-            raise Failed("dhcp-timeout", "The DHCP request was not answered")
-        raise Failed("dhcp-timeout", "The DHCP server offered no address")
+        raise dhcp_failure(command, process.returncode, output)
     return duration, lease
+
+
+def dhcp_failure(command, returncode, output):
+    """Say what went wrong, in the words of whoever knows.
+
+    A client that died on a signal never asked anybody, so reporting the
+    DHCP server as unresponsive would blame the wrong machine.
+    """
+    client = os.path.basename(command[0])
+    if returncode is not None and returncode < 0:
+        signalled = -returncode
+        if signalled == signal.SIGSYS:
+            return Blocked(
+                "dhcp-client-broken",
+                "%s was killed by its own syscall filter before it sent "
+                "anything; this probe needs a different DHCP client" % client)
+        return Blocked(
+            "dhcp-client-broken",
+            "%s was killed by signal %d before it reported a lease"
+            % (client, signalled))
+    detail = ""
+    for line in reversed(output.splitlines()):
+        line = line.strip()
+        if line and "=" not in line:
+            detail = line
+            break
+    if detail:
+        return Failed("dhcp-timeout",
+                      "The DHCP request was not answered (%s)" % detail)
+    return Failed("dhcp-timeout", "The DHCP request was not answered")
 
 
 def wait_for_connection(run, deadline):
@@ -475,6 +554,53 @@ def wait_for_connection(run, deadline):
                  "The key negotiation did not complete within the time budget")
 
 
+def unblock_radio(interface):
+    """Lift a software block on this interface's radio.
+
+    Raspberry Pi OS ships with the radio soft-blocked, and it stays that way
+    until something uses Wi-Fi. On a probe that never did, "ip link set up"
+    fails with "Operation not possible due to RF-kill" - an interface that
+    exists, is wireless, is reserved, and still cannot be brought up.
+
+    Lifting it is what the reservation is for: the interface was handed over
+    to be switched on and off for tests, and nothing else uses it. A hardware
+    block is a different matter - a physical switch is a decision somebody
+    made with their hands, and no test overrules that.
+    """
+    directory = os.path.join("/sys/class/net", interface, "phy80211")
+    try:
+        entries = [name for name in os.listdir(directory)
+                   if name.startswith("rfkill")]
+    except OSError:
+        # No rfkill for this radio: nothing blocks it, nothing to lift.
+        return
+
+    for name in entries:
+        control = os.path.join(directory, name)
+        if read_flag(os.path.join(control, "hard")):
+            raise Blocked(
+                "iface-blocked",
+                "The radio of %s is blocked in hardware" % interface)
+        if not read_flag(os.path.join(control, "soft")):
+            continue
+        try:
+            with open(os.path.join(control, "soft"), "w") as handle:
+                handle.write("0")
+        except OSError:
+            raise Blocked(
+                "iface-blocked",
+                "The radio of %s is blocked and could not be released"
+                % interface)
+
+
+def read_flag(path):
+    try:
+        with open(path, "r", encoding="ascii") as handle:
+            return handle.read().strip() == "1"
+    except OSError:
+        return False
+
+
 def perform_test(job):
     interface = job["interface"]
     check_interface(interface)
@@ -502,8 +628,18 @@ def perform_test(job):
                           0o600), "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
 
-        subprocess.run(["ip", "link", "set", interface, "up"],
-                       capture_output=True, timeout=10, check=True)
+        unblock_radio(interface)
+        powered = subprocess.run(["ip", "link", "set", interface, "up"],
+                                 capture_output=True, text=True, timeout=10,
+                                 check=False)
+        if powered.returncode != 0:
+            # Naming what the kernel said beats "the test failed
+            # unexpectedly": whoever reads this in PRTG is not on the probe
+            # and cannot go looking.
+            raise Blocked(
+                "iface-down",
+                "Could not power up %s: %s"
+                % (interface, powered.stderr.strip() or "no reason given"))
         run.start(config_path)
         associated, connected = wait_for_connection(run, deadline)
 
@@ -512,7 +648,8 @@ def perform_test(job):
         collect_link_details(run, result)
 
         if job["stage"] == "dhcp":
-            duration, lease = run_dhcp(interface, deadline - time.monotonic())
+            duration, lease = run_dhcp(
+                interface, deadline - time.monotonic(), workdir)
             result["timings"]["dhcp_ms"] = duration
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
@@ -700,6 +837,8 @@ def main():
             # later and on somebody else's screen.
             missing = [name for name in REQUIRED_PROGRAMS
                        if shutil.which(name) is None]
+            if not any(shutil.which(name) for name in DHCP_PROGRAMS):
+                missing.append(" or ".join(DHCP_PROGRAMS))
             if missing:
                 emit({"result": "blocked", "code": "tool-missing",
                       "message": "Not installed on this probe: %s"
