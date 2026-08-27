@@ -499,6 +499,49 @@ export interface IperfEndpoint {
   deployed_to: string[]
 }
 
+export interface HostKeyOffer {
+  line: string
+  algorithm: string
+  fingerprint: string
+}
+
+export interface HostKeyScan {
+  host: string
+  ssh_port: number
+  keys: HostKeyOffer[]
+  already_pinned: boolean
+}
+
+/** The one-time sign-in. Held in component state for the length of one form
+ *  and never stored anywhere - the server does not echo it back either. */
+export interface AdminSignIn {
+  username: string
+  password?: string
+  private_key?: string
+  key_passphrase?: string
+  sudo_password?: string
+}
+
+export interface ProvisionEndpointRequest {
+  name: string
+  host: string
+  ssh_port?: number
+  iperf_port?: number
+  username?: string
+  ssh_source_cidr?: string | null
+  host_keys: string[]
+  admin: AdminSignIn
+}
+
+export interface RegisterEndpointRequest {
+  name: string
+  host: string
+  port?: number
+  username?: string
+  password?: string
+  public_key_pem?: string | null
+}
+
 export interface JobAccepted {
   job_id: string
   status: JobStatus

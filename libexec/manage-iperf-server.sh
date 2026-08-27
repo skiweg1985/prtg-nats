@@ -513,6 +513,15 @@ render_iperf_profile() {
     "${name}" \
     "$(read_optional_env_value "${record}" IPERF_HOST)" \
     "$(read_optional_env_value "${record}" IPERF_PORT)"
+  # The address travels with the credentials, so "--profile NAME" is a
+  # complete configuration and a second endpoint costs one parameter instead
+  # of four. Kept byte-identical to what the web platform writes: both deploy
+  # to the same probes, and a sensor reading one format from one deployment
+  # and another from the next would be a fault nobody could reproduce.
+  printf 'IPERF3_HOST=%s\n' "$(read_optional_env_value "${record}" IPERF_HOST)"
+  printf 'IPERF3_PORT=%s\n' "$(read_optional_env_value "${record}" IPERF_PORT)"
+  printf 'IPERF3_USERNAME=%s\n' \
+    "$(read_optional_env_value "${record}" IPERF_USERNAME)"
   printf 'IPERF3_PASSWORD=%s\n' "$(read_env_value "${record}" IPERF_PASSWORD)"
   printf 'IPERF3_PUBLIC_KEY_B64=%s\n' \
     "$(base64 < "$(iperf_key_path "${name}")" | tr -d '\n')"

@@ -435,6 +435,22 @@ async def test_rotation_sets_a_new_password_and_carries_it_to_the_probes(
     assert "endpoint-setup" in sent
     assert "sensor-write-profile" in sent
 
+    # The profile carries the whole endpoint, not only its credentials. That is
+    # what lets a PRTG sensor say "--profile berlin" and nothing else - with
+    # the address configured separately, the two could name different endpoints
+    # and the run would fail to authenticate for no visible reason.
+    written = next(
+        request
+        for _, request in transport.calls
+        if request.command.value == "sensor-write-profile"
+    )
+    assert written.payload is not None
+    assert "IPERF3_HOST=iperf.example.test" in written.payload
+    assert "IPERF3_PORT=5201" in written.payload
+    assert "IPERF3_USERNAME=prtg-probe" in written.payload
+    assert "IPERF3_PASSWORD=" in written.payload
+    assert "IPERF3_PUBLIC_KEY_B64=" in written.payload
+
     record = (project_dir / "runtime" / "iperf" / "berlin.env").read_text(
         encoding="utf-8"
     )
