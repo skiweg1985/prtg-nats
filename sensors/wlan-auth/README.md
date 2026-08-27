@@ -14,8 +14,11 @@ measured, but the offered address is not put on the interface.
 
 - A **dedicated Wi-Fi interface** for tests. The probe has to be on the
   network by another route, usually Ethernet.
-- `wpa_supplicant`, `iw` and `dhcpcd` on the probe (present on Raspberry Pi
-  OS and Debian).
+- `wpa_supplicant`, `iw` and `dhcpcd` on the probe. `dhcpcd` is not part of
+  the base install since Raspberry Pi OS Bookworm, where NetworkManager
+  took over: install `dhcpcd-base` there. That package brings the binary
+  the test mode needs without the daemon, which would otherwise fight
+  NetworkManager over the remaining interfaces.
 - The test interface is reserved (see below). Without a reservation the
   sensor refuses every run.
 
