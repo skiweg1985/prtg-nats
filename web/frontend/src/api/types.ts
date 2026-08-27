@@ -443,6 +443,9 @@ export interface StackVersion {
   error: string
   commits: StackCommit[]
   checked_at: string | null
+  /** When this installation was last updated from here, and to what. */
+  last_update_at: string | null
+  last_update_commit: string
   checkout_dir: string | null
   available: boolean
   unavailable_reason: string | null

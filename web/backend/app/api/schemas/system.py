@@ -501,6 +501,16 @@ class StackVersionOut(ApiModel):
     error: str
     commits: list[StackCommitOut]
     checked_at: datetime | None
+    # When this installation was last updated from the interface, and to what.
+    # The question "since when" is the one still open once the state reads
+    # current - an installation can be up to date because it was updated an
+    # hour ago or because nothing has changed in six months, and those are
+    # different situations to be in.
+    #
+    # Empty on an installation that has only ever been updated from the host,
+    # which is honest: nothing here recorded those.
+    last_update_at: datetime | None
+    last_update_commit: str
     # Where the checkout lives on the host, so an operator can see which one
     # is about to be updated before pressing anything.
     checkout_dir: str | None
