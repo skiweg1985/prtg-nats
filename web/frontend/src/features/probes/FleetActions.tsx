@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -6,7 +6,7 @@ import { useFleetAction, type FleetAction } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
 import type { ProbeSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
-import { Button, Card, Mono } from '@/components/ui/primitives'
+import { Button, Dialog, Mono } from '@/components/ui/primitives'
 
 /**
  * The six probe actions, applied to a selection.
@@ -163,54 +163,36 @@ function ConfirmFleetAction({
 }) {
   const { t } = useTranslation()
 
-  // On the document rather than on the overlay: nothing inside has the focus
-  // when it opens, so a handler on the div would never see the key.
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') onCancel()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
   return (
-    <div
-      className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
+    <Dialog
+      title={t('probes.fleet.confirmTitle', { action: label })}
+      onClose={onCancel}
     >
-      <div className="w-full max-w-md">
-        <Card title={t('probes.fleet.confirmTitle', { action: label })}>
-          <p className="text-ink-2 text-sm">
-            {t('probes.fleet.confirmBody', { count: targets.length })}
-          </p>
-          {/* Named, not counted: "twelve probes" is not something anyone can
-              check, and this is the last screen before the job starts. */}
-          <ul className="border-rule mt-3 max-h-48 space-y-1 overflow-y-auto border-t pt-3">
-            {targets.map((probe) => (
-              <li key={probe.id}>
-                <Mono className="text-ink-2">{probe.nats_username}</Mono>
-              </li>
-            ))}
-          </ul>
-          {skipped > 0 && (
-            <p className="text-ink-3 mt-3 text-xs">
-              {t('probes.fleet.skipped', { count: skipped })}
-            </p>
-          )}
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onCancel}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="primary" onClick={onConfirm} disabled={pending}>
-              {t('common.confirm')}
-            </Button>
-          </div>
-        </Card>
+      <p className="text-ink-2 text-sm">
+        {t('probes.fleet.confirmBody', { count: targets.length })}
+      </p>
+      {/* Named, not counted: "twelve probes" is not something anyone can
+          check, and this is the last screen before the job starts. */}
+      <ul className="border-rule mt-3 max-h-48 space-y-1 overflow-y-auto border-t pt-3">
+        {targets.map((probe) => (
+          <li key={probe.id}>
+            <Mono className="text-ink-2">{probe.nats_username}</Mono>
+          </li>
+        ))}
+      </ul>
+      {skipped > 0 && (
+        <p className="text-ink-3 mt-3 text-xs">
+          {t('probes.fleet.skipped', { count: skipped })}
+        </p>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          {t('common.cancel')}
+        </Button>
+        <Button variant="primary" onClick={onConfirm} disabled={pending}>
+          {t('common.confirm')}
+        </Button>
       </div>
-    </div>
+    </Dialog>
   )
 }

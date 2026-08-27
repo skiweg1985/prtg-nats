@@ -20,6 +20,7 @@ import {
   Button,
   Card,
   DetailRow,
+  Dialog,
   Field,
   Input,
   Mono,
@@ -81,7 +82,7 @@ export function IperfPage() {
     },
     {
       key: 'updated',
-      header: t('common.lastUpdated', { time: '' }).trim(),
+      header: t('common.updated'),
       cell: (row) => (
         <span className="text-ink-3 text-xs">{formatRelative(row.updated_at)}</span>
       ),
@@ -587,27 +588,3 @@ function RemoveDialog({
 
 // --- Bits --------------------------------------------------------------------
 
-function Dialog({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="max-h-full w-full max-w-2xl overflow-auto">
-        <Card title={title}>{children}</Card>
-      </div>
-    </div>
-  )
-}

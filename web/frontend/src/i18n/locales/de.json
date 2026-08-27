@@ -5,6 +5,7 @@
   },
   "nav": {
     "dashboard": "Übersicht",
+    "menu": "Menü",
     "probes": "Probes",
     "sensors": "Sensoren",
     "deployments": "Ausrollvorgänge",
@@ -19,27 +20,22 @@
     "updates": "Updates"
   },
   "common": {
-    "back": "Zurück",
     "cancel": "Abbrechen",
     "clearFilters": "Filter zurücksetzen",
     "close": "Schließen",
     "confirm": "Bestätigen",
-    "copied": "Kopiert",
     "copy": "Kopieren",
     "edit": "Bearbeiten",
-    "filter": "Filtern",
     "hidden": "Verborgen",
     "hideTechnicalDetails": "Technische Details verbergen",
     "showDetails": "Details anzeigen",
     "hideDetails": "Details verbergen",
-    "lastUpdated": "Stand {{time}}",
     "loading": "Wird geladen …",
-    "moreActions": "Weitere Aktionen",
     "never": "Nie",
-    "no": "Nein",
+    "noMatches": "Keine Treffer für „{{query}}“",
+    "clearSearch": "Suche zurücksetzen",
     "none": "Keine",
     "of": "von",
-    "refresh": "Aktualisieren",
     "remove": "Entfernen",
     "retry": "Erneut versuchen",
     "reveal": "Anzeigen",
@@ -51,7 +47,7 @@
     "showTechnicalDetails": "Technische Details anzeigen",
     "stale": "Zwischenspeicher, zuletzt geprüft {{time}}",
     "unknown": "Unbekannt",
-    "yes": "Ja"
+    "updated": "Stand"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -120,10 +116,7 @@
       "name": "Probe",
       "host": "Host",
       "status": "Status",
-      "service": "Dienst",
       "version": "Paket",
-      "ca": "CA",
-      "nats": "NATS",
       "sensors": "Sensoren",
       "deviations": "Abweichungen",
       "observed": "Zuletzt geprüft"
@@ -301,7 +294,6 @@
       }
     },
     "installedOn": "Installiert auf diesen Probes",
-    "readme": "Dokumentation",
     "remove": "Entfernen",
     "variants": {
       "title": "Varianten",
@@ -336,10 +328,8 @@
     "dryRun": "Probelauf",
     "dryRunHint": "Meldet, was geschehen würde, ohne die Probe zu verändern.",
     "start": "Rollout starten",
-    "targets": "Ziele",
     "columns": {
       "sensor": "Sensor",
-      "version": "Version",
       "status": "Status",
       "targets": "Probes",
       "started": "Gestartet",
@@ -351,9 +341,13 @@
     "title": "Jobs",
     "subtitle": "Alles, was dauert oder scheitern kann",
     "empty": "Es wurde noch kein Job ausgeführt.",
+    "filters": {
+      "running": "Nur laufende",
+      "failed": "Nur gescheiterte"
+    },
+    "emptyFiltered": "Kein Job passt zu diesem Filter.",
     "columns": {
       "type": "Job",
-      "target": "Ziel",
       "status": "Status",
       "progress": "Fortschritt",
       "started": "Gestartet",
@@ -363,7 +357,6 @@
     "step": "Schritt {{current}} von {{total}}: {{name}}",
     "log": "Protokoll",
     "result": "Ergebnis",
-    "rawOutput": "Technische Ausgabe",
     "cancel": "Job abbrechen",
     "retry": "Erneut ausführen",
     "live": "Live",
@@ -553,8 +546,6 @@
       "result": "Ergebnis",
       "source": "Quelle"
     },
-    "before": "Vorher",
-    "after": "Nachher",
     "immutable": "Protokolleinträge lassen sich nicht ändern und nicht löschen."
   },
   "infrastructure": {
@@ -563,9 +554,6 @@
     "iperfTitle": "Messpunkte",
     "iperfSubtitle": "Die Gegenstellen, gegen die der Sensor iperf-throughput misst",
     "iperfEmpty": "Es ist kein Messpunkt eingerichtet.",
-    "credentialsTitle": "Zugangsdaten",
-    "renewCertificate": "Zertifikat erneuern",
-    "renewWarning": "Beim Erneuern des Serverzertifikats startet der NATS-Container neu. Alle Probes und der PRTG Core verbinden sich erneut.",
     "expiresIn_one": "Läuft in {{count}} Tag ab",
     "expiresIn_other": "Läuft in {{count}} Tagen ab",
     "expired": "Abgelaufen",
@@ -633,9 +621,7 @@
     "runtimeState": "Laufzeitzustand",
     "addUser": "Benutzer hinzufügen",
     "role": "Rolle",
-    "active": "Aktiv",
     "lastLogin": "Letzte Anmeldung",
-    "locked": "Gesperrt bis {{time}}",
     "you": "Du",
     "deactivate": "Deaktivieren",
     "activate": "Aktivieren",
@@ -815,10 +801,7 @@
     "surrounding_whitespace": "Leerzeichen am Anfang oder Ende sind nicht erlaubt."
   },
   "confirm": {
-    "title": "Aktion bestätigen",
-    "typeToConfirm": "Zum Bestätigen {{value}} eingeben.",
-    "restartNats": "Ein Neustart des NATS-Servers trennt alle Probes und den PRTG Core, bis sie sich neu verbinden.",
-    "deleteUser": "Das Konto wird entfernt und alle zugehörigen Sitzungen enden."
+    "title": "Aktion bestätigen"
   },
   "alerts": {
     "probe.unreachable": "{{probe}} antwortet nicht",

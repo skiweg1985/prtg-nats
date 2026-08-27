@@ -189,27 +189,41 @@ function Metric({
   label,
   value,
   tone,
+  to,
 }: {
   label: string
   value: string | number
   tone?: 'ok' | 'warn' | 'danger'
+  /** Where the rows behind the number are. Omit it and the number is a
+      number - which is what every one of these used to be, including the
+      ones that were counting something worth going to look at. */
+  to?: string
 }) {
+  const number = (
+    <p
+      className={
+        tone === 'danger'
+          ? 'text-danger text-xl font-semibold'
+          : tone === 'warn'
+            ? 'text-warn text-xl font-semibold'
+            : tone === 'ok'
+              ? 'text-ok text-xl font-semibold'
+              : 'text-ink text-xl font-semibold'
+      }
+    >
+      {value}
+    </p>
+  )
   return (
     <div>
       <Label>{label}</Label>
-      <p
-        className={
-          tone === 'danger'
-            ? 'text-danger text-xl font-semibold'
-            : tone === 'warn'
-              ? 'text-warn text-xl font-semibold'
-              : tone === 'ok'
-                ? 'text-ok text-xl font-semibold'
-                : 'text-ink text-xl font-semibold'
-        }
-      >
-        {value}
-      </p>
+      {to ? (
+        <Link to={to} className="rounded-inset block hover:underline">
+          {number}
+        </Link>
+      ) : (
+        number
+      )}
     </div>
   )
 }
@@ -288,6 +302,13 @@ function ProbeCard({ dashboard }: { dashboard: Dashboard }) {
           label={t('dashboard.withDeviations')}
           value={dashboard.probes_with_deviations}
           tone={dashboard.probes_with_deviations > 0 ? 'warn' : undefined}
+          // Only when there is something to look at: a link onto an empty
+          // filtered list is a worse answer than a nought.
+          to={
+            dashboard.probes_with_deviations > 0
+              ? '/probes?filter=deviations'
+              : undefined
+          }
         />
       </div>
     </Card>
@@ -306,11 +327,16 @@ function JobCard({ dashboard }: { dashboard: Dashboard }) {
       }
     >
       <div className="grid grid-cols-2 gap-3">
-        <Metric label={t('dashboard.runningJobs')} value={dashboard.running_jobs} />
+        <Metric
+          label={t('dashboard.runningJobs')}
+          value={dashboard.running_jobs}
+          to={dashboard.running_jobs > 0 ? '/jobs?status=running' : undefined}
+        />
         <Metric
           label={t('dashboard.failedJobs')}
           value={dashboard.failed_jobs_24h}
           tone={dashboard.failed_jobs_24h > 0 ? 'danger' : undefined}
+          to={dashboard.failed_jobs_24h > 0 ? '/jobs?status=failed' : undefined}
         />
       </div>
     </Card>

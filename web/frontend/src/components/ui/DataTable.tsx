@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { EmptyState, Input, Skeleton } from './primitives'
+import { Button, EmptyState, Input, Skeleton } from './primitives'
 
 /**
  * The table every object list uses.
@@ -33,7 +34,15 @@ interface DataTableProps<T> {
   emptyTitle: string
   emptyHint?: string
   emptyAction?: ReactNode
-  onRowClick?: (row: T) => void
+  /**
+   * Where a row leads, or null for one that leads nowhere.
+   *
+   * A path rather than a click handler, because with it the first cell becomes
+   * a real link: reachable by keyboard, openable in a new tab, and something
+   * the browser shows the destination of. The row keeps a click of its own for
+   * the mouse, but the link is what makes the list usable without one.
+   */
+  rowHref?: (row: T) => string | null
   /** Enables the checkbox column and the bulk action bar. */
   selection?: {
     selected: Set<string>
@@ -60,13 +69,14 @@ export function DataTable<T>({
   emptyTitle,
   emptyHint,
   emptyAction,
-  onRowClick,
+  rowHref,
   selection,
   filters,
   searchPlaceholder,
   expandedContent,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
@@ -176,11 +186,21 @@ export function DataTable<T>({
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <EmptyState
-          title={rows?.length ? t('common.search') : emptyTitle}
-          hint={rows?.length ? undefined : emptyHint}
-          action={rows?.length ? undefined : emptyAction}
-        />
+        // A search with no hits used to render "Search" as its heading - the
+        // translated value of common.search, never meant as a title. It said
+        // nothing about what was searched for and offered no way back.
+        query ? (
+          <EmptyState
+            title={t('common.noMatches', { query: query.trim() })}
+            action={
+              <Button variant="secondary" onClick={() => setQuery('')}>
+                {t('common.clearSearch')}
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState title={emptyTitle} hint={emptyHint} action={emptyAction} />
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
@@ -232,13 +252,18 @@ export function DataTable<T>({
               {visible.map((row) => {
                 const id = rowKey(row)
                 const isOpen = expanded.has(id)
+                const href = rowHref?.(row) ?? null
                 return (
                   <Fragment key={id}>
                     <tr
-                      onClick={onRowClick ? () => onRowClick(row) : undefined}
+                      // The mouse gets the whole row; the keyboard gets the
+                      // link in the first cell. Giving the row a tabindex of
+                      // its own as well would be a second stop on every row
+                      // that leads exactly where the first one does.
+                      onClick={href ? () => navigate(href) : undefined}
                       className={clsx(
                         'border-rule border-t',
-                        onRowClick && 'hover:bg-surface-2 cursor-pointer',
+                        href && 'hover:bg-surface-2 cursor-pointer',
                       )}
                     >
                       {selection && (
@@ -270,7 +295,7 @@ export function DataTable<T>({
                           </button>
                         </td>
                       )}
-                      {columns.map((column) => (
+                      {columns.map((column, index) => (
                         <td
                           key={column.key}
                           className={clsx(
@@ -278,7 +303,20 @@ export function DataTable<T>({
                             column.align === 'right' && 'text-right',
                           )}
                         >
-                          {column.cell(row)}
+                          {index === 0 && href ? (
+                            // Stops the row's own handler from navigating a
+                            // second time, which would push two entries onto
+                            // the history for one click.
+                            <Link
+                              to={href}
+                              onClick={(event) => event.stopPropagation()}
+                              className="rounded-inset focus-visible:outline-accent block focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
+                              {column.cell(row)}
+                            </Link>
+                          ) : (
+                            column.cell(row)
+                          )}
                         </td>
                       ))}
                     </tr>

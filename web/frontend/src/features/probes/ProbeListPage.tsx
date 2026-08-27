@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { useProbes } from '@/api/hooks'
@@ -9,12 +9,21 @@ import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Button, Mono } from '@/components/ui/primitives'
-import { ProbeStatusBadge, StateCell } from '@/components/ui/status'
+import { ProbeStatusBadge } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { FleetActionBar } from './FleetActions'
 
+/**
+ * The fleet, one row per probe.
+ *
+ * Service, CA and NATS had columns of their own and mostly repeated what the
+ * status badge already says - ten columns plus the checkbox, scrolling
+ * sideways on a 1440px screen. They are on the probe's own page, which is
+ * where somebody goes once the badge has told them there is something to look
+ * at. What stays here is what tells rows apart.
+ */
 export function ProbeListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -24,9 +33,26 @@ export function ProbeListPage() {
   // The two questions this list gets asked that search cannot answer: which
   // probes are due a helper, and which ones drifted. Both are columns already;
   // the filters only save clicking them together by hand.
-  const [onlyHelperOutdated, setOnlyHelperOutdated] = useState(false)
-  const [onlyDeviations, setOnlyDeviations] = useState(false)
+  //
+  // In the URL rather than in state, so the dashboard can ask one of them on
+  // somebody's behalf - "probes with deviations: 3" is a link now, not a
+  // label - and so the filtered list survives a reload and can be sent to a
+  // colleague.
+  const [params, setParams] = useSearchParams()
+  const active = new Set(params.getAll('filter'))
+  const onlyHelperOutdated = active.has('helper')
+  const onlyDeviations = active.has('deviations')
   const [actionError, setActionError] = useState<ApiError | Error | null>(null)
+
+  function toggleFilter(name: 'helper' | 'deviations') {
+    const next = new Set(active)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    setParams(
+      [...next].map((entry): [string, string] => ['filter', entry]),
+      { replace: true },
+    )
+  }
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -41,8 +67,7 @@ export function ProbeListPage() {
   const filtered = onlyHelperOutdated || onlyDeviations
 
   function clearFilters() {
-    setOnlyHelperOutdated(false)
-    setOnlyDeviations(false)
+    setParams([], { replace: true })
   }
 
   const columns: Column<ProbeSummary>[] = [
@@ -85,28 +110,10 @@ export function ProbeListPage() {
       ),
     },
     {
-      key: 'service',
-      header: t('probes.columns.service'),
-      sortValue: (row) => row.service,
-      cell: (row) => <StateCell kind="service" value={row.service} />,
-    },
-    {
       key: 'version',
       header: t('probes.columns.version'),
       sortValue: (row) => row.package_version ?? '',
       cell: (row) => <Mono>{row.package_version ?? '—'}</Mono>,
-    },
-    {
-      key: 'ca',
-      header: t('probes.columns.ca'),
-      sortValue: (row) => row.ca_state,
-      cell: (row) => <StateCell kind="ca" value={row.ca_state} />,
-    },
-    {
-      key: 'nats',
-      header: t('probes.columns.nats'),
-      sortValue: (row) => row.nats_connection,
-      cell: (row) => <StateCell kind="nats" value={row.nats_connection} />,
     },
     {
       key: 'sensors',
@@ -186,18 +193,18 @@ export function ProbeListPage() {
             </PermissionGate>
           )
         }
-        onRowClick={(row) => navigate(`/probes/${row.id}`)}
+        rowHref={(row) => `/probes/${row.id}`}
         filters={
           <div className="flex flex-wrap items-center gap-2">
             <FilterToggle
               label={t('probes.filters.helperOutdated')}
               active={onlyHelperOutdated}
-              onToggle={() => setOnlyHelperOutdated(!onlyHelperOutdated)}
+              onToggle={() => toggleFilter('helper')}
             />
             <FilterToggle
               label={t('probes.filters.deviations')}
               active={onlyDeviations}
-              onToggle={() => setOnlyDeviations(!onlyDeviations)}
+              onToggle={() => toggleFilter('deviations')}
             />
             {filtered && (
               <Button size="sm" variant="ghost" onClick={clearFilters}>

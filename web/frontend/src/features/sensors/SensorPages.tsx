@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 
-import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
+import { useProbes, useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -26,7 +26,6 @@ import { SensorVariants } from './SensorVariants'
 
 export function SensorListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useSensors()
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -94,7 +93,7 @@ export function SensorListPage() {
         rowKey={(row) => row.name}
         isLoading={isLoading}
         emptyTitle={t('sensors.empty')}
-        onRowClick={(row) => navigate(`/sensors/${row.name}`)}
+        rowHref={(row) => `/sensors/${row.name}`}
       />
     </div>
   )
@@ -160,7 +159,7 @@ export function SensorDetailPage() {
             <ul className="space-y-1">
               {data.probes.map((probe) => (
                 <li key={probe}>
-                  <Mono>{probe}</Mono>
+                  <ProbeLink username={probe} />
                 </li>
               ))}
             </ul>
@@ -180,6 +179,25 @@ export function SensorDetailPage() {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * One probe of the list, as a way to get to it.
+ *
+ * The sensor knows its probes by NATS account, and the route wants a record
+ * id, so the fleet listing supplies the missing half. A name it cannot place -
+ * a probe unenrolled since the sensor was last observed - stays plain text
+ * rather than becoming a link to nothing.
+ */
+function ProbeLink({ username }: { username: string }) {
+  const { data } = useProbes()
+  const probe = data?.find((entry) => entry.nats_username === username)
+  if (!probe) return <Mono>{username}</Mono>
+  return (
+    <Link to={`/probes/${probe.id}`} className="hover:underline">
+      <Mono>{username}</Mono>
+    </Link>
   )
 }
 

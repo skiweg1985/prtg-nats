@@ -96,6 +96,67 @@ describe('DataTable', () => {
     expect(screen.queryByText('No probe is enrolled yet.')).not.toBeInTheDocument()
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
   })
+
+  it('says what a search found nothing for, and offers a way back', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap(
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(row) => row.id}
+        emptyTitle="No probe is enrolled yet."
+      />,
+    )
+    await user.type(screen.getByRole('searchbox'), 'zurich')
+
+    // Not "Search" as a heading, and not "no probe is enrolled" either - there
+    // are three, they just do not match.
+    expect(screen.getByText('Nothing matches “zurich”')).toBeInTheDocument()
+    expect(screen.queryByText('No probe is enrolled yet.')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(screen.getByText('berlin-01')).toBeInTheDocument()
+  })
+
+  it('makes a row that leads somewhere reachable by keyboard', async () => {
+    const user = userEvent.setup()
+    wrap(
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(row) => row.id}
+        emptyTitle="none"
+        rowHref={(row) => `/probes/${row.id}`}
+      />,
+    )
+
+    // A real link, so it carries a destination the browser can show and open
+    // in a new tab - and so Tab stops on it at all.
+    const first = screen.getByRole('link', { name: 'berlin-01' })
+    expect(first).toHaveAttribute('href', '/probes/1')
+
+    // Tab until the row is reached rather than counting stops: what matters
+    // is that it can be reached at all, not how many controls the toolbar
+    // above the table happens to have.
+    for (let stop = 0; stop < 10 && document.activeElement !== first; stop++) {
+      await user.tab()
+    }
+    expect(first).toHaveFocus()
+  })
+
+  it('leaves a row that leads nowhere without a link', () => {
+    wrap(
+      <DataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(row) => row.id}
+        emptyTitle="none"
+        rowHref={(row) => (row.id === '1' ? '/probes/1' : null)}
+      />,
+    )
+    expect(screen.getAllByRole('link')).toHaveLength(1)
+  })
 })
 
 describe('ErrorDetails', () => {

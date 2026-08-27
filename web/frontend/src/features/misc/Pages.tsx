@@ -1,4 +1,5 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -19,6 +20,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
+  Button,
   Card,
   DetailRow,
   Dot,
@@ -34,6 +36,7 @@ import {
   currentLanguage,
   type Language,
 } from '@/i18n'
+import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { UsersCard } from '@/features/settings/UsersCard'
 import { formatBytes, formatDateTime, formatRelative } from '@/utils/format'
 
@@ -41,8 +44,8 @@ import { formatBytes, formatDateTime, formatRelative } from '@/utils/format'
 
 export function DeploymentListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useDeployments()
+  const [deploying, setDeploying] = useState(false)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -106,6 +109,16 @@ export function DeploymentListPage() {
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-lg">{t('deployments.title')}</h1>
         <p className="text-ink-3 text-sm">{t('deployments.subtitle')}</p>
+        {/* A rollout used to be startable from a sensor's page or from the
+            selection in the probe list, but not from the page that lists
+            every rollout there has been. */}
+        <div className="ml-auto">
+          <PermissionGate permission="deployment.create">
+            <Button variant="primary" size="sm" onClick={() => setDeploying(true)}>
+              {t('deployments.create')}
+            </Button>
+          </PermissionGate>
+        </div>
       </header>
       <DataTable
         rows={data}
@@ -113,9 +126,23 @@ export function DeploymentListPage() {
         rowKey={(row) => row.id}
         isLoading={isLoading}
         emptyTitle={t('deployments.empty')}
-        onRowClick={(row) => row.job_id && navigate(`/jobs/${row.job_id}`)}
+        rowHref={(row) => (row.job_id ? `/jobs/${row.job_id}` : null)}
         expandedContent={(row) => <DeploymentTargets targets={row.targets} />}
+        emptyAction={
+          <PermissionGate permission="deployment.create">
+            <Button variant="primary" onClick={() => setDeploying(true)}>
+              {t('deployments.create')}
+            </Button>
+          </PermissionGate>
+        }
       />
+
+      {deploying && (
+        <DeployDialog
+          onClose={() => setDeploying(false)}
+          onDone={() => setDeploying(false)}
+        />
+      )}
     </div>
   )
 }

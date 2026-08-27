@@ -25,7 +25,6 @@ import type {
   JobSummary,
   NatsAccount,
   ObservedState,
-  ParameterSchema,
   ProbeDetail,
   ProbeSummary,
   ProvisionEndpointRequest,
@@ -55,7 +54,6 @@ export const keys = {
   probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
   sensors: ['sensors'] as const,
   sensor: (name: string) => ['sensors', name] as const,
-  sensorSchema: (name: string) => ['sensors', name, 'schema'] as const,
   sensorProfiles: (name: string) => ['sensors', name, 'profiles'] as const,
   sensorProfile: (name: string, profile: string) =>
     ['sensors', name, 'profiles', profile] as const,
@@ -155,11 +153,24 @@ export function useProbes() {
   })
 }
 
+/**
+ * How often a probe's detail reloads: only while a job holds it.
+ *
+ * A page open on a probe nothing is happening to has nothing to poll for - the
+ * state it shows is as current as the last observation and says so. One open
+ * on a probe being worked on used to freeze until the window lost the focus
+ * and got it back, which is the whole reason this exists.
+ */
+export function probeRefetchInterval(detail: ProbeDetail | undefined) {
+  return detail?.summary.running_job_id ? LIVE_REFETCH_MS : (false as const)
+}
+
 export function useProbe(id: string | undefined) {
   return useQuery({
     queryKey: keys.probe(id ?? ''),
     queryFn: () => api.get<ProbeDetail>(`/probes/${id}`),
     enabled: Boolean(id),
+    refetchInterval: (query) => probeRefetchInterval(query.state.data),
   })
 }
 
@@ -198,8 +209,12 @@ export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-updat
   const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.post<JobAccepted>(`/probes/${id}/${action}`),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       void client.invalidateQueries({ queryKey: ['jobs'] })
+      // The probe now holds a job, and its detail decides by that whether to
+      // keep itself current. Without this the page would wait for the next
+      // load to find out that anything started.
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
     },
   })
 }
@@ -247,14 +262,6 @@ export function useSensor(name: string | undefined) {
   return useQuery({
     queryKey: keys.sensor(name ?? ''),
     queryFn: () => api.get<SensorDetail>(`/sensors/${name}`),
-    enabled: Boolean(name),
-  })
-}
-
-export function useSensorParameterSchema(name: string | undefined) {
-  return useQuery({
-    queryKey: keys.sensorSchema(name ?? ''),
-    queryFn: () => api.get<ParameterSchema>(`/sensors/${name}/parameter-schema`),
     enabled: Boolean(name),
   })
 }
