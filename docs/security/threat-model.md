@@ -12,9 +12,11 @@ the uncomfortable part rather than burying it.
 
 ## The API container is highly privileged
 
-It mounts the installation directory read-write and the Docker socket. With
-those two it can read every NATS password, use the management key on every
-probe, and start any container on the host.
+It mounts the runtime volume read-write and the Docker socket. With those two
+it can read every NATS password, use the management key on every probe, and
+start containers on the host. The checkout is not mounted into the API; an
+update starts a dedicated updater container that mounts it at the host path
+recorded in the Compose labels.
 
 That is the same privilege the shell tooling has when an operator runs
 `sudo ./prtg-nats`. The platform does not create a new class of access; it
@@ -51,7 +53,8 @@ be able to read.
 
 Leave the mount out of `compose.yaml` and the platform still manages every
 probe, sensor, certificate and measurement endpoint. What disappears is the
-server lifecycle: restarting NATS, taking a JetStream backup.
+server lifecycle: restarting NATS, taking a JetStream backup, exporting the
+runtime, and checking or applying repository updates.
 
 The interface hides those actions rather than offering a button that fails, and
 `GET /api/v1/system/capabilities` reports why. An installation that does not

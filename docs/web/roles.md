@@ -1,7 +1,7 @@
 ---
 title: Roles and permissions
 role: operator
-updated: 2026-08-02
+updated: 2026-08-27
 ---
 
 # Roles and permissions
@@ -15,7 +15,7 @@ door open for a custom role later without touching a single endpoint.
 | --- | --- |
 | **Viewer** | read everything: status, probes, sensors, jobs, logs, audit records |
 | **Operator** | also deploy sensors, apply configuration, run checks, retry and cancel jobs, manage measurement endpoints |
-| **Administrator** | also manage accounts, rotate credentials, renew certificates, add and remove probes, change system settings, restart services |
+| **Administrator** | also manage accounts, rotate credentials, renew certificates, add and remove probes, change system settings, restart services, and update the stack |
 
 The line between operator and administrator is deliberate: an operator keeps
 the fleet running, an administrator changes what the fleet is.
@@ -31,7 +31,7 @@ job.read          job.retry        job.cancel
 credential.read   credential.rotate
 certificate.read  certificate.renew
 iperf.read        iperf.manage
-system.read       system.restart   system.settings
+system.read       system.restart   system.settings  system.update
 audit.read        user.manage      role.manage
 ```
 

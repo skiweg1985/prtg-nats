@@ -1,81 +1,60 @@
 ---
 title: Documentation
 role: everyone
-updated: 2026-08-03
+updated: 2026-08-27
 ---
 
 # PRTG-NATS documentation
 
-English is the source language of this documentation. Every page carries front
-matter with a `title`, the `role` it is written for, and the date it was last
-reviewed, so a translation can be added later without restructuring anything.
+Choose the task you need to complete. English is the source language for the
+repository documentation and the web interface is available in English and
+German.
 
-## Where do I start?
+## Start and operate the platform
 
-| I want to … | Role | Page |
+| I want to... | Role | Page |
 | --- | --- | --- |
-| set up the NATS server | Operator | [Install the server](getting-started/install-the-server.md) |
+| install the central stack | Operator | [Install the server](getting-started/install-the-server.md) |
 | connect the PRTG core | Operator | [Connect the PRTG core](getting-started/connect-prtg-core.md) |
-| add a probe | Deployer | [Add your first probe](getting-started/add-your-first-probe.md) |
-| run the web interface | Operator | [Install the web platform](web/install.md) |
-| get monitoring scripts onto probes | Deployer | [Deploy sensors](guides/deploy-sensors.md) |
-| set up an iperf3 measurement endpoint | Deployer | [Deploy sensors](guides/deploy-sensors.md#measurement-endpoints) |
-| operate, back up, rotate passwords | Operator | [Operations](guides/operations.md) |
-| watch the stack from PRTG | Operator | [Monitoring](guides/monitoring.md) |
-| look up a setting | Operator | [Configuration reference](reference/configuration.md) |
-| install a probe by hand | Deployer | [Manual probe install](guides/manual-probe-install.md) |
-| work out what went wrong | Everyone | [Troubleshooting](guides/troubleshooting.md) |
-| see how the parts fit together | Developer | [Architecture overview](architecture/overview.md) |
-| read the security model | Everyone | [Security model](security/model.md) |
-| understand what the web platform is trusted with | Operator | [Threat model](security/threat-model.md) |
+| enroll and approve a probe | Deployer | [Add your first probe](getting-started/add-your-first-probe.md) |
+| deploy or configure sensors | Deployer | [Deploy sensors](guides/deploy-sensors.md) |
+| set up an iperf3 endpoint | Deployer | [Measurement endpoints](guides/deploy-sensors.md#measurement-endpoints) |
+| update, back up, restore, or rotate credentials | Operator | [Operations and maintenance](guides/operations.md) |
+| decide whether the installation is healthy | Operator | [Monitoring](guides/monitoring.md) |
+| diagnose a failure | Everyone | [Troubleshooting](guides/troubleshooting.md) |
 
-**Operator** sets up the NATS server and keeps it running.
-**Deployer** connects individual probes and does not touch the server.
+An **operator** owns the central NATS host and its runtime. A **deployer**
+works with individual probes or measurement endpoints. The web interface is
+the regular administration path; the CLI remains the bootstrap, recovery, and
+automation path.
 
-## The two interfaces
+## Look up an exact contract
 
-The platform can be administered two ways. They act on the same state and can
-be used side by side during the migration.
+| I need... | Page |
+| --- | --- |
+| commands and supported options | [CLI reference](reference/cli.md) |
+| site and backend settings | [Configuration reference](reference/configuration.md) |
+| management endpoints and failure shapes | [REST API](reference/api.md) |
+| PRTG lookup files | [PRTG lookups](reference/lookups.md) |
+| web roles and permissions | [Roles and permissions](web/roles.md) |
+| job states, locks, retries, and logs | [Jobs and deployments](web/jobs.md) |
+| translation rules | [Languages and translation](web/i18n.md) |
 
-| | Web interface | Shell tooling |
-| --- | --- | --- |
-| Audience | every administrator | recovery and automation |
-| Sign-in | account with a role | root shell on the server |
-| Audit trail | every action, with the user | shell history |
-| Long-term | the regular way | recovery and scripting only |
+Exact CLI flags come from `./prtg-nats help` and subcommand help. The OpenAPI
+contract at `/api/openapi.json` owns the complete API schema; the human pages
+explain supported workflows, boundaries, and recovery.
 
-New functionality is built in the web platform. The shell tooling is not being
-extended, and [the command reference](reference/cli.md) describes it as it
-stands.
+## Understand and review the design
 
-## Sections
+- [Architecture overview](architecture/overview.md) maps components, data
+  flows, and the bootstrap and management channels.
+- [Architecture decisions](architecture/decisions/) preserve the reasons for
+  costly-to-reverse choices.
+- [Security model](security/model.md) covers the whole stack and the probes.
+- [Threat model](security/threat-model.md) states the additional privileges and
+  trust placed in the web platform.
 
-- **[getting-started/](getting-started/)** - first installation, in order:
-  [the server](getting-started/install-the-server.md),
-  [the PRTG core](getting-started/connect-prtg-core.md),
-  [the first probe](getting-started/add-your-first-probe.md).
-- **[guides/](guides/)** - recurring tasks:
-  [operations](guides/operations.md), [monitoring](guides/monitoring.md),
-  [sensors](guides/deploy-sensors.md),
-  [manual install](guides/manual-probe-install.md),
-  [troubleshooting](guides/troubleshooting.md).
-- **[reference/](reference/)** - [commands](reference/cli.md),
-  [configuration](reference/configuration.md), [REST API](reference/api.md),
-  [PRTG lookups](reference/lookups.md).
-- **[security/](security/)** - [what is protected and how](security/model.md),
-  and [what is trusted](security/threat-model.md).
-- **[web/](web/)** - the management platform: [install](web/install.md),
-  [roles](web/roles.md), [jobs](web/jobs.md), [languages](web/i18n.md).
-- **[architecture/](architecture/)** - the [overview](architecture/overview.md)
-  of how the parts fit together, and [decisions/](architecture/decisions/):
-  why the platform is built the way it is. One record per decision, kept even
-  when superseded.
-
-Sensors document themselves next to their code, one `README.md` per directory
-under [sensors/](../sensors/).
-
-## A note on language
-
-The repository is English - code, comments and documentation. The web interface
-ships English and German and is built so a third language is a translation
-file, not a code change; see [Languages and translation](web/i18n.md).
+Sensor-specific parameters and examples stay beside their implementation,
+under [`sensors/`](../sensors/). This keeps detailed sensor behavior in one
+place while [Deploy sensors](guides/deploy-sensors.md) remains the fleet-level
+workflow.

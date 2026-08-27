@@ -1,7 +1,7 @@
 ---
 title: Security model
 role: everyone
-updated: 2026-08-02
+updated: 2026-08-27
 ---
 
 # Security model
@@ -15,12 +15,12 @@ The web platform adds its own considerations; those are in
 
 ## Transport and credentials
 
-- TLS with a local CA of our own; the server certificate carries the FQDN as a
-  SAN.
+- TLS with a local CA of our own; the server certificate carries the configured
+  FQDN and host address as SANs.
 - The NATS container only ever sees the bcrypt hash of a password.
 - Every new probe gets its own NATS account name and password.
 - Cleartext passwords, private keys, generated configuration and backups live
-  exclusively in git-ignored directories.
+  in the root-owned `prtg-nats-runtime` volume and never in the checkout.
 
 ## The management channel
 
@@ -39,13 +39,13 @@ The web platform adds its own considerations; those are in
 - Deployed sensor scripts run as the unprivileged service account of the probe.
   When a sensor needs more, it gets a program of its own under
   `/usr/local/sbin/prtg-sensor-NAME`, running as its own systemd service behind
-  a Unix socket. Access is limited to members of the MPP service account's group
-  (`0660`, owned by `root`).
+  a Unix socket. Access is limited to members of the MPP service account's
+  group (`0660`, owned by `root`).
 - The hardening of `prtg.mpprobe.service` is left untouched. Sudo is
-  ineffective there because of `NoNewPrivileges=yes` - which the vendor intends -
-  so it is neither used nor weakened. The probe helper creates the socket units
-  itself from the validated sensor name; only text travels over the management
-  channel, never a target path and never a unit file.
+  ineffective there because of `NoNewPrivileges=yes`, which the vendor
+  intends, so it is neither used nor weakened. The probe helper creates the
+  socket units itself from the validated sensor name; only text travels over
+  the management channel, never a target path and never a unit file.
 - A sensor is adopted only once it runs after installation under the conditions
   of the MPP service - as the service account and with its hardening,
   reproduced with `systemd-run` - and produces valid Script v2 JSON. Otherwise
@@ -81,16 +81,16 @@ The web platform adds its own considerations; those are in
 
 ## Identity
 
-- Probe id and PRTG access key live per probe in the git-ignored inventory
+- Probe id and PRTG access key live per probe in the runtime inventory
   `runtime/probes/USER.env` with mode `0600`. That keeps repeated runs
-  idempotent. The access key is not a login secret for NATS; it is the probe key
-  PRTG checks.
+  idempotent. The access key is not a login secret for NATS; it is the probe
+  key PRTG checks.
 
 ## What is published
 
-- The git repository contains no instance-specific CA. The separate HTTP
-  endpoint serves only the public CA and the PRTG-compatible NATS and JetStream
-  status, never keys and never credentials.
+- The git repository contains no instance-specific CA. Caddy serves only the
+  public CA and the PRTG-compatible NATS and JetStream status over HTTP, never
+  keys and never credentials.
 - HTTP carries the public trust anchor and the non-sensitive NATS health status
   and nothing else. The SHA-256 fingerprint it shows has to be compared through
   `./prtg-nats ca-info` or another trusted administrative channel.
@@ -100,6 +100,8 @@ The web platform adds its own considerations; those are in
 - Monitoring port `8222` is published on `127.0.0.1` only.
 - Client port `23561` is bound to the configured host address.
 - The CA download port `80` is bound to the same host address.
+- The HTTPS interface port `443` is bound to the same host address; the API
+  itself listens on loopback behind Caddy.
 - JetStream lives in the persistent Docker volume `prtg-nats-data`.
 - The network, or the host firewall, has to limit `23561/tcp` to the PRTG core
   and the approved probe source addresses. Port `80/tcp` likewise has to be

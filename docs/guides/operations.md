@@ -82,7 +82,7 @@ root privileges the commands still complete, but the names stay empty.
 ## Status, logs and restart
 
 ```bash
-cd /opt/prtg-nats-server
+cd /opt/prtg-nats
 sudo ./prtg-nats status
 sudo ./prtg-nats verify
 sudo ./prtg-nats logs
@@ -125,7 +125,7 @@ see it with variables substituted, call Compose directly - there is no
 dedicated command for it any more, because it added nothing:
 
 ```bash
-docker compose --project-directory /opt/prtg-nats-server config
+docker compose --project-directory /opt/prtg-nats config
 ```
 
 ## Monitoring the stack
@@ -431,7 +431,7 @@ what the checkout already holds, without fetching or moving anything.
 is what is broken:
 
 ```bash
-cd /opt/prtg-nats-server
+cd /opt/prtg-nats
 sudo ./prtg-nats backup
 git status --short
 git pull --ff-only
@@ -466,8 +466,7 @@ should be tested before they reach real probes:
 The second test rolls out a complete probe in throwaway containers and covers
 exactly the failures that only show up against the real package - file
 permissions for the service user, say, or a package that still counts as
-installed after `apt-get remove`. In Gitea Actions it runs on every pull
-request and on merges to `dev` or `main`.
+installed after `apt-get remove`.
 
 An image update is its own reviewed change. Do not bump version and digest in
 `compose.yaml` to `latest` unchecked.

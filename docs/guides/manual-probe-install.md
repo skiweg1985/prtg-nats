@@ -1,7 +1,7 @@
 ---
 title: Manual probe install
 role: deployer
-updated: 2026-08-03
+updated: 2026-08-27
 ---
 
 # Install a probe by hand
@@ -96,7 +96,7 @@ openssl x509 -in /tmp/nats-docker-ca.pem \
 Compare the fingerprint independently on the NATS host:
 
 ```bash
-cd /opt/prtg-nats-server
+cd /opt/prtg-nats
 sudo ./prtg-nats ca-info
 ```
 
@@ -129,7 +129,7 @@ state on the NATS host.
 The non-secret values can be shown on the NATS host at any time:
 
 ```bash
-cd /opt/prtg-nats-server
+cd /opt/prtg-nats
 ./prtg-nats mpp-info mpp-probe-01
 ```
 
