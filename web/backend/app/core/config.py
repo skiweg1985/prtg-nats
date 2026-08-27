@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     environment: str = "production"
     debug: bool = False
 
+    # --- Updating this installation from its own checkout -------------------
+    # The branch an update follows. Not the branch the checkout happens to be
+    # on: that one can be moved by hand, and an update should follow what the
+    # installation was configured to track.
+    update_branch: str = "main"
+
+    # --- Which commit this image was built from -----------------------------
+    # Stamped in by the build, because a container has no checkout to ask.
+    # Empty is a real answer and the honest one: an image built without the
+    # argument cannot say what it contains, and guessing would make the
+    # update page confidently wrong rather than usefully unsure.
+    git_commit: str = ""
+    git_ref: str = ""
+
     # --- Where the installation keeps its files -----------------------------
     # Two roots, because they have different lifetimes. Assets ship with the
     # image and never change at runtime; runtime state is written constantly
@@ -79,6 +93,12 @@ class Settings(BaseSettings):
     # --- Background work ----------------------------------------------------
     job_worker_count: int = 4
     inventory_sync_interval_seconds: int = 60
+    # How often to ask the repository whether the branch has moved. Hourly by
+    # default: an update is something an operator decides to do, not something
+    # they need to hear about within the minute. 0 turns the check off, for an
+    # installation that has no route to the repository and no wish to be told
+    # about it on every pass.
+    update_check_interval_seconds: int = 3600
     observed_state_stale_after_seconds: int = 300
     certificate_expiry_warning_days: int = 30
 

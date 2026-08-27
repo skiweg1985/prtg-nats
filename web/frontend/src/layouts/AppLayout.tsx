@@ -52,6 +52,9 @@ const INFRASTRUCTURE: NavEntry[] = [
 
 const SECONDARY: NavEntry[] = [
   { to: '/audit', labelKey: 'nav.audit', permission: 'audit.read' },
+  // Visible to anyone who may read the system: knowing which version is
+  // installed is not a privileged question. Only the button behind it is.
+  { to: '/updates', labelKey: 'nav.updates', permission: 'system.read' },
   { to: '/settings', labelKey: 'nav.settings' },
 ]
 

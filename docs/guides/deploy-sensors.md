@@ -156,6 +156,18 @@ login on `ADMIN@HOST` asks for the password of that account once - see
 
 `./prtg-nats sensor status USER` shows where a probe stands.
 
+## Where a new sensor version comes from
+
+The catalogue ships inside the API image, so a sensor version that was added
+to the repository reaches an installation when the stack is updated - from
+*Updates* in the interface, or with `./prtg-nats update` on the host.
+
+Nothing else is needed after that. The probes are compared against the
+catalogue on the next pass, the ones behind report `outdated`, and the fix is
+the deployment that was already there. The same holds for the probe helper: a
+new `HELPER_VERSION` shows up as `probe.helper_outdated` with `helper-update`
+as its remedy.
+
 ## Layout of a sensor in the repository
 
 ```text

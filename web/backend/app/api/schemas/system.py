@@ -101,6 +101,11 @@ class CapabilitiesOut(ApiModel):
     docker: bool
     runtime_state: str
     dev_auth: bool
+    # Whether this installation can update itself from its own checkout. False
+    # for a stack started without Compose, without the socket, or from before
+    # the updater image existed - each of which is a fact about the
+    # installation rather than a failure to report.
+    stack_update: bool = False
 
 
 class SystemStatusOut(ApiModel):
@@ -461,3 +466,45 @@ class IperfEndpointOut(ApiModel):
 
 
 DashboardOut.model_rebuild()
+
+
+class StackCommitOut(ApiModel):
+    """One commit between what is installed and what the branch has."""
+
+    sha: str
+    subject: str
+    date: str
+
+
+class StackVersionOut(ApiModel):
+    """Which version is where, and what may be done about it.
+
+    Three commits rather than one version number, because they diverge in ways
+    an operator has to be able to tell apart - most often a checkout that was
+    pulled but never rebuilt, which a single number would report as current.
+    """
+
+    # What the running image was built from. Empty when it was built without
+    # the build argument, and then `state` is "unknown" rather than a guess.
+    running_commit: str
+    # What the working tree on the host is at.
+    checkout_commit: str
+    checkout_dirty: bool
+    # What the branch has at its tip.
+    remote_commit: str
+    branch: str
+    # One word for the situation: current, update_available, rebuild_pending,
+    # unreachable, unknown.
+    state: str
+    # False means the repository did not answer. Never folded into "current".
+    reachable: bool
+    error: str
+    commits: list[StackCommitOut]
+    checked_at: datetime | None
+    # Where the checkout lives on the host, so an operator can see which one
+    # is about to be updated before pressing anything.
+    checkout_dir: str | None
+    # Whether the feature is available at all, and if not, which piece is
+    # missing: docker_socket_missing, checkout_not_found, updater_image_missing.
+    available: bool
+    unavailable_reason: str | None

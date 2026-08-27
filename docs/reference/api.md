@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # REST API
@@ -75,6 +75,9 @@ with a backoff rather than leaving the log where it stopped.
 | `GET /system/backups` | the archives in the volume, newest first |
 | `GET /system/backups/{name}` | download one, audited |
 | `POST /system/restart` | restart NATS → job |
+| `GET /system/update` | which version is installed, and what the branch has |
+| `POST /system/update/check` | ask the repository now instead of on the hour |
+| `POST /system/update` | update to the tip of the branch → job |
 
 `GET /dashboard` is one call on purpose. A dashboard assembled from eight
 parallel requests is eight chances to show a half-drawn page.
@@ -85,6 +88,27 @@ holds the CA and its key, the certificates, the accounts, the inventory, the
 management SSH key and the database. Downloading one therefore needs
 `system.restart` rather than `system.read` - the archive carries every NATS
 password, so fetching it is a disclosure and is audited as one.
+
+`GET /system/update` reports three commits rather than one version, because
+they diverge in ways that matter: what the running image was built from, what
+the checkout on the host is at, and what the branch has. A checkout ahead of
+the running image is `rebuild_pending` - somebody pulled without rebuilding -
+and a repository that did not answer is `unreachable`, never `current`. An
+image built without the `GIT_COMMIT` build argument reports `unknown` instead
+of guessing.
+
+The answer comes from a cache the background check refreshes hourly; the check
+endpoint forces a fresh look. Both need `system.read`, because reading it is
+`git ls-remote` and writes nothing.
+
+Starting an update needs `system.update`, held only by administrators: the
+updater runs with the Docker socket, so whoever triggers one decides what runs
+as root on the host. It is refused while any other job is queued or running -
+a rollout interrupted by the restart comes back looking like a failure with no
+way to tell where it stopped - and refused over a checkout with uncommitted
+changes. The job detaches partway through and is completed by the process that
+comes back up, so its status passes through `detached` on the way. See
+[ADR 0007](../architecture/decisions/0007-update-the-stack-from-the-interface.md).
 
 ### Probes
 

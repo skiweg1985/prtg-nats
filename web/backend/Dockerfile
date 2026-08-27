@@ -43,8 +43,18 @@ COPY libexec /opt/prtg-nats/libexec
 COPY bootstrap /opt/prtg-nats/bootstrap
 COPY install-mpp.sh /opt/prtg-nats/
 
+# Which commit produced this image. A container has no checkout to ask, so
+# the answer has to be baked in - it is what lets the update page say "you
+# are running this, the branch has that" instead of guessing from a version
+# string nobody remembers to raise. Last, so a new commit does not invalidate
+# the layers above it and every update rebuilds the world.
+ARG GIT_COMMIT=""
+ARG GIT_REF=""
+
 ENV PRTG_NATS_WEB_ASSET_DIR=/opt/prtg-nats \
-    PRTG_NATS_WEB_RUNTIME_DIR=/srv/prtg-nats/runtime
+    PRTG_NATS_WEB_RUNTIME_DIR=/srv/prtg-nats/runtime \
+    PRTG_NATS_WEB_GIT_COMMIT=${GIT_COMMIT} \
+    PRTG_NATS_WEB_GIT_REF=${GIT_REF}
 
 EXPOSE 8100
 

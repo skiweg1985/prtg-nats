@@ -228,6 +228,20 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS` | How often `runtime/` is re-read | int | `60` | no |
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
+| `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Not the branch the checkout happens to be on: that one can be moved by hand | string | `main` | no |
+| `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
+| `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
+| `PRTG_NATS_WEB_GIT_REF` | The branch that build came from, same source | string | – | no |
+
+Updating this installation from the interface needs a route to the repository.
+The updater uses a deploy key at `runtime/private/ssh/git-deploy` if one is
+there, with the host key pinned in `runtime/private/ssh/git_known_hosts` - the
+same strictness the probe channel uses. Without the pinned file the connection
+still works and says on every fetch that it is unauthenticated; without the
+key at all, a public repository over HTTPS is unaffected and a private one
+reports itself unreachable rather than silently up to date. See
+[the API reference](api.md#system) and
+[ADR 0007](../architecture/decisions/0007-update-the-stack-from-the-interface.md).
 
 ### Development only
 

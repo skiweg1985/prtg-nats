@@ -25,6 +25,12 @@ export type SensorInstallationStatus =
 export type JobStatus =
   | 'queued'
   | 'running'
+  /**
+   * Still going, but not in the process that started it. A stack update
+   * replaces the API container, so the work carries on in a container that
+   * outlives it. Not terminal - the outcome is recorded on the way back up.
+   */
+  | 'detached'
   | 'successful'
   | 'failed'
   | 'cancelled'
@@ -403,6 +409,41 @@ export interface Capabilities {
   docker: boolean
   runtime_state: 'missing' | 'partial' | 'complete'
   dev_auth: boolean
+  /** Whether this installation can update itself from its own checkout. */
+  stack_update: boolean
+}
+
+export interface StackCommit {
+  sha: string
+  subject: string
+  date: string
+}
+
+/**
+ * Three commits rather than one version, because they diverge in ways an
+ * operator has to be able to tell apart. The most common divergence is a
+ * checkout that was pulled but never rebuilt, which a single version number
+ * would report as up to date.
+ */
+export interface StackVersion {
+  running_commit: string
+  checkout_commit: string
+  checkout_dirty: boolean
+  remote_commit: string
+  branch: string
+  state:
+    | 'current'
+    | 'update_available'
+    | 'rebuild_pending'
+    | 'unreachable'
+    | 'unknown'
+  reachable: boolean
+  error: string
+  commits: StackCommit[]
+  checked_at: string | null
+  checkout_dir: string | null
+  available: boolean
+  unavailable_reason: string | null
 }
 
 export interface NatsAccount {

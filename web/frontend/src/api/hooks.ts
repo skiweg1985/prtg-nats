@@ -10,6 +10,7 @@ import type {
   AuditEvent,
   AuthState,
   Capabilities,
+  StackVersion,
   Certificate,
   Dashboard,
   Deployment,
@@ -47,6 +48,7 @@ export const keys = {
   capabilities: ['capabilities'] as const,
   dashboard: ['dashboard'] as const,
   system: ['system'] as const,
+  stackVersion: ['system', 'update'] as const,
   probes: ['probes'] as const,
   probe: (id: string) => ['probes', id] as const,
   probePlan: (id: string) => ['probes', id, 'plan'] as const,
@@ -89,6 +91,43 @@ export function useCapabilities() {
     queryKey: keys.capabilities,
     queryFn: () => api.get<Capabilities>('/system/capabilities'),
     staleTime: 5 * 60_000,
+  })
+}
+
+/**
+ * Which version is installed and whether the branch has moved on.
+ *
+ * Polled rather than live: the answer comes from a cache the background check
+ * refreshes hourly, so anything faster asks the same question of the same row.
+ */
+export function useStackVersion() {
+  return useQuery({
+    queryKey: keys.stackVersion,
+    queryFn: () => api.get<StackVersion>('/system/update'),
+    staleTime: 60_000,
+  })
+}
+
+/** Ask the repository right now instead of waiting for the next pass. */
+export function useCheckForUpdate() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<StackVersion>('/system/update/check', {}),
+    onSuccess: (data) => {
+      client.setQueryData(keys.stackVersion, data)
+      void client.invalidateQueries({ queryKey: keys.capabilities })
+    },
+  })
+}
+
+/** Start the update. Returns the job that carries it. */
+export function useStartUpdate() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/system/update', {}),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.jobs() })
+    },
   })
 }
 

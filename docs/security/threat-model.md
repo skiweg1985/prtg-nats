@@ -1,7 +1,7 @@
 ---
 title: Threat model of the web platform
 role: operator
-updated: 2026-08-02
+updated: 2026-08-27
 ---
 
 # Threat model of the web platform
@@ -32,6 +32,20 @@ from more places than a root shell is.
   and it opens it on the same host address the rest of the stack uses.
 - **Put it behind the network controls the NATS port already has.** The
   interface deserves at least the restriction `23561/tcp` has.
+
+### Updating the stack is a path to that privilege
+
+The interface can replace the software this installation is made of. The
+updater it starts holds the Docker socket and the checkout, so whoever can
+trigger an update decides what runs as root on this host.
+
+That is not a new privilege - the API container has it already - but it is a
+new way to reach it, and one that does not need a shell. So it sits behind its
+own permission, `system.update`, held only by administrators and deliberately
+not part of the operator role. What it can install is whatever the configured
+branch of the configured repository holds: write access to that repository is
+therefore write access to this host, and the deploy key it uses only needs to
+be able to read.
 
 ### The Docker socket is optional
 

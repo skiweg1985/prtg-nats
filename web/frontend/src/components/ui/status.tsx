@@ -43,6 +43,9 @@ const SENSOR_TONE: Record<SensorInstallationStatus, Tone> = {
 const JOB_TONE: Record<JobStatus, Tone> = {
   queued: 'neutral',
   running: 'accent',
+  // Still going, like running - the work just moved to a container that
+  // outlives the API. Anything calmer would read as finished.
+  detached: 'accent',
   successful: 'ok',
   failed: 'danger',
   cancelled: 'neutral',

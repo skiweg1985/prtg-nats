@@ -30,6 +30,17 @@ class SensorInstallationStatus(StrEnum):
 class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    # Still going, but not in this process any more. A stack update replaces
+    # the container it was started from, so the work carries on in a container
+    # that outlives it while the job waits here to be told how it went.
+    #
+    # It exists as a status rather than as a flag because of what the status
+    # already controls: the runner's startup recovery ends every job that says
+    # "running", on the correct assumption that nothing can be running while
+    # it starts. A detached job is the one thing that can, and giving it its
+    # own word keeps that routine honest instead of carving an exception into
+    # it. Not terminal - the outcome is still to come.
+    DETACHED = "detached"
     SUCCESSFUL = "successful"
     FAILED = "failed"
     CANCELLED = "cancelled"

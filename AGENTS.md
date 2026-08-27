@@ -73,6 +73,14 @@ privileged containers and network access:
 ./tests/e2e-mpp.sh
 ```
 
+That the container driving a stack update survives the stack being recreated
+around it - seconds, needs Docker and the updater image:
+
+```bash
+docker build -f web/updater/Dockerfile -t prtg-nats-updater:current .
+./tests/e2e-update.sh
+```
+
 The management API:
 
 ```bash

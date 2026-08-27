@@ -106,6 +106,13 @@ services:
       # on-target scripts, which live outside web/backend.
       context: .
       dockerfile: web/backend/Dockerfile
+      args:
+        # What this image contains, so the running stack can say so. Filled
+        # by the updater and by `prtg-nats update`; empty when somebody runs
+        # compose by hand, which the interface reports as unknown rather
+        # than inventing an answer.
+        GIT_COMMIT: ${GIT_COMMIT:-}
+        GIT_REF: ${GIT_REF:-}
     container_name: prtg-nats-web-api
     environment:
       PRTG_NATS_WEB_ENVIRONMENT: production
@@ -162,6 +169,26 @@ services:
     volumes:
       - web-static:/srv/www
     command: ["sh", "-c", "rm -rf /srv/www/* && cp -a /dist/. /srv/www/"]
+    restart: "no"
+
+  # The container that updates this installation from its own checkout.
+  #
+  # It runs here once and exits, and that run is not the point - building the
+  # image is. The real runs are created through the Docker API without Compose
+  # labels, because `up --remove-orphans` collects candidates by the project
+  # label and would otherwise take down the very container driving the update.
+  #
+  # Consequence worth knowing: an installation updating *to* the version that
+  # introduces this has no updater image yet. That first update is one more
+  # `./prtg-nats update` on the host, and every one after it is a button - the
+  # same bootstrap-once shape the probe helper has (ADR 0006).
+  updater:
+    build:
+      context: .
+      dockerfile: web/updater/Dockerfile
+    image: prtg-nats-updater:current
+    container_name: prtg-nats-updater-build
+    command: ["noop"]
     restart: "no"
 
   web-proxy:

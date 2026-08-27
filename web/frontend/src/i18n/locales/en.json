@@ -15,7 +15,8 @@
     "certificates": "Certificates",
     "credentials": "Credentials",
     "audit": "Audit",
-    "settings": "Settings"
+    "settings": "Settings",
+    "updates": "Updates"
   },
   "common": {
     "back": "Back",
@@ -394,7 +395,13 @@
       "ensure_account": "NATS account",
       "verify_access": "Check management access",
       "write_inventory": "Write the inventory",
-      "export": "Archive the runtime"
+      "export": "Archive the runtime",
+      "preflight": "Checking preconditions",
+      "fetch": "Fetching from the repository",
+      "checkout": "Moving the checkout",
+      "build": "Building the images",
+      "recreate": "Recreating the stack",
+      "settle": "Recording the outcome"
     },
     "events": {
       "started": "Job started: {{type}}",
@@ -501,6 +508,18 @@
         "rotated_server": "Server-side credentials for {{probe}} rotated",
         "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password",
         "deleted": "NATS account {{probe}} deleted"
+      },
+      "stack": {
+        "backup_taken": "Runtime archived as {{archive}}",
+        "checkout_found": "Updating the checkout at {{path}}",
+        "handover": "Handing over to the updater; this page keeps following it",
+        "outcome_unknown": "The updater container {{container}} is gone, so what it did cannot be established",
+        "rolled_back": "The build failed; the checkout was put back to {{commit}} and nothing was replaced",
+        "target": "Updating {{branch}} from {{from}} to {{to}}",
+        "timeout": "The updater is taking longer than expected; it keeps running and the outcome is recorded when it ends",
+        "update_failed": "The update failed (exit code {{code}})",
+        "updated": "The stack now runs {{commit}}",
+        "updater_output": "Output from the updater"
       }
     }
   },
@@ -636,7 +655,8 @@
       "successful": "Successful",
       "failed": "Failed",
       "cancelled": "Cancelled",
-      "partially_successful": "Partly successful"
+      "partially_successful": "Partly successful",
+      "detached": "Handed over"
     },
     "certificate": {
       "valid": "Valid",
@@ -767,7 +787,10 @@
       "token_invalid": "This enrolment invitation cannot be used.",
       "token_invalid.cause": "It is unknown, expired, already used, or was revoked. An invitation is good for one host, once.",
       "token_invalid.action": "Create a new invitation and run the command it gives you on the host."
-    }
+    },
+    "stack.update_unavailable": "This installation cannot update itself ({{reason}})",
+    "stack.update_blocked": "The update cannot start right now ({{reason}})",
+    "stack.update_failed": "The update did not complete"
   },
   "validation": {
     "too_short": "Too short.",
@@ -807,5 +830,53 @@
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
     "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
+  },
+  "updates": {
+    "title": "Updates",
+    "check_now": "Check now",
+    "progress": "Progress",
+    "changes": "What is new",
+    "no_changes": "Nothing new on this branch",
+    "install": "Install the update",
+    "running": "Running",
+    "running_unknown": "unknown - this image was built without a version stamp",
+    "checkout": "Checkout",
+    "branch": "Branch",
+    "checkout_dir": "Checkout on the host",
+    "checked_at": "Last checked",
+    "dirty": "modified",
+    "unreachable": "The repository could not be reached",
+    "what_happens": "The runtime is archived first, then the images are built, then the stack is recreated. The interface is unavailable for a few minutes while that happens.",
+    "state": {
+      "title": "Version"
+    },
+    "states": {
+      "current": "Up to date",
+      "update_available": "Update available",
+      "rebuild_pending": "Rebuild pending",
+      "unreachable": "Repository unreachable",
+      "unknown": "Unknown"
+    },
+    "rebuild_pending": {
+      "title": "The checkout is ahead of what is running",
+      "body": "Somebody has pulled on this host without rebuilding, so the stack still runs the older code. Run ./prtg-nats update on the host to build what the checkout already holds."
+    },
+    "dirty_blocks": {
+      "title": "The checkout has uncommitted changes",
+      "body": "An update would have to move over them. Commit or discard them on the host first - nothing here will throw local work away."
+    },
+    "away": {
+      "title": "The stack is being replaced",
+      "body": "The interface comes back on its own once the new containers are up. This takes a few minutes; leaving the page is safe.",
+      "stuck_title": "The service has not come back",
+      "stuck": "Something went wrong during the restart. On the host, docker compose logs web-api says what, and the runtime archive taken before the update is in runtime/archive/."
+    },
+    "unavailable": {
+      "title": "This installation cannot update itself",
+      "docker_socket_missing": "The Docker socket is not mounted, so nothing here can build or restart containers.",
+      "checkout_not_found": "The stack was not started with Compose, so the checkout it was built from cannot be located.",
+      "updater_image_missing": "The updater image does not exist yet. Run ./prtg-nats update on the host once; every update after that works from here.",
+      "unknown": "The reason could not be determined."
+    }
   }
 }

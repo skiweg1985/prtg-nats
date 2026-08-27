@@ -260,6 +260,37 @@ class HostKeyMismatchError(AppError):
     http_status = status.HTTP_409_CONFLICT
 
 
+class StackUpdateUnavailableError(AppError):
+    """This installation cannot update itself, and the reason is structural.
+
+    No Docker socket, no Compose labels to find the checkout by, or no updater
+    image yet. None of these is fixed by trying again, so the interface hides
+    the action and shows what is missing instead.
+    """
+
+    code = "stack.update_unavailable"
+    http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+
+
+class StackUpdateBlockedError(AppError):
+    """The installation could update itself, but not right now.
+
+    A modified checkout, another job still running, a branch that has diverged.
+    Each of these is a thing an operator can resolve, which is why they are
+    refused up front rather than discovered halfway through a rollout.
+    """
+
+    code = "stack.update_blocked"
+    http_status = status.HTTP_409_CONFLICT
+
+
+class StackUpdateFailedError(AppError):
+    """The updater ran and did not get there. The log says how far it got."""
+
+    code = "stack.update_failed"
+    http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
 # --- FastAPI wiring ---------------------------------------------------------
 
 

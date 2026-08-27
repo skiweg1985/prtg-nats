@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from sqlalchemy import Connection, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -28,6 +29,11 @@ TABLE = "probe_observed_state"
 # The column that exposed all of this: the first one a migration added to a
 # table create_all had already made.
 COLUMN = "refresh_due"
+# The revision before the one that added it. Named rather than reached with
+# "-1": this test is about that particular migration, and a relative step
+# would quietly start testing whatever migration was written last instead -
+# passing or failing for reasons that have nothing to do with the case.
+BEFORE_COLUMN = "707972bba671"
 
 
 @pytest_asyncio.fixture
@@ -86,7 +92,7 @@ async def test_a_database_a_release_behind_is_brought_forward(
     # Back to the revision an installation running the previous version has.
     # In a thread for the same reason ensure_schema uses one: env.py drives
     # the async engine with asyncio.run, which a running loop refuses.
-    await asyncio.to_thread(command.downgrade, _alembic_config(), "-1")
+    await asyncio.to_thread(command.downgrade, _alembic_config(), BEFORE_COLUMN)
     async with engine.connect() as connection:
         assert COLUMN not in await connection.run_sync(columns_of, TABLE)
 
@@ -126,3 +132,29 @@ async def test_a_database_that_no_longer_matches_the_models_is_refused(
     assert "stamp" in str(refusal.value).lower()
     # Nothing was written down about a database nobody could place.
     assert await stamped_at(engine) is None
+
+
+async def test_a_database_newer_than_the_code_refuses_to_start(
+    engine: AsyncEngine,
+) -> None:
+    """Why a stack update has no rollback once it has migrated.
+
+    Putting the checkout back to an older commit leaves the database at a
+    revision that older code has never heard of. Alembic cannot resolve it,
+    ensure_schema raises, and the exception comes out of the lifespan - so the
+    container does not serve requests against a schema it does not fit, it
+    fails to start at all and restarts in a loop.
+
+    That is the behaviour the update job is built around: everything up to the
+    build can be undone by moving the checkout, and nothing after it can. The
+    way back from there is the runtime export the job takes first, not a
+    git checkout.
+    """
+    await ensure_schema(engine)
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE alembic_version SET version_num = 'ffffffffffff'")
+        )
+
+    with pytest.raises(CommandError, match="ffffffffffff"):
+        await ensure_schema(engine)
