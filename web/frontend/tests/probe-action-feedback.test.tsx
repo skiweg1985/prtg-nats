@@ -6,6 +6,7 @@ import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { probeRefetchInterval } from '@/api/hooks'
 import { AppProviders } from '@/app/providers'
 import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { changeLanguage } from '@/i18n'
@@ -175,5 +176,23 @@ describe('what the probe actions report back', () => {
     // for a second and comes back.
     expect(await screen.findByText('What failed')).toBeInTheDocument()
     expect(screen.getByText('Affected target')).toBeInTheDocument()
+  })
+})
+
+describe('how current the detail page keeps itself', () => {
+  it('reloads while a job holds the probe, and not otherwise', () => {
+    // Idle is the common case, and polling it would be a request every
+    // fifteen seconds for a page whose content cannot change.
+    expect(probeRefetchInterval(PROBE_DETAIL as never)).toBe(false)
+
+    const busy = {
+      ...PROBE_DETAIL,
+      summary: { ...PROBE_DETAIL.summary, running_job_id: 'J1' },
+    }
+    expect(probeRefetchInterval(busy as never)).toBe(15_000)
+  })
+
+  it('has nothing to say about a probe it has not loaded yet', () => {
+    expect(probeRefetchInterval(undefined)).toBe(false)
   })
 })
