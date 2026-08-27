@@ -39,6 +39,11 @@ import time
 CONFIG_DIR = "/etc/prtg-nats/sensors/wlan-auth"
 PROFILE_DIR = os.path.join(CONFIG_DIR, "profiles")
 ALLOWED_INTERFACES = os.path.join(CONFIG_DIR, "allowed-interfaces")
+# Shared by the work directories of a run and by the search for the ones
+# a previous run left behind.
+WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
+# How long a run waits for the interface before it gives up on it.
+LOCK_WAIT_SECONDS = 15
 RUN_DIR = "/run"
 
 # Field: (required for this method, adoptable from the profile)
@@ -365,6 +370,24 @@ def collect_link_details(run, result):
             result["details"][key] = value
 
 
+def clear_process_group(process):
+    """Take the whole session down, not just the process we started.
+
+    dhcpcd 9 splits its privileges across child processes and does not
+    take them with it when it segfaults on the way out. Left alone they
+    outlive the run in the helper's cgroup, so systemd never sees the
+    unit finish and waits out its stop timeout on every single call.
+    """
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run_dhcp(interface, budget):
     """DHCP in test mode: a complete cycle without setting the address.
 
@@ -374,29 +397,45 @@ def run_dhcp(interface, budget):
     """
     seconds = max(3, int(budget))
     started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
-            capture_output=True, text=True, timeout=seconds + 5,
-        )
-    except subprocess.TimeoutExpired:
+    # A file, not a pipe: the children below inherit the handle and outlive
+    # their parent, so a pipe would reach EOF only once they are gone - and
+    # reading it would be the very thing that waits for them.
+    with tempfile.TemporaryFile() as sink:
+        try:
+            # Its own session, so the whole group can be cleared out below.
+            process = subprocess.Popen(
+                ["dhcpcd", "-4", "-T", "-t", str(seconds), interface],
+                stdout=sink, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            raise Blocked("internal-error", "Could not run dhcpcd")
+        try:
+            process.wait(timeout=seconds + 5)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        finally:
+            clear_process_group(process)
+        duration = int((time.monotonic() - started) * 1000)
+        sink.seek(0)
+        output = sink.read().decode("utf-8", "replace")
+
+    if timed_out:
         raise Failed("dhcp-timeout", "No DHCP answer within the time budget")
-    except OSError:
-        raise Blocked("internal-error", "Could not run dhcpcd")
-    duration = int((time.monotonic() - started) * 1000)
 
     # The lease decides, not the exit status: dhcpcd 9.4.1 on Bookworm
     # prints a complete lease in test mode and then segfaults while
     # cleaning up. The DHCP server has answered at that point, and that is
     # what the sensor measures.
     lease = {}
-    for line in completed.stdout.splitlines():
+    for line in output.splitlines():
         key, _, value = line.strip().partition("=")
         if key in ("new_ip_address", "new_dhcp_server_identifier",
                    "new_routers"):
             lease[key] = value.strip("'")
     if "new_ip_address" not in lease:
-        if completed.returncode != 0:
+        if process.returncode != 0:
             raise Failed("dhcp-timeout", "The DHCP request was not answered")
         raise Failed("dhcp-timeout", "The DHCP server offered no address")
     return duration, lease
@@ -436,9 +475,11 @@ def perform_test(job):
     interface = job["interface"]
     check_interface(interface)
 
+    reclaim_interface(interface)
+
     started = time.monotonic()
     deadline = started + job["timeout"]
-    workdir = tempfile.mkdtemp(prefix="prtg-sensor-wlan-auth.", dir=RUN_DIR)
+    workdir = tempfile.mkdtemp(prefix=WORKDIR_PREFIX, dir=RUN_DIR)
     os.chmod(workdir, 0o700)
     run = SupplicantRun(interface, workdir)
     result = {
@@ -536,21 +577,95 @@ def validate_job(job):
     return job
 
 
-def lock_interface(interface):
+def lock_interface(interface, wait=LOCK_WAIT_SECONDS):
     """Exclude parallel runs on the same interface.
 
     Two simultaneous tests would take the radio link away from each
     other and both report a wrong result.
+
+    A run that overlaps its predecessor by a few seconds is ordinary when
+    the scan interval sits anywhere near the time budget. Waiting that
+    out is worth more than a sensor error on an interface that is about
+    to be free - the error would say the test could not run, when all
+    that happened was two runs meeting.
     """
     path = os.path.join(RUN_DIR, "prtg-sensor-wlan-auth.%s.lock" % interface)
     handle = open(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600), "w")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        handle.close()
-        raise Blocked("iface-busy",
-                      "Another test is already running on %s" % interface)
-    return handle
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except OSError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise Blocked(
+                    "iface-busy",
+                    "Another test is still running on %s after %d seconds"
+                    % (interface, wait))
+            time.sleep(0.25)
+
+
+def owns_interface(command, interface):
+    """Does this process belong to a test run on this interface?
+
+    NetworkManager runs a supplicant of its own. It never carries a
+    configuration below RUN_DIR, which is what tells the two apart - and
+    killing the wrong one would take the host off the network.
+    """
+    tokens = command.replace("\0", " ").split()
+    if not tokens:
+        return False
+    program = os.path.basename(tokens[0].rstrip(":"))
+    if program == "wpa_supplicant":
+        return WORKDIR_PREFIX in command and interface in tokens
+    if program == "dhcpcd":
+        return interface in tokens
+    return False
+
+
+def reclaim_interface(interface):
+    """Take the interface back before the test starts.
+
+    The lock keeps concurrent runs apart, but nothing keeps the remains
+    of a run that never finished: a supplicant left by a crash, a dhcpcd
+    that outlived its parent, a work directory from before a reboot.
+    They belong to nobody, they hold the radio, and they would fail the
+    next test on an interface that is nominally free.
+
+    This runs behind the lock. Ahead of it, a waiting run would tear the
+    interface out from under the one that legitimately holds it.
+    """
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % entry, "rb") as handle:
+                command = handle.read().decode("utf-8", "replace")
+        except OSError:
+            # The process ended while we were looking at it.
+            continue
+        if not owns_interface(command, interface):
+            continue
+        for number in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.kill(int(entry), number)
+            except OSError:
+                break
+            if number is signal.SIGTERM:
+                time.sleep(0.5)
+
+    for name in os.listdir(RUN_DIR):
+        stale = os.path.join(RUN_DIR, name)
+        if name.startswith(WORKDIR_PREFIX) and os.path.isdir(stale):
+            shutil.rmtree(stale, ignore_errors=True)
+
+    # Whatever the remains left on the interface goes too: an address or
+    # a route over the network under test has no business being there.
+    for arguments in (["addr", "flush", "dev", interface],
+                      ["link", "set", interface, "down"]):
+        subprocess.run(["ip", *arguments], capture_output=True, timeout=10,
+                       check=False)
 
 
 def main():
