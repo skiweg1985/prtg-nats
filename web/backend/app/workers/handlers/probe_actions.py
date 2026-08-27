@@ -42,8 +42,11 @@ async def install_ca(context: JobContext) -> dict[str, Any]:
     connection = _connection(context, username)
 
     await context.step("check_reachable")
-    await context.helper.probe_info(connection)
-    await context.log("jobs.probe.reachable", params={"probe": username})
+    info = await context.helper.probe_info(connection)
+    await context.log(
+        "jobs.probe.reachable",
+        params={"probe": username, "package": info.value("package") or "unknown"},
+    )
 
     await context.step("install_ca")
     ca_pem = context.runtime.ca_pem()

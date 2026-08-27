@@ -59,6 +59,13 @@ Shell syntax, templates and rendering - seconds, no Docker, no network:
 ./tests/check-static.sh
 ```
 
+Every job log message the backend can emit, against the two locale files -
+the direction `npm run i18n:check` does not cover:
+
+```bash
+./tests/check-job-messages.py
+```
+
 The full rollout against a real `prtgmpprobe` - minutes, needs Docker,
 privileged containers and network access:
 

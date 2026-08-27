@@ -146,6 +146,7 @@ web platform is trusted with, stated plainly, is
 
 ```bash
 ./tests/check-static.sh          # seconds, no Docker and no network
+./tests/check-job-messages.py    # job log messages against the translations
 ./tests/e2e-mpp.sh               # minutes, with Docker and network access
 cd web/backend && pytest -q      # the management API
 cd web/frontend && npm run test  # the interface

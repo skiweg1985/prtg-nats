@@ -37,6 +37,14 @@ jobs:
       - name: Check shell syntax, templates and rendering
         run: ./tests/check-static.sh
 
+      # The frontend check compares the two languages against each other and
+      # is satisfied when a key is missing from both. This is the direction
+      # that catches that: every job log message the backend can emit, against
+      # what the locales carry. It needs neither Node nor the backend
+      # dependencies, so it runs here rather than in one of those jobs.
+      - name: Check the job log messages against the translations
+        run: ./tests/check-job-messages.py
+
       - name: Check Markdown
         run: |
           if command -v npx >/dev/null 2>&1; then
