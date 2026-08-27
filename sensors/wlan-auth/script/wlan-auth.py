@@ -260,14 +260,24 @@ def work(args: dict[str, Any]):
     # which optional values are present.
     channels.sort(key=lambda entry: entry["id"])
 
+    # Which network, on which access point, and did it get an address -
+    # that is what the message line has to answer, because in a list of
+    # sensors it is all that is visible without opening one.
+    #
+    # The SSID comes from the helper's reading of the link, so it names
+    # the network actually joined. Only a run that never got that far
+    # falls back to the parameter, and with --profile there is none: the
+    # credentials, the SSID among them, stay on the probe.
+    network = details.get("ssid") or args["ssid"] or ""
+    quoted = ' on "%s"' % network if network else ""
     if succeeded:
-        message = "Authentication succeeded on %s" % (details.get("bssid")
-                                                      or args["interface"])
+        message = "Authentication succeeded%s via %s" % (
+            quoted, details.get("bssid") or args["interface"])
         if details.get("ip_address"):
             message += ", DHCP offered %s" % details["ip_address"]
     else:
-        message = "%s (%s)" % (answer.get("message", "Authentication failed"),
-                              code)
+        message = "%s%s (%s)" % (
+            answer.get("message", "Authentication failed"), quoted, code)
 
     # A failure remains a valid measurement: the sensor keeps delivering
     # values, the "Auth Result" channel carries the alarm. That keeps the

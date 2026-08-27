@@ -158,6 +158,20 @@ was rejected.
 | `dhcp-timeout` | 8 | no DHCP answer |
 | `auth-timeout` | 9 | key negotiation not completed |
 
+The message line names the network, the access point behind it and the
+address that was offered — in a list of sensors that is everything visible
+without opening one:
+
+```text
+Authentication succeeded on "Office" via 1c:30:03:12:46:f3, DHCP offered 192.0.2.75
+The access point rejected the passphrase on "Office" (auth-failed-psk)
+```
+
+The SSID comes from the link the probe actually joined, so it also names
+the network behind a `--profile`, where the PRTG configuration holds only
+the profile name. A run that never associated falls back to the SSID that
+was asked for, and names none where a profile carried it.
+
 If the test could not take place at all — missing interface, missing
 privileges, invalid parameters — the sensor reports a sensor error instead,
 with the cause in the message text. That separation is deliberate: such a
