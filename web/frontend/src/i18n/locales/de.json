@@ -877,6 +877,7 @@
       "checkout_not_found": "Der Stack wurde nicht mit Compose gestartet, deshalb lässt sich der Checkout nicht ermitteln, aus dem er gebaut wurde.",
       "updater_image_missing": "Das Updater-Image existiert noch nicht. Einmal ./prtg-nats update auf dem Host ausführen; jedes weitere Update geht dann von hier.",
       "unknown": "Der Grund ließ sich nicht ermitteln."
-    }
+    },
+    "last_update": "Zuletzt von hier aktualisiert"
   }
 }

@@ -208,6 +208,21 @@ function VersionCard({ data }: { data: StackVersion }) {
             '—'
           )}
         </DetailRow>
+        {/* Only once there is one. An empty row would read as "never
+            updated", when the truth is that updates from the host leave no
+            record here. */}
+        {data.last_update_at && (
+          <DetailRow label={t('updates.last_update')}>
+            <span title={formatDateTime(data.last_update_at)}>
+              {formatRelative(data.last_update_at)}
+            </span>
+            {data.last_update_commit && (
+              <Mono className="text-ink-3 ml-2">
+                {short(data.last_update_commit)}
+              </Mono>
+            )}
+          </DetailRow>
+        )}
       </dl>
 
       {!data.reachable && data.error && (
