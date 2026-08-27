@@ -401,6 +401,7 @@
         "identity_resolved": "{{probe}}: identity resolved as {{probe_name}}",
         "config_rendered": "{{probe}}: configuration rendered",
         "config_staged": "{{probe}}: credentials and configuration staged",
+        "config_activating": "{{probe}}: restarting the service - up to a minute and a half if the old process will not let go of its connection",
         "config_activated": "{{probe}}: configuration activated, service restarted",
         "config_rolled_back": "{{probe}}: previous configuration restored",
         "configured": "{{probe}}: configuration is live",

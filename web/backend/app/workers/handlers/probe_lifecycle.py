@@ -170,7 +170,16 @@ async def run_config_transaction(
             "jobs.probe.config_staged", params={"probe": username}, target=username
         )
 
+        # Said before the step rather than after it, because this is the one
+        # that can sit there. Where the NATS account changed, the running
+        # process holds on to a connection the server no longer accepts and
+        # ignores SIGTERM while it retries; systemd then spends its full stop
+        # timeout - about ninety seconds - before the new process starts. A
+        # job that goes quiet for that long reads as a job that died.
         await context.step("activate")
+        await context.log(
+            "jobs.probe.config_activating", params={"probe": username}, target=username
+        )
         response = await context.helper.activate(connection, transaction)
         await context.log(
             "jobs.probe.config_activated",

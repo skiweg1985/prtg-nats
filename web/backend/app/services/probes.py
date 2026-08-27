@@ -317,6 +317,19 @@ class ProbeService:
 
         record = await self.ensure_record(nats_username)
         await self._store_observed(record, observed)
+        # The probe answered, but a service that is not up yet is the one
+        # answer this cannot take at face value. The management channel runs
+        # over SSH and is back long before the MPP is - and where a rollout
+        # changed the NATS account, the old process ignores SIGTERM while it
+        # retries the connection it is no longer allowed to make, so systemd
+        # spends its full stop timeout before the new one starts. Left to the
+        # staleness window, that snapshot stands for five minutes and the
+        # interface reports a freshly enrolled probe as degraded. Handing it
+        # to the next sync pass instead costs a minute. Nothing is lost if the
+        # service really is down: the sync writes the same answer again and
+        # clears the flag.
+        if observed.service is not ServiceState.ACTIVE:
+            await self.mark_refresh_due(nats_username)
         return True
 
     async def mark_refresh_due(self, nats_username: str) -> None:
