@@ -1301,8 +1301,28 @@ command_link_description() {
   fi
 }
 
+# A link to another checkout of this same project, rather than to somebody
+# else's program of the same name. The two look alike in the directory
+# listing and mean opposite things: one is a stranger to leave alone, the
+# other is this tooling pointed at a tree the operator has probably moved
+# away from - and the one worth offering to re-point.
+#
+# Recognised by the file it leads to being a prtg-nats with this project's
+# own libexec beside it. Not by name: anybody may call a script prtg-nats.
+command_link_is_a_sibling() {
+  local link_path="$1"
+  local target=""
+
+  [[ -L "${link_path}" ]] || return 1
+  target="$(readlink -f -- "${link_path}" 2>/dev/null || true)"
+  [[ -n "${target}" && -f "${target}" ]] || return 1
+  [[ "$(basename -- "${target}")" == "prtg-nats" ]] || return 1
+  [[ -f "$(dirname -- "${target}")/libexec/runtime-dir.sh" ]]
+}
+
 manage_command_link() {
   local mode="$1"
+  local relink="${2:-false}"
   local link_path="${COMMAND_LINK_DIR}/prtg-nats"
   local own_target=""
 
@@ -1340,13 +1360,29 @@ manage_command_link() {
   # A foreign file of the same name belongs to somebody else and is not
   # overwritten; a link of our own may be renewed.
   if [[ -e "${link_path}" || -L "${link_path}" ]]; then
-    command_link_is_ours "${link_path}" "${own_target}" ||
-      {
+    if ! command_link_is_ours "${link_path}" "${own_target}"; then
+      if command_link_is_a_sibling "${link_path}"; then
+        # Another checkout of this project. Saying so is the point: this is
+        # the state in which an update serves a tree nobody meant, and until
+        # now the only way to find out was to run readlink by hand.
+        printf '%s points at another checkout of this project:\n' \
+          "${link_path}" >&2
+        printf '  %s\n' \
+          "$(dirname -- "$(readlink -f -- "${link_path}")")" >&2
+        printf 'This one is %s.\n' "${PROJECT_DIR}" >&2
+        [[ "${relink}" == "true" ]] ||
+          {
+            printf 'Pass --relink to point it here instead.\n' >&2
+            return 1
+          }
+        printf 'Re-pointing it here (--relink).\n'
+      else
         printf '%s already exists and is %s.\n' \
           "${link_path}" "$(command_link_description "${link_path}")" >&2
         printf 'Remove it yourself if it should be replaced.\n' >&2
         return 1
-      }
+      fi
+    fi
   fi
   ln -sfn -- "${PROJECT_DIR}/prtg-nats" "${link_path}"
   printf 'Linked %s -> %s\n' "${link_path}" "${PROJECT_DIR}/prtg-nats"
@@ -1508,12 +1544,16 @@ manage_completion() {
 self_usage() {
   cat <<'EOF'
 Usage:
-  ./prtg-nats self install [--link-only|--completion-only] [bash|zsh]
+  ./prtg-nats self install [--link-only|--completion-only] [--relink] [bash|zsh]
   ./prtg-nats self uninstall [--link-only|--completion-only]
 
 Installs the "prtg-nats" command into /usr/local/bin and tab completion for
 the calling user's shell. Name the shell explicitly when it cannot be
 detected. Print the completion script itself with "./prtg-nats completion".
+
+--relink moves an existing link that points at another checkout of this
+project over to this one. Without it such a link is reported and left alone;
+a file that belongs to somebody else is never touched either way.
 EOF
 }
 
@@ -1526,6 +1566,7 @@ manage_shell_integration() {
   local mode="$1"
   local scope="${2:-all}"
   local shell_name="${3:-}"
+  local relink="${4:-false}"
   local link_mode="link"
   local failures=0
   local printed="false"
@@ -1533,7 +1574,8 @@ manage_shell_integration() {
   [[ "${mode}" == "install" ]] || link_mode="unlink"
 
   if [[ "${scope}" == "all" || "${scope}" == "link" ]]; then
-    manage_command_link "${link_mode}" || failures=$((failures + 1))
+    manage_command_link "${link_mode}" "${relink}" ||
+      failures=$((failures + 1))
     printed="true"
   fi
   if [[ "${scope}" == "all" || "${scope}" == "completion" ]]; then
@@ -1554,6 +1596,7 @@ manage_self() {
   local mode="${1:-}"
   local scope="all"
   local shell_name=""
+  local relink="false"
 
   case "${mode}" in
     install|uninstall)
@@ -1580,6 +1623,10 @@ manage_self() {
         scope="completion"
         shift
         ;;
+      --relink)
+        relink="true"
+        shift
+        ;;
       bash|zsh)
         shell_name="$1"
         shift
@@ -1591,7 +1638,7 @@ manage_self() {
         ;;
     esac
   done
-  manage_shell_integration "${mode}" "${scope}" "${shell_name}"
+  manage_shell_integration "${mode}" "${scope}" "${shell_name}" "${relink}"
 }
 
 manage_ssh_key() {
@@ -1620,6 +1667,20 @@ command_name="${1:-help}"
 if [[ $# -gt 0 ]]; then
   shift
 fi
+
+# Which checkout is being served is not obvious when the command comes from
+# the link in PATH: it points wherever "self install" put it, which may have
+# been weeks ago and may be a different checkout than the one being worked
+# in. Nothing said so, and an update then quietly rebuilt the wrong tree.
+#
+# So every command that acts on the stack names its directory first. Always,
+# not only where two checkouts exist - a line that is sometimes absent is one
+# people stop reading.
+case "${command_name}" in
+  setup|init|start|stop|restart|update|status)
+    printf 'Working in %s\n' "${PROJECT_DIR}"
+    ;;
+esac
 
 case "${command_name}" in
   config)

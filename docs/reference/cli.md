@@ -181,6 +181,24 @@ cryptically.
 with `--link-only` or `--completion-only`; if one half fails, the other is
 still set up and the failure is reported at the end.
 
+A link that already points at **another checkout of this project** is named
+as such and left alone; `--relink` points it here instead. A file that belongs
+to somebody else is never touched either way. The distinction matters because
+the link decides which checkout every later command serves — and an update
+that rebuilds a tree nobody meant reports success while changing nothing that
+runs.
+
+Every command that acts on the stack — `setup`, `init`, `start`, `stop`,
+`restart`, `update`, `status` — names its working directory first:
+
+```text
+Working in /opt/prtg-nats
+```
+
+That line is there on every run, not only where two checkouts exist. Whoever
+calls `prtg-nats` from the PATH is working wherever the link points, which may
+have been decided weeks ago.
+
 Completion covers commands, subcommands and options - and the created NATS
 accounts and enrolled probes, read from `runtime/credentials/` and
 `runtime/probes/`. Both directories belong to root with mode `0700`, so without
