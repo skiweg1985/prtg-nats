@@ -82,7 +82,7 @@ export function IperfPage() {
     },
     {
       key: 'updated',
-      header: t('common.lastUpdated', { time: '' }).trim(),
+      header: t('common.updated'),
       cell: (row) => (
         <span className="text-ink-3 text-xs">{formatRelative(row.updated_at)}</span>
       ),

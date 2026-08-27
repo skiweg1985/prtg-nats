@@ -25,7 +25,6 @@ import type {
   JobSummary,
   NatsAccount,
   ObservedState,
-  ParameterSchema,
   ProbeDetail,
   ProbeSummary,
   ProvisionEndpointRequest,
@@ -55,7 +54,6 @@ export const keys = {
   probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
   sensors: ['sensors'] as const,
   sensor: (name: string) => ['sensors', name] as const,
-  sensorSchema: (name: string) => ['sensors', name, 'schema'] as const,
   sensorProfiles: (name: string) => ['sensors', name, 'profiles'] as const,
   sensorProfile: (name: string, profile: string) =>
     ['sensors', name, 'profiles', profile] as const,
@@ -264,14 +262,6 @@ export function useSensor(name: string | undefined) {
   return useQuery({
     queryKey: keys.sensor(name ?? ''),
     queryFn: () => api.get<SensorDetail>(`/sensors/${name}`),
-    enabled: Boolean(name),
-  })
-}
-
-export function useSensorParameterSchema(name: string | undefined) {
-  return useQuery({
-    queryKey: keys.sensorSchema(name ?? ''),
-    queryFn: () => api.get<ParameterSchema>(`/sensors/${name}/parameter-schema`),
     enabled: Boolean(name),
   })
 }

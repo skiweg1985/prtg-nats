@@ -8,16 +8,41 @@
  *  1. a key that exists in one language and not the other;
  *  2. an interpolation placeholder that differs between the two, so one
  *     language renders "{{probe}}" literally;
- *  3. an error code the backend can emit for which no message exists.
+ *  3. an error code the backend can emit for which no message exists;
+ *  4. a key no line of code asks for, which is the direction comparing the
+ *     two languages against each other can never catch: a string translated
+ *     twice and used nowhere reads as a feature that exists.
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const localesDir = join(here, '..', 'src', 'i18n', 'locales')
+const sourceDir = join(here, '..', 'src')
 const backendErrors = join(here, '..', '..', 'backend', 'app', 'core', 'errors.py')
+
+/**
+ * Key spaces the backend fills in, one code at a time.
+ *
+ * The interface never writes these out: it is handed a code and looks it up,
+ * so no line of source mentions the individual key. Their completeness is
+ * checked from the other side - by the error-code check below, and by
+ * tests/check-job-messages.py for the job log.
+ */
+const SERVED_BY_THE_BACKEND = [
+  'errors.',
+  'jobs.events.',
+  'jobs.steps.',
+  'deviations.',
+  'roles.',
+  'audit.actions.',
+  // A reconciliation plan names its own actions and risks, and a blocked job
+  // names its own reason - both arrive as keys inside the payload.
+  'plan.',
+  'jobs.blocked.',
+]
 
 const SOURCE = 'en'
 
@@ -97,6 +122,75 @@ try {
   }
 } catch {
   console.warn('backend errors.py not readable; skipped the error-code check')
+}
+
+// --- 4. Keys nothing asks for --------------------------------------------
+
+function sourceFiles(directory) {
+  const out = []
+  for (const entry of readdirSync(directory)) {
+    const path = join(directory, entry)
+    if (statSync(path).isDirectory()) out.push(...sourceFiles(path))
+    else if (/\.tsx?$/.test(entry)) out.push(path)
+  }
+  return out
+}
+
+const code = sourceFiles(sourceDir)
+  .map((path) => readFileSync(path, 'utf8'))
+  .join('\n')
+
+// Every string literal in the source, quoted any of the three ways. A key
+// reaches t() as a literal, through a `labelKey: 'nav.probes'` entry in a
+// table, or through i18n.exists() - all of them are literals here.
+const literals = new Set(
+  [...code.matchAll(/['"`]([\w.]+)['"`]/g)].map((match) => match[1]),
+)
+
+// And the prefixes of the ones built from a code: t(`jobs.filters.${entry}`).
+const prefixes = [
+  ...SERVED_BY_THE_BACKEND,
+  ...[...code.matchAll(/[`'"]([\w.]*\.)\$\{/g)].map((match) => match[1]),
+]
+
+function isUsed(key) {
+  // i18next picks the plural form itself, so the base key standing in the
+  // source keeps every suffix of it alive.
+  const base = key.replace(/_(one|other|zero|few|many)$/, '')
+  if (literals.has(key) || literals.has(base)) return true
+  // An error message can carry .cause and .action beside it; ErrorDetails
+  // looks those up by building them from the code.
+  const parent = base.replace(/\.(cause|action)$/, '')
+  if (parent !== base && literals.has(parent)) return true
+  return prefixes.some((prefix) => key.startsWith(prefix))
+}
+
+/**
+ * Translated ahead of the screen that will use it.
+ *
+ * Each of these is a server-side flow whose interface does not exist yet, so
+ * deleting the strings would only mean writing them again. Anything not on
+ * this list and not asked for is a leftover: translate what exists.
+ */
+const AHEAD_OF_THE_INTERFACE = new Set([
+  // POST /auth/change-password is implemented and reachable, and UsersCard
+  // can set must_change_password on an account - but nothing in the interface
+  // lets that account change it.
+  'auth.currentPassword',
+  'auth.newPassword',
+  'auth.changePassword',
+  'auth.mustChangePassword',
+  // PATCH /probes/{id} takes both, and useUpdateProbe calls it. The list
+  // shows display_name as the title of every row with no way to set it.
+  'probes.displayName',
+  'probes.notes',
+])
+
+const unused = [...source.keys()].filter(
+  (key) => !isUsed(key) && !AHEAD_OF_THE_INTERFACE.has(key),
+)
+for (const key of unused) {
+  problems.push(`${key} is translated but nothing asks for it`)
 }
 
 if (problems.length > 0) {

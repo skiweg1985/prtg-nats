@@ -9,12 +9,21 @@ import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Button, Mono } from '@/components/ui/primitives'
-import { ProbeStatusBadge, StateCell } from '@/components/ui/status'
+import { ProbeStatusBadge } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { FleetActionBar } from './FleetActions'
 
+/**
+ * The fleet, one row per probe.
+ *
+ * Service, CA and NATS had columns of their own and mostly repeated what the
+ * status badge already says - ten columns plus the checkbox, scrolling
+ * sideways on a 1440px screen. They are on the probe's own page, which is
+ * where somebody goes once the badge has told them there is something to look
+ * at. What stays here is what tells rows apart.
+ */
 export function ProbeListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -101,28 +110,10 @@ export function ProbeListPage() {
       ),
     },
     {
-      key: 'service',
-      header: t('probes.columns.service'),
-      sortValue: (row) => row.service,
-      cell: (row) => <StateCell kind="service" value={row.service} />,
-    },
-    {
       key: 'version',
       header: t('probes.columns.version'),
       sortValue: (row) => row.package_version ?? '',
       cell: (row) => <Mono>{row.package_version ?? '—'}</Mono>,
-    },
-    {
-      key: 'ca',
-      header: t('probes.columns.ca'),
-      sortValue: (row) => row.ca_state,
-      cell: (row) => <StateCell kind="ca" value={row.ca_state} />,
-    },
-    {
-      key: 'nats',
-      header: t('probes.columns.nats'),
-      sortValue: (row) => row.nats_connection,
-      cell: (row) => <StateCell kind="nats" value={row.nats_connection} />,
     },
     {
       key: 'sensors',

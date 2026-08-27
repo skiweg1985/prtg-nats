@@ -20,29 +20,22 @@
     "updates": "Updates"
   },
   "common": {
-    "back": "Back",
     "cancel": "Cancel",
     "clearFilters": "Clear filters",
     "close": "Close",
     "confirm": "Confirm",
-    "copied": "Copied",
     "copy": "Copy",
     "edit": "Edit",
-    "filter": "Filter",
     "hidden": "Hidden",
     "hideTechnicalDetails": "Hide technical details",
     "showDetails": "Show details",
     "hideDetails": "Hide details",
-    "lastUpdated": "Last updated {{time}}",
     "loading": "Loading…",
-    "moreActions": "More actions",
     "never": "Never",
     "noMatches": "Nothing matches “{{query}}”",
     "clearSearch": "Clear search",
-    "no": "No",
     "none": "None",
     "of": "of",
-    "refresh": "Refresh",
     "remove": "Remove",
     "retry": "Retry",
     "reveal": "Reveal",
@@ -54,7 +47,7 @@
     "showTechnicalDetails": "Show technical details",
     "stale": "Cached, last checked {{time}}",
     "unknown": "Unknown",
-    "yes": "Yes"
+    "updated": "Updated"
   },
   "auth": {
     "signIn": "Sign in",
@@ -123,10 +116,7 @@
       "name": "Probe",
       "host": "Host",
       "status": "Status",
-      "service": "Service",
       "version": "Package",
-      "ca": "CA",
-      "nats": "NATS",
       "sensors": "Sensors",
       "deviations": "Deviations",
       "observed": "Last checked"
@@ -304,7 +294,6 @@
       }
     },
     "installedOn": "Installed on these probes",
-    "readme": "Documentation",
     "remove": "Remove",
     "variants": {
       "title": "Variants",
@@ -339,10 +328,8 @@
     "dryRun": "Dry run",
     "dryRunHint": "Reports what would happen without changing anything on the probe.",
     "start": "Start deployment",
-    "targets": "Targets",
     "columns": {
       "sensor": "Sensor",
-      "version": "Version",
       "status": "Status",
       "targets": "Probes",
       "started": "Started",
@@ -361,7 +348,6 @@
     "emptyFiltered": "No job matches this filter.",
     "columns": {
       "type": "Job",
-      "target": "Target",
       "status": "Status",
       "progress": "Progress",
       "started": "Started",
@@ -371,7 +357,6 @@
     "step": "Step {{current}} of {{total}}: {{name}}",
     "log": "Log",
     "result": "Result",
-    "rawOutput": "Technical output",
     "cancel": "Cancel job",
     "retry": "Run again",
     "live": "Live",
@@ -561,8 +546,6 @@
       "result": "Result",
       "source": "Source"
     },
-    "before": "Before",
-    "after": "After",
     "immutable": "Audit records cannot be changed or deleted."
   },
   "infrastructure": {
@@ -571,9 +554,6 @@
     "iperfTitle": "iperf endpoints",
     "iperfSubtitle": "The counterparts the iperf-throughput sensor measures against",
     "iperfEmpty": "No measurement endpoint is set up.",
-    "credentialsTitle": "Credentials",
-    "renewCertificate": "Renew certificate",
-    "renewWarning": "Renewing the server certificate restarts the NATS container. Every probe and the PRTG core reconnect.",
     "expiresIn_one": "Expires in {{count}} day",
     "expiresIn_other": "Expires in {{count}} days",
     "expired": "Expired",
@@ -641,9 +621,7 @@
     "runtimeState": "Runtime state",
     "addUser": "Add user",
     "role": "Role",
-    "active": "Active",
     "lastLogin": "Last sign-in",
-    "locked": "Locked until {{time}}",
     "you": "You",
     "deactivate": "Deactivate",
     "activate": "Activate",
@@ -823,10 +801,7 @@
     "surrounding_whitespace": "Leading or trailing spaces are not allowed."
   },
   "confirm": {
-    "title": "Confirm this action",
-    "typeToConfirm": "Type {{value}} to confirm.",
-    "restartNats": "Restarting the NATS server disconnects every probe and the PRTG core until they reconnect.",
-    "deleteUser": "The account is removed and every session belonging to it ends."
+    "title": "Confirm this action"
   },
   "alerts": {
     "probe.unreachable": "{{probe}} is not answering",
