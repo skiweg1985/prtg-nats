@@ -1985,6 +1985,22 @@ def check_aruba_uplink_output():
     check("and the message names the way out",
           "--backup none" in document.get("message", ""), True)
 
+    # The deployment runs exactly this before it activates the sensor, and
+    # rolls the rollout back on anything but "ok". No gateway is known at
+    # that point - it is entered in PRTG afterwards.
+    completed = run_script(script, "--self-check\n")
+    check("the self-test without parameters yields exit code 0",
+          completed.returncode, 0)
+    document = json.loads(completed.stdout)
+    check("a bare self-test passes so the rollout can activate the sensor",
+          document.get("status"), "ok")
+
+    completed = run_script(
+        script, "--self-check --host 192.0.2.1 --user monitoring\n")
+    document = json.loads(completed.stdout)
+    check("but parameters that came along are checked",
+          document.get("status"), "error")
+
     check_aruba_uplink_parsers(module)
     check_aruba_uplink_channels(module)
     check_aruba_uplink_secrets(module)
