@@ -16,6 +16,7 @@ fails.
 
 import argparse
 import contextlib
+import datetime
 import importlib.machinery
 import importlib.util
 import io
@@ -1858,7 +1859,7 @@ def aruba_arguments(**overrides):
     arguments = {
         "self_check": False, "host": "192.0.2.1", "user": "monitoring",
         "password": "s3cr3t-value", "primary": "wired", "backup": "cellular",
-        "backup_share": 25, "timeout_ms": 10000,
+        "backup_share": 25, "billing_day": 1, "timeout_ms": 10000,
     }
     arguments.update(overrides)
     return arguments
@@ -1873,9 +1874,15 @@ ARUBA_STATS = {"_data": [
     "Uplinks Statistics: \n------------------------------",
     "Wired VLAN:\t4086 (dhcp_inet)\n\tActive ports:\tGE0/0/0 \n"
     "\trx_pkts/sec: 369 tx_pkts/sec: 168\n"
-    "\trx_bytes/sec: 394607 tx_bytes/sec: 70811",
+    "\trx_bytes/sec: 394607 tx_bytes/sec: 70811\n"
+    "\tIntf Rx Pkts: 3152791660  Intf Tx Pkts: 2158780541\n"
+    "\tIntf Rx Bytes: 3575728579566  Intf Tx Bytes: 1644770077435\n"
+    "\tVPN Rx Bytes: 73862078  VPN Tx Bytes: 125297960",
     "Cellular VLAN:\t4095 (lte_lte)\n\trx_pkts/sec: 1 tx_pkts/sec: 1\n"
-    "\trx_bytes/sec: 212 tx_bytes/sec: 188",
+    "\trx_bytes/sec: 212 tx_bytes/sec: 188\n"
+    "\tIntf Rx Pkts: 35951762  Intf Tx Pkts: 37038228\n"
+    "\tIntf Rx Bytes: 12391995528  Intf Tx Bytes: 12261798797\n"
+    "\tVPN Rx Bytes: 74593170  VPN Tx Bytes: 207906924",
 ]}
 ARUBA_DEBUG = {"_data": [
     "link: 0xe19a80 type: 1(Wired), link_id: 101",
@@ -2003,6 +2010,7 @@ def check_aruba_uplink_output():
 
     check_aruba_uplink_parsers(module)
     check_aruba_uplink_channels(module)
+    check_aruba_uplink_volume(module)
     check_aruba_uplink_secrets(module)
 
 
@@ -2162,6 +2170,125 @@ def check_aruba_uplink_channels(module):
     check("a gateway without uplinks yields zeros, not missing channels",
           (empty["connected"], empty["primary_up"], empty["backup_share"]),
           (0, False, 0.0))
+
+
+def check_aruba_uplink_volume(module):
+    """The mobile data volume - the one number the gateway gets wrong.
+
+    An Aruba 9004-LTE on AOS-10.7.1.0 reports "Data usage" through a signed
+    32-bit byte counter: past 2 GiB in a period it turns negative and works
+    its way back towards zero, so a threshold on the volume never fires. The
+    sensor therefore counts for itself, out of the interface counters of the
+    same answer, which are wide enough to hold a month.
+    """
+    print("\n== aruba-uplink: data volume ==")
+
+    totals = module.parse_uplink_totals(module.data_lines(ARUBA_STATS))
+    check("the cumulative counters are read per uplink kind",
+          (totals.get("wired"), totals.get("cellular")),
+          (3575728579566 + 1644770077435, 12391995528 + 12261798797))
+    # The VPN lines sit in the same block and count a subset. Adding them in
+    # would count the tunnelled traffic twice.
+    check("the VPN lines are left out",
+          module.parse_uplink_totals([
+              "Cellular VLAN:\t4095 (lte_lte)",
+              "\tIntf Rx Bytes: 100  Intf Tx Bytes: 200",
+              "\tVPN Rx Bytes: 7  VPN Tx Bytes: 9"]),
+          {"cellular": 300})
+
+    # A billing day of 29 to 31 has to land somewhere in February.
+    check("a billing day that the month does not have moves to its last",
+          (module.day_in_month(31, 2026, 2), module.day_in_month(31, 2026, 1),
+           module.day_in_month(15, 2026, 2)), (28, 31, 15))
+    check("before the billing day the period still belongs to last month",
+          module.billing_period_start(15, datetime.date(2026, 3, 4)),
+          "2026-02-15")
+    check("on the billing day the new period begins",
+          module.billing_period_start(15, datetime.date(2026, 3, 15)),
+          "2026-03-15")
+    check("in January it reaches back into the previous year",
+          module.billing_period_start(15, datetime.date(2026, 1, 2)),
+          "2025-12-15")
+    check("a billing day of 0 has no period at all",
+          module.billing_period_start(0, datetime.date(2026, 3, 4)), "")
+
+    today = datetime.date(2026, 3, 10)
+    # The first run has no reading to measure against. Reporting the counter
+    # itself would claim months of traffic as this period's volume.
+    volume, state = module.usage_since(None, 5_000, 1, today)
+    check("the first run reports no volume yet", volume, None)
+    check("but remembers where it started", state["baseline"], 5_000)
+
+    volume, state = module.usage_since(state, 9_000, 1, today)
+    check("the second run counts the difference", volume, 4_000)
+
+    # A probe that was down for an hour must not lose that hour: the volume
+    # is a difference against the start of the period, not a sum of deltas.
+    volume, _ = module.usage_since(state, 500_000, 1, today)
+    check("a gap between runs does not lose traffic", volume, 495_000)
+
+    # The gateway's interface counters start at zero after a restart.
+    # 9_000 stood on the counter, but 5_000 of that was there before the
+    # period began: only the 4_000 above the baseline may survive a restart.
+    rebooted, state = module.usage_since(state, 40, 1, today)
+    check("a restarted gateway keeps what it carried in this period",
+          rebooted, 4_040)
+    check("and counts on from there",
+          module.usage_since(state, 100, 1, today)[0], 4_100)
+
+    later, fresh = module.usage_since(state, 12_000, 1,
+                                      datetime.date(2026, 4, 1))
+    check("the billing day starts the volume over", later, 0)
+    check("and takes the current reading as the new start",
+          fresh["baseline"], 12_000)
+    check("a month without a billing day in between keeps counting",
+          module.usage_since(state, 12_000, 1,
+                             datetime.date(2026, 3, 31))[0], 16_000)
+
+    # Billing day 0 is the plain counter: no period, so nothing resets it.
+    running = {"period_start": "", "baseline": 0, "carry": 0, "last": 1_000}
+    check("a billing day of 0 never starts over",
+          module.usage_since(running, 8_000, 0,
+                             datetime.date(2027, 1, 1))[0], 8_000)
+
+    # What PRTG sees. The channel has to be there even while the volume is
+    # not known yet - a channel that appears later tears its history apart.
+    uplinks = module.parse_uplinks(aruba_table(aruba_row("Wired"),
+                                               aruba_row("Cellular")))
+    summary = module.summarise(aruba_arguments(), uplinks, {})
+    unknown = module.present(aruba_arguments(), summary, {"data_usage": -1148.0},
+                             {}, 0, 5, "ok", "")
+    usage_channel = [entry for entry in unknown["channels"]
+                     if entry["id"] == 22]
+    check("the volume channel exists from the first run",
+          (len(usage_channel), usage_channel[0]["value"]), (1, 0.0))
+    check("and the message says the volume is only starting",
+          "counted from this run on" in unknown["message"], True)
+    # Whoever compares the channel against the gateway has to learn why the
+    # two disagree, or the sensor looks like the broken one.
+    check("a negative counter on the gateway is named, not copied",
+          "-1148 MB" in unknown["message"], True)
+
+    summary = dict(summary, data_usage_mb=2948.0, data_usage_known=True)
+    known = module.present(aruba_arguments(), summary, {"data_usage": 1700.0},
+                           {}, 0, 5, "ok", "")
+    check("a known volume reaches the channel",
+          [entry["value"] for entry in known["channels"]
+           if entry["id"] == 22], [2948.0])
+    check("and then the message keeps quiet about it",
+          ("counted from this run on" in known["message"]
+           or "data counter" in known["message"]), False)
+
+    script = os.path.join(SENSOR_DIR, "aruba-uplink", "script",
+                          "aruba-uplink.py")
+    completed = run_script(
+        script, "--host 192.0.2.1 --user u --password p --billing-day 32\n")
+    document = json.loads(completed.stdout)
+    check("a billing day the calendar does not have is rejected",
+          document.get("status"), "error")
+    check("and the message names the range",
+          "--billing-day must be between 0 and 31"
+          in document.get("message", ""), True)
 
 
 def check_aruba_uplink_secrets(module):

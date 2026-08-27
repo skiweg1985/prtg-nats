@@ -47,6 +47,14 @@
       "description": "Percentage of traffic on the backup from which the traffic counts as moved over."
     },
     {
+      "name": "--billing-day",
+      "type": "integer",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 31,
+      "description": "Day of the month the mobile data volume starts over on, 0 for a counter that never resets."
+    },
+    {
       "name": "--timeout-ms",
       "type": "integer",
       "default": 10000,
