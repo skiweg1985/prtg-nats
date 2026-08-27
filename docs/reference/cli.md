@@ -1,7 +1,7 @@
 ---
 title: Command reference
 role: operator
-updated: 2026-08-04
+updated: 2026-08-27
 ---
 
 # Command reference
@@ -41,6 +41,16 @@ the proxy that serves the interface needs the certificate the initialisation
 issues, so until it has run there is no interface to defer to. NATS and the
 proxy restart against the missing state in the meantime and are restarted once
 it is there.
+
+`build` and `up` stamp the commit of this checkout into the images they build,
+which is what lets the interface say which version is running. A checkout with
+uncommitted changes is stamped as such rather than as the commit it started
+from - an image built from edited files matches no commit, and naming one
+would make the update page state something untrue.
+
+The same update is a button in the interface under *Updates*, as a job with a
+log and an audit trail; see
+[ADR 0007](../architecture/decisions/0007-update-the-stack-from-the-interface.md).
 
 ## Probe rollout
 

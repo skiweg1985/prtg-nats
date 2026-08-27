@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import FileResponse
+from sqlalchemy import func, select
 
 from app.api.deps.common import (
     AuditDep,
@@ -32,15 +33,25 @@ from app.api.schemas.system import (
     JobSummaryOut,
     NatsStateOut,
     SiteSettingsOut,
+    StackCommitOut,
+    StackVersionOut,
     SystemStatusOut,
 )
-from app.core.errors import ConflictError
+from app.core.errors import (
+    ConflictError,
+    StackUpdateBlockedError,
+    StackUpdateUnavailableError,
+)
 from app.core.permissions import Permission
+from app.domain.enums import JobStatus
 from app.infrastructure.certificates import CertificateInfo
 from app.infrastructure.nats import NatsServerState
+from app.persistence.models.jobs import Job
 from app.services.jobs import JobRequest, ResourceRef
 from app.services.provisioning import ProvisioningService
+from app.services.stack_update import StackUpdateService
 from app.services.system import SystemService, SystemStatus
+from app.workers.handlers import stack_update as stack_update_handler
 from app.workers.handlers import system_actions
 
 router = APIRouter(tags=["system"])
@@ -152,10 +163,12 @@ async def capabilities(
     docker: DockerDep, runtime: RuntimeDep, settings: SettingsDep, _: PrincipalDep
 ) -> CapabilitiesOut:
     """What this installation supports. Read by the interface on every load."""
+    readiness = await StackUpdateService(settings, docker).readiness()
     return CapabilitiesOut(
         docker=docker.available,
         runtime_state=runtime.health().state,
         dev_auth=settings.dev_auth_enabled,
+        stack_update=readiness.available,
     )
 
 
@@ -450,6 +463,142 @@ async def restart_nats(
         principal,  # type: ignore[arg-type]
     )
     audit.record(action="system.restart", object_type="system", job_id=job.id)
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.get("/system/update", response_model=StackVersionOut)
+async def stack_version(
+    db: DbSession,
+    docker: DockerDep,
+    settings: SettingsDep,
+    _: Annotated[object, Depends(require_permission(Permission.SYSTEM_READ))],
+) -> StackVersionOut:
+    """Which version is installed, and whether the branch has moved on.
+
+    Reads the cached answer rather than asking the repository. Asking means
+    starting a container, which is fine on a timer and far too slow on a page
+    load - and a page that takes four seconds to say "up to date" gets read as
+    broken. The background check keeps the cache current; POST below forces
+    one when somebody wants to know now.
+    """
+    service = StackUpdateService(settings, docker)
+    readiness = await service.readiness()
+    project = await service.project() if readiness.available else None
+    cached = await service.cached(db)
+
+    running = service.running_commit()
+    checkout = cached.checkout_commit if cached else ""
+    remote = cached.remote_commit if cached else ""
+    reachable = cached.reachable if cached else False
+
+    return StackVersionOut(
+        running_commit=running,
+        checkout_commit=checkout,
+        checkout_dirty=cached.checkout_dirty if cached else False,
+        remote_commit=remote,
+        branch=(cached.branch if cached else "") or settings.update_branch,
+        state=service.state(
+            running=running,
+            checkout=checkout,
+            remote=remote,
+            reachable=reachable,
+        ),
+        reachable=reachable,
+        error=cached.error if cached else "",
+        commits=[
+            StackCommitOut(
+                sha=str(entry.get("sha", "")),
+                subject=str(entry.get("subject", "")),
+                date=str(entry.get("date", "")),
+            )
+            for entry in (cached.commits if cached else [])
+        ],
+        checked_at=cached.checked_at if cached else None,
+        checkout_dir=str(project.working_dir) if project else None,
+        available=readiness.available,
+        unavailable_reason=readiness.reason,
+    )
+
+
+@router.post("/system/update/check", response_model=StackVersionOut)
+async def check_for_update(
+    db: DbSession,
+    docker: DockerDep,
+    settings: SettingsDep,
+    _: Annotated[object, Depends(require_permission(Permission.SYSTEM_READ))],
+) -> StackVersionOut:
+    """Ask the repository now instead of waiting for the next pass.
+
+    Read-only on the checkout - `git ls-remote` writes nothing - which is what
+    makes this safe to leave behind a plain read permission.
+    """
+    service = StackUpdateService(settings, docker)
+    readiness = await service.readiness()
+    if not readiness.available:
+        raise StackUpdateUnavailableError(params={"reason": readiness.reason or ""})
+
+    result = await service.probe()
+    await service.record(db, result)
+    return await stack_version(db, docker, settings, None)
+
+
+@router.post(
+    "/system/update", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def start_update(
+    db: DbSession,
+    jobs: JobServiceDep,
+    docker: DockerDep,
+    settings: SettingsDep,
+    audit: AuditDep,
+    principal: Annotated[object, Depends(require_permission(Permission.SYSTEM_UPDATE))],
+) -> JobAccepted:
+    """Update the installation to the tip of its branch.
+
+    Administrator only. Whoever can do this decides which code runs as root on
+    this host - the updater holds the Docker socket - so it sits behind its own
+    permission rather than alongside the other system actions.
+
+    Refused while any other job is running or waiting. A rollout that is halfway
+    through a probe when the API is replaced comes back looking like a failure
+    with no way to tell where it stopped, and waiting a minute is cheaper than
+    that. This is checked here rather than only in the handler so the interface
+    can say so before anything is created.
+    """
+    service = StackUpdateService(settings, docker)
+    readiness = await service.readiness()
+    if not readiness.available:
+        raise StackUpdateUnavailableError(params={"reason": readiness.reason or ""})
+
+    busy = await db.scalar(
+        select(func.count())
+        .select_from(Job)
+        .where(
+            Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.DETACHED])
+        )
+    )
+    if busy:
+        raise StackUpdateBlockedError(params={"reason": "jobs_running"})
+
+    job = await jobs.create(
+        JobRequest(
+            type=stack_update_handler.JOB_TYPE,
+            steps=stack_update_handler.STEPS,
+            # One resource, and deliberately not nats:server. A handover leaves
+            # the lock held by a job no worker is carrying, and the lease then
+            # keeps the backup and the restart out for half an hour over an
+            # update that has long finished.
+            resources=(ResourceRef("stack", "installation"),),
+            target_type="system",
+            target_label=settings.update_branch,
+        ),
+        principal,  # type: ignore[arg-type]
+    )
+    audit.record(action="system.update", object_type="system", job_id=job.id)
     return JobAccepted(
         job_id=job.id,
         status=job.status.value,

@@ -390,7 +390,23 @@ The previous state is archived for a controlled rollback under
 
 ## Updating the repository
 
-Back up runtime and JetStream first:
+**From the interface.** *Updates* shows which commit is installed, what the
+branch has, and what lies between the two. The button does what the commands
+below do, in that order, as a job with a log and an audit trail. The interface
+is unavailable for a few minutes while the containers are replaced; the page
+says so and comes back on its own.
+
+Two things it refuses, both on purpose. A checkout with uncommitted changes -
+an update would have to move over somebody's work. And any other job queued or
+running - a rollout interrupted by the restart comes back looking like a
+failure with no way to tell where it stopped.
+
+An installation that has just been updated *to* the version introducing this
+has no updater image yet, so that one update is still the command line. The
+page says as much.
+
+**From the command line**, unchanged, and still the answer when the interface
+is what is broken:
 
 ```bash
 cd /opt/prtg-nats-server
@@ -398,6 +414,23 @@ sudo ./prtg-nats backup
 git status --short
 git pull --ff-only
 sudo ./prtg-nats update
+```
+
+### When an update does not come back
+
+Everything up to the build can be undone by putting the checkout back, and the
+updater does that itself when a build fails - nothing has been replaced at
+that point, and the running stack is untouched.
+
+Once the containers have been recreated, the database has been migrated, and
+moving the checkout back does **not** undo that. An older image against a
+newer schema does not start at all: Alembic cannot find the revision the
+database names, and the container restarts in a loop. Going back means
+restoring the runtime archive the update took as its first step, from
+`runtime/archive/`, and only then moving the checkout.
+
+```bash
+docker compose logs web-api
 ```
 
 Changes to the rollout scripts or to `config/mpprobe-config.yaml.template`

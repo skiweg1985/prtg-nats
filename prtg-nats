@@ -73,7 +73,33 @@ compose() {
   # Only before a start: the warning is about a port that is about to be
   # needed, and it would be noise in front of "ps" or "logs".
   [[ "${1:-}" != "up" ]] || warn_about_foreign_containers
+  case "${1:-}" in
+  build | up) export_build_stamp ;;
+  esac
   docker compose --project-directory "${PROJECT_DIR}" "$@"
+}
+
+# What the build stamps into the image, so the running stack can say which
+# commit it is. A container has no checkout to ask, and the version in
+# pyproject.toml answers a different question - it says what the software
+# calls itself, not what is installed here.
+#
+# A modified working tree is reported as such rather than as the commit it
+# started from: an image built from edited files matches no commit, and
+# naming one would make the update page state something untrue.
+export_build_stamp() {
+  GIT_COMMIT=""
+  GIT_REF=""
+  export GIT_COMMIT GIT_REF
+
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "${PROJECT_DIR}" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  GIT_COMMIT="$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || printf '')"
+  [[ -z "${GIT_COMMIT}" ]] ||
+    [[ -z "$(git -C "${PROJECT_DIR}" status --porcelain 2>/dev/null)" ]] ||
+    GIT_COMMIT="${GIT_COMMIT}-dirty"
+  GIT_REF="$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
 }
 
 # Containers of this stack that a different checkout started.

@@ -96,10 +96,22 @@ care of the rest.
 
 ## Upgrading
 
+From the interface, under *Updates*: it shows which commit is installed and
+what the branch has, and the button runs the same sequence as a job with a log
+and an audit trail. [Operations](../guides/operations.md#updating-the-repository)
+covers what it refuses and why.
+
+From the host, unchanged, and the answer when the interface is what is broken:
+
 ```bash
 git pull
 docker compose up -d --build
 ```
+
+The interface can only update an installation whose updater image exists, and
+an installation being updated *to* this version does not have one yet. That
+one update is the command line; every one after it is a button. Which case an
+installation is in is what the *Updates* page says when the action is missing.
 
 Database migrations run at start-up, before the job workers do. The schema is
 owned by Alembic: a change without a matching migration fails in CI rather

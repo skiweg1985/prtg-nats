@@ -15,7 +15,8 @@
     "certificates": "Zertifikate",
     "credentials": "Zugangsdaten",
     "audit": "Protokoll",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "updates": "Updates"
   },
   "common": {
     "back": "Zurück",
@@ -394,7 +395,13 @@
       "ensure_account": "NATS-Konto",
       "verify_access": "Verwaltungszugang prüfen",
       "write_inventory": "Inventar schreiben",
-      "export": "Laufzeitstand archivieren"
+      "export": "Laufzeitstand archivieren",
+      "preflight": "Voraussetzungen prüfen",
+      "fetch": "Vom Repository holen",
+      "checkout": "Checkout umstellen",
+      "build": "Images bauen",
+      "recreate": "Stack neu erstellen",
+      "settle": "Ergebnis festhalten"
     },
     "events": {
       "started": "Job gestartet: {{type}}",
@@ -501,6 +508,18 @@
         "rotated_server": "Serverseitige Zugangsdaten für {{probe}} rotiert",
         "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen",
         "deleted": "NATS-Konto {{probe}} gelöscht"
+      },
+      "stack": {
+        "backup_taken": "Runtime als {{archive}} gesichert",
+        "checkout_found": "Checkout unter {{path}} wird aktualisiert",
+        "handover": "Übergabe an den Updater; diese Seite verfolgt ihn weiter",
+        "outcome_unknown": "Der Updater-Container {{container}} ist nicht mehr da, sein Ergebnis lässt sich nicht mehr feststellen",
+        "rolled_back": "Der Build ist fehlgeschlagen; der Checkout steht wieder auf {{commit}}, ersetzt wurde nichts",
+        "target": "{{branch}} wird von {{from}} auf {{to}} aktualisiert",
+        "timeout": "Der Updater braucht länger als erwartet; er läuft weiter, das Ergebnis wird festgehalten, sobald er fertig ist",
+        "update_failed": "Das Update ist fehlgeschlagen (Exit-Code {{code}})",
+        "updated": "Der Stack läuft jetzt auf {{commit}}",
+        "updater_output": "Ausgabe des Updaters"
       }
     }
   },
@@ -636,7 +655,8 @@
       "successful": "Erfolgreich",
       "failed": "Fehlgeschlagen",
       "cancelled": "Abgebrochen",
-      "partially_successful": "Teilweise erfolgreich"
+      "partially_successful": "Teilweise erfolgreich",
+      "detached": "Übergeben"
     },
     "certificate": {
       "valid": "Gültig",
@@ -767,7 +787,10 @@
       "token_invalid": "Diese Einladung zur Anmeldung lässt sich nicht verwenden.",
       "token_invalid.cause": "Sie ist unbekannt, abgelaufen, bereits verbraucht oder wurde zurückgezogen. Eine Einladung gilt für einen Host, einmal.",
       "token_invalid.action": "Erstellen Sie eine neue Einladung und führen Sie den angezeigten Befehl auf dem Host aus."
-    }
+    },
+    "stack.update_unavailable": "Diese Installation kann sich nicht selbst aktualisieren ({{reason}})",
+    "stack.update_blocked": "Das Update kann gerade nicht starten ({{reason}})",
+    "stack.update_failed": "Das Update wurde nicht abgeschlossen"
   },
   "validation": {
     "too_short": "Zu kurz.",
@@ -807,5 +830,53 @@
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Kennwort für {{account}}",
     "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
+  },
+  "updates": {
+    "title": "Updates",
+    "check_now": "Jetzt prüfen",
+    "progress": "Fortschritt",
+    "changes": "Was neu ist",
+    "no_changes": "Auf diesem Branch gibt es nichts Neues",
+    "install": "Update einspielen",
+    "running": "Läuft",
+    "running_unknown": "unbekannt - dieses Image wurde ohne Versionsstempel gebaut",
+    "checkout": "Checkout",
+    "branch": "Branch",
+    "checkout_dir": "Checkout auf dem Host",
+    "checked_at": "Zuletzt geprüft",
+    "dirty": "geändert",
+    "unreachable": "Das Repository war nicht erreichbar",
+    "what_happens": "Zuerst wird die Runtime gesichert, dann werden die Images gebaut, dann wird der Stack neu erstellt. Die Oberfläche ist dabei einige Minuten nicht erreichbar.",
+    "state": {
+      "title": "Version"
+    },
+    "states": {
+      "current": "Aktuell",
+      "update_available": "Update verfügbar",
+      "rebuild_pending": "Neu bauen ausstehend",
+      "unreachable": "Repository nicht erreichbar",
+      "unknown": "Unbekannt"
+    },
+    "rebuild_pending": {
+      "title": "Der Checkout ist weiter als das, was läuft",
+      "body": "Auf dem Host wurde gepullt, aber nicht neu gebaut - der Stack läuft weiterhin auf dem älteren Code. Mit ./prtg-nats update auf dem Host wird gebaut, was der Checkout schon hat."
+    },
+    "dirty_blocks": {
+      "title": "Der Checkout hat uncommittete Änderungen",
+      "body": "Ein Update müsste sich darüber hinwegsetzen. Committe oder verwirf sie zuerst auf dem Host - hier wird keine lokale Arbeit weggeworfen."
+    },
+    "away": {
+      "title": "Der Stack wird ersetzt",
+      "body": "Die Oberfläche kommt von allein zurück, sobald die neuen Container laufen. Das dauert einige Minuten; die Seite darf verlassen werden.",
+      "stuck_title": "Der Dienst ist nicht zurückgekommen",
+      "stuck": "Beim Neustart ist etwas schiefgegangen. Auf dem Host sagt docker compose logs web-api, was; das Runtime-Archiv von vor dem Update liegt unter runtime/archive/."
+    },
+    "unavailable": {
+      "title": "Diese Installation kann sich nicht selbst aktualisieren",
+      "docker_socket_missing": "Der Docker-Socket ist nicht eingebunden, hier kann also nichts gebaut oder neu gestartet werden.",
+      "checkout_not_found": "Der Stack wurde nicht mit Compose gestartet, deshalb lässt sich der Checkout nicht ermitteln, aus dem er gebaut wurde.",
+      "updater_image_missing": "Das Updater-Image existiert noch nicht. Einmal ./prtg-nats update auf dem Host ausführen; jedes weitere Update geht dann von hier.",
+      "unknown": "Der Grund ließ sich nicht ermitteln."
+    }
   }
 }

@@ -20,6 +20,7 @@ from app.workers.handlers import (
     probe_enrollment,
     probe_lifecycle,
     sensor_actions,
+    stack_update,
     system_actions,
 )
 
@@ -203,6 +204,17 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=system_actions.RESTART_STEPS,
         handler=system_actions.restart_nats,
         permission="system.restart",
+    ),
+    stack_update.JOB_TYPE: JobDefinition(
+        type=stack_update.JOB_TYPE,
+        steps=stack_update.STEPS,
+        handler=stack_update.run,
+        permission="system.update",
+        # This job touches no probe, and the moment it ends is the worst
+        # possible one to ask the whole fleet about itself: the service has
+        # just come back up and would answer an SSH round trip per host while
+        # it is still finding its feet.
+        refreshes_probes=False,
     ),
 }
 

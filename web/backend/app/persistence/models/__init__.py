@@ -20,6 +20,7 @@ from app.persistence.models.inventory import (
     Setting,
 )
 from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
+from app.persistence.models.updates import StackUpdate, StackVersion
 
 __all__ = [
     "Alert",
@@ -39,6 +40,8 @@ __all__ = [
     "SavedView",
     "Session",
     "Setting",
+    "StackUpdate",
+    "StackVersion",
     "UserRole",
     "WebUser",
 ]

@@ -17,6 +17,7 @@ import { EnrollWizard } from '@/features/probes/EnrollWizard'
 import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { ProbeListPage } from '@/features/probes/ProbeListPage'
 import { SensorDetailPage, SensorListPage } from '@/features/sensors/SensorPages'
+import { UpdatesPage } from '@/features/updates/UpdatesPage'
 import { AppLayout } from '@/layouts/AppLayout'
 
 /**
@@ -53,6 +54,7 @@ export function AppRoutes() {
           </Route>
 
           <Route path="audit" element={<AuditPage />} />
+        <Route path="updates" element={<UpdatesPage />} />
           <Route path="settings" element={<SettingsPage />} />
 
           <Route path="*" element={<NotFoundPage />} />

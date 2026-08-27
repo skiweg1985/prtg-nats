@@ -40,6 +40,11 @@ class Permission(StrEnum):
     SYSTEM_READ = "system.read"
     SYSTEM_RESTART = "system.restart"
     SYSTEM_SETTINGS = "system.settings"
+    # Replacing the software this platform is made of. Administrator only, and
+    # not part of OPERATOR_PERMISSIONS: whoever can trigger an update decides
+    # which code runs as root on this host, because the updater holds the
+    # Docker socket. docs/security/threat-model.md says so plainly.
+    SYSTEM_UPDATE = "system.update"
 
     AUDIT_READ = "audit.read"
     USER_MANAGE = "user.manage"

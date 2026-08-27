@@ -71,7 +71,7 @@ done < <(
   # that do not run on a probe - the endpoint setup script of
   # iperf-throughput, say. Unchecked, a typo in it only strikes whoever
   # runs it as root on a third-party machine.
-  find libexec tests completions sensors -type f \
+  find libexec tests completions sensors web/updater -type f \
     \( -name '*.sh' -o -name '*.bash' -o -name 'prtg-nats-probe-helper' \) |
     sort
 )
@@ -81,7 +81,8 @@ if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck --severity=warning \
     prtg-nats install-mpp.sh libexec/*.sh libexec/prtg-nats-probe-helper \
     libexec/prtg-nats-iperf-helper \
-    tests/*.sh completions/*.bash sensors/*/endpoint/*.sh; then
+    tests/*.sh completions/*.bash sensors/*/endpoint/*.sh \
+    web/updater/*.sh; then
     printf '  ok    no warnings\n'
     passed=$((passed + 1))
   else
