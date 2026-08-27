@@ -70,7 +70,60 @@ run_internal() {
 }
 
 compose() {
+  # Only before a start: the warning is about a port that is about to be
+  # needed, and it would be noise in front of "ps" or "logs".
+  [[ "${1:-}" != "up" ]] || warn_about_foreign_containers
   docker compose --project-directory "${PROJECT_DIR}" "$@"
+}
+
+# Containers of this stack that a different checkout started.
+#
+# The project name and the container names are fixed in compose.yaml, so a
+# second checkout of this repository addresses the same containers - and an
+# update is exactly when a second one is around, because the old one stays
+# put as the way back. A "docker compose up -d" in it then brings back a
+# service this version has since dropped, under a name nothing here claims
+# any more.
+#
+# That happened with the CA download container, which the reverse proxy took
+# over: the old one held port 80, the proxy could not bind it and restarted
+# in a loop, and the only error anyone saw named the port rather than what
+# was holding it.
+warn_about_foreign_containers() {
+  local name=""
+  local origin=""
+  local project=""
+  local reported="false"
+
+  command -v docker >/dev/null 2>&1 || return 0
+  project="$(
+    awk '$1 == "name:" { print $2; exit }' "${PROJECT_DIR}/compose.yaml" \
+      2>/dev/null || true
+  )"
+  [[ -n "${project}" ]] || return 0
+
+  while read -r name; do
+    [[ -n "${name}" ]] || continue
+    origin="$(
+      docker inspect --format \
+        '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
+        "${name}" 2>/dev/null || true
+    )"
+    [[ -n "${origin}" && "${origin}" != "${PROJECT_DIR}" ]] || continue
+    if [[ "${reported}" == "false" ]]; then
+      printf 'Containers of this stack are running from another checkout:\n' >&2
+      reported="true"
+    fi
+    printf '  %s, started from %s\n' "${name}" "${origin}" >&2
+  done < <(
+    docker ps --filter "label=com.docker.compose.project=${project}" \
+      --format '{{.Names}}' 2>/dev/null || true
+  )
+
+  [[ "${reported}" == "true" ]] || return 0
+  printf 'They answer to the same names as the ones here and may be holding a\n' >&2
+  printf 'port this stack needs. Take them down where they came from, or\n' >&2
+  printf 'remove them with "docker rm -f NAME".\n\n' >&2
 }
 
 API_CONTAINER="prtg-nats-web-api"

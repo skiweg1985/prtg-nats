@@ -31,6 +31,7 @@ the probe's own words behind a disclosure control. See
 | A job stays on `running` and cancel does nothing | its worker is gone, usually the API container was restarted mid-job | [A job stays on running](#a-job-stays-on-running-and-cancel-does-nothing) |
 | `probe.package_missing`, or `Unit prtg.mpprobe.service not found` while configuring | the probe carries no `prtgmpprobe`, usually after an unenrollment with `--uninstall-mpp` | [Re-enrolling a probe whose package was removed](#re-enrolling-a-probe-whose-package-was-removed) |
 | `Sensor NAME was modified on the probe`, and redeploying does not clear it | a probe helper older than version 2 reports the digest of the rewritten shebang | [A sensor reports as modified right after deployment](#a-sensor-reports-as-modified-right-after-deployment) |
+| `bind: address already in use` after an update, and the proxy restarts in a loop | a container from an older checkout still holds the port | [A container from an older checkout holds a port](#a-container-from-an-older-checkout-holds-a-port) |
 
 The official installation and wizard details are in the
 [Paessler MPP manual](https://manuals.paessler.com/multiplatformprobemanual.pdf).
@@ -179,3 +180,41 @@ A job whose worker is genuinely still working is a different case, and a
 restart there aborts real work: `mpp uninstall` waits up to fifteen minutes
 for the package manager on the probe. As long as the job log still gains
 lines, the cancel takes effect once the current step returns - wait for it.
+
+### A container from an older checkout holds a port
+
+The compose project and the container names are fixed, so two checkouts of
+this repository address the same containers. After an update the older one
+is usually still there as the way back - and a `docker compose up -d` in it
+starts a service the current version has since dropped, under a name nothing
+here claims any more.
+
+The CA download is the case this happened to: the reverse proxy took the job
+over, and the container that used to do it came back and kept port `80`.
+Caddy could not bind it and restarted in a loop, while the only error anyone
+saw named the port rather than what was holding it:
+
+```text
+Error: loading initial config: http app module: start:
+listening on 192.0.2.10:80: bind: address already in use
+```
+
+`./prtg-nats start`, `restart`, `setup` and `update` say so before they try:
+
+```text
+Containers of this stack are running from another checkout:
+  prtg-nats-ca, started from /opt/prtg-nats-server
+```
+
+Take them down where they came from, or remove them by name:
+
+```bash
+docker rm -f prtg-nats-ca
+```
+
+Which checkout a container came from is in its labels:
+
+```bash
+docker inspect prtg-nats-ca \
+  --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+```
