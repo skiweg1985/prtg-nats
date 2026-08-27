@@ -322,6 +322,30 @@ which sets a fresh password.
 | `GET`/`POST /deployments` | rollouts and their outcome per probe |
 | `GET /deployments/{id}` | one rollout with its per-probe result |
 
+#### Test interfaces
+
+A sensor that measures Wi-Fi needs a radio interface of its own. Reserving
+one takes it away from NetworkManager permanently and cuts whatever it was
+carrying, so the choice is made against what the probe reports rather than
+against a name typed from memory.
+
+| | |
+| --- | --- |
+| `GET /probes/{id}/wireless-interfaces` | the probe's radio interfaces, asked live |
+| `POST /probes/{id}/sensors/{name}/interfaces/{interface}/reserve` | hand one to a sensor - returns a job |
+| `POST /probes/{id}/sensors/{name}/interfaces/{interface}/release` | give it back to normal management - returns a job |
+
+The listing states facts and passes no judgement: `reserved_by` names the
+sensor that already holds an interface, `carries_default_route` says whether
+taking it would cut the probe off, `connection` names what it is on right
+now. Refusing belongs to the probe, which rejects an interface that is not
+wireless, does not exist, or carries the host's only default route - that
+refusal arrives here as a failed job with its reason.
+
+Reading needs `sensor.read`, reserving and releasing need `sensor.configure`.
+Both require helper version 5; an older probe answers that it does not know
+the request, and the reservation stays a shell command there.
+
 #### Variants
 
 A variant is the settings, credentials and files a sensor needs for one

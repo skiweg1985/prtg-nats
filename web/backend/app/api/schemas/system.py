@@ -149,6 +149,17 @@ class DashboardOut(ApiModel):
 # --- Sensors ----------------------------------------------------------------
 
 
+class WirelessInterfaceOut(ApiModel):
+    """One radio interface of a probe, and what reserving it would cost."""
+
+    name: str
+    reserved_by: str | None = None
+    carries_default_route: bool = False
+    operstate: str | None = None
+    nm_state: str | None = None
+    connection: str | None = None
+
+
 class SensorFileOut(ApiModel):
     slot: str
     relative_path: str

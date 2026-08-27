@@ -28,7 +28,7 @@ sensors page of the web interface, or from the shell.
 | prepare every probe | `./prtg-nats sensor prepare --all` |
 | state of one probe | `./prtg-nats sensor status USER` |
 | state of the whole fleet | `./prtg-nats sensor status --all` |
-| reserve a test interface | `./prtg-nats sensor reserve NAME USER IFACE` |
+| reserve a test interface | `./prtg-nats sensor reserve NAME USER IFACE` - or the sensor tab of the probe in the web interface |
 | release a reservation | `./prtg-nats sensor release NAME USER IFACE` |
 | deploy a credential profile | `./prtg-nats sensor profile NAME USER PROFILE --from-file FILE` |
 | remove a profile | `./prtg-nats sensor profile NAME USER PROFILE --remove` |

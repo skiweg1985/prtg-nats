@@ -224,6 +224,22 @@
         "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
         "hostTaken": "This address is already enrolled as \"{{probe}}\". Enrol it again under that account, or remove it first to give it a different one."
       }
+    },
+    "interfaces": {
+      "title": "Radio interfaces",
+      "hint": "A reserved interface belongs to the tests: NetworkManager lets go of it, and any connection on it is cut on every run. Without a reservation the sensor refuses to test.",
+      "forSensor": "for",
+      "free": "free",
+      "reserve": "Reserve",
+      "release": "Release",
+      "defaultRoute": "carries default route",
+      "empty": "This probe has no radio interface.",
+      "columns": {
+        "name": "Interface",
+        "reserved": "Reserved for",
+        "inUse": "In use",
+        "state": "State"
+      }
     }
   },
   "sensors": {
@@ -428,6 +444,8 @@
         "rolled_back": "{{probe}}: previous state restored",
         "dry_run": "{{probe}}: would install {{sensor}} version {{version}} ({{slots}})",
         "removed": "{{probe}}: {{sensor}} removed",
+        "interface_reserved": "{{probe}}: {{interface}} is reserved for {{sensor}}",
+        "interface_released": "{{probe}}: {{interface}} is back under normal management",
         "profile_deployed": "{{probe}}: credentials for endpoint {{endpoint}} deployed",
         "no_endpoints": "No measurement endpoint is registered; the sensor reports credentials-unreadable until one is deployed",
         "profile_file_deployed": "{{probe}}: {{file}} for variant {{profile}} transferred ({{bytes}} bytes)",

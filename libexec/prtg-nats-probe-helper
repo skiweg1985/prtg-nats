@@ -29,7 +29,7 @@ MAXIMUM_HELPER_BYTES=524288
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=4
+HELPER_VERSION=5
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -1294,6 +1294,74 @@ write_sensor_nm_configuration() {
   fi
 }
 
+# Which radio interfaces this probe has, and what would be lost by taking one
+# for tests. The reservation is a decision somebody has to make, and making it
+# blind - from a name typed into a form - is how a probe loses the link it
+# was actually using.
+#
+# Deliberately reports rather than judges: an interface carrying a default
+# route is listed like any other, with the fact attached. Refusing is
+# reserve_sensor_interface's job, and the two would drift apart if this made
+# the same call a second time.
+wireless_interfaces() {
+  local path=""
+  local interface=""
+  local reserved=""
+  local file=""
+  local owner=""
+  local routes=""
+  local operstate=""
+  local nm_state=""
+  local connection=""
+
+  printf 'OK wireless-interfaces\n'
+  routes="$(default_route_interfaces | paste -s -d ',' - || true)"
+  shopt -s nullglob
+  for path in /sys/class/net/*/wireless; do
+    interface="$(basename -- "$(dirname -- "${path}")")"
+    validate_token "${interface}" || continue
+
+    reserved="none"
+    for file in "${SENSOR_CONFIG_ROOT}"/*/allowed-interfaces; do
+      grep -q -x -- "${interface}" "${file}" 2>/dev/null || continue
+      owner="$(basename -- "$(dirname -- "${file}")")"
+      reserved="${owner}"
+      break
+    done
+
+    operstate="unknown"
+    [[ ! -r "/sys/class/net/${interface}/operstate" ]] ||
+      operstate="$(<"/sys/class/net/${interface}/operstate")"
+
+    # What NetworkManager thinks it is doing with the interface, and under
+    # which connection. Both stay empty where nmcli is absent - the interface
+    # is then simply not managed by anything that could object.
+    nm_state="unknown"
+    connection="none"
+    if command -v nmcli >/dev/null 2>&1; then
+      nm_state="$(
+        nmcli -t -f DEVICE,STATE device 2>/dev/null |
+          awk -F: -v d="${interface}" '$1 == d { print $2; exit }'
+      )"
+      connection="$(
+        nmcli -t -f DEVICE,CONNECTION device 2>/dev/null |
+          awk -F: -v d="${interface}" '$1 == d { print $2; exit }'
+      )"
+      [[ -n "${nm_state}" ]] || nm_state="unknown"
+      [[ -n "${connection}" && "${connection}" != "--" ]] || connection="none"
+    fi
+
+    printf '%s\treserved=%s\tdefault_route=%s\toperstate=%s\tnm_state=%s\tconnection=%s\n' \
+      "${interface}" \
+      "${reserved}" \
+      "$(printf '%s' ",${routes}," | grep -q ",${interface}," && printf 'yes' || printf 'no')" \
+      "${operstate}" \
+      "${nm_state}" \
+      "${connection}"
+  done
+  shopt -u nullglob
+}
+
 # Reserves a Wi-Fi interface as the test interface.
 #
 # The check deliberately allows an interface that still carries a default
@@ -1691,6 +1759,11 @@ case "${command_name}" in
   sensor-list)
     [[ -z "${argument_one:-}" ]] || die "sensor-list takes no arguments"
     list_sensors
+    ;;
+  wireless-interfaces)
+    [[ -z "${argument_one:-}" ]] ||
+      die "wireless-interfaces takes no arguments"
+    wireless_interfaces
     ;;
   sensor-prepare)
     [[ -z "${argument_one:-}" ]] || die "sensor-prepare takes no arguments"

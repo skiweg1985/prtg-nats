@@ -224,6 +224,22 @@
         "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen.",
         "hostTaken": "Diese Adresse ist bereits als „{{probe}}\" angemeldet. Melden Sie sie erneut unter diesem Konto an, oder entfernen Sie sie zuerst, um ihr ein anderes zu geben."
       }
+    },
+    "interfaces": {
+      "title": "Funk-Interfaces",
+      "hint": "Ein reserviertes Interface gehört den Tests: NetworkManager gibt es frei, und jede Verbindung darauf wird bei jedem Testlauf getrennt. Ohne Reservierung verweigert der Sensor den Test.",
+      "forSensor": "für",
+      "free": "frei",
+      "reserve": "Reservieren",
+      "release": "Freigeben",
+      "defaultRoute": "trägt Default-Route",
+      "empty": "Diese Probe hat kein Funk-Interface.",
+      "columns": {
+        "name": "Interface",
+        "reserved": "Reserviert für",
+        "inUse": "Wird benutzt",
+        "state": "Zustand"
+      }
     }
   },
   "sensors": {
@@ -428,6 +444,8 @@
         "rolled_back": "{{probe}}: vorheriger Stand wiederhergestellt",
         "dry_run": "{{probe}}: würde {{sensor}} Version {{version}} installieren ({{slots}})",
         "removed": "{{probe}}: {{sensor}} entfernt",
+        "interface_reserved": "{{probe}}: {{interface}} ist für {{sensor}} reserviert",
+        "interface_released": "{{probe}}: {{interface}} ist wieder unter normaler Verwaltung",
         "profile_deployed": "{{probe}}: Zugangsdaten für Messpunkt {{endpoint}} ausgerollt",
         "no_endpoints": "Es ist kein Messpunkt registriert; der Sensor meldet credentials-unreadable, bis einer ausgerollt wird",
         "profile_file_deployed": "{{probe}}: {{file}} für Variante {{profile}} übertragen ({{bytes}} Byte)",

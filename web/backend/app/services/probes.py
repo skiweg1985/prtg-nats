@@ -31,8 +31,10 @@ from app.domain.models import (
     InstalledSensor,
     ObservedProbeState,
     ProbeSummary,
+    WirelessInterface,
     parse_probe_info,
     parse_sensor_list,
+    parse_wireless_interfaces,
 )
 from app.domain.reconciliation import (
     ReconciliationPlan,
@@ -281,6 +283,21 @@ class ProbeService:
         record = await self.ensure_record(nats_username)
         await self._store_observed(record, observed)
         return observed
+
+    async def wireless_interfaces(
+        self, nats_username: str
+    ) -> tuple[WirelessInterface, ...]:
+        """Ask a probe which radio interfaces it has, right now.
+
+        Not served from the observed-state cache: this is read while somebody
+        decides which interface to hand over, and a five-minute-old answer
+        would let them reserve one that has since been given a connection.
+        """
+        inventory = self._runtime.read_probe(nats_username)
+        response = await self._helper.wireless_interfaces(
+            self.connection_for(inventory)
+        )
+        return parse_wireless_interfaces(response)
 
     async def refresh_after_job(self, nats_username: str) -> bool:
         """Bring the cache in line with what a job just did, or leave it be.

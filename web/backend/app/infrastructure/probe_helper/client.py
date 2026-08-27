@@ -231,6 +231,12 @@ class ProbeHelperClient:
         """Installed sensors with version, checksum, interfaces and helper state."""
         return await self._call(connection, HelperCommand.SENSOR_LIST, timeout=30)
 
+    async def wireless_interfaces(self, connection: ProbeConnection) -> HelperResponse:
+        """The probe's radio interfaces, with what a reservation would cost."""
+        return await self._call(
+            connection, HelperCommand.WIRELESS_INTERFACES, timeout=30
+        )
+
     async def is_reachable(self, connection: ProbeConnection) -> bool:
         try:
             await self.probe_info(connection)

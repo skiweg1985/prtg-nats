@@ -9,12 +9,21 @@ import {
   useProbeAction,
   useProbePlan,
   useRefreshProbe,
+  useReleaseInterface,
   useRemoveSensorFromProbe,
+  useReserveInterface,
   useRevealAccessKey,
   useUnenrollProbe,
+  useWirelessInterfaces,
   type UnenrollOptions,
 } from '@/api/hooks'
-import type { Deviation, DeviationSeverity, ProbeDetail, SensorState } from '@/api/types'
+import type {
+  Deviation,
+  DeviationSeverity,
+  ProbeDetail,
+  SensorState,
+  WirelessInterface,
+} from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -467,6 +476,156 @@ function CleanupOption({
   )
 }
 
+/**
+ * The radio interfaces of a probe, and the one decision to make about them.
+ *
+ * Reserving takes an interface away from NetworkManager for good and cuts
+ * whatever it was carrying - so the list shows what would be lost, not just
+ * the names. An interface on the default route is shown like the rest with
+ * the fact attached; the probe is the one that refuses it, and repeating that
+ * judgement here would only let the two drift apart.
+ */
+function InterfacesCard({
+  probeId,
+  sensors,
+}: {
+  probeId: string
+  sensors: SensorState[]
+}) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const reserve = useReserveInterface()
+  const release = useReleaseInterface()
+
+  // Only sensors that take an interface can hold one. With none of them
+  // installed there is nothing to reserve for, and the card stays away.
+  const candidates = sensors.filter((entry) => entry.status !== 'absent')
+  const { data, isLoading, error } = useWirelessInterfaces(probeId, candidates.length > 0)
+  const [sensorName, setSensorName] = useState('')
+  const target = sensorName || candidates[0]?.name || ''
+
+  if (!candidates.length) return null
+
+  const columns: Column<WirelessInterface>[] = [
+    {
+      key: 'name',
+      header: t('probes.interfaces.columns.name'),
+      sortValue: (row) => row.name,
+      cell: (row) => <Mono>{row.name}</Mono>,
+    },
+    {
+      key: 'reserved',
+      header: t('probes.interfaces.columns.reserved'),
+      cell: (row) =>
+        row.reserved_by ? (
+          <Badge tone="accent">{row.reserved_by}</Badge>
+        ) : (
+          <span className="text-muted">{t('probes.interfaces.free')}</span>
+        ),
+    },
+    {
+      key: 'inUse',
+      header: t('probes.interfaces.columns.inUse'),
+      cell: (row) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {row.carries_default_route ? (
+            <Badge tone="danger">{t('probes.interfaces.defaultRoute')}</Badge>
+          ) : null}
+          {row.connection ? (
+            <Badge tone="warn">{row.connection}</Badge>
+          ) : null}
+          {!row.carries_default_route && !row.connection ? (
+            <span className="text-muted">—</span>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: 'state',
+      header: t('probes.interfaces.columns.state'),
+      cell: (row) => (
+        <Mono>{[row.operstate, row.nm_state].filter(Boolean).join(' · ') || '—'}</Mono>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      cell: (row) => (
+        <PermissionGate permission="sensor.configure">
+          {row.reserved_by ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={release.isPending}
+              onClick={() =>
+                release.mutate(
+                  { probeId, sensor: row.reserved_by as string, iface: row.name },
+                  { onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`) },
+                )
+              }
+            >
+              {t('probes.interfaces.release')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={reserve.isPending || !target}
+              onClick={() =>
+                reserve.mutate(
+                  { probeId, sensor: target, iface: row.name },
+                  { onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`) },
+                )
+              }
+            >
+              {t('probes.interfaces.reserve')}
+            </Button>
+          )}
+        </PermissionGate>
+      ),
+    },
+  ]
+
+  return (
+    <Card
+      title={t('probes.interfaces.title')}
+      action={
+        candidates.length > 1 ? (
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted">{t('probes.interfaces.forSensor')}</span>
+            <select
+              className="rounded border border-line bg-surface px-2 py-1 text-ink"
+              value={target}
+              onChange={(event) => setSensorName(event.target.value)}
+            >
+              {candidates.map((entry) => (
+                <option key={entry.name} value={entry.name}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null
+      }
+    >
+      <p className="text-muted mb-3 text-sm">{t('probes.interfaces.hint')}</p>
+      {error ? (
+        <ErrorDetails error={error} />
+      ) : isLoading ? (
+        <Skeleton />
+      ) : (
+        <DataTable
+          rows={data ?? []}
+          columns={columns}
+          rowKey={(row) => row.name}
+          emptyTitle={t('probes.interfaces.empty')}
+        />
+      )}
+    </Card>
+  )
+}
+
 function SensorsTab({ probeId, sensors }: { probeId: string; sensors: SensorState[] }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -498,7 +657,7 @@ function SensorsTab({ probeId, sensors }: { probeId: string; sensors: SensorStat
     },
     {
       key: 'interfaces',
-      header: 'Interfaces',
+      header: t('probes.interfaces.columns.name'),
       cell: (row) =>
         row.interfaces.length ? <Mono>{row.interfaces.join(', ')}</Mono> : '—',
     },
@@ -530,12 +689,15 @@ function SensorsTab({ probeId, sensors }: { probeId: string; sensors: SensorStat
   ]
 
   return (
-    <DataTable
-      rows={sensors}
-      columns={columns}
-      rowKey={(row) => row.name}
-      emptyTitle={t('sensors.empty')}
-    />
+    <div className="space-y-4">
+      <DataTable
+        rows={sensors}
+        columns={columns}
+        rowKey={(row) => row.name}
+        emptyTitle={t('sensors.empty')}
+      />
+      <InterfacesCard probeId={probeId} sensors={sensors} />
+    </div>
   )
 }
 
