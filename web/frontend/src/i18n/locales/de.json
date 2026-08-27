@@ -30,6 +30,8 @@
     "filter": "Filtern",
     "hidden": "Verborgen",
     "hideTechnicalDetails": "Technische Details verbergen",
+    "showDetails": "Details anzeigen",
+    "hideDetails": "Details verbergen",
     "lastUpdated": "Stand {{time}}",
     "loading": "Wird geladen …",
     "moreActions": "Weitere Aktionen",
@@ -102,6 +104,18 @@
     "subtitle": "Die Systeme, auf denen die Überwachungsskripte laufen",
     "empty": "Es ist noch keine Probe eingebunden.",
     "emptyHint": "Es ist noch nichts angemeldet. Eine Probe hinzuzufügen kostet einen Befehl, ausgeführt auf der Probe selbst.",
+    "filters": {
+      "helperOutdated": "Nur Helper veraltet",
+      "deviations": "Nur mit Abweichungen",
+      "empty": "Keine Probe passt zu diesen Filtern."
+    },
+    "fleet": {
+      "confirmTitle": "„{{action}}“ auf mehrere Probes anwenden",
+      "confirmBody_one": "Das läuft als ein Job auf dieser Probe.",
+      "confirmBody_other": "Das läuft als ein Job über diese {{count}} Probes, eine nach der anderen.",
+      "skipped_one": "Eine ausgewählte Probe bleibt außen vor, weil die Aktion auf sie nicht zutrifft.",
+      "skipped_other": "{{count}} ausgewählte Probes bleiben außen vor, weil die Aktion auf sie nicht zutrifft."
+    },
     "columns": {
       "name": "Probe",
       "host": "Host",
@@ -315,6 +329,7 @@
     "title": "Ausrollvorgänge",
     "subtitle": "Sensor-Rollouts und ihr Ergebnis je Probe",
     "empty": "Es wurde noch nichts ausgerollt.",
+    "noTargets": "Für diesen Rollout ist kein Ziel erfasst.",
     "create": "Neuer Rollout",
     "selectSensor": "Sensor",
     "selectProbes": "Probes",
@@ -421,6 +436,9 @@
         "helper_before": "{{probe}} trägt Helper-Version {{version}}",
         "helper_sent": "{{probe}}: Helper übertragen und als Version {{version}} übernommen",
         "helper_updated": "{{probe}} antwortet jetzt mit Helper-Version {{version}}",
+        "fanout_started": "{{probes}} Probes ausgewählt, eine nach der anderen",
+        "action_failed": "{{probe}}: fehlgeschlagen ({{reason}})",
+        "fanout_finished": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen",
         "identity_resolved": "{{probe}}: Identität aufgelöst als {{probe_name}}",
         "config_rendered": "{{probe}}: Konfiguration gerendert",
         "config_staged": "{{probe}}: Zugangsdaten und Konfiguration bereitgestellt",

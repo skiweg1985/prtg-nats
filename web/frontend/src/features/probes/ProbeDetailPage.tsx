@@ -88,6 +88,14 @@ export function ProbeDetailPage() {
   if (!data || !probeId) return null
 
   const { summary, observed } = data
+  // Every button in the header reports its failure, and the most recent one is
+  // the one on screen: a refresh that failed an hour ago must not stand in
+  // front of the CA install that failed a second ago.
+  const lastFailure = [refresh, validate, installCa, updateHelper, configure]
+    .map((mutation) => ({ error: mutation.error, at: mutation.submittedAt }))
+    .filter((entry) => entry.error !== null)
+    .sort((left, right) => right.at - left.at)
+    .at(0)?.error
   // A helper that reports no version at all predates signed updates, so it has
   // no key to check one against and the channel cannot reach it. Told apart
   // here because the two cases need different instructions, not a shared
@@ -128,7 +136,11 @@ export function ProbeDetailPage() {
           <PermissionGate permission="probe.read">
             <Button
               size="sm"
-              onClick={() => validate.mutate(probeId)}
+              onClick={() =>
+                validate.mutate(probeId, {
+                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                })
+              }
               disabled={validate.isPending}
             >
               {t('probes.validate')}
@@ -137,7 +149,11 @@ export function ProbeDetailPage() {
           <PermissionGate permission="probe.update">
             <Button
               size="sm"
-              onClick={() => installCa.mutate(probeId)}
+              onClick={() =>
+                installCa.mutate(probeId, {
+                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                })
+              }
               disabled={installCa.isPending}
             >
               {t('probes.installCa')}
@@ -260,9 +276,8 @@ export function ProbeDetailPage() {
         </div>
       )}
 
-      {refresh.error && <ErrorDetails error={refresh.error} target={summary.nats_username} />}
-      {updateHelper.error && (
-        <ErrorDetails error={updateHelper.error} target={summary.nats_username} />
+      {lastFailure && (
+        <ErrorDetails error={lastFailure} target={summary.nats_username} />
       )}
       {observed && !observed.reachable && (
         <Banner tone="danger" title={t('status.probe.unreachable')}>

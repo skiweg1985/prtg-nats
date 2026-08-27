@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { EmptyState, Input, Skeleton } from './primitives'
@@ -43,6 +43,13 @@ interface DataTableProps<T> {
   /** Rendered between the search box and the table. */
   filters?: ReactNode
   searchPlaceholder?: string
+  /**
+   * Rendered under a row while it is open, with a toggle in its own column.
+   *
+   * For the detail a row summarises into a number - "3 of 5 probes succeeded"
+   * is not an answer while two of them are broken. Omit it and rows stay flat.
+   */
+  expandedContent?: (row: T) => ReactNode
 }
 
 export function DataTable<T>({
@@ -57,9 +64,11 @@ export function DataTable<T>({
   selection,
   filters,
   searchPlaceholder,
+  expandedContent,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
     null,
   )
@@ -117,6 +126,13 @@ export function DataTable<T>({
     if (next.has(id)) next.delete(id)
     else next.add(id)
     selection.onChange(next)
+  }
+
+  function toggleExpanded(id: string) {
+    const next = new Set(expanded)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setExpanded(next)
   }
 
   function toggleSort(key: string) {
@@ -180,6 +196,7 @@ export function DataTable<T>({
                     />
                   </th>
                 )}
+                {expandedContent && <th className="w-8 px-3 py-2" />}
                 {columns.map((column) => (
                   <th
                     key={column.key}
@@ -214,37 +231,68 @@ export function DataTable<T>({
             <tbody>
               {visible.map((row) => {
                 const id = rowKey(row)
+                const isOpen = expanded.has(id)
                 return (
-                  <tr
-                    key={id}
-                    onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    className={clsx(
-                      'border-rule border-t',
-                      onRowClick && 'hover:bg-surface-2 cursor-pointer',
+                  <Fragment key={id}>
+                    <tr
+                      onClick={onRowClick ? () => onRowClick(row) : undefined}
+                      className={clsx(
+                        'border-rule border-t',
+                        onRowClick && 'hover:bg-surface-2 cursor-pointer',
+                      )}
+                    >
+                      {selection && (
+                        <td
+                          className="px-3 py-2"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selection.selected.has(id)}
+                            onChange={() => toggleOne(id)}
+                            aria-label={id}
+                          />
+                        </td>
+                      )}
+                      {expandedContent && (
+                        <td
+                          className="px-3 py-2"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(id)}
+                            aria-expanded={isOpen}
+                            aria-label={t(isOpen ? 'common.hideDetails' : 'common.showDetails')}
+                            className="text-ink-3 hover:text-ink text-xs"
+                          >
+                            {isOpen ? '▾' : '▸'}
+                          </button>
+                        </td>
+                      )}
+                      {columns.map((column) => (
+                        <td
+                          key={column.key}
+                          className={clsx(
+                            'px-3 py-2 text-sm',
+                            column.align === 'right' && 'text-right',
+                          )}
+                        >
+                          {column.cell(row)}
+                        </td>
+                      ))}
+                    </tr>
+                    {expandedContent && isOpen && (
+                      <tr className="border-rule bg-surface-2 border-t">
+                        <td
+                          colSpan={columns.length + (selection ? 1 : 0) + 1}
+                          className="px-3 py-3"
+                        >
+                          {expandedContent(row)}
+                        </td>
+                      </tr>
                     )}
-                  >
-                    {selection && (
-                      <td className="px-3 py-2" onClick={(event) => event.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selection.selected.has(id)}
-                          onChange={() => toggleOne(id)}
-                          aria-label={id}
-                        />
-                      </td>
-                    )}
-                    {columns.map((column) => (
-                      <td
-                        key={column.key}
-                        className={clsx(
-                          'px-3 py-2 text-sm',
-                          column.align === 'right' && 'text-right',
-                        )}
-                      >
-                        {column.cell(row)}
-                      </td>
-                    ))}
-                  </tr>
+                  </Fragment>
                 )
               })}
             </tbody>

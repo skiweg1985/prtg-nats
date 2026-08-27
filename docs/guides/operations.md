@@ -284,6 +284,24 @@ runtime CA, `NATS` checks the actual sign-in against the NATS monitoring. The
 output, the exit code and the JSON form are described in
 [Monitoring](monitoring.md#the-fleet).
 
+## One action across several probes
+
+The probe list in the web interface takes a selection, and every action a
+single probe's page offers can be applied to it: refresh, run a check, install
+the CA, renew the helper, apply the configuration, fix deviations. Two filters
+above the table build the selection that is usually wanted - the probes whose
+helper is behind, and the ones that drifted from their desired state.
+
+It runs as one job that takes one lock per probe, so it queues behind whatever
+else is already working on one of them instead of racing it. A probe that does
+not answer is recorded as failed and the job carries on with the rest; the job
+log names every probe and what came of it.
+
+An action is only offered when the selection can use it. Renewing the helper on
+a probe that reports no helper version at all cannot work - it was enrolled
+before updates were signed and carries no key to verify one against - so it is
+left out of the selection and the confirmation says how many were.
+
 ## Roll out the MPP configuration centrally
 
 The probes' runtime configuration is generated from

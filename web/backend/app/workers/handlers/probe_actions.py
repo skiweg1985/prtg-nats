@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.errors import AppError, RuntimeStateError
+from app.core.errors import AppError, ProbeUnreachableError, RuntimeStateError
 from app.domain.enums import LogLevel
 from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.probe_helper import ProbeConnection
+from app.services.probes import ProbeService
 from app.workers.context import JobContext
+from app.workers.handlers.fanout import over_targets
 
 INSTALL_CA_STEPS: tuple[str, ...] = ("check_reachable", "install_ca", "verify")
 INSTALL_CA_JOB_TYPE = "probe.install_ca"
@@ -24,6 +26,12 @@ VALIDATE_JOB_TYPE = "probe.validate"
 
 HELPER_UPDATE_STEPS: tuple[str, ...] = ("check_reachable", "send_helper", "verify")
 HELPER_UPDATE_JOB_TYPE = "probe.helper_update"
+
+# Refreshing one probe stays a synchronous request - it is one round trip while
+# the operator watches. A selection of them is a dozen, so it becomes a job for
+# the same reason everything else here is one: it takes time and can hang.
+REFRESH_STEPS: tuple[str, ...] = ("collect_state",)
+REFRESH_JOB_TYPE = "probe.refresh"
 
 # The file this platform ships, served from the same path the bootstrap hands
 # out during enrolment - one helper, one source.
@@ -38,7 +46,10 @@ def _connection(context: JobContext, username: str) -> ProbeConnection:
 
 
 async def install_ca(context: JobContext) -> dict[str, Any]:
-    username: str = context.payload["probe"]
+    return await over_targets(context, install_ca_on)
+
+
+async def install_ca_on(context: JobContext, username: str) -> dict[str, Any]:
     connection = _connection(context, username)
 
     await context.step("check_reachable")
@@ -66,13 +77,16 @@ async def install_ca(context: JobContext) -> dict[str, Any]:
 
 
 async def helper_update(context: JobContext) -> dict[str, Any]:
+    return await over_targets(context, helper_update_on)
+
+
+async def helper_update_on(context: JobContext, username: str) -> dict[str, Any]:
     """Put the helper this platform ships onto the probe.
 
     The probe verifies the signature before it writes anything, so a failure
     here leaves the old helper in place - which is the whole reason this is
     allowed over the management channel at all.
     """
-    username: str = context.payload["probe"]
     connection = _connection(context, username)
 
     await context.step("check_reachable")
@@ -116,8 +130,11 @@ async def helper_update(context: JobContext) -> dict[str, Any]:
 
 
 async def validate(context: JobContext) -> dict[str, Any]:
+    return await over_targets(context, validate_on)
+
+
+async def validate_on(context: JobContext, username: str) -> dict[str, Any]:
     """Collect everything a probe can say about itself, in one pass."""
-    username: str = context.payload["probe"]
     findings: list[dict[str, str]] = []
 
     await context.step("check_reachable")
@@ -163,3 +180,44 @@ async def validate(context: JobContext) -> dict[str, Any]:
         await context.log("jobs.probe.validated", params={"probe": username})
 
     return {"probe": username, "findings": findings}
+
+
+async def refresh(context: JobContext) -> dict[str, Any]:
+    return await over_targets(context, refresh_on)
+
+
+async def refresh_on(context: JobContext, username: str) -> dict[str, Any]:
+    """Ask one probe how it is, and write the answer down.
+
+    The same call the synchronous endpoint makes, so a selection and a single
+    probe end up with observations of the same shape. Unreachable is raised
+    rather than recorded and returned: the service treats "no answer" as a
+    result - which is right for a page that has to render something - while a
+    job that reached nobody has to say so, and in a selection that is the one
+    probe the operator has to look at.
+    """
+    await context.step("collect_state")
+    probes = ProbeService(
+        context.db,
+        context.settings,
+        context.runtime,
+        context.helper,
+        context.catalog,
+    )
+    observed = await probes.refresh_observed_state(username)
+    if not observed.reachable:
+        raise ProbeUnreachableError.of(username, details=observed.error_details)
+    await context.log(
+        "jobs.probe.state_collected",
+        params={
+            "probe": username,
+            "service": observed.service.value,
+            "sensors": len(observed.sensors),
+        },
+        target=username,
+    )
+    return {
+        "probe": username,
+        "package_version": observed.package_version,
+        "helper_version": observed.helper_version,
+    }

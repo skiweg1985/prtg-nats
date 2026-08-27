@@ -204,6 +204,38 @@ export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-updat
   })
 }
 
+/** The actions a selection of probes can be asked for in one go. */
+export type FleetAction =
+  | 'refresh'
+  | 'validate'
+  | 'install-ca'
+  | 'helper-update'
+  | 'configure'
+  | 'reconcile'
+
+/**
+ * One action over a selection: one job, one lock per probe.
+ *
+ * The same endpoints the detail page uses, addressed by selection rather than
+ * by probe. A single id is a legitimate selection - the caller does not have
+ * to decide between two shapes of request at twelve probes and at one.
+ *
+ * One mutation for all six actions rather than one hook per action: the bar
+ * that calls this runs one at a time, so one pending flag and one error are
+ * exactly what it has to render.
+ */
+export function useFleetAction() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ action, probeIds }: { action: FleetAction; probeIds: string[] }) =>
+      api.post<JobAccepted>(`/probes/actions/${action}`, { probe_ids: probeIds }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+      void client.invalidateQueries({ queryKey: keys.probes })
+    },
+  })
+}
+
 export function useSensors() {
   return useQuery({
     queryKey: keys.sensors,

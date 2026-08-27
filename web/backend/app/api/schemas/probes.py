@@ -125,6 +125,17 @@ class ProbeUpdateIn(ApiModel):
     labels: dict[str, str] | None = None
 
 
+class ProbeActionIn(ApiModel):
+    """The probes one action is meant for.
+
+    A single id is the request the detail page already makes. The list is why
+    this schema exists: acting on a selection of twelve is one job with one
+    lock per probe, not twelve visits to twelve detail pages.
+    """
+
+    probe_ids: list[str] = Field(min_length=1)
+
+
 class DesiredSensorIn(ApiModel):
     name: str
     version: str | None = None

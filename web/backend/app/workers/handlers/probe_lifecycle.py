@@ -32,6 +32,7 @@ from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
 from app.workers.handlers import deploy_sensor as deploy_sensor_handler
 from app.workers.handlers import sensor_actions
+from app.workers.handlers.fanout import over_targets, targets
 
 CONFIGURE_STEPS: tuple[str, ...] = (
     "resolve_identity",
@@ -220,20 +221,46 @@ async def run_config_transaction(
 
 
 async def configure(context: JobContext) -> dict[str, Any]:
-    username: str = context.payload["probe"]
-    probe_name: str | None = context.payload.get("probe_name")
+    return await over_targets(context, configure_on)
+
+
+async def configure_on(context: JobContext, username: str) -> dict[str, Any]:
+    # The name identifies one probe in PRTG. A job for a selection therefore
+    # never carries one, and reading it only when there is a single target
+    # means twelve probes cannot be handed the same name by accident either.
+    probe_name: str | None = (
+        context.payload.get("probe_name") if len(targets(context)) == 1 else None
+    )
     return await run_config_transaction(context, username, probe_name=probe_name)
 
 
+def _desired_document(context: JobContext, username: str) -> dict[str, Any]:
+    """The desired state this run plans against.
+
+    Written per probe when a selection asked for the job, because there is no
+    such thing as one desired state for twelve probes - each carries its own
+    sensors and its own identity.
+    """
+    by_probe = context.payload.get("desired_by_probe")
+    if isinstance(by_probe, dict):
+        document = by_probe.get(username)
+        return dict(document) if isinstance(document, dict) else {}
+    document = context.payload.get("desired")
+    return dict(document) if isinstance(document, dict) else {}
+
+
 async def reconcile(context: JobContext) -> dict[str, Any]:
+    return await over_targets(context, reconcile_on)
+
+
+async def reconcile_on(context: JobContext, username: str) -> dict[str, Any]:
     """Make the probe match its desired state - the plan, executed.
 
     The plan is rebuilt from fresh observation inside the job rather than
     trusted from the preview: the probe may have changed since the operator
     looked, and acting on a stale plan is how automation earns distrust.
     """
-    username: str = context.payload["probe"]
-    desired = DesiredProbeState.from_document(context.payload.get("desired") or {})
+    desired = DesiredProbeState.from_document(_desired_document(context, username))
 
     await context.step("plan")
     connection = _connection(context, username)
