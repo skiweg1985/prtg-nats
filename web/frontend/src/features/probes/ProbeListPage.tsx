@@ -186,7 +186,7 @@ export function ProbeListPage() {
             </PermissionGate>
           )
         }
-        onRowClick={(row) => navigate(`/probes/${row.id}`)}
+        rowHref={(row) => `/probes/${row.id}`}
         filters={
           <div className="flex flex-wrap items-center gap-2">
             <FilterToggle

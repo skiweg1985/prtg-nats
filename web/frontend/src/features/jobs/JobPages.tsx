@@ -22,7 +22,6 @@ import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
 
 export function JobListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useJobs()
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -104,7 +103,7 @@ export function JobListPage() {
         rowKey={(row) => row.id}
         isLoading={isLoading}
         emptyTitle={t('jobs.empty')}
-        onRowClick={(row) => navigate(`/jobs/${row.id}`)}
+        rowHref={(row) => `/jobs/${row.id}`}
       />
     </div>
   )

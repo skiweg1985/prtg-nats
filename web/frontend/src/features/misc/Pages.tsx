@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -41,7 +41,6 @@ import { formatBytes, formatDateTime, formatRelative } from '@/utils/format'
 
 export function DeploymentListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useDeployments()
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -113,7 +112,7 @@ export function DeploymentListPage() {
         rowKey={(row) => row.id}
         isLoading={isLoading}
         emptyTitle={t('deployments.empty')}
-        onRowClick={(row) => row.job_id && navigate(`/jobs/${row.job_id}`)}
+        rowHref={(row) => (row.job_id ? `/jobs/${row.job_id}` : null)}
         expandedContent={(row) => <DeploymentTargets targets={row.targets} />}
       />
     </div>

@@ -36,6 +36,8 @@
     "loading": "Loading…",
     "moreActions": "More actions",
     "never": "Never",
+    "noMatches": "Nothing matches “{{query}}”",
+    "clearSearch": "Clear search",
     "no": "No",
     "none": "None",
     "of": "of",

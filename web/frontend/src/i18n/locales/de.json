@@ -36,6 +36,8 @@
     "loading": "Wird geladen …",
     "moreActions": "Weitere Aktionen",
     "never": "Nie",
+    "noMatches": "Keine Treffer für „{{query}}“",
+    "clearSearch": "Suche zurücksetzen",
     "no": "Nein",
     "none": "Keine",
     "of": "von",

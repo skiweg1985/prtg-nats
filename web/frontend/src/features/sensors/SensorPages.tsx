@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 
@@ -26,7 +26,6 @@ import { SensorVariants } from './SensorVariants'
 
 export function SensorListPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useSensors()
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -94,7 +93,7 @@ export function SensorListPage() {
         rowKey={(row) => row.name}
         isLoading={isLoading}
         emptyTitle={t('sensors.empty')}
-        onRowClick={(row) => navigate(`/sensors/${row.name}`)}
+        rowHref={(row) => `/sensors/${row.name}`}
       />
     </div>
   )
