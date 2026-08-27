@@ -38,6 +38,7 @@ import type {
   SensorSummary,
   SystemStatus,
   WebUser,
+  WirelessInterface,
 } from './types'
 
 /** One place that names every cache entry, so invalidation cannot go stale. */
@@ -49,6 +50,7 @@ export const keys = {
   probes: ['probes'] as const,
   probe: (id: string) => ['probes', id] as const,
   probePlan: (id: string) => ['probes', id, 'plan'] as const,
+  probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
   sensors: ['sensors'] as const,
   sensor: (name: string) => ['sensors', name] as const,
   sensorSchema: (name: string) => ['sensors', name, 'schema'] as const,
@@ -589,6 +591,62 @@ export function useRemoveSensorFromProbe() {
     mutationFn: ({ probeId, sensor }: { probeId: string; sensor: string }) =>
       api.post<JobAccepted>(`/probes/${probeId}/sensors/${sensor}/remove`),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useWirelessInterfaces(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.probeInterfaces(id ?? ''),
+    queryFn: () => api.get<WirelessInterface[]>(`/probes/${id}/wireless-interfaces`),
+    enabled: Boolean(id) && enabled,
+    // Asked live rather than served from the observed-state cache: the answer
+    // decides which interface somebody hands over, and a stale one would offer
+    // an interface that has since been given a connection.
+    staleTime: 0,
+  })
+}
+
+export function useReserveInterface() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      probeId,
+      sensor,
+      iface,
+    }: {
+      probeId: string
+      sensor: string
+      iface: string
+    }) =>
+      api.post<JobAccepted>(
+        `/probes/${probeId}/sensors/${sensor}/interfaces/${iface}/reserve`,
+      ),
+    onSuccess: (_result, variables) => {
+      void client.invalidateQueries({ queryKey: keys.probeInterfaces(variables.probeId) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useReleaseInterface() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      probeId,
+      sensor,
+      iface,
+    }: {
+      probeId: string
+      sensor: string
+      iface: string
+    }) =>
+      api.post<JobAccepted>(
+        `/probes/${probeId}/sensors/${sensor}/interfaces/${iface}/release`,
+      ),
+    onSuccess: (_result, variables) => {
+      void client.invalidateQueries({ queryKey: keys.probeInterfaces(variables.probeId) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
   })
 }
 

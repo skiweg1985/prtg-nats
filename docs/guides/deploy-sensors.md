@@ -28,7 +28,7 @@ sensors page of the web interface, or from the shell.
 | prepare every probe | `./prtg-nats sensor prepare --all` |
 | state of one probe | `./prtg-nats sensor status USER` |
 | state of the whole fleet | `./prtg-nats sensor status --all` |
-| reserve a test interface | `./prtg-nats sensor reserve NAME USER IFACE` |
+| reserve a test interface | `./prtg-nats sensor reserve NAME USER IFACE` - or the sensor tab of the probe in the web interface |
 | release a reservation | `./prtg-nats sensor release NAME USER IFACE` |
 | deploy a credential profile | `./prtg-nats sensor profile NAME USER PROFILE --from-file FILE` |
 | remove a profile | `./prtg-nats sensor profile NAME USER PROFILE --remove` |
@@ -185,6 +185,19 @@ can compare: a probe answers with the checksum of its sensor script, and
 a helper that changed without the version changing therefore reads as
 current everywhere. Both a script fix and a helper fix are one step up;
 the number is an identity, not a semantic version.
+
+A sensor that needs a program from the system gets it during the rollout:
+`sensor_system_package` in `libexec/prtg-nats-probe-helper` maps the sensor
+name to the program and the packages that can provide it, and the
+deployment installs the first one that works. The program is what the
+check looks for, not the package — the two differ often enough, and the
+package carrying a program changes between releases.
+
+The self-check decides whether that succeeded. It runs as the last step of
+a deployment, and a sensor whose privileged helper reports a missing tool
+there fails the deployment and restores the previous state. That is the
+last moment a gap can be reported to whoever is deploying; after it, the
+same gap only shows up as a sensor error on the first scan.
 
 ## Rules for a sensor script
 

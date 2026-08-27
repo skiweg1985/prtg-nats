@@ -44,6 +44,10 @@ ALLOWED_INTERFACES = os.path.join(CONFIG_DIR, "allowed-interfaces")
 WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
 # How long a run waits for the interface before it gives up on it.
 LOCK_WAIT_SECONDS = 15
+# Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
+# with iproute2, but a probe missing either fails the same way, so the check
+# names the programs rather than the packages behind them.
+REQUIRED_PROGRAMS = ("wpa_supplicant", "wpa_cli", "dhcpcd", "ip")
 RUN_DIR = "/run"
 
 # Field: (required for this method, adoptable from the profile)
@@ -686,7 +690,21 @@ def main():
     try:
         if job.get("action") == "ping":
             # Self-test of the permission chain: does the sensor script
-            # reach this helper at all?
+            # reach this helper at all, and can the test it would run find
+            # its tools?
+            #
+            # The second half is what a deployment hangs on. It is the one
+            # moment where a missing tool can still be reported as a failed
+            # deployment that restores the previous state - after that it
+            # would only surface as a sensor error on the first scan, hours
+            # later and on somebody else's screen.
+            missing = [name for name in REQUIRED_PROGRAMS
+                       if shutil.which(name) is None]
+            if missing:
+                emit({"result": "blocked", "code": "tool-missing",
+                      "message": "Not installed on this probe: %s"
+                                 % ", ".join(missing),
+                      "timings": {}, "details": {}})
             emit({"result": "ok", "code": "ok", "message": "helper reachable",
                   "timings": {}, "details": {}})
         job = validate_job(merge_profile(job))

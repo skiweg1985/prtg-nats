@@ -38,6 +38,23 @@ class InstalledSensor:
 
 
 @dataclass(frozen=True, slots=True)
+class WirelessInterface:
+    """One radio interface of a probe, as ``wireless-interfaces`` reports it.
+
+    Everything here is a fact the probe stated, not a verdict. Whether an
+    interface may be reserved is decided on the probe when it is asked to do
+    it; this only carries what somebody needs in order to ask.
+    """
+
+    name: str
+    reserved_by: str | None = None
+    carries_default_route: bool = False
+    operstate: str | None = None
+    nm_state: str | None = None
+    connection: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ObservedProbeState:
     """What a probe reported, and when.
 
@@ -203,6 +220,28 @@ def parse_sensor_list(response: HelperResponse) -> tuple[InstalledSensor, ...]:
             )
         )
     return tuple(sensors)
+
+
+def parse_wireless_interfaces(
+    response: HelperResponse,
+) -> tuple[WirelessInterface, ...]:
+    interfaces = []
+    for record in response.records:
+        reserved = normalise_optional(record.get("reserved"))
+        connection = normalise_optional(record.get("connection"))
+        interfaces.append(
+            WirelessInterface(
+                name=record["name"],
+                # "none" is the helper's way of writing an empty field in a
+                # tab-separated line; it is not a sensor called none.
+                reserved_by=None if reserved in (None, "none") else reserved,
+                carries_default_route=record.get("default_route") == "yes",
+                operstate=normalise_optional(record.get("operstate")),
+                nm_state=normalise_optional(record.get("nm_state")),
+                connection=None if connection in (None, "none") else connection,
+            )
+        )
+    return tuple(interfaces)
 
 
 def _service_state(value: str | None) -> ServiceState:

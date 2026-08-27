@@ -161,6 +161,15 @@ export interface ProbeDetail {
   labels: Record<string, string>
 }
 
+export interface WirelessInterface {
+  name: string
+  reserved_by: string | null
+  carries_default_route: boolean
+  operstate: string | null
+  nm_state: string | null
+  connection: string | null
+}
+
 export interface PlannedAction {
   kind: string
   target: string

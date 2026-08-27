@@ -36,13 +36,16 @@ from app.api.schemas.probes import (
     ReconciliationPlanOut,
     SensorStateOut,
 )
+from app.api.schemas.system import WirelessInterfaceOut
 from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.models import DesiredProbeState, DesiredSensor, ProbeSummary
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.persistence.models.inventory import ProbeDesiredState
-from app.services.jobs import JobRequest, ResourceRef
-from app.services.probes import ProbeDetail
+from app.services.audit import AuditWriter
+from app.services.auth import Principal
+from app.services.jobs import JobRequest, JobService, ResourceRef
+from app.services.probes import ProbeDetail, ProbeService
 from app.services.system import SystemService
 from app.workers.handlers import probe_actions, probe_lifecycle, sensor_actions
 
@@ -562,6 +565,133 @@ async def unenroll_probe(
             "uninstall_mpp": uninstall_mpp,
             "delete_account": delete_account,
         },
+    )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.get(
+    "/{probe_id}/wireless-interfaces",
+    response_model=list[WirelessInterfaceOut],
+)
+async def list_wireless_interfaces(
+    probe_id: str,
+    probes: ProbeServiceDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_READ))
+    ],
+) -> list[WirelessInterfaceOut]:
+    """The radio interfaces of one probe, asked live.
+
+    Reserving one takes it away from whatever it is doing, so the choice is
+    made against the current state and not against a cached one.
+    """
+    record = await probes.get_record(probe_id)
+    interfaces = await probes.wireless_interfaces(record.nats_username)
+    return [WirelessInterfaceOut.model_validate(entry) for entry in interfaces]
+
+
+@router.post(
+    "/{probe_id}/sensors/{sensor_name}/interfaces/{interface}/reserve",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def reserve_probe_interface(
+    probe_id: str,
+    sensor_name: str,
+    interface: str,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_CONFIGURE))
+    ],
+) -> JobAccepted:
+    return await _interface_job(
+        probes,
+        jobs,
+        audit,
+        principal,
+        probe_id=probe_id,
+        sensor_name=sensor_name,
+        interface=interface,
+        job_type=sensor_actions.RESERVE_INTERFACE_JOB_TYPE,
+        steps=sensor_actions.RESERVE_INTERFACE_STEPS,
+        action="sensor.reserve_interface",
+    )
+
+
+@router.post(
+    "/{probe_id}/sensors/{sensor_name}/interfaces/{interface}/release",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def release_probe_interface(
+    probe_id: str,
+    sensor_name: str,
+    interface: str,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_CONFIGURE))
+    ],
+) -> JobAccepted:
+    return await _interface_job(
+        probes,
+        jobs,
+        audit,
+        principal,
+        probe_id=probe_id,
+        sensor_name=sensor_name,
+        interface=interface,
+        job_type=sensor_actions.RELEASE_INTERFACE_JOB_TYPE,
+        steps=sensor_actions.RELEASE_INTERFACE_STEPS,
+        action="sensor.release_interface",
+    )
+
+
+async def _interface_job(
+    probes: ProbeService,
+    jobs: JobService,
+    audit: AuditWriter,
+    principal: Principal,
+    *,
+    probe_id: str,
+    sensor_name: str,
+    interface: str,
+    job_type: str,
+    steps: tuple[str, ...],
+    action: str,
+) -> JobAccepted:
+    """Reserving and releasing differ in one helper call and nothing else."""
+    record = await probes.get_record(probe_id)
+    job = await jobs.create(
+        JobRequest(
+            type=job_type,
+            steps=steps,
+            resources=(ResourceRef("probe", record.id),),
+            target_type="probe",
+            target_id=record.id,
+            target_label=f"{interface} @ {record.nats_username}",
+            payload={
+                "probe": record.nats_username,
+                "sensor": sensor_name,
+                "interface": interface,
+            },
+        ),
+        principal,
+    )
+    audit.record(
+        action=action,
+        object_type="probe",
+        object_id=record.id,
+        object_label=record.nats_username,
+        after={"sensor": sensor_name, "interface": interface},
+        job_id=job.id,
     )
     return JobAccepted(
         job_id=job.id,

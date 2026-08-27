@@ -25,6 +25,12 @@ WRITE_PROFILE_JOB_TYPE = "sensor.write_profile"
 REMOVE_PROFILE_STEPS: tuple[str, ...] = ("resolve_targets", "remove")
 REMOVE_PROFILE_JOB_TYPE = "sensor.remove_profile"
 
+RESERVE_INTERFACE_STEPS: tuple[str, ...] = ("check_reachable", "reserve")
+RESERVE_INTERFACE_JOB_TYPE = "sensor.reserve_interface"
+
+RELEASE_INTERFACE_STEPS: tuple[str, ...] = ("check_reachable", "release")
+RELEASE_INTERFACE_JOB_TYPE = "sensor.release_interface"
+
 
 def _connection(context: JobContext, username: str) -> ProbeConnection:
     inventory = context.runtime.read_probe(username)
@@ -84,6 +90,53 @@ async def remove(context: JobContext) -> dict[str, Any]:
     await context.step("bookkeeping")
     forget_sensor(context, username, sensor)
     return {"probe": username, "sensor": sensor}
+
+
+async def reserve_interface(context: JobContext) -> dict[str, Any]:
+    """Hand one radio interface to a sensor for its tests.
+
+    The probe decides whether it may: it refuses an interface that is not
+    wireless, does not exist, or carries the host's only default route. What
+    arrives here as a failed job is that refusal, with its reason.
+
+    No bookkeeping follows. The reservation lives on the probe, and the cache
+    catches up through the refresh every job gets - the file the probe writes
+    is the same one it reports back in its sensor list.
+    """
+    username: str = context.payload["probe"]
+    sensor: str = context.payload["sensor"]
+    interface: str = context.payload["interface"]
+    connection = _connection(context, username)
+
+    await context.step("check_reachable")
+    await context.helper.probe_info(connection)
+
+    await context.step("reserve")
+    await context.helper.reserve_interface(connection, sensor, interface)
+    await context.log(
+        "jobs.sensor.interface_reserved",
+        params={"probe": username, "sensor": sensor, "interface": interface},
+    )
+    return {"probe": username, "sensor": sensor, "interface": interface}
+
+
+async def release_interface(context: JobContext) -> dict[str, Any]:
+    """Give one interface back to ordinary management."""
+    username: str = context.payload["probe"]
+    sensor: str = context.payload["sensor"]
+    interface: str = context.payload["interface"]
+    connection = _connection(context, username)
+
+    await context.step("check_reachable")
+    await context.helper.probe_info(connection)
+
+    await context.step("release")
+    await context.helper.release_interface(connection, sensor, interface)
+    await context.log(
+        "jobs.sensor.interface_released",
+        params={"probe": username, "sensor": sensor, "interface": interface},
+    )
+    return {"probe": username, "sensor": sensor, "interface": interface}
 
 
 async def deploy_profiles(context: JobContext) -> dict[str, Any]:
