@@ -116,10 +116,20 @@ export function LiveLog({
   jobId,
   initialEvents,
   live,
+  onStatusChange,
 }: {
   jobId: string
   initialEvents: JobEvent[]
   live: boolean
+  /**
+   * Called when the server reports a status or step change on this job.
+   *
+   * The stream already carries these; nobody was listening, so the step list
+   * could only move as fast as whatever was polling for it. Steps that take
+   * less time than the poll interval - the preflight and the backup, usually -
+   * were over before anything asked, and appeared never to have run.
+   */
+  onStatusChange?: () => void
 }) {
   const { t } = useTranslation()
   const [events, setEvents] = useState<JobEvent[]>(initialEvents)
@@ -135,6 +145,12 @@ export function LiveLog({
   // has to follow the merged list rather than either of its two sources.
   const lastSequence = useRef(initialEvents.at(-1)?.sequence ?? 0)
   const bottom = useRef<HTMLDivElement>(null)
+  // Held in a ref so a caller passing an inline function does not tear the
+  // stream down and rebuild it on every render.
+  const notify = useRef(onStatusChange)
+  useEffect(() => {
+    notify.current = onStatusChange
+  }, [onStatusChange])
 
   useEffect(() => {
     setEvents((current) => mergeEvents(current, initialEvents))
@@ -175,6 +191,9 @@ export function LiveLog({
     source.addEventListener('job.event', (message) => {
       const event = JSON.parse((message as MessageEvent<string>).data) as JobEvent
       setEvents((current) => mergeEvents(current, [event]))
+    })
+    source.addEventListener('job.status', () => {
+      notify.current?.()
     })
     source.addEventListener('end', () => {
       // The job finished and said so; that is not a dropped connection, and

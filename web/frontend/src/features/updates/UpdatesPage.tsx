@@ -1,8 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import {
+  keys,
   useCheckForUpdate,
   useJob,
   useJobLog,
@@ -43,6 +45,7 @@ type Phase = 'idle' | 'running' | 'waiting' | 'settled'
 
 export function UpdatesPage() {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const version = useStackVersion()
   const check = useCheckForUpdate()
   const start = useStartUpdate()
@@ -96,6 +99,14 @@ export function UpdatesPage() {
   useEffect(() => {
     if (phase === 'running' && jobId && job.isError) goAway()
   }, [phase, jobId, job.isError, goAway])
+
+  // The server announces every step change on the stream. Acting on it is
+  // what makes the tiles move in step with the run rather than at whatever
+  // interval something happens to be polling - a preflight that takes two
+  // seconds is otherwise over before anything asks about it.
+  const onStatusChange = useCallback(() => {
+    void client.invalidateQueries({ queryKey: keys.job(jobId ?? '') })
+  }, [client, jobId])
 
   const onBack = useCallback(() => {
     setPhase('settled')
@@ -180,7 +191,7 @@ export function UpdatesPage() {
       )}
 
       {jobId && job.data && (
-        <Card title={t('updates.progress')}>
+        <Card title={t('updates.progress')} className="[&>div]:space-y-4">
           <JobSteps job={job.data} />
           {phase !== 'waiting' && (
             <LiveLog
@@ -188,6 +199,7 @@ export function UpdatesPage() {
               jobId={jobId}
               initialEvents={log.data ?? []}
               live={!isTerminal(job.data.status)}
+              onStatusChange={onStatusChange}
             />
           )}
         </Card>
