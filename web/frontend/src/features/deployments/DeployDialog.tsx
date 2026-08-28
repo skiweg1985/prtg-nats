@@ -2,9 +2,17 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { useCreateDeployment, useProbes, useSensors } from '@/api/hooks'
+import {
+  useCreateDeployment,
+  useIperfEndpoints,
+  useProbes,
+  useSensor,
+  useSensors,
+} from '@/api/hooks'
+import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  Banner,
   Button,
   Dialog,
   Field,
@@ -174,6 +182,14 @@ export function DeployDialog({
           </div>
         </fieldset>
 
+        {chosenSensor?.iperf_kind && (
+          <IperfReadiness
+            kind={chosenSensor.iperf_kind}
+            sensor={chosenSensor.name}
+            selected={selected}
+          />
+        )}
+
         <label className="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -204,5 +220,57 @@ export function DeployDialog({
         </div>
       </div>
     </Dialog>
+  )
+}
+
+/**
+ * Whether the sensor about to go out will find anything to measure against.
+ *
+ * A rollout writes the script and, on a probe that holds none yet, seeds it
+ * with every registered endpoint - which is why the warning only counts probes
+ * that already have the sensor. Without that limit it would fire on every
+ * first rollout, and a warning that is always on is not read.
+ */
+function IperfReadiness({
+  kind,
+  sensor,
+  selected,
+}: {
+  kind: string
+  sensor: string
+  selected: Set<string>
+}) {
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  // Asking at all is the point of the gate: without the permission the answer
+  // would be a 403 on a page that never mentioned endpoints.
+  const { data: endpoints } = useIperfEndpoints(can('iperf.read'))
+  const { data: detail } = useSensor(sensor)
+  const { data: probes } = useProbes()
+
+  if (!can('iperf.read') || !endpoints) return null
+
+  const matching = endpoints.filter((endpoint) => endpoint.kind === kind)
+  if (matching.length === 0) {
+    return (
+      <Banner tone="warn">{t('deployments.iperf.noEndpoints')}</Banner>
+    )
+  }
+
+  if (!detail || !probes) return null
+  const installed = new Set(detail.probes)
+  const holding = new Set(
+    matching.flatMap((endpoint) => endpoint.holders.map((holder) => holder.probe)),
+  )
+  const without = (probes ?? [])
+    .filter((probe) => selected.has(probe.id))
+    .map((probe) => probe.nats_username)
+    .filter((username) => installed.has(username) && !holding.has(username))
+
+  if (without.length === 0) return null
+  return (
+    <Banner tone="warn">
+      {t('deployments.iperf.probesWithout', { probes: without.join(', ') })}
+    </Banner>
   )
 }

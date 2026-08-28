@@ -3,13 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
-  useEndpointDeployment,
   useIperfEndpoints,
-  useProbes,
   useProvisionEndpoint,
   useRegisterEndpoint,
-  useRemoveEndpoint,
-  useRotateEndpoint,
   useScanHostKeys,
 } from '@/api/hooks'
 import type { HostKeyScan, IperfEndpoint } from '@/api/types'
@@ -27,6 +23,10 @@ import {
   Input,
   Mono,
 } from '@/components/ui/primitives'
+
+import { RemoveDialog, RotateDialog } from './IperfEndpointDialogs'
+import { IperfProbesDialog } from './IperfProbesDialog'
+import { endpointsHeldByProbe } from './iperfProfiles'
 import { PermissionGate } from '@/app/providers'
 import { formatRelative } from '@/utils/format'
 
@@ -60,6 +60,9 @@ export function IperfPage() {
           {!row.managed && (
             <Badge tone="neutral">{t('infrastructure.iperf.foreign')}</Badge>
           )}
+          {row.holders.length === 0 && (
+            <Badge tone="warn">{t('infrastructure.iperf.notDeployed')}</Badge>
+          )}
         </span>
       ),
     },
@@ -81,17 +84,22 @@ export function IperfPage() {
       key: 'deployed',
       header: t('infrastructure.iperf.columns.deployedTo'),
       align: 'right',
-      sortValue: (row) => row.deployed_to.length,
+      sortValue: (row) => row.holders.length,
       // The count is the way in, not a read-out: it is the question somebody
       // has when they look at this column, and the answer is the probe list.
+      // The row leads to the endpoint; this cell keeps the click that opens
+      // the assignment straight away.
       cell: (row) => (
         <button
           type="button"
-          onClick={() => setAssigning(row)}
-          title={row.deployed_to.join(', ') || undefined}
+          onClick={(event) => {
+            event.stopPropagation()
+            setAssigning(row)
+          }}
+          title={row.holders.map((holder) => holder.probe).join(', ') || undefined}
           className="text-ink hover:text-accent text-sm underline underline-offset-2"
         >
-          {row.deployed_to.length}
+          {row.holders.length}
         </button>
       ),
     },
@@ -108,7 +116,10 @@ export function IperfPage() {
       align: 'right',
       cell: (row) => (
         <PermissionGate permission="iperf.manage">
-          <span className="flex justify-end gap-2">
+          <span
+            className="flex justify-end gap-2"
+            onClick={(event) => event.stopPropagation()}
+          >
             <RotateButton endpoint={row} onStart={() => setRotating(row)} />
             <Button size="sm" variant="ghost" onClick={() => setRemoving(row)}>
               {t('common.remove')}
@@ -144,6 +155,7 @@ export function IperfPage() {
         rowKey={(row) => row.name}
         isLoading={isLoading}
         emptyTitle={t('infrastructure.iperfEmpty')}
+        rowHref={(row) => `/infrastructure/iperf/${row.name}`}
       />
 
       {dialog === 'provision' && <ProvisionDialog onClose={() => setDialog(null)} />}
@@ -152,7 +164,11 @@ export function IperfPage() {
         <RotateDialog endpoint={rotating} onClose={() => setRotating(null)} />
       )}
       {assigning && (
-        <ProbesDialog endpoint={assigning} onClose={() => setAssigning(null)} />
+        <IperfProbesDialog
+          endpoint={assigning}
+          heldByProbe={endpointsHeldByProbe(data)}
+          onClose={() => setAssigning(null)}
+        />
       )}
       {removing && (
         <RemoveDialog endpoint={removing} onClose={() => setRemoving(null)} />
@@ -201,6 +217,9 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
         <Banner tone="ok" title={t('infrastructure.iperf.startedTitle')}>
           <div className="space-y-2">
             <p>{t('infrastructure.iperf.startedBody')}</p>
+            {/* No link to the endpoint page: the record is written by the job,
+                so until it finishes there is nothing there to look at. */}
+            <p>{t('infrastructure.iperf.startedNext')}</p>
             <Link to={`/jobs/${started}`}>
               <Button size="sm" variant="primary">
                 {t('probes.enroll.step3.toJob')}
@@ -403,6 +422,7 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
 
 function RegisterDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const register = useRegisterEndpoint()
 
   const [name, setName] = useState('')
@@ -507,7 +527,14 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
                   password,
                   public_key_pem: publicKey || null,
                 },
-                { onSuccess: onClose },
+                {
+                  // The record exists the moment this returns, and the page it
+                  // lands on is the one that says what is still missing.
+                  onSuccess: (endpoint) => {
+                    onClose()
+                    navigate(`/infrastructure/iperf/${endpoint.name}`)
+                  },
+                },
               )
             }
           >
@@ -538,255 +565,6 @@ function RotateButton({
   )
 }
 
-/**
- * Ask first, then say where it went.
- *
- * The button used to start the job on a single click and report neither its id
- * nor its failure: a new password went out to every probe measuring against
- * this endpoint and nothing on screen changed. What the tooltip said is what
- * this dialog says, at the moment it matters.
- */
-function RotateDialog({
-  endpoint,
-  onClose,
-}: {
-  endpoint: IperfEndpoint
-  onClose: () => void
-}) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const rotate = useRotateEndpoint()
-
-  return (
-    <Dialog title={t('infrastructure.iperf.rotateTitle')} onClose={onClose}>
-      <div className="space-y-4">
-        <p className="text-ink-2 text-sm">
-          {t('infrastructure.iperf.rotateBody', {
-            name: endpoint.name,
-            count: endpoint.deployed_to.length,
-          })}
-        </p>
-
-        {rotate.error != null && <ErrorDetails error={rotate.error} />}
-
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={rotate.isPending}
-            onClick={() =>
-              rotate.mutate(endpoint.name, {
-                onSuccess: (accepted) => {
-                  onClose()
-                  navigate(`/jobs/${accepted.job_id}`)
-                },
-              })
-            }
-          >
-            {rotate.isPending
-              ? t('infrastructure.iperf.rotating')
-              : t('infrastructure.iperf.rotate')}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  )
-}
-
-function RemoveDialog({
-  endpoint,
-  onClose,
-}: {
-  endpoint: IperfEndpoint
-  onClose: () => void
-}) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const remove = useRemoveEndpoint()
-  const [keepService, setKeepService] = useState(false)
-
-  return (
-    <Dialog title={t('infrastructure.iperf.removeTitle')} onClose={onClose}>
-      <div className="space-y-4">
-        <p className="text-ink-2 text-sm">
-          {t('infrastructure.iperf.removeBody', {
-            name: endpoint.name,
-            count: endpoint.deployed_to.length,
-          })}
-        </p>
-
-        {endpoint.managed ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={keepService}
-              onChange={(event) => setKeepService(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">{t('infrastructure.iperf.keepService')}</span>
-              <span className="text-ink-3 block text-xs">
-                {t('infrastructure.iperf.keepServiceHint')}
-              </span>
-            </span>
-          </label>
-        ) : (
-          <Banner tone="warn" title={t('infrastructure.iperf.foreign')}>
-            {t('infrastructure.iperf.removeForeign')}
-          </Banner>
-        )}
-
-        {/* The package is never uninstalled: something else on that host may
-            be using it, and this platform did not always put it there. */}
-        <p className="text-ink-3 text-xs">{t('infrastructure.iperf.removePackage')}</p>
-
-        {remove.error != null && <ErrorDetails error={remove.error} />}
-
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="danger"
-            disabled={remove.isPending}
-            onClick={() =>
-              // Taking an endpoint away runs on the host as a job like any
-              // other, and the dialog closing was the only sign of it.
-              remove.mutate(
-                { name: endpoint.name, keepService },
-                {
-                  onSuccess: (accepted) => {
-                    onClose()
-                    navigate(`/jobs/${accepted.job_id}`)
-                  },
-                },
-              )
-            }
-          >
-            {t('common.remove')}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  )
-}
-
 // --- Bits --------------------------------------------------------------------
 
 
-/**
- * Which probes measure against this endpoint.
- *
- * The list is the assignment, not a snapshot of the last rollout: a sensor
- * deployment reads the same record, so a probe taken out here stays out
- * instead of getting the credentials back with the next deployment.
- *
- * Adding and removing are separate jobs rather than one "save" of the whole
- * set. They are separate operations on the probes - one writes a credential,
- * the other takes one away - and a single button hiding both would report one
- * outcome for two things that can fail independently.
- */
-function ProbesDialog({
-  endpoint,
-  onClose,
-}: {
-  endpoint: IperfEndpoint
-  onClose: () => void
-}) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { data: probes, isLoading } = useProbes()
-  const deploy = useEndpointDeployment('deploy')
-  const revoke = useEndpointDeployment('revoke')
-  const [selected, setSelected] = useState<string[]>([])
-
-  const holding = new Set(endpoint.deployed_to)
-  const running = deploy.isPending || revoke.isPending
-  const chosen = new Set(selected)
-  const toAdd = selected.filter((name) => !holding.has(name))
-  const toRemove = selected.filter((name) => holding.has(name))
-
-  const toggle = (name: string) =>
-    setSelected((current) =>
-      current.includes(name)
-        ? current.filter((entry) => entry !== name)
-        : [...current, name],
-    )
-
-  const start = (mutation: typeof deploy, names: string[]) =>
-    mutation.mutate(
-      { name: endpoint.name, probes: names },
-      {
-        onSuccess: (accepted) => {
-          onClose()
-          navigate(`/jobs/${accepted.job_id}`)
-        },
-      },
-    )
-
-  return (
-    <Dialog title={t('infrastructure.iperf.probesTitle')} onClose={onClose}>
-      <div className="space-y-4">
-        <p className="text-ink-2 text-sm">
-          {t('infrastructure.iperf.probesBody', { name: endpoint.name })}
-        </p>
-
-        {isLoading ? (
-          <p className="text-ink-3 text-sm">{t('common.loading')}</p>
-        ) : !probes || probes.length === 0 ? (
-          <p className="text-ink-3 text-sm">{t('infrastructure.iperf.probesEmpty')}</p>
-        ) : (
-          <ul className="divide-rule border-rule-2 rounded-control max-h-64 divide-y overflow-y-auto border">
-            {probes.map((probe) => (
-              <li key={probe.nats_username}>
-                <label className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={chosen.has(probe.nats_username)}
-                    onChange={() => toggle(probe.nats_username)}
-                  />
-                  <span className="text-ink min-w-0 flex-1 truncate">
-                    {probe.display_name || probe.nats_username}
-                  </span>
-                  {holding.has(probe.nats_username) && (
-                    <Badge tone="ok">{t('infrastructure.iperf.probeHolds')}</Badge>
-                  )}
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {deploy.error != null && <ErrorDetails error={deploy.error} />}
-        {revoke.error != null && <ErrorDetails error={revoke.error} />}
-
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          {/* Reading who holds what is part of seeing the endpoint at all;
-              changing it writes a credential to a probe, which is the
-              deployer's decision rather than the endpoint owner's. */}
-          <PermissionGate permission="sensor.deploy">
-            <Button
-              variant="danger"
-              disabled={running || toRemove.length === 0}
-              onClick={() => start(revoke, toRemove)}
-            >
-              {t('infrastructure.iperf.revokeFrom', { count: toRemove.length })}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={running || toAdd.length === 0}
-              onClick={() => start(deploy, toAdd)}
-            >
-              {t('infrastructure.iperf.deployTo', { count: toAdd.length })}
-            </Button>
-          </PermissionGate>
-        </div>
-      </div>
-    </Dialog>
-  )
-}

@@ -427,11 +427,17 @@ to be copied off the screen. Created centrally, it lives under
 | change the password | `./prtg-nats iperf-server install ADMIN@HOST --name NAME --rotate` |
 | forget an endpoint | `./prtg-nats iperf-server forget NAME` |
 
-`deploy` and `revoke` are also on the endpoint's row in the interface: the
-number under *Deployed to* opens the probe list and takes probes in or out
-there. Until that existed, widening what a probe held meant rolling the whole
-sensor out again and narrowing it meant a terminal - which made `revoke` the
-one operation the interface could not perform.
+`deploy` and `revoke` are also in the interface, on the endpoint's own page:
+the row in *Infrastructure → iperf* leads there, and *Assign probes* takes
+probes in or out. Until that existed, widening what a probe held meant rolling
+the whole sensor out again and narrowing it meant a terminal - which made
+`revoke` the one operation the interface could not perform.
+
+That page states, per probe, whether a PRTG object needs `--profile` at all -
+the answer belongs to the pair, not to the endpoint. It also names the probes
+that hold the credentials without having the sensor installed, and the
+assignment dialog warns before handing a probe its second endpoint, because
+that is the moment `default` disappears.
 
 **The credentials reach the probe as a profile**, over the path from the
 previous section. The profile is named after the endpoint; as long as a probe

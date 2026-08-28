@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import {
   useConfigureProbe,
   useExecuteReconcile,
+  useIperfEndpoints,
   useProbe,
   useProbeAction,
   useProbePlan,
@@ -24,7 +25,7 @@ import type {
   SensorState,
   WirelessInterface,
 } from '@/api/types'
-import { PermissionGate } from '@/app/providers'
+import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -328,7 +329,7 @@ export function ProbeDetailPage() {
       </nav>
 
       {tab === 'overview' && <OverviewTab detail={data} />}
-      {tab === 'sensors' && <SensorsTab probeId={probeId} sensors={data.sensors} />}
+      {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
       {tab === 'deviations' && <DeviationsTab probeId={probeId} detail={data} />}
       {tab === 'diagnostics' && <DiagnosticsTab detail={data} />}
     </div>
@@ -644,8 +645,9 @@ function InterfacesCard({
   )
 }
 
-function SensorsTab({ probeId, sensors }: { probeId: string; sensors: SensorState[] }) {
+function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail }) {
   const { t } = useTranslation()
+  const sensors = detail.sensors
   const navigate = useNavigate()
   const removeSensor = useRemoveSensorFromProbe()
 
@@ -714,6 +716,7 @@ function SensorsTab({ probeId, sensors }: { probeId: string; sensors: SensorStat
         rowKey={(row) => row.name}
         emptyTitle={t('sensors.empty')}
       />
+      <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />
     </div>
   )
@@ -851,19 +854,86 @@ function DiagnosticsTab({ detail }: { detail: ProbeDetail }) {
         <DetailRow label={t('probes.pendingTransaction')}>
           <Mono>{inventory.pending_transaction || '—'}</Mono>
         </DetailRow>
-        <DetailRow label={t('nav.iperf')}>
-          {inventory.known_iperf_endpoints.length ? (
-            <Mono>{inventory.known_iperf_endpoints.join(', ')}</Mono>
-          ) : (
-            '—'
-          )}
-        </DetailRow>
       </dl>
       {observed?.error_details && (
         <pre className="bg-surface-2 rounded-inset text-ink-2 mt-3 max-h-48 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
           {observed.error_details}
         </pre>
       )}
+    </Card>
+  )
+}
+
+/**
+ * The measurement endpoints this probe holds credentials for.
+ *
+ * A held endpoint is a resource a probe carries for a sensor, the same as a
+ * reserved interface - which is why it sits here rather than under diagnostics
+ * as a list of bare names. The parameter beside each name is the one that
+ * probe's PRTG objects need, and it depends on how many the probe holds: alone
+ * it needs none, from two on it needs the profile.
+ *
+ * A name the registry no longer knows still shows: the file on the probe says
+ * it, and a sensor reading it there is a real state rather than a display bug.
+ */
+function EndpointsCard({ detail }: { detail: ProbeDetail }) {
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  const { data: endpoints } = useIperfEndpoints(can('iperf.read'))
+
+  const held = detail.inventory.known_iperf_endpoints
+  if (held.length === 0) return null
+
+  const known = new Map((endpoints ?? []).map((entry) => [entry.name, entry]))
+
+  return (
+    <Card title={t('probes.iperf.title')}>
+      <ul className="divide-rule divide-y">
+        {held.map((name) => {
+          const endpoint = known.get(name)
+          const holder = endpoint?.holders.find(
+            (entry) => entry.probe === detail.summary.nats_username,
+          )
+          return (
+            <li
+              key={name}
+              className="flex flex-wrap items-center justify-between gap-2 py-2"
+            >
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                {endpoint ? (
+                  <Link
+                    to={`/infrastructure/iperf/${name}`}
+                    className="text-ink hover:underline"
+                  >
+                    <Mono>{name}</Mono>
+                  </Link>
+                ) : (
+                  <Mono>{name}</Mono>
+                )}
+                {endpoint ? (
+                  <span className="text-ink-3 text-xs">
+                    {endpoint.host}:{endpoint.port}
+                  </span>
+                ) : (
+                  <Badge tone="warn">
+                    {t('infrastructure.iperf.unknownEndpoint')}
+                  </Badge>
+                )}
+              </span>
+              {holder &&
+                (holder.parameter_line === '' ? (
+                  <Badge tone="ok">
+                    {t('infrastructure.iperf.noParameterNeeded')}
+                  </Badge>
+                ) : (
+                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                    {holder.parameter_line}
+                  </code>
+                ))}
+            </li>
+          )
+        })}
+      </ul>
     </Card>
   )
 }

@@ -31,7 +31,14 @@ const ENDPOINTS = [
     updated_at: '2026-08-01T10:00:00Z',
     has_public_key: true,
     managed: true,
-    deployed_to: ['mpp-berlin'],
+    holders: [
+      {
+        probe: 'mpp-berlin',
+        endpoints_held: 1,
+        uses_default_alias: true,
+        parameter_line: '',
+      },
+    ],
   },
   {
     name: 'provider',
@@ -42,7 +49,7 @@ const ENDPOINTS = [
     updated_at: '2026-08-01T10:00:00Z',
     has_public_key: true,
     managed: false,
-    deployed_to: [],
+    holders: [],
   },
 ]
 
@@ -135,6 +142,21 @@ describe('IperfPage', () => {
     // Its password is not ours to rotate, so the button is not offered.
     const rotate = screen.getAllByRole('button', { name: /change password/i })
     expect(rotate).toHaveLength(1)
+  })
+
+  it('leads to the endpoint, and says which one nothing measures against', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    // The row is the way in: what a PRTG object needs is per probe, so the
+    // answer cannot be a column here.
+    expect(await screen.findByRole('link', { name: 'berlin' })).toHaveAttribute(
+      'href',
+      '/infrastructure/iperf/berlin',
+    )
+    const notDeployed = screen.getAllByText('not deployed')
+    expect(notDeployed).toHaveLength(1)
+    expect(notDeployed[0].closest('tr')).toHaveTextContent('provider')
   })
 
   it('asks for no credential before the host keys have been seen', async () => {

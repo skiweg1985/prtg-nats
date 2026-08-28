@@ -483,11 +483,28 @@ and what the sensor script reads to find the file.
 | `GET /certificates` | CA and server certificate |
 | `POST /certificates/server/renew` | → job, restarts NATS |
 | `GET /iperf-endpoints` | measurement endpoints and who holds credentials |
+| `GET /iperf-endpoints/{name}` | one of them, same shape as a list entry |
 | `GET /audit-events` | filter by actor, action, object, result, time |
 
 An endpoint carries `managed`. It is false for one somebody else operates,
 registered here rather than set up from here: its password is not ours to
 rotate, and removing it takes nothing off that host.
+
+`holders` says who holds the credentials, and what a sensor object in PRTG has
+to say to use them. It is a list rather than the bare names it replaced because
+the answer belongs to the pair, not to the endpoint:
+
+```json
+{"probe": "mpp-berlin", "endpoints_held": 1,
+ "uses_default_alias": true, "parameter_line": ""}
+```
+
+`endpoints_held` counts the registered endpoints that probe holds in total. At
+one it also carries the `default` profile alias, so the sensor reads address,
+port and user out of it and `parameter_line` is empty - which is the answer,
+not a missing one. From two on the alias is gone and the line names the
+profile, `--profile berlin`. The selector comes from the sensor's own parameter
+declaration, so a sensor calling it `--variant` is quoted with `--variant`.
 
 ### Web accounts
 

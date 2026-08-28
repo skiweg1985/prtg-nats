@@ -36,7 +36,20 @@ const ENDPOINTS = [
     updated_at: '2026-08-01T10:00:00Z',
     has_public_key: true,
     managed: true,
-    deployed_to: ['mpp-berlin-01', 'mpp-hamburg-02'],
+    holders: [
+      {
+        probe: 'mpp-berlin-01',
+        endpoints_held: 2,
+        uses_default_alias: false,
+        parameter_line: '--profile berlin',
+      },
+      {
+        probe: 'mpp-hamburg-02',
+        endpoints_held: 1,
+        uses_default_alias: true,
+        parameter_line: '',
+      },
+    ],
   },
 ]
 

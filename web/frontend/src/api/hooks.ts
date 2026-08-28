@@ -436,10 +436,22 @@ export function useCertificates() {
   })
 }
 
-export function useIperfEndpoints() {
+export function useIperfEndpoints(enabled = true) {
   return useQuery({
     queryKey: keys.iperf,
     queryFn: () => api.get<IperfEndpoint[]>('/iperf-endpoints'),
+    // The argument is for callers that only sometimes need the list - the
+    // rollout dialog asks only for a sensor that measures against an endpoint,
+    // and only when the reader may see them at all.
+    enabled,
+  })
+}
+
+export function useIperfEndpoint(name: string | undefined) {
+  return useQuery({
+    queryKey: [...keys.iperf, name],
+    queryFn: () => api.get<IperfEndpoint>(`/iperf-endpoints/${name}`),
+    enabled: Boolean(name),
   })
 }
 
