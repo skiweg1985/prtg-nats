@@ -49,6 +49,7 @@ from app.infrastructure.sensor_catalog import (
     SensorDefinition,
     SensorSchema,
     default_parameter_line,
+    profile_parameter_line,
     render_parameter_line,
 )
 from app.persistence.models.inventory import ProbeObservedState, ProbeRecord
@@ -253,25 +254,8 @@ def _profile_out(record: SensorProfileRecord, schema: SensorSchema) -> SensorPro
             )
             for entry in record.files
         ],
-        parameter_line=_variant_parameter_line(schema, record.name),
+        parameter_line=profile_parameter_line(schema, record.name),
     )
-
-
-def _variant_parameter_line(schema: SensorSchema, profile: str) -> str:
-    """What to paste into PRTG so the sensor picks up this variant.
-
-    Every sensor that reads a profile names the option --profile; if one ever
-    calls it something else, the declaration is where that is said.
-    """
-    selector = next(
-        (
-            parameter.name
-            for parameter in schema.parameters
-            if parameter.name in ("--profile", "--variant")
-        ),
-        "--profile",
-    )
-    return f"{selector} {profile}"
 
 
 @router.get("/{name}/profiles", response_model=list[SensorProfileOut])
@@ -320,7 +304,7 @@ async def get_profile(
         updated_at=base.updated_at if base else None,
         probes=base.probes if base else [],
         files=base.files if base else [],
-        parameter_line=_variant_parameter_line(schema, profile),
+        parameter_line=profile_parameter_line(schema, profile),
         values={key: value for key, value in stored.items() if key not in secret_keys},
         secrets_set=sorted(key for key in stored if key in secret_keys and stored[key]),
     )
