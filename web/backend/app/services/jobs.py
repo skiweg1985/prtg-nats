@@ -160,6 +160,17 @@ class JobService:
         await self._db.flush()
         return retry
 
+    async def detach(self, job: Job) -> None:
+        """Hand the job over to something that outlives this process.
+
+        Not terminal: the outcome is still to come, from whoever picks the
+        record up next. What it buys is that the shutdown this job is about to
+        cause does not get recorded as somebody cancelling it.
+        """
+        job.status = JobStatus.DETACHED
+        await self._persist()
+        await self._publish_status(job)
+
     async def request_cancel(self, job_id: str) -> Job:
         job = await self.get(job_id)
         if job.status.is_terminal:

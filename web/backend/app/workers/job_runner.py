@@ -227,7 +227,14 @@ class JobRunner:
                     error_details=error.details,
                 )
             except asyncio.CancelledError:
-                await jobs.finish(job, JobStatus.CANCELLED)
+                # A detached job is not being cancelled here - it is carrying
+                # on somewhere this process cannot see. The stack update hands
+                # its work to a container and then gets shut down *by that
+                # work*, so this path is reached on every successful update;
+                # marking it cancelled reported the update that just worked as
+                # abandoned by the operator.
+                if job.status is not JobStatus.DETACHED:
+                    await jobs.finish(job, JobStatus.CANCELLED)
                 raise
             except Exception as exc:
                 await self._mark_steps_failed(jobs, job)
