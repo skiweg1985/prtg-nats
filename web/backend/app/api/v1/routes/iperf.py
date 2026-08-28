@@ -127,6 +127,17 @@ class ProvisionIn(ApiModel):
         return None if value is None else valid_source_cidr(value)
 
 
+class ProbeSelection(ApiModel):
+    """Which probes an endpoint's credentials are handed to, or taken from.
+
+    Named explicitly rather than offering an "all probes" flag. The set is
+    small, it is on screen when the choice is made, and a request that names
+    its targets is one an audit entry can be read back from a year later.
+    """
+
+    probes: list[str] = Field(min_length=1, max_length=512)
+
+
 class RegisterIn(ApiModel):
     """An endpoint somebody else operates.
 
@@ -461,6 +472,114 @@ async def rotate_password(
     )
 
 
+@router.post(
+    "/{name}/deploy", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def deploy_to_probes(
+    name: str,
+    payload: ProbeSelection,
+    runtime: RuntimeDep,
+    catalog: CatalogDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_DEPLOY))
+    ],
+) -> JobAccepted:
+    """Hand this endpoint's credentials to the probes that were named.
+
+    Without this the only way to widen what a probe measures against was to
+    roll the whole sensor out again - and the interface could not narrow it at
+    all, which left "revoke" as the one operation that needed a terminal.
+    """
+    _require_endpoint(runtime, name)
+    probes = _known_probes(runtime, payload.probes)
+
+    job = await jobs.create(
+        JobRequest(
+            type=iperf_provisioning.DEPLOY_JOB_TYPE,
+            steps=iperf_provisioning.DEPLOY_STEPS,
+            resources=tuple(ResourceRef("probe", probe) for probe in probes),
+            target_type="iperf_endpoint",
+            target_id=name,
+            target_label=f"{name} → {len(probes)} probe(s)",
+            payload={
+                "name": name,
+                "probes": probes,
+                "sensors": _endpoint_sensors(catalog),
+            },
+        ),
+        principal,
+    )
+    audit.record(
+        action="iperf.deploy",
+        object_type="iperf_endpoint",
+        object_id=name,
+        object_label=name,
+        job_id=job.id,
+        after={"probes": probes},
+    )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
+@router.post(
+    "/{name}/revoke", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def revoke_from_probes(
+    name: str,
+    payload: ProbeSelection,
+    runtime: RuntimeDep,
+    catalog: CatalogDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_DEPLOY))
+    ],
+) -> JobAccepted:
+    """Take this endpoint's credentials off the probes that were named.
+
+    The endpoint itself is not touched: it keeps running for everybody else,
+    and the record here stays. Only these probes stop measuring against it -
+    and stay stopped, because the rollout reads the same assignment.
+    """
+    _require_endpoint(runtime, name)
+    probes = _known_probes(runtime, payload.probes)
+
+    job = await jobs.create(
+        JobRequest(
+            type=iperf_provisioning.REVOKE_JOB_TYPE,
+            steps=iperf_provisioning.REVOKE_STEPS,
+            resources=tuple(ResourceRef("probe", probe) for probe in probes),
+            target_type="iperf_endpoint",
+            target_id=name,
+            target_label=f"{name} ← {len(probes)} probe(s)",
+            payload={
+                "name": name,
+                "probes": probes,
+                "sensors": _endpoint_sensors(catalog),
+            },
+        ),
+        principal,
+    )
+    audit.record(
+        action="iperf.revoke",
+        object_type="iperf_endpoint",
+        object_id=name,
+        object_label=name,
+        job_id=job.id,
+        after={"probes": probes},
+    )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
 @router.delete(
     "/{name}", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
 )
@@ -535,6 +654,20 @@ def _require_endpoint(runtime: Any, name: str) -> Any:
         if endpoint.name == name:
             return endpoint
     raise NotFoundError.of("iperf_endpoint", name)
+
+
+def _known_probes(runtime: Any, requested: list[str]) -> list[str]:
+    """The named probes, checked against the inventory and de-duplicated.
+
+    A name that is not enrolled is refused rather than skipped: the request
+    said what it wanted, and a job that quietly did less than it was asked
+    leaves nobody to notice the typo.
+    """
+    enrolled = {probe.nats_username for probe in runtime.read_all_probes()}
+    unknown = sorted(set(requested) - enrolled)
+    if unknown:
+        raise NotFoundError.of("probe", ", ".join(unknown))
+    return sorted(set(requested))
 
 
 def _endpoint_sensors(catalog: Any) -> list[str]:

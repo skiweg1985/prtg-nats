@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-27
+updated: 2026-08-28
 ---
 
 # REST API
@@ -285,7 +285,17 @@ write the same record, so everything downstream treats the result identically.
 | `POST /iperf-endpoints` | → job: sign in once and install the access |
 | `POST /iperf-endpoints/register` | record one somebody else operates |
 | `POST /iperf-endpoints/{name}/rotate` | → job: new password, carried to the probes |
+| `POST /iperf-endpoints/{name}/deploy` | → job: hand the credentials to named probes |
+| `POST /iperf-endpoints/{name}/revoke` | → job: take them off named probes |
 | `DELETE /iperf-endpoints/{name}` | → job: take it off the probes and its host |
+
+`deploy` and `revoke` both take `{"probes": ["mpp-berlin", …]}` and need
+`sensor.deploy`, not `iperf.manage`: they write a credential to a probe, or
+take one away, rather than change the endpoint. A name that is not enrolled is
+refused rather than skipped, so a typo does not become a job that quietly did
+less than it was asked. What they write is the same assignment a sensor rollout
+reads, which is why a probe revoked here does not get the credentials back with
+the next deployment.
 
 **Push** is the usual way and the only one that works when the endpoint cannot
 reach this installation - which is most of the time for a host on a public

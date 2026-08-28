@@ -157,7 +157,10 @@ async def test_the_command_points_at_the_endpoint_script(
     assert issued["ca_sha256"] in command
     assert "sha256sum -c -" in command
     assert "--cacert" in command
-    assert "-k" not in command and "--insecure" not in command
+    # As words, not as substrings: the token is part of this command and
+    # secrets.token_urlsafe puts a literal "-k" in roughly one of a
+    # hundred, which failed this assertion for a reason nobody could see.
+    assert "-k" not in command.split() and "--insecure" not in command.split()
 
 
 async def test_a_second_endpoint_cannot_take_a_name_that_is_taken(

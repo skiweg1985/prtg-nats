@@ -485,6 +485,27 @@ export function useRotateEndpoint() {
   })
 }
 
+/**
+ * Which probes hold one endpoint's credentials.
+ *
+ * The list showed a "deployed to" count that nothing on this page could
+ * change: widening it meant rolling the whole sensor out again, narrowing it
+ * meant a terminal. Both directions are the same shape, so they are one hook
+ * with the verb as an argument.
+ */
+export function useEndpointDeployment(action: 'deploy' | 'revoke') {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, probes }: { name: string; probes: string[] }) =>
+      api.post<JobAccepted>(`/iperf-endpoints/${name}/${action}`, { probes }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: keys.probes })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
 export function useRemoveEndpoint() {
   const client = useQueryClient()
   return useMutation({

@@ -113,7 +113,10 @@ async def test_an_invitation_returns_a_command_and_the_ca_fingerprint(
     assert "sha256sum -c -" in command
     assert f"/enroll/{issued['token']}/bootstrap.sh" in command
     assert "--cacert" in command
-    assert "-k" not in command and "--insecure" not in command
+    # As words, not as substrings: the token is part of this command and
+    # secrets.token_urlsafe puts a literal "-k" in roughly one of a
+    # hundred, which failed this assertion for a reason nobody could see.
+    assert "-k" not in command.split() and "--insecure" not in command.split()
 
 
 async def test_the_one_liner_path_is_one_the_proxy_actually_forwards(

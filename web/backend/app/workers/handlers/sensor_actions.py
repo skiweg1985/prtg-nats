@@ -154,7 +154,12 @@ async def deploy_profiles(context: JobContext) -> dict[str, Any]:
 
     await context.step("deploy_profiles")
     definition = context.catalog.get(sensor)
-    await _deploy_endpoint_profiles(context, connection, definition, username)
+    # Seeding, not honouring the assignment: this job exists to widen what a
+    # probe holds, so asking it to deploy only what the probe already has would
+    # leave it doing nothing at all.
+    await _deploy_endpoint_profiles(
+        context, connection, definition, username, seed=True
+    )
     return {"probe": username, "sensor": sensor}
 
 

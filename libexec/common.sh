@@ -194,6 +194,18 @@ registered_iperf_servers() {
   shopt -u nullglob
 }
 
+# The endpoints one probe is meant to measure against. Here rather than beside
+# the rest of the endpoint management, because a sensor rollout reads it too:
+# it deploys what a probe is assigned, not everything the installation knows.
+assigned_iperf_servers() {
+  local username="$1"
+  local assignment=""
+
+  assignment="$(probe_iperf_path "${username}")"
+  [[ -f "${assignment}" ]] || return 0
+  grep -E -v '^[[:space:]]*(#.*)?$' "${assignment}" || true
+}
+
 # One interactive SSH session that every later step of a rollout borrows. It
 # exists because the bootstrap login is the one place where a password may be
 # asked for: without the shared master every scp and every ssh would ask

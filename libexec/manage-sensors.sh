@@ -225,10 +225,15 @@ deploy_sensor() {
   local slot=""
   local source_path=""
   local version=""
+  local first_rollout="false"
 
   directory="$(sensor_directory "${name}")"
   [[ -f "$(probe_path "${username}")" ]] ||
     die "Probe is not enrolled: ${username}"
+  # Read before remember_assignment below records the sensor: that is what
+  # tells a first rollout from a repeat, and the endpoint credentials are
+  # handled differently in the two cases.
+  assigned_sensors "${username}" | grep -q -x -- "${name}" || first_rollout="true"
   version="$(sensor_manifest_value "${directory}" SENSOR_VERSION)"
   [[ -n "${version}" ]] || die "The manifest of ${name} declares no version"
 
@@ -277,7 +282,7 @@ deploy_sensor() {
   remember_assignment "${username}" "${name}"
   printf 'Deployed sensor %s (version %s) to %s.\n' \
     "${name}" "${version}" "${username}"
-  deploy_sensor_iperf_servers "${directory}" "${username}"
+  deploy_sensor_iperf_servers "${directory}" "${username}" "${first_rollout}"
 }
 
 # A sensor that measures against an endpoint of its own is not a finished
@@ -288,11 +293,24 @@ deploy_sensor() {
 # The rollout is deliberately afterwards and not part of the transaction: the
 # sensor's self-test checks whether it can run, not whether it may measure. An
 # endpoint that does not exist yet must not roll the sensor back.
+#
+# Which endpoints those are is the probe's own assignment, not the whole
+# registry. A rollout that deployed everything would silently undo a revoke --
+# the one operation whose entire point is that a probe stops holding
+# credentials -- and spread every endpoint's password across every probe that
+# happens to run the sensor.
+#
+# Only the first rollout to a probe seeds that assignment with every registered
+# endpoint. Afterwards an empty assignment means what it says, rather than
+# "nothing has happened here yet"; the two cannot be told apart from the
+# sidecar alone, because it is deleted with its last entry.
 deploy_sensor_iperf_servers() {
   local directory="$1"
   local username="$2"
+  local first_rollout="$3"
   local kind=""
   local endpoints=()
+  local assigned_servers=()
   local endpoint=""
 
   kind="$(sensor_manifest_value "${directory}" SENSOR_IPERF)"
@@ -304,6 +322,18 @@ deploy_sensor_iperf_servers() {
     printf 'until one is set up:\n'
     printf '  ./prtg-nats iperf-server install ADMIN@HOST\n'
     return 0
+  fi
+  if [[ "${first_rollout}" != "true" ]]; then
+    mapfile -t assigned_servers < <(assigned_iperf_servers "${username}")
+    endpoints=()
+    for endpoint in "${assigned_servers[@]}"; do
+      # An assignment can outlive the endpoint it names - somebody forgot one
+      # while a probe was unreachable. Deploying it would only fail.
+      if registered_iperf_servers | grep -q -x -- "${endpoint}"; then
+        endpoints+=("${endpoint}")
+      fi
+    done
+    [[ "${#endpoints[@]}" -gt 0 ]] || return 0
   fi
   for endpoint in "${endpoints[@]}"; do
     "${SCRIPT_DIR}/manage-iperf-server.sh" deploy "${endpoint}" "${username}" ||

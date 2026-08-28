@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-27
+updated: 2026-08-28
 ---
 
 # Manage sensor scripts centrally
@@ -427,14 +427,41 @@ to be copied off the screen. Created centrally, it lives under
 | change the password | `./prtg-nats iperf-server install ADMIN@HOST --name NAME --rotate` |
 | forget an endpoint | `./prtg-nats iperf-server forget NAME` |
 
+`deploy` and `revoke` are also on the endpoint's row in the interface: the
+number under *Deployed to* opens the probe list and takes probes in or out
+there. Until that existed, widening what a probe held meant rolling the whole
+sensor out again and narrowing it meant a terminal - which made `revoke` the
+one operation the interface could not perform.
+
 **The credentials reach the probe as a profile**, over the path from the
-previous section. The profile is named after the endpoint; as long as only
-one is configured, also `default`, so the sensor works without `--profile`.
+previous section. The profile is named after the endpoint; as long as a probe
+holds only one, also `default`, so the sensor works there without `--profile`.
+
+`default` is an alias, and it is kept in step rather than written once. A
+second endpoint on that probe removes it, because from then on it stands for
+nothing in particular; a password rotation renews it along with the profile it
+mirrors; revoking or removing the endpoint takes it away. Which probe holds
+what decides, not what the installation knows: a probe with one endpoint keeps
+its `default` while another one measures against three.
+
+That matters because `default` is the profile a PRTG sensor object uses when
+nobody entered `--profile`. An alias left standing after the endpoint behind it
+changed produces a sensor that keeps measuring - against the wrong far end, or
+against one that no longer answers - instead of reporting that something is
+missing.
 
 **Whoever deploys the sensor deploys the credentials with it.** A sensor
 without them would only report `credentials-unreadable`; `sensor deploy`
 therefore takes care of the step itself. Which sensors are affected is stated
 by the `SENSOR_IPERF` field in their manifest.
+
+**A rollout deploys the endpoints a probe is assigned**, which is what
+`iperf-server deploy` and `revoke` maintain. The first rollout of the sensor to
+a probe is the exception: it has no assignment yet, so it is given every
+registered endpoint - otherwise deploying the sensor would leave a probe unable
+to measure. Every rollout after that respects the assignment, and an endpoint
+revoked from a probe stays revoked instead of returning with the next
+deployment.
 
 **What access stays behind depends on which way it was set up.** An endpoint
 installed with `iperf-server install` keeps none: every intervention signs in

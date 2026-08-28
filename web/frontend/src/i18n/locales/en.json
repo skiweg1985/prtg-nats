@@ -399,6 +399,7 @@
       "reconfigure_probe": "Reconfigure probe",
       "bookkeeping": "Bookkeeping",
       "deploy_profiles": "Deploy credential profiles",
+      "revoke_profiles": "Revoke credential profiles",
       "initialise": "Initialise",
       "start_containers": "Start containers",
       "remove": "Remove",
@@ -468,6 +469,9 @@
         "interface_reserved": "{{probe}}: {{interface}} is reserved for {{sensor}}",
         "interface_released": "{{probe}}: {{interface}} is back under normal management",
         "profile_deployed": "{{probe}}: credentials for endpoint {{endpoint}} deployed",
+        "variant_deployed": "{{probe}}: variant {{variant}} deployed",
+        "default_deployed": "{{probe}}: profile default now points at endpoint {{endpoint}}",
+        "default_cleared": "{{probe}}: profile default removed from {{sensor}} - it no longer stands for exactly one endpoint",
         "no_endpoints": "No measurement endpoint is registered; the sensor reports credentials-unreadable until one is deployed",
         "profile_file_deployed": "{{probe}}: {{file}} for variant {{profile}} transferred ({{bytes}} bytes)",
         "profile_resolved": "{{sensor}}: variant {{profile}} for {{probes}} probe(s)",
@@ -486,6 +490,9 @@
         "probe_skipped": "{{probe}} skipped: no inventory entry; the credentials for {{endpoint}} stay there",
         "profile_kept": "{{probe}}: {{sensor}} did not let go of the credentials for {{endpoint}}",
         "profile_revoked": "{{probe}}: credentials for {{endpoint}} revoked",
+        "targets": "{{endpoint}}: {{probes}} probe(s) selected",
+        "probe_not_reached": "{{probe}} did not receive the credentials for {{endpoint}} and cannot measure against it",
+        "profile_kept_on_probe": "{{probe}} could not be reached; the credentials for {{endpoint}} stay there, but it is no longer assigned them",
         "endpoint_removed": "{{endpoint}}: iperf3 service on {{host}} taken down",
         "endpoint_unreachable": "{{endpoint}}: {{host}} did not answer; the iperf3 service there remains",
         "unmanaged_left_alone": "{{endpoint}}: {{host}} is not managed from here and stays untouched",
@@ -617,7 +624,13 @@
       "startedBody": "The platform signs in, installs the access and sets up iperf3. The job carries the progress.",
       "startedTitle": "The endpoint is being set up",
       "rotateTitle": "Change the endpoint password",
-      "rotateBody": "A new password is set for \"{{name}}\" and handed to the {{count}} probe(s) measuring against it."
+      "rotateBody": "A new password is set for \"{{name}}\" and handed to the {{count}} probe(s) measuring against it.",
+      "probesTitle": "Probes measuring against this endpoint",
+      "probesBody": "Pick the probes that should hold the credentials of {{name}}. A probe taken out here stays out: deploying the sensor reads the same assignment.",
+      "probesEmpty": "No probe is enrolled.",
+      "probeHolds": "holds it",
+      "deployTo": "Deploy to {{count}}",
+      "revokeFrom": "Revoke from {{count}}"
     }
   },
   "settings": {
