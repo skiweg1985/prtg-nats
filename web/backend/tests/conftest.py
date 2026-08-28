@@ -223,6 +223,7 @@ def write_probe_inventory(
     access_key: str = "ACCESSKEY123",
     probe_name: str = "Example Probe",
     sensors: tuple[str, ...] = (),
+    endpoints: tuple[str, ...] = (),
 ) -> None:
     probes = project_dir / "runtime" / "probes"
     (probes / f"{username}.env").write_text(
@@ -238,6 +239,12 @@ def write_probe_inventory(
     if sensors:
         (probes / f"{username}.sensors").write_text(
             "\n".join(sensors) + "\n", encoding="utf-8"
+        )
+    # The sidecar the rollout writes, and the only place the answer to "which
+    # endpoints does this probe hold" exists.
+    if endpoints:
+        (probes / f"{username}.iperf").write_text(
+            "\n".join(endpoints) + "\n", encoding="utf-8"
         )
     credentials = project_dir / "runtime" / "credentials"
     (credentials / f"{username}.env").write_text(

@@ -4,6 +4,7 @@ import { AuthGate } from '@/features/auth/AuthGate'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { JobDetailPage, JobListPage } from '@/features/jobs/JobPages'
 import { CredentialsPage } from '@/features/infrastructure/CredentialsPage'
+import { IperfEndpointPage } from '@/features/infrastructure/IperfEndpointPage'
 import { IperfPage } from '@/features/infrastructure/IperfPage'
 import {
   AuditPage,
@@ -50,6 +51,7 @@ export function AppRoutes() {
             <Route path="nats" element={<NatsPage />} />
             <Route path="certificates" element={<CertificatesPage />} />
             <Route path="iperf" element={<IperfPage />} />
+            <Route path="iperf/:name" element={<IperfEndpointPage />} />
             <Route path="credentials" element={<CredentialsPage />} />
           </Route>
 

@@ -37,15 +37,17 @@ from app.api.deps.common import (
     require_permission,
 )
 from app.api.schemas.common import ApiModel
-from app.api.schemas.system import IperfEndpointOut
+from app.api.schemas.system import IperfEndpointOut, IperfHolderOut
 from app.api.v1.routes.enrollment import valid_source_cidr
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from app.core.permissions import Permission
 from app.infrastructure.runtime_files import NAME_PATTERN
+from app.infrastructure.sensor_catalog import profile_parameter_line
 from app.infrastructure.ssh_provisioning import scan_host_keys
 from app.services import job_secrets
 from app.services.jobs import JobRequest, ResourceRef
 from app.workers.handlers import iperf_provisioning
+from app.workers.handlers.deploy_sensor import default_endpoint
 
 router = APIRouter(prefix="/iperf-endpoints", tags=["infrastructure"])
 
@@ -165,7 +167,7 @@ class RegisterIn(ApiModel):
         return value
 
 
-def _endpoint_out(endpoint: Any, deployed: list[str]) -> IperfEndpointOut:
+def _endpoint_out(endpoint: Any, holders: list[IperfHolderOut]) -> IperfEndpointOut:
     return IperfEndpointOut(
         name=endpoint.name,
         host=endpoint.host,
@@ -175,33 +177,101 @@ def _endpoint_out(endpoint: Any, deployed: list[str]) -> IperfEndpointOut:
         updated_at=endpoint.updated_at,
         has_public_key=endpoint.has_public_key,
         managed=endpoint.managed,
-        deployed_to=sorted(deployed),
+        holders=sorted(holders, key=lambda holder: holder.probe),
     )
 
 
-def _deployment_map(runtime: Any) -> dict[str, list[str]]:
-    """Which probes hold credentials for each endpoint.
+def _endpoint_schema(catalog: Any, kind: str) -> Any:
+    """The schema of the sensor that measures against this kind of far end.
+
+    Asked of the catalogue rather than hard-coded, so the option a sensor names
+    its profile with is read from its own declaration. None when no sensor
+    measures against this kind - the line then falls back to --profile, which
+    is what the reader on the probe listens to regardless.
+    """
+    for definition in catalog.list():
+        if definition.iperf_kind == kind:
+            return definition.schema
+    return None
+
+
+def _holder_map(runtime: Any, catalog: Any) -> dict[str, list[IperfHolderOut]]:
+    """Which probes hold credentials for each endpoint, and what PRTG needs.
 
     Derived rather than stored: the probes record it themselves, in the sidecar
     the rollout writes, and that file is the only place the answer exists.
+
+    The alias is asked of default_endpoint rather than worked out again here.
+    It is the same question the rollout answers when it writes the profile, and
+    two implementations of it would mean the interface showing a line that does
+    not hold on the probe.
     """
-    deployed: dict[str, list[str]] = {}
+    held: dict[str, list[str]] = {}
     for probe in runtime.read_all_probes():
         for name in probe.known_iperf_endpoints:
-            deployed.setdefault(name, []).append(probe.nats_username)
-    return deployed
+            held.setdefault(name, []).append(probe.nats_username)
+
+    registered = {
+        endpoint.name: endpoint for endpoint in runtime.list_iperf_endpoints()
+    }
+    holders: dict[str, list[IperfHolderOut]] = {}
+    for name, probes in held.items():
+        endpoint = registered.get(name)
+        if endpoint is None:
+            # A probe remembering an endpoint the registry has forgotten. It is
+            # no holder of anything this platform can describe, and counting it
+            # would put a line on screen for a host that is gone.
+            continue
+        schema = _endpoint_schema(catalog, endpoint.kind)
+        for username in probes:
+            alias = default_endpoint(runtime, username)
+            holders.setdefault(name, []).append(
+                IperfHolderOut(
+                    probe=username,
+                    endpoints_held=len(
+                        [
+                            entry
+                            for entry in runtime.assigned_iperf(username)
+                            if entry in registered
+                        ]
+                    ),
+                    uses_default_alias=alias == name,
+                    parameter_line=(
+                        "" if alias == name else profile_parameter_line(schema, name)
+                    ),
+                )
+            )
+    return holders
 
 
 @router.get("", response_model=list[IperfEndpointOut])
 async def list_endpoints(
     runtime: RuntimeDep,
+    catalog: CatalogDep,
     _: Annotated[object, Depends(require_permission(Permission.IPERF_READ))],
 ) -> list[IperfEndpointOut]:
-    deployed = _deployment_map(runtime)
+    holders = _holder_map(runtime, catalog)
     return [
-        _endpoint_out(endpoint, deployed.get(endpoint.name, []))
+        _endpoint_out(endpoint, holders.get(endpoint.name, []))
         for endpoint in runtime.list_iperf_endpoints()
     ]
+
+
+@router.get("/{name}", response_model=IperfEndpointOut)
+async def get_endpoint(
+    name: str,
+    runtime: RuntimeDep,
+    catalog: CatalogDep,
+    _: Annotated[object, Depends(require_permission(Permission.IPERF_READ))],
+) -> IperfEndpointOut:
+    """One endpoint, with the probes holding it.
+
+    Its own route rather than a filter over the list: an endpoint that was
+    removed has to answer 404, and a page picking one out of a listing would
+    render itself empty instead.
+    """
+    endpoint = _require_endpoint(runtime, name)
+    return _endpoint_out(endpoint, _holder_map(runtime, catalog).get(name, []))
 
 
 @router.post("/host-keys", response_model=HostKeyScanOut)
@@ -436,7 +506,11 @@ async def rotate_password(
             details=f"{name} is operated elsewhere; its password is not ours to change",
         )
 
-    deployed = _deployment_map(runtime).get(name, [])
+    deployed = [
+        probe.nats_username
+        for probe in runtime.read_all_probes()
+        if name in probe.known_iperf_endpoints
+    ]
     job = await jobs.create(
         JobRequest(
             type=iperf_provisioning.ROTATE_JOB_TYPE,
@@ -608,7 +682,11 @@ async def remove_endpoint(
     last.
     """
     endpoint = _require_endpoint(runtime, name)
-    deployed = _deployment_map(runtime).get(name, [])
+    deployed = [
+        probe.nats_username
+        for probe in runtime.read_all_probes()
+        if name in probe.known_iperf_endpoints
+    ]
     job = await jobs.create(
         JobRequest(
             type=iperf_provisioning.REMOVE_JOB_TYPE,

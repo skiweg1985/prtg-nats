@@ -578,6 +578,30 @@ def default_parameter_line(schema: SensorSchema) -> str:
     return " ".join(parts)
 
 
+def profile_parameter_line(schema: SensorSchema | None, profile: str) -> str:
+    """What to paste into PRTG so the sensor reads this profile.
+
+    Every sensor that reads a profile names the option --profile; if one ever
+    calls it something else, its declaration is where that is said.
+
+    A sensor without a declaration still has a profile option - the reader on
+    the probe defaults to "default" whether or not anything was declared - so
+    the fallback is the same answer rather than a refusal, and no caller has to
+    know the rule twice.
+    """
+    if schema is None:
+        return f"--profile {profile}"
+    selector = next(
+        (
+            parameter.name
+            for parameter in schema.parameters
+            if parameter.name in ("--profile", "--variant")
+        ),
+        "--profile",
+    )
+    return f"{selector} {profile}"
+
+
 def _quote(text: str) -> str:
     if text.startswith("%"):
         return text

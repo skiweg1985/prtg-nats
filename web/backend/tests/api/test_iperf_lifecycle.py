@@ -675,7 +675,8 @@ async def test_credentials_reach_only_the_probes_that_were_named(
     assert not (project_dir / "runtime" / "probes" / "mpp-hamburg.iperf").exists()
 
     listed = await client.get("/api/v1/iperf-endpoints")
-    assert listed.json()[0]["deployed_to"] == ["mpp-berlin"]
+    assert listed.status_code == 200, listed.text
+    assert [holder["probe"] for holder in listed.json()[0]["holders"]] == ["mpp-berlin"]
 
 
 async def test_revoking_leaves_the_endpoint_and_the_other_probes_alone(
@@ -751,3 +752,97 @@ async def test_a_viewer_cannot_hand_credentials_to_a_probe(
         "/api/v1/iperf-endpoints/berlin/deploy", json={"probes": ["mpp-berlin"]}
     )
     assert refused.status_code == 403, refused.text
+
+
+# --- What PRTG needs, per probe ----------------------------------------------
+
+
+async def test_a_lone_endpoint_needs_no_parameter_in_prtg(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """One endpoint on a probe means the "default" alias, and nothing to paste.
+
+    The sensor reads address, port and user out of that profile, so a sensor
+    object in PRTG carries only what it measures - not where.
+    """
+    await _sign_in(client)
+    _write_endpoint(project_dir, "berlin")
+    write_probe_inventory(project_dir, "mpp-berlin", endpoints=("berlin",))
+
+    listed = await client.get("/api/v1/iperf-endpoints")
+    assert listed.status_code == 200, listed.text
+    (holder,) = listed.json()[0]["holders"]
+    assert holder == {
+        "probe": "mpp-berlin",
+        "endpoints_held": 1,
+        "uses_default_alias": True,
+        "parameter_line": "",
+    }
+
+
+async def test_a_second_endpoint_makes_the_profile_mandatory(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """The line belongs to the pair, not to the endpoint.
+
+    The same endpoint answers differently for a probe that holds it alone and
+    for one that holds two - because on the second the alias is gone and every
+    sensor object has to name what it measures against.
+    """
+    await _sign_in(client)
+    _write_endpoint(project_dir, "berlin")
+    _write_endpoint(project_dir, "hamburg")
+    write_probe_inventory(project_dir, "mpp-both", endpoints=("berlin", "hamburg"))
+    write_probe_inventory(project_dir, "mpp-lone", endpoints=("berlin",))
+
+    listed = await client.get("/api/v1/iperf-endpoints")
+    endpoints = {entry["name"]: entry for entry in listed.json()}
+
+    holders = {holder["probe"]: holder for holder in endpoints["berlin"]["holders"]}
+    assert holders["mpp-both"]["endpoints_held"] == 2
+    assert holders["mpp-both"]["uses_default_alias"] is False
+    assert holders["mpp-both"]["parameter_line"] == "--profile berlin"
+    # Same endpoint, other probe, other answer.
+    assert holders["mpp-lone"]["uses_default_alias"] is True
+    assert holders["mpp-lone"]["parameter_line"] == ""
+
+    (hamburg,) = endpoints["hamburg"]["holders"]
+    assert hamburg["parameter_line"] == "--profile hamburg"
+
+
+async def test_a_name_only_the_probe_remembers_is_no_holder(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """The sidecar outlives a removed endpoint; the answer must not.
+
+    It also must not count towards the alias: a probe holding one registered
+    endpoint and one forgotten name still carries "default" for the one that
+    is left, which is exactly what the rollout does on the probe.
+    """
+    await _sign_in(client)
+    _write_endpoint(project_dir, "berlin")
+    write_probe_inventory(project_dir, "mpp-berlin", endpoints=("berlin", "retired"))
+
+    listed = await client.get("/api/v1/iperf-endpoints")
+    assert [entry["name"] for entry in listed.json()] == ["berlin"]
+    (holder,) = listed.json()[0]["holders"]
+    assert holder["endpoints_held"] == 1
+    assert holder["uses_default_alias"] is True
+
+
+async def test_an_endpoint_can_be_read_on_its_own(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    await _sign_in(client)
+    _write_endpoint(project_dir, "berlin")
+    write_probe_inventory(project_dir, "mpp-berlin", endpoints=("berlin",))
+
+    one = await client.get("/api/v1/iperf-endpoints/berlin")
+    assert one.status_code == 200, one.text
+    listed = await client.get("/api/v1/iperf-endpoints")
+    assert one.json() == listed.json()[0]
+
+    # A page opened on an endpoint that was removed has to say so, rather than
+    # render itself empty.
+    missing = await client.get("/api/v1/iperf-endpoints/nowhere")
+    assert missing.status_code == 404, missing.text

@@ -3,11 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 
-import { useProbes, useRenderParameters, useSensor, useSensors } from '@/api/hooks'
+import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
   Badge,
   Button,
@@ -42,7 +43,12 @@ export function SensorListPage() {
           <div className="mt-0.5 flex flex-wrap gap-1">
             {row.needs_interface && <Badge tone="neutral">iface</Badge>}
             {row.requires_privileged_helper && <Badge tone="neutral">helper</Badge>}
-            {row.iperf_kind && <Badge tone="neutral">{row.iperf_kind}</Badge>}
+            {/* The kind is a token the catalog matches endpoints on. What it
+                means to somebody reading the list is that this sensor needs
+                one. */}
+            {row.iperf_kind && (
+              <Badge tone="neutral">{t('sensors.iperfBadge')}</Badge>
+            )}
           </div>
         </div>
       ),
@@ -147,7 +153,11 @@ export function SensorDetailPage() {
               <DetailRow label="">{t('sensors.privilegedHelper')}</DetailRow>
             )}
             {data.iperf_kind && (
-              <DetailRow label="">{t('sensors.iperfEndpoint')}</DetailRow>
+              <DetailRow label="">
+                <Link to="/infrastructure/iperf" className="hover:underline">
+                  {t('sensors.iperfEndpoint')}
+                </Link>
+              </DetailRow>
             )}
           </dl>
         </Card>
@@ -181,25 +191,6 @@ export function SensorDetailPage() {
         />
       )}
     </div>
-  )
-}
-
-/**
- * One probe of the list, as a way to get to it.
- *
- * The sensor knows its probes by NATS account, and the route wants a record
- * id, so the fleet listing supplies the missing half. A name it cannot place -
- * a probe unenrolled since the sensor was last observed - stays plain text
- * rather than becoming a link to nothing.
- */
-function ProbeLink({ username }: { username: string }) {
-  const { data } = useProbes()
-  const probe = data?.find((entry) => entry.nats_username === username)
-  if (!probe) return <Mono>{username}</Mono>
-  return (
-    <Link to={`/probes/${probe.id}`} className="hover:underline">
-      <Mono>{username}</Mono>
-    </Link>
   )
 }
 

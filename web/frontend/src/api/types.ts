@@ -544,6 +544,26 @@ export interface Dashboard {
   recent_audit: AuditEvent[]
 }
 
+/**
+ * One probe holding an endpoint's credentials, and what PRTG needs there.
+ *
+ * The parameter line belongs to the pair, not to the endpoint. A probe that
+ * holds this endpoint alone also carries the "default" profile alias, and a
+ * sensor object there needs no connection parameter at all - it reads address,
+ * port and user out of that profile. From the second endpoint on the alias is
+ * gone and every object has to name its own.
+ */
+export interface IperfHolder {
+  probe: string
+  /** Registered endpoints this probe holds in total. One is the threshold the
+   *  alias hangs on, which is what makes a warning before crossing it
+   *  possible. */
+  endpoints_held: number
+  uses_default_alias: boolean
+  /** Empty exactly when the alias applies: nothing to paste is the answer. */
+  parameter_line: string
+}
+
 export interface IperfEndpoint {
   name: string
   host: string
@@ -555,7 +575,7 @@ export interface IperfEndpoint {
   /** False for an endpoint somebody else operates: its password is not ours
    *  to rotate, and removing it here takes nothing off that host. */
   managed: boolean
-  deployed_to: string[]
+  holders: IperfHolder[]
 }
 
 export interface HostKeyOffer {

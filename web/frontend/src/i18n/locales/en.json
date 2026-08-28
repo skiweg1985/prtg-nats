@@ -249,6 +249,9 @@
         "inUse": "In use",
         "state": "State"
       }
+    },
+    "iperf": {
+      "title": "Endpoints held"
     }
   },
   "sensors": {
@@ -316,7 +319,8 @@
       "notDeployed": "Not deployed",
       "missing": "Required fields are still missing: {{fields}}",
       "confirmDelete": "Remove variant {{name}} from the server and from every probe?"
-    }
+    },
+    "iperfBadge": "needs an endpoint"
   },
   "deployments": {
     "title": "Deployments",
@@ -338,7 +342,11 @@
       "started": "Started",
       "by": "Started by"
     },
-    "summary": "{{succeeded}} of {{total}} probes succeeded"
+    "summary": "{{succeeded}} of {{total}} probes succeeded",
+    "iperf": {
+      "noEndpoints": "No endpoint is registered for this sensor. It will be installed, but measures nothing until one is set up and assigned.",
+      "probesWithout": "These probes already have the sensor but hold no endpoint: {{probes}}. Deploying again changes nothing - the assignment happens on the endpoint page."
+    }
   },
   "jobs": {
     "title": "Jobs",
@@ -630,7 +638,31 @@
       "probesEmpty": "No probe is enrolled.",
       "probeHolds": "holds it",
       "deployTo": "Deploy to {{count}}",
-      "revokeFrom": "Revoke from {{count}}"
+      "revokeFrom": "Revoke from {{count}}",
+      "notDeployed": "not deployed",
+      "notDeployedTitle": "No probe holds this endpoint yet",
+      "notDeployedBody": "The record exists, but no probe knows the credentials. Until one does, no sensor can measure against this endpoint.",
+      "assign": "Assign probes",
+      "stateTitle": "State",
+      "operator": "Operated by",
+      "operatorOwn": "this platform",
+      "unauthenticated": "without a sign-in",
+      "publicKeyPresent": "on file",
+      "publicKeyMissing": "missing",
+      "prtgTitle": "Which probes, and what goes into PRTG",
+      "prtgIntro": "What a sensor object in PRTG needs as parameters depends on the probe: if it holds only this one endpoint, the sensor reads address, port and user by itself.",
+      "noParameterNeeded": "no parameter needed",
+      "defaultAliasHint": "This probe holds only this endpoint and therefore carries the \"default\" profile. The sensor object needs no connection parameter.",
+      "manualHint": "Without a deployed endpoint, --server, --username and --password have to be written into the sensor object by hand.",
+      "unknownEndpoint": "not registered",
+      "endpointsHeld_one": "holds {{count}} endpoint",
+      "endpointsHeld_other": "holds {{count}} endpoints",
+      "aliasLostTitle": "Existing sensors on these probes stop measuring",
+      "aliasLostBody": "These probes hold exactly one endpoint so far and therefore carry the \"default\" profile: {{probes}}. The second one takes it away. Sensor objects without --server go red (\"no endpoint given\"); objects that set --server themselves keep measuring without a sign-in, unnoticed. Add --profile <name> to every affected PRTG object first.",
+      "aliasReturnsBody": "These probes will hold only one endpoint afterwards and get the \"default\" profile back: {{probes}}. A --profile already entered stays correct, but is no longer needed.",
+      "sensorMissingTitle": "The credentials are there, but nothing reads them",
+      "sensorMissingBody": "These probes hold the endpoint but do not have \"{{sensor}}\" installed: {{probes}}. Until the sensor is deployed, nothing is measured.",
+      "startedNext": "After that the endpoint appears in the list. From there it is assigned to probes and the sensor is deployed - only then is anything measured."
     }
   },
   "settings": {

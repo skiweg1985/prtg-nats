@@ -249,6 +249,9 @@
         "inUse": "Wird benutzt",
         "state": "Zustand"
       }
+    },
+    "iperf": {
+      "title": "Gehaltene Messpunkte"
     }
   },
   "sensors": {
@@ -316,7 +319,8 @@
       "notDeployed": "Nicht ausgerollt",
       "missing": "Es fehlen noch Pflichtangaben: {{fields}}",
       "confirmDelete": "Variante {{name}} vom Server und von allen Probes entfernen?"
-    }
+    },
+    "iperfBadge": "braucht Messpunkt"
   },
   "deployments": {
     "title": "Ausrollvorgänge",
@@ -338,7 +342,11 @@
       "started": "Gestartet",
       "by": "Gestartet von"
     },
-    "summary": "{{succeeded}} von {{total}} Probes erfolgreich"
+    "summary": "{{succeeded}} von {{total}} Probes erfolgreich",
+    "iperf": {
+      "noEndpoints": "Für diesen Sensor ist kein Messpunkt registriert. Er wird installiert, misst aber erst, wenn einer eingerichtet und zugewiesen ist.",
+      "probesWithout": "Diese Probes haben den Sensor bereits, halten aber keinen Messpunkt: {{probes}}. Ein erneutes Ausrollen ändert daran nichts - die Zuweisung passiert auf der Messpunktseite."
+    }
   },
   "jobs": {
     "title": "Jobs",
@@ -630,7 +638,31 @@
       "probesEmpty": "Es ist keine Probe eingebunden.",
       "probeHolds": "hält sie",
       "deployTo": "An {{count}} ausrollen",
-      "revokeFrom": "{{count}} entziehen"
+      "revokeFrom": "{{count}} entziehen",
+      "notDeployed": "nicht ausgerollt",
+      "notDeployedTitle": "Noch hält keine Probe diesen Messpunkt",
+      "notDeployedBody": "Der Eintrag steht, aber keine Probe kennt die Zugangsdaten. Bis eine sie hat, kann kein Sensor gegen diesen Messpunkt messen.",
+      "assign": "Probes zuweisen",
+      "stateTitle": "Zustand",
+      "operator": "Betrieben von",
+      "operatorOwn": "dieser Plattform",
+      "unauthenticated": "ohne Anmeldung",
+      "publicKeyPresent": "hinterlegt",
+      "publicKeyMissing": "fehlt",
+      "prtgTitle": "Auf welchen Probes, und was in PRTG steht",
+      "prtgIntro": "Was ein Sensorobjekt in PRTG an Parametern braucht, hängt an der Probe: hält sie nur diesen einen Messpunkt, liest der Sensor Adresse, Port und Benutzer von allein.",
+      "noParameterNeeded": "kein Parameter nötig",
+      "defaultAliasHint": "Diese Probe hält nur diesen Messpunkt und trägt darum das Profil \"default\". Das Sensorobjekt braucht keine Verbindungsangabe.",
+      "manualHint": "Ohne ausgerollten Messpunkt müssen --server, --username und --password im Sensorobjekt von Hand stehen.",
+      "unknownEndpoint": "nicht registriert",
+      "endpointsHeld_one": "hält {{count}} Messpunkt",
+      "endpointsHeld_other": "hält {{count}} Messpunkte",
+      "aliasLostTitle": "Bestehende Sensoren auf diesen Probes hören auf zu messen",
+      "aliasLostBody": "Diese Probes halten bisher genau einen Messpunkt und tragen darum das Profil \"default\": {{probes}}. Mit dem zweiten fällt es weg. Sensorobjekte ohne --server werden rot (\"kein Messpunkt angegeben\"); Objekte, die --server selbst setzen, messen unbemerkt ohne Anmeldung weiter. Tragen Sie vorher in jedem betroffenen PRTG-Objekt --profile <Name> nach.",
+      "aliasReturnsBody": "Diese Probes halten danach nur noch einen Messpunkt und bekommen das Profil \"default\" zurück: {{probes}}. Ein bereits eingetragenes --profile bleibt richtig, ist aber nicht mehr nötig.",
+      "sensorMissingTitle": "Die Zugangsdaten liegen da, aber nichts liest sie",
+      "sensorMissingBody": "Diese Probes halten den Messpunkt, haben \"{{sensor}}\" aber nicht installiert: {{probes}}. Bis der Sensor ausgerollt ist, wird nicht gemessen.",
+      "startedNext": "Danach steht der Messpunkt in der Liste. Von dort aus wird er den Probes zugewiesen und der Sensor ausgerollt - erst dann wird gemessen."
     }
   },
   "settings": {

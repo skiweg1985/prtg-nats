@@ -449,6 +449,26 @@ class AuditEventOut(ApiModel):
 # --- iperf ------------------------------------------------------------------
 
 
+class IperfHolderOut(ApiModel):
+    """One probe holding this endpoint's credentials, and what PRTG needs there.
+
+    The parameter line belongs to the pair, not to the endpoint. A probe that
+    holds this endpoint alone also carries the "default" alias, and a sensor
+    object there needs no parameter at all - it reads address, port and user
+    out of the profile. From the second endpoint on the alias is gone and every
+    object has to name its own.
+    """
+
+    probe: str
+    # How many registered endpoints this probe holds in total. One is the
+    # threshold the alias hangs on, so the count is what a caller needs to warn
+    # before an assignment crosses it.
+    endpoints_held: int
+    uses_default_alias: bool
+    # Empty exactly when the alias applies: nothing to paste is the answer.
+    parameter_line: str
+
+
 class IperfEndpointOut(ApiModel):
     name: str
     host: str
@@ -462,7 +482,7 @@ class IperfEndpointOut(ApiModel):
     # removing it here takes nothing off that host.
     managed: bool = True
     # Which probes hold credentials for it, from runtime/probes/USER.iperf.
-    deployed_to: list[str] = Field(default_factory=list)
+    holders: list[IperfHolderOut] = Field(default_factory=list)
 
 
 DashboardOut.model_rebuild()

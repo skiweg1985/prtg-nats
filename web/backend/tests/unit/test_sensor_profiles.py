@@ -18,6 +18,11 @@ from app.core.config import Settings
 from app.core.errors import NotFoundError, RuntimeStateError
 from app.infrastructure.probe_helper.protocol import probe_profile_file_path
 from app.infrastructure.runtime_files import RuntimeFileStore
+from app.infrastructure.sensor_catalog import (
+    ParameterField,
+    SensorSchema,
+    profile_parameter_line,
+)
 
 
 def mode_of(path: Path) -> int:
@@ -181,3 +186,33 @@ def test_an_assignment_for_another_sensor_does_not_leak_into_this_one(
 
     store.unassign_profile("mpp-nord", "wlan-auth", "gaeste")
     assert store.assigned_profiles("mpp-nord") == ("berlin",)
+
+
+def test_the_profile_option_comes_from_the_declaration() -> None:
+    """Which option selects a profile is the sensor's to say, not ours.
+
+    Every sensor that reads one calls it --profile today. The lookup exists so
+    that a sensor calling it something else stays selectable without anyone
+    editing the platform, and this pins that the declaration is what decides.
+    """
+    profile = ParameterField(name="--profile", type="string")
+    variant = ParameterField(name="--variant", type="string")
+    unrelated = ParameterField(name="--server", type="string")
+
+    assert (
+        profile_parameter_line(SensorSchema(parameters=(unrelated, profile)), "berlin")
+        == "--profile berlin"
+    )
+    assert (
+        profile_parameter_line(SensorSchema(parameters=(unrelated, variant)), "berlin")
+        == "--variant berlin"
+    )
+    # A sensor that declares neither still reads "default" on the probe, so the
+    # answer is the option it would listen to rather than nothing at all.
+    assert (
+        profile_parameter_line(SensorSchema(parameters=(unrelated,)), "berlin")
+        == "--profile berlin"
+    )
+    # And one with no declaration at all - iperf-throughput carries only
+    # parameters, so its schema is the same shape a caller may not have.
+    assert profile_parameter_line(None, "berlin") == "--profile berlin"
