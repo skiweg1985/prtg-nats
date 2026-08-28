@@ -279,6 +279,54 @@ describe('UpdatesPage', () => {
     await waitFor(() => expect(asked).toBeGreaterThan(1), { timeout: 8000 })
   }, 15_000)
 
+  it('is usable again once a run has ended', async () => {
+    /**
+     * A finished job used to leave the page in its running state forever: no
+     * check button, no action card, and the reload that would have reset it
+     * only fired if the page had noticed an outage first. An update whose
+     * restart is quick enough to miss therefore stranded the page.
+     */
+    await changeLanguage('en')
+    sessionStorage.setItem('prtg-nats:update-job', 'J7')
+    version = { ...BASE, state: 'update_available', remote_commit: 'ffff0000ffff' }
+
+    server.use(
+      http.get('/api/v1/jobs/J7', () =>
+        HttpResponse.json({
+          id: 'J7',
+          type: 'stack.update',
+          // Failed rather than successful: a successful one reloads the page,
+          // which jsdom cannot do, and the point here is the controls coming
+          // back rather than which outcome it was.
+          status: 'failed',
+          current_step: 'build',
+          progress: 100,
+          steps: [{ name: 'build', status: 'failed', position: 1 }],
+          target_label: 'dev',
+          created_at: '2026-08-28T08:00:00Z',
+          started_at: '2026-08-28T08:00:00Z',
+          finished_at: '2026-08-28T08:05:00Z',
+          error_code: 'stack.update_blocked',
+          error_params: {},
+          error_details: null,
+          result: null,
+          retry_of_job_id: null,
+          blocked_reason_key: null,
+          blocked_by_job_id: null,
+          cancel_requested: false,
+          requested_by_username: 'admin',
+        }),
+      ),
+      http.get('/api/v1/jobs/J7/log', () => HttpResponse.json([])),
+    )
+
+    renderPage()
+
+    // The controls are back, and the finished run is still on screen to read.
+    expect(await screen.findByRole('button', { name: 'Check now' })).toBeEnabled()
+    expect(screen.getByText('Progress')).toBeInTheDocument()
+  }, 15_000)
+
   it('treats the API going away mid-job as a restart, not a failure', { timeout: 20_000 }, async () => {
     /**
      * The heart of it. The job is being watched, the recreate begins, and

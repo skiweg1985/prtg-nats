@@ -106,16 +106,24 @@ export function UpdatesPage() {
   // Once the outcome is on record the page has to reload, not just re-render:
   // the interface itself was replaced, and the code in this browser is the old
   // build talking to the new API.
+  //
+  // Keyed off the job ending rather than off the page having noticed an
+  // outage. An update whose restart is quick enough to miss still replaced the
+  // build - and waiting for a "settled" phase that never came left the page
+  // stuck on a finished run, with the check button gone.
+  //
+  // Only on success. A failed run has something to read, and reloading would
+  // throw away the error the operator came here for.
   const reloaded = useRef(false)
   useEffect(() => {
-    if (phase !== 'settled' || reloaded.current) return
-    if (!job.data || !isTerminal(job.data.status)) return
+    if (reloaded.current || !job.data || !isTerminal(job.data.status)) return
     reloaded.current = true
     sessionStorage.removeItem(WATCHED_JOB_KEY)
+    if (job.data.status !== 'successful') return
     // A moment on the result first, so the reload does not read as a crash.
     const timer = window.setTimeout(() => window.location.reload(), 2500)
     return () => window.clearTimeout(timer)
-  }, [phase, job.data])
+  }, [job.data])
 
   if (version.isLoading) return <Skeleton className="h-64" />
   if (version.error)
@@ -128,11 +136,20 @@ export function UpdatesPage() {
 
   const tooLong = awaySince !== null && Date.now() - awaySince > GIVE_UP_MS
 
+  // Whether a run is still going, asked of the job rather than of the phase.
+  // The phase tracks how this page is coping with the API disappearing, which
+  // is a different question and answers it wrongly once the run has ended: a
+  // finished job left the page in "running" forever, with no check button and
+  // no way back except a manual reload.
+  const running = Boolean(
+    jobId && (phase === 'waiting' || (job.data && !isTerminal(job.data.status))),
+  )
+
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">{t('updates.title')}</h1>
-        {data.available && phase === 'idle' && (
+        {data.available && !running && (
           <Button onClick={() => void check.mutateAsync()} disabled={check.isPending}>
             {t('updates.check_now')}
           </Button>
@@ -156,13 +173,13 @@ export function UpdatesPage() {
 
       <VersionCard data={data} />
 
-      {data.available && phase === 'idle' && (
+      {data.available && !running && (
         <PermissionGate permission="system.update">
           <ActionCard data={data} onStart={onStart} busy={start.isPending} />
         </PermissionGate>
       )}
 
-      {jobId && phase !== 'idle' && job.data && (
+      {jobId && job.data && (
         <Card title={t('updates.progress')}>
           <JobSteps job={job.data} />
           {phase !== 'waiting' && (
