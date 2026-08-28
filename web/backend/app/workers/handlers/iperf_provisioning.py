@@ -57,6 +57,12 @@ REMOVE_JOB_TYPE = "iperf.remove"
 ROTATE_STEPS: tuple[str, ...] = ("set_password", "update_record", "refresh_probes")
 ROTATE_JOB_TYPE = "iperf.rotate"
 
+DEPLOY_STEPS: tuple[str, ...] = ("resolve_targets", "deploy_profiles")
+DEPLOY_JOB_TYPE = "iperf.deploy"
+
+REVOKE_STEPS: tuple[str, ...] = ("resolve_targets", "revoke_profiles")
+REVOKE_JOB_TYPE = "iperf.revoke"
+
 # The name the management public key is written under while it is staged. Only
 # the enrolment script reads it, and only from the directory it arrived in.
 _KEY_FILE = "management.pub"
@@ -319,6 +325,107 @@ async def rotate(context: JobContext) -> dict[str, Any]:
         params={"endpoint": name, "probes": str(len(refreshed))},
     )
     return {"endpoint": name, "refreshed": refreshed}
+
+
+async def deploy(context: JobContext) -> dict[str, Any]:
+    """Hand one endpoint's credentials to the probes that were named.
+
+    The counterpart of "iperf-server deploy NAME USER" on the command line, and
+    the reason the interface has one at all: without it the only way to widen
+    what a probe holds was to roll the whole sensor out again, and the only way
+    to narrow it was a terminal.
+
+    The profile carries the whole measurement path, so a probe that receives it
+    can be pointed at this endpoint with "--profile NAME" and nothing else.
+    """
+    name: str = context.payload["name"]
+    probes: list[str] = list(context.payload.get("probes") or [])
+    sensors: list[str] = list(context.payload.get("sensors") or [])
+
+    await context.step("resolve_targets")
+    content = endpoint_profile_content(context.runtime, name)
+    await context.log(
+        "jobs.iperf.targets", params={"endpoint": name, "probes": str(len(probes))}
+    )
+
+    await context.step("deploy_profiles")
+    deployed: list[str] = []
+    failed: list[dict[str, str]] = []
+    for probe in probes:
+        try:
+            inventory = context.runtime.read_probe(probe)
+            connection = _probe_connection(probe, inventory)
+            for sensor in sensors:
+                await context.helper.write_profile(connection, sensor, name, content)
+            # Before the alias, so that it sees the endpoint this probe now
+            # holds - it is derived from the assignment, not from the payload.
+            context.runtime.remember_iperf(probe, name)
+            for sensor in sensors:
+                await sync_default_profile(context, connection, sensor, probe)
+            deployed.append(probe)
+            await context.log(
+                "jobs.iperf.profile_deployed",
+                params={"probe": probe, "endpoint": name},
+                target=probe,
+            )
+        except Exception as exc:
+            # Named rather than raised: one unreachable probe is not a reason to
+            # abandon the rest, and it is exactly what has to be reported.
+            failed.append({"probe": probe, "details": str(exc)})
+            await context.log(
+                "jobs.iperf.probe_not_reached",
+                level=LogLevel.WARNING,
+                params={"probe": probe, "endpoint": name},
+                target=probe,
+                raw=str(exc),
+            )
+    return {"endpoint": name, "deployed_to": deployed, "failed": failed}
+
+
+async def revoke(context: JobContext) -> dict[str, Any]:
+    """Take one endpoint's credentials off the probes that were named.
+
+    Removal is the half that has to succeed even when the probe is gone, so a
+    probe that cannot be reached still loses its assignment here. The record
+    would otherwise claim a probe holds credentials nobody can take away, and
+    the next sensor rollout would deploy them again from that claim.
+    """
+    name: str = context.payload["name"]
+    probes: list[str] = list(context.payload.get("probes") or [])
+    sensors: list[str] = list(context.payload.get("sensors") or [])
+
+    await context.step("resolve_targets")
+    await context.log(
+        "jobs.iperf.targets", params={"endpoint": name, "probes": str(len(probes))}
+    )
+
+    await context.step("revoke_profiles")
+    revoked: list[str] = []
+    for probe in probes:
+        try:
+            inventory = context.runtime.read_probe(probe)
+            connection = _probe_connection(probe, inventory)
+            for sensor in sensors:
+                await context.helper.remove_profile(connection, sensor, name)
+            context.runtime.forget_iperf(probe, name)
+            for sensor in sensors:
+                await sync_default_profile(context, connection, sensor, probe)
+            revoked.append(probe)
+            await context.log(
+                "jobs.iperf.profile_revoked",
+                params={"endpoint": name, "probe": probe},
+                target=probe,
+            )
+        except Exception as exc:
+            context.runtime.forget_iperf(probe, name)
+            await context.log(
+                "jobs.iperf.profile_kept_on_probe",
+                level=LogLevel.WARNING,
+                params={"endpoint": name, "probe": probe},
+                target=probe,
+                raw=str(exc),
+            )
+    return {"endpoint": name, "revoked_from": revoked}
 
 
 # --- Bits --------------------------------------------------------------------

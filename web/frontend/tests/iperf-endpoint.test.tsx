@@ -19,6 +19,7 @@ import { changeLanguage } from '@/i18n'
 
 let scanned = 0
 let provisioned: unknown = null
+let assignment: { action: string; body: unknown } | null = null
 
 const ENDPOINTS = [
   {
@@ -45,6 +46,11 @@ const ENDPOINTS = [
   },
 ]
 
+const PROBES = [
+  { id: 'P1', nats_username: 'mpp-berlin', display_name: 'Berlin', host: 'a.example' },
+  { id: 'P2', nats_username: 'mpp-hamburg', display_name: 'Hamburg', host: 'b.example' },
+]
+
 const server = setupServer(
   http.get('/api/v1/auth/state', () =>
     HttpResponse.json({
@@ -56,7 +62,7 @@ const server = setupServer(
         username: 'admin',
         display_name: 'admin',
         roles: ['administrator'],
-        permissions: ['iperf.read', 'iperf.manage'],
+        permissions: ['iperf.read', 'iperf.manage', 'sensor.deploy'],
         locale: 'en',
         is_development: false,
         must_change_password: false,
@@ -64,6 +70,17 @@ const server = setupServer(
     }),
   ),
   http.get('/api/v1/iperf-endpoints', () => HttpResponse.json(ENDPOINTS)),
+  http.get('/api/v1/probes', () => HttpResponse.json(PROBES)),
+  http.post('/api/v1/iperf-endpoints/:name/:action', async ({ request, params }) => {
+    if (params.action !== 'deploy' && params.action !== 'revoke') {
+      return new HttpResponse(null, { status: 404 })
+    }
+    assignment = { action: String(params.action), body: await request.json() }
+    return HttpResponse.json(
+      { job_id: 'J2', status: 'queued', events_url: '/api/v1/jobs/J2/events' },
+      { status: 202 },
+    )
+  }),
   http.post('/api/v1/iperf-endpoints/host-keys', () => {
     scanned += 1
     return HttpResponse.json({
@@ -93,6 +110,7 @@ afterEach(() => {
   server.resetHandlers()
   scanned = 0
   provisioned = null
+  assignment = null
 })
 afterAll(() => server.close())
 
@@ -166,6 +184,47 @@ describe('IperfPage', () => {
       host_keys: ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample'],
       ssh_source_cidr: '203.0.113.7/32',
       admin: { username: 'root', password: 'hunter2' },
+    })
+  })
+  it('opens the probe list from the count, and offers only the direction that applies', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    // The count in the "deployed to" column is the way in. It used to be text
+    // nobody could act on, which left revoking to a terminal.
+    await screen.findByText('berlin')
+    await user.click(screen.getAllByRole('button', { name: '1' })[0])
+
+    expect(await screen.findByText('Hamburg')).toBeInTheDocument()
+    // Nothing is selected yet, so neither direction has anything to do.
+    expect(screen.getByRole('button', { name: /deploy to 0/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /revoke from 0/i })).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: /hamburg/i }))
+    // Hamburg does not hold it, so this can only be a deployment.
+    expect(screen.getByRole('button', { name: /deploy to 1/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /revoke from 0/i })).toBeDisabled()
+  })
+
+  it('sends a revoke for the probes that already hold the endpoint', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('berlin')
+    await user.click(screen.getAllByRole('button', { name: '1' })[0])
+    await screen.findByText('Berlin')
+
+    await user.click(screen.getByRole('checkbox', { name: /berlin/i }))
+    await user.click(screen.getByRole('button', { name: /revoke from 1/i }))
+
+    await waitFor(() => expect(assignment).not.toBeNull())
+    // Only the probe that was picked, and only the direction that applies to
+    // it: the two are separate jobs because they can fail independently.
+    expect(assignment).toEqual({
+      action: 'revoke',
+      body: { probes: ['mpp-berlin'] },
     })
   })
 })

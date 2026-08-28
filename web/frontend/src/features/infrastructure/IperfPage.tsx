@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
+  useEndpointDeployment,
   useIperfEndpoints,
+  useProbes,
   useProvisionEndpoint,
   useRegisterEndpoint,
   useRemoveEndpoint,
@@ -42,6 +44,7 @@ export function IperfPage() {
   const [dialog, setDialog] = useState<'provision' | 'register' | null>(null)
   const [removing, setRemoving] = useState<IperfEndpoint | null>(null)
   const [rotating, setRotating] = useState<IperfEndpoint | null>(null)
+  const [assigning, setAssigning] = useState<IperfEndpoint | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -79,7 +82,18 @@ export function IperfPage() {
       header: t('infrastructure.iperf.columns.deployedTo'),
       align: 'right',
       sortValue: (row) => row.deployed_to.length,
-      cell: (row) => <span className="text-sm">{row.deployed_to.length}</span>,
+      // The count is the way in, not a read-out: it is the question somebody
+      // has when they look at this column, and the answer is the probe list.
+      cell: (row) => (
+        <button
+          type="button"
+          onClick={() => setAssigning(row)}
+          title={row.deployed_to.join(', ') || undefined}
+          className="text-ink hover:text-accent text-sm underline underline-offset-2"
+        >
+          {row.deployed_to.length}
+        </button>
+      ),
     },
     {
       key: 'updated',
@@ -136,6 +150,9 @@ export function IperfPage() {
       {dialog === 'register' && <RegisterDialog onClose={() => setDialog(null)} />}
       {rotating && (
         <RotateDialog endpoint={rotating} onClose={() => setRotating(null)} />
+      )}
+      {assigning && (
+        <ProbesDialog endpoint={assigning} onClose={() => setAssigning(null)} />
       )}
       {removing && (
         <RemoveDialog endpoint={removing} onClose={() => setRemoving(null)} />
@@ -658,3 +675,118 @@ function RemoveDialog({
 
 // --- Bits --------------------------------------------------------------------
 
+
+/**
+ * Which probes measure against this endpoint.
+ *
+ * The list is the assignment, not a snapshot of the last rollout: a sensor
+ * deployment reads the same record, so a probe taken out here stays out
+ * instead of getting the credentials back with the next deployment.
+ *
+ * Adding and removing are separate jobs rather than one "save" of the whole
+ * set. They are separate operations on the probes - one writes a credential,
+ * the other takes one away - and a single button hiding both would report one
+ * outcome for two things that can fail independently.
+ */
+function ProbesDialog({
+  endpoint,
+  onClose,
+}: {
+  endpoint: IperfEndpoint
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { data: probes, isLoading } = useProbes()
+  const deploy = useEndpointDeployment('deploy')
+  const revoke = useEndpointDeployment('revoke')
+  const [selected, setSelected] = useState<string[]>([])
+
+  const holding = new Set(endpoint.deployed_to)
+  const running = deploy.isPending || revoke.isPending
+  const chosen = new Set(selected)
+  const toAdd = selected.filter((name) => !holding.has(name))
+  const toRemove = selected.filter((name) => holding.has(name))
+
+  const toggle = (name: string) =>
+    setSelected((current) =>
+      current.includes(name)
+        ? current.filter((entry) => entry !== name)
+        : [...current, name],
+    )
+
+  const start = (mutation: typeof deploy, names: string[]) =>
+    mutation.mutate(
+      { name: endpoint.name, probes: names },
+      {
+        onSuccess: (accepted) => {
+          onClose()
+          navigate(`/jobs/${accepted.job_id}`)
+        },
+      },
+    )
+
+  return (
+    <Dialog title={t('infrastructure.iperf.probesTitle')} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.probesBody', { name: endpoint.name })}
+        </p>
+
+        {isLoading ? (
+          <p className="text-ink-3 text-sm">{t('common.loading')}</p>
+        ) : !probes || probes.length === 0 ? (
+          <p className="text-ink-3 text-sm">{t('infrastructure.iperf.probesEmpty')}</p>
+        ) : (
+          <ul className="divide-rule border-rule-2 rounded-control max-h-64 divide-y overflow-y-auto border">
+            {probes.map((probe) => (
+              <li key={probe.nats_username}>
+                <label className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(probe.nats_username)}
+                    onChange={() => toggle(probe.nats_username)}
+                  />
+                  <span className="text-ink min-w-0 flex-1 truncate">
+                    {probe.display_name || probe.nats_username}
+                  </span>
+                  {holding.has(probe.nats_username) && (
+                    <Badge tone="ok">{t('infrastructure.iperf.probeHolds')}</Badge>
+                  )}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {deploy.error != null && <ErrorDetails error={deploy.error} />}
+        {revoke.error != null && <ErrorDetails error={revoke.error} />}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          {/* Reading who holds what is part of seeing the endpoint at all;
+              changing it writes a credential to a probe, which is the
+              deployer's decision rather than the endpoint owner's. */}
+          <PermissionGate permission="sensor.deploy">
+            <Button
+              variant="danger"
+              disabled={running || toRemove.length === 0}
+              onClick={() => start(revoke, toRemove)}
+            >
+              {t('infrastructure.iperf.revokeFrom', { count: toRemove.length })}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={running || toAdd.length === 0}
+              onClick={() => start(deploy, toAdd)}
+            >
+              {t('infrastructure.iperf.deployTo', { count: toAdd.length })}
+            </Button>
+          </PermissionGate>
+        </div>
+      </div>
+    </Dialog>
+  )
+}

@@ -1,7 +1,7 @@
 ---
 title: Roles and permissions
 role: operator
-updated: 2026-08-27
+updated: 2026-08-28
 ---
 
 # Roles and permissions
@@ -34,6 +34,12 @@ iperf.read        iperf.manage
 system.read       system.restart   system.settings  system.update
 audit.read        user.manage      role.manage
 ```
+
+`iperf.manage` covers the endpoint itself - setting one up, rotating its
+password, taking it away. Handing its credentials to a probe or taking them
+back needs `sensor.deploy` instead: that writes to a probe, and who may change
+what a probe holds is a different question from who may run a measurement
+endpoint.
 
 ## How it is enforced
 

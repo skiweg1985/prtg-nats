@@ -636,3 +636,118 @@ async def test_removal_takes_the_default_alias_off_the_probes_too(
         if request.command.value == "sensor-remove-profile"
     ]
     assert removed == ["berlin", "default"]
+
+
+# --- Deploying and revoking per probe ----------------------------------------
+
+
+async def test_credentials_reach_only_the_probes_that_were_named(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The operation the interface had no way to perform.
+
+    Widening what a probe holds used to mean rolling the whole sensor out
+    again, and narrowing it meant a terminal - which is why the "deployed to"
+    column could be read but not changed.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", sensors=("iperf-throughput",))
+    write_probe_inventory(project_dir, "mpp-hamburg", sensors=("iperf-throughput",))
+
+    accepted = await client.post(
+        "/api/v1/iperf-endpoints/berlin/deploy", json={"probes": ["mpp-berlin"]}
+    )
+    assert accepted.status_code == 202, accepted.text
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    assert {label for label, _ in transport.calls} == {"mpp-berlin"}
+    assert (project_dir / "runtime" / "probes" / "mpp-berlin.iperf").read_text(
+        encoding="utf-8"
+    ) == "berlin\n"
+    assert not (project_dir / "runtime" / "probes" / "mpp-hamburg.iperf").exists()
+
+    listed = await client.get("/api/v1/iperf-endpoints")
+    assert listed.json()[0]["deployed_to"] == ["mpp-berlin"]
+
+
+async def test_revoking_leaves_the_endpoint_and_the_other_probes_alone(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """Only this probe stops measuring - and stays stopped.
+
+    The assignment is what the next sensor rollout reads, so a revoke that
+    removed the file but not the claim would be undone by the next deployment.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    for probe in ("mpp-berlin", "mpp-hamburg"):
+        write_probe_inventory(project_dir, probe, sensors=("iperf-throughput",))
+        (project_dir / "runtime" / "probes" / f"{probe}.iperf").write_text(
+            "berlin\n", encoding="utf-8"
+        )
+
+    accepted = await client.post(
+        "/api/v1/iperf-endpoints/berlin/revoke", json={"probes": ["mpp-hamburg"]}
+    )
+    assert accepted.status_code == 202, accepted.text
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    # The alias goes with it: hamburg holds nothing afterwards, so "default"
+    # would name an endpoint this probe may no longer measure against.
+    removed = [
+        request.arguments[1]
+        for _, request in transport.calls
+        if request.command.value == "sensor-remove-profile"
+    ]
+    assert removed == ["berlin", "default"]
+
+    assert not (project_dir / "runtime" / "probes" / "mpp-hamburg.iperf").exists()
+    assert (project_dir / "runtime" / "probes" / "mpp-berlin.iperf").read_text(
+        encoding="utf-8"
+    ) == "berlin\n"
+    assert (project_dir / "runtime" / "iperf" / "berlin.env").exists()
+
+
+async def test_a_probe_that_is_not_enrolled_is_refused_rather_than_skipped(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """A job that quietly did less than it was asked leaves nobody to notice."""
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", sensors=("iperf-throughput",))
+
+    refused = await client.post(
+        "/api/v1/iperf-endpoints/berlin/deploy",
+        json={"probes": ["mpp-berlin", "mpp-typo"]},
+    )
+    assert refused.status_code == 404, refused.text
+
+
+async def test_a_viewer_cannot_hand_credentials_to_a_probe(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    await _sign_in(client, RoleName.VIEWER)
+    _initialise()
+    _write_endpoint(project_dir)
+
+    refused = await client.post(
+        "/api/v1/iperf-endpoints/berlin/deploy", json={"probes": ["mpp-berlin"]}
+    )
+    assert refused.status_code == 403, refused.text

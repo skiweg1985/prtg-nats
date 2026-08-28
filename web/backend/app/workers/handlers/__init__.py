@@ -196,6 +196,21 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=iperf_provisioning.rotate,
         permission="iperf.manage",
     ),
+    # Deploying and revoking are what the fleet actually notices about an
+    # endpoint, so they carry the permission that decides who may change what a
+    # probe holds - not the one for setting an endpoint up.
+    iperf_provisioning.DEPLOY_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.DEPLOY_JOB_TYPE,
+        steps=iperf_provisioning.DEPLOY_STEPS,
+        handler=iperf_provisioning.deploy,
+        permission="sensor.deploy",
+    ),
+    iperf_provisioning.REVOKE_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.REVOKE_JOB_TYPE,
+        steps=iperf_provisioning.REVOKE_STEPS,
+        handler=iperf_provisioning.revoke,
+        permission="sensor.deploy",
+    ),
     system_actions.EXPORT_JOB_TYPE: JobDefinition(
         type=system_actions.EXPORT_JOB_TYPE,
         steps=system_actions.EXPORT_STEPS,

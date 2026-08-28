@@ -399,6 +399,7 @@
       "reconfigure_probe": "Probe neu konfigurieren",
       "bookkeeping": "Buchführung",
       "deploy_profiles": "Zugangsdaten-Profile ausrollen",
+      "revoke_profiles": "Zugangsdaten-Profile entziehen",
       "initialise": "Initialisieren",
       "start_containers": "Container starten",
       "remove": "Entfernen",
@@ -489,6 +490,9 @@
         "probe_skipped": "{{probe}} übersprungen: kein Inventareintrag; die Zugangsdaten für {{endpoint}} bleiben dort liegen",
         "profile_kept": "{{probe}}: {{sensor}} hat die Zugangsdaten für {{endpoint}} nicht losgelassen",
         "profile_revoked": "{{probe}}: Zugangsdaten für {{endpoint}} entzogen",
+        "targets": "{{endpoint}}: {{probes}} Probe(s) ausgewählt",
+        "probe_not_reached": "{{probe}} hat die Zugangsdaten für {{endpoint}} nicht erhalten und kann nicht dagegen messen",
+        "profile_kept_on_probe": "{{probe}} war nicht erreichbar; die Zugangsdaten für {{endpoint}} bleiben dort, zugeordnet ist sie ihnen aber nicht mehr",
         "endpoint_removed": "{{endpoint}}: iperf3-Dienst auf {{host}} abgebaut",
         "endpoint_unreachable": "{{endpoint}}: {{host}} hat nicht geantwortet; der iperf3-Dienst dort bleibt bestehen",
         "unmanaged_left_alone": "{{endpoint}}: {{host}} wird nicht von hier verwaltet und bleibt unverändert",
@@ -620,7 +624,13 @@
       "startedBody": "Die Plattform meldet sich an, installiert den Zugang und richtet iperf3 ein. Der Fortschritt steht im Job.",
       "startedTitle": "Der Messpunkt wird eingerichtet",
       "rotateTitle": "Passwort des Messpunkts wechseln",
-      "rotateBody": "Für \"{{name}}\" wird ein neues Passwort gesetzt und an die {{count}} Probe(s) verteilt, die dagegen messen."
+      "rotateBody": "Für \"{{name}}\" wird ein neues Passwort gesetzt und an die {{count}} Probe(s) verteilt, die dagegen messen.",
+      "probesTitle": "Probes, die gegen diesen Endpunkt messen",
+      "probesBody": "Die Probes auswählen, welche die Zugangsdaten von {{name}} halten sollen. Eine hier entfernte Probe bleibt entfernt: das Ausrollen des Sensors liest dieselbe Zuordnung.",
+      "probesEmpty": "Es ist keine Probe eingebunden.",
+      "probeHolds": "hält sie",
+      "deployTo": "An {{count}} ausrollen",
+      "revokeFrom": "{{count}} entziehen"
     }
   },
   "settings": {
