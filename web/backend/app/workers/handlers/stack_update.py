@@ -175,6 +175,13 @@ async def run(context: JobContext) -> dict[str, Any]:
     if not rebuild_only:
         await context.step("checkout")
 
+    # From here on this process is expendable. The updater will recreate the
+    # stack, which stops this container mid-handler - and a shutdown that
+    # arrives while a job is running is otherwise recorded as a cancellation.
+    # Saying so first is what makes a successful update look successful
+    # instead of abandoned.
+    await context.jobs.detach(context.job)
+
     # Follow along for as long as this process exists. The build is the long
     # part and it runs while the API is still up, so most of the update is
     # watched live; the rest is filled in by the recovery.
