@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -41,13 +41,14 @@ export function IperfPage() {
   const { data, isLoading, error, refetch } = useIperfEndpoints()
   const [dialog, setDialog] = useState<'provision' | 'register' | null>(null)
   const [removing, setRemoving] = useState<IperfEndpoint | null>(null)
+  const [rotating, setRotating] = useState<IperfEndpoint | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
   const columns: Column<IperfEndpoint>[] = [
     {
       key: 'name',
-      header: t('sensors.columns.name'),
+      header: t('infrastructure.iperf.columns.name'),
       sortValue: (row) => row.name,
       searchValue: (row) => `${row.name} ${row.host}`,
       cell: (row) => (
@@ -61,7 +62,7 @@ export function IperfPage() {
     },
     {
       key: 'endpoint',
-      header: t('dashboard.endpoint'),
+      header: t('infrastructure.iperf.columns.address'),
       cell: (row) => (
         <Mono>
           {row.host}:{row.port}
@@ -70,12 +71,12 @@ export function IperfPage() {
     },
     {
       key: 'user',
-      header: t('auth.username'),
+      header: t('infrastructure.iperf.columns.user'),
       cell: (row) => <Mono>{row.username || '—'}</Mono>,
     },
     {
       key: 'deployed',
-      header: t('sensors.columns.installed'),
+      header: t('infrastructure.iperf.columns.deployedTo'),
       align: 'right',
       sortValue: (row) => row.deployed_to.length,
       cell: (row) => <span className="text-sm">{row.deployed_to.length}</span>,
@@ -94,7 +95,7 @@ export function IperfPage() {
       cell: (row) => (
         <PermissionGate permission="iperf.manage">
           <span className="flex justify-end gap-2">
-            <RotateButton endpoint={row} />
+            <RotateButton endpoint={row} onStart={() => setRotating(row)} />
             <Button size="sm" variant="ghost" onClick={() => setRemoving(row)}>
               {t('common.remove')}
             </Button>
@@ -133,6 +134,9 @@ export function IperfPage() {
 
       {dialog === 'provision' && <ProvisionDialog onClose={() => setDialog(null)} />}
       {dialog === 'register' && <RegisterDialog onClose={() => setDialog(null)} />}
+      {rotating && (
+        <RotateDialog endpoint={rotating} onClose={() => setRotating(null)} />
+      )}
       {removing && (
         <RemoveDialog endpoint={removing} onClose={() => setRemoving(null)} />
       )}
@@ -193,7 +197,7 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field
-              label={t('sensors.columns.name')}
+              label={t('infrastructure.iperf.columns.name')}
               hint={t('infrastructure.iperf.nameHint')}
               error={name && !nameOk ? t('infrastructure.iperf.nameShape') : undefined}
             >
@@ -205,7 +209,10 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
                 spellCheck={false}
               />
             </Field>
-            <Field label={t('dashboard.endpoint')} hint={t('infrastructure.iperf.hostHint')}>
+            <Field
+              label={t('infrastructure.iperf.host')}
+              hint={t('infrastructure.iperf.hostHint')}
+            >
               <Input
                 value={host}
                 onChange={(event) => setHost(event.target.value.trim())}
@@ -401,7 +408,7 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
         <p className="text-ink-2 text-sm">{t('infrastructure.iperf.registerIntro')}</p>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('sensors.columns.name')}>
+          <Field label={t('infrastructure.iperf.columns.name')}>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value.trim())}
@@ -410,7 +417,7 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
               spellCheck={false}
             />
           </Field>
-          <Field label={t('dashboard.endpoint')}>
+          <Field label={t('infrastructure.iperf.host')}>
             <Input
               value={host}
               onChange={(event) => setHost(event.target.value.trim())}
@@ -426,7 +433,7 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
             />
           </Field>
           <Field
-            label={t('auth.username')}
+            label={t('infrastructure.iperf.columns.user')}
             hint={t('infrastructure.iperf.foreignUserHint')}
           >
             <Input
@@ -497,22 +504,77 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
 
 // --- Rotating and removing ---------------------------------------------------
 
-function RotateButton({ endpoint }: { endpoint: IperfEndpoint }) {
+function RotateButton({
+  endpoint,
+  onStart,
+}: {
+  endpoint: IperfEndpoint
+  onStart: () => void
+}) {
   const { t } = useTranslation()
-  const rotate = useRotateEndpoint()
 
   if (!endpoint.managed) return null
   return (
-    <Button
-      size="sm"
-      disabled={rotate.isPending}
-      onClick={() => rotate.mutate(endpoint.name)}
-      title={t('infrastructure.iperf.rotateHint')}
-    >
-      {rotate.isPending
-        ? t('infrastructure.iperf.rotating')
-        : t('infrastructure.iperf.rotate')}
+    <Button size="sm" onClick={onStart}>
+      {t('infrastructure.iperf.rotate')}
     </Button>
+  )
+}
+
+/**
+ * Ask first, then say where it went.
+ *
+ * The button used to start the job on a single click and report neither its id
+ * nor its failure: a new password went out to every probe measuring against
+ * this endpoint and nothing on screen changed. What the tooltip said is what
+ * this dialog says, at the moment it matters.
+ */
+function RotateDialog({
+  endpoint,
+  onClose,
+}: {
+  endpoint: IperfEndpoint
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const rotate = useRotateEndpoint()
+
+  return (
+    <Dialog title={t('infrastructure.iperf.rotateTitle')} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.rotateBody', {
+            name: endpoint.name,
+            count: endpoint.deployed_to.length,
+          })}
+        </p>
+
+        {rotate.error != null && <ErrorDetails error={rotate.error} />}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={rotate.isPending}
+            onClick={() =>
+              rotate.mutate(endpoint.name, {
+                onSuccess: (accepted) => {
+                  onClose()
+                  navigate(`/jobs/${accepted.job_id}`)
+                },
+              })
+            }
+          >
+            {rotate.isPending
+              ? t('infrastructure.iperf.rotating')
+              : t('infrastructure.iperf.rotate')}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   )
 }
 
@@ -524,6 +586,7 @@ function RemoveDialog({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const remove = useRemoveEndpoint()
   const [keepService, setKeepService] = useState(false)
 
@@ -572,9 +635,16 @@ function RemoveDialog({
             variant="danger"
             disabled={remove.isPending}
             onClick={() =>
+              // Taking an endpoint away runs on the host as a job like any
+              // other, and the dialog closing was the only sign of it.
               remove.mutate(
                 { name: endpoint.name, keepService },
-                { onSuccess: onClose },
+                {
+                  onSuccess: (accepted) => {
+                    onClose()
+                    navigate(`/jobs/${accepted.job_id}`)
+                  },
+                },
               )
             }
           >

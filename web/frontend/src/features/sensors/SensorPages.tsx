@@ -168,8 +168,10 @@ export function SensorDetailPage() {
       </div>
 
       <SensorVariants sensorName={name} schema={data.parameter_schema} />
-      <ParameterReference schema={data.parameter_schema} />
+      {/* The builder first: it is what somebody setting up a sensor came for,
+          and the reference below lists the same parameters a second time. */}
       <ParameterBuilder sensorName={name} schema={data.parameter_schema} />
+      <ParameterReference schema={data.parameter_schema} />
 
       {deploying && (
         <DeployDialog

@@ -110,7 +110,9 @@ export function DashboardPage() {
 
       {(probeAlerts.length > 0 || data.expiring_certificates.length > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">
-          {data.alerts.length > 0 && (
+          {/* What the card lists, not what the dashboard counts: with every
+              warning a certificate one, this drew an empty card. */}
+          {probeAlerts.length > 0 && (
             <Card title={t('dashboard.activeWarnings')} dense>
               <ul>
                 {probeAlerts.map((alert) => (

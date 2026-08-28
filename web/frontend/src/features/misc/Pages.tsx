@@ -332,7 +332,12 @@ export function NatsPage() {
         </Card>
       </div>
 
-      <Card title="Container" dense>
+      <Card title={t('infrastructure.containers')} dense>
+        {containers.length === 0 && (
+          <div className="px-4 py-3">
+            <EmptyState title={t('infrastructure.containersEmpty')} />
+          </div>
+        )}
         <ul>
           {containers.map((container) => (
             <li
@@ -363,11 +368,17 @@ export function CertificatesPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-lg">{t('infrastructure.certificatesTitle')}</h1>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {data?.map((certificate) => (
-          <CertificateCard key={certificate.kind} certificate={certificate} />
-        ))}
-      </div>
+      {data && data.length === 0 ? (
+        <Card>
+          <EmptyState title={t('infrastructure.certificatesEmpty')} />
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {data?.map((certificate) => (
+            <CertificateCard key={certificate.kind} certificate={certificate} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -14,7 +14,7 @@
     "nats": "NATS",
     "iperf": "Messpunkte",
     "certificates": "Zertifikate",
-    "credentials": "Zugangsdaten",
+    "credentials": "NATS-Konten",
     "audit": "Protokoll",
     "settings": "Einstellungen",
     "updates": "Updates"
@@ -145,6 +145,7 @@
     "validate": "Prüfung starten",
     "refreshState": "Zustand aktualisieren",
     "helper": "Probe-Helper",
+    "pendingTransaction": "Offene Transaktion",
     "helperVersion": "Version {{version}}",
     "helperUnknown": "meldet keine Version",
     "helperOutdated": "veraltet",
@@ -210,10 +211,10 @@
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
         "donePrtg": "In PRTG fehlen noch zwei Schritte, ohne die die Probe dort nicht auftaucht: den Access Key als neue Zeile in die Access-Key-Liste des Cores eintragen und die Probe anschließend genehmigen. Den Access Key zeigt die Seite der Probe unter „PRTG Access Key“.",
         "failedTitle": "Die Anmeldung wurde nicht fertig",
-        "failedBody": "Das Protokoll unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederholen Sie den Auftrag; muss der Host den Befehl erneut ausführen, erstellen Sie eine neue Einladung.",
+        "failedBody": "Das Protokoll unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederholen Sie den Job; muss der Host den Befehl erneut ausführen, erstellen Sie eine neue Einladung.",
         "toProbe": "Zur Probe",
         "toProbes": "Zur Probenliste",
-        "toJob": "Auftrag öffnen",
+        "toJob": "Job öffnen",
         "reportedBy": "Host"
       },
       "fields": {
@@ -325,6 +326,8 @@
     "create": "Neuer Rollout",
     "selectSensor": "Sensor",
     "selectProbes": "Probes",
+    "selectAll": "Alle auswählen",
+    "selectNone": "Auswahl aufheben",
     "dryRun": "Probelauf",
     "dryRunHint": "Meldet, was geschehen würde, ohne die Probe zu verändern.",
     "start": "Rollout starten",
@@ -552,6 +555,9 @@
   "infrastructure": {
     "natsTitle": "NATS-Server",
     "certificatesTitle": "Zertifikate",
+    "certificatesEmpty": "Es liegt kein Zertifikat vor.",
+    "containers": "Container",
+    "containersEmpty": "Es läuft kein Container des Stacks.",
     "iperfTitle": "Messpunkte",
     "iperfSubtitle": "Die Gegenstellen, gegen die der Sensor iperf-throughput misst",
     "iperfEmpty": "Es ist kein Messpunkt eingerichtet.",
@@ -563,11 +569,18 @@
     "keyMismatch": "Zertifikat und privater Schlüssel gehören nicht zusammen.",
     "iperf": {
       "add": "Messpunkt einrichten",
+      "columns": {
+        "name": "Name",
+        "address": "Adresse",
+        "user": "Messbenutzer",
+        "deployedTo": "Auf Probes"
+      },
+      "host": "Adresse",
       "addIntro": "Die Plattform meldet sich einmalig per SSH an und richtet den Messpunkt selbst ein. Danach hält sie einen eigenen, eng begrenzten Zugang - die Anmeldedaten von hier werden nicht gespeichert.",
       "addTitle": "Messpunkt einrichten",
       "adminHint": "Ein Konto, das auf dem Host root werden darf. Wird nur für diese eine Verbindung benutzt.",
       "adminUser": "Administrator",
-      "credentialBody": "Sie gelten für eine Verbindung, werden nicht gespeichert, nicht protokolliert und nicht in den Auftrag geschrieben. Danach hält die Plattform ihren eigenen eingeschränkten Schlüssel.",
+      "credentialBody": "Sie gelten für eine Verbindung, werden nicht gespeichert, nicht protokolliert und nicht in den Job geschrieben. Danach hält die Plattform ihren eigenen eingeschränkten Schlüssel.",
       "credentialTitle": "Die Anmeldedaten bleiben hier nicht",
       "foreign": "fremd",
       "foreignUserHint": "Leer lassen, wenn der Messpunkt ohne Authentifizierung misst.",
@@ -593,7 +606,6 @@
       "removePackage": "Das iperf3-Paket wird nicht deinstalliert - etwas anderes auf dem Host könnte es benutzen.",
       "removeTitle": "Messpunkt entfernen",
       "rotate": "Passwort wechseln",
-      "rotateHint": "Setzt ein neues Passwort und verteilt es an alle Probes, die gegen diesen Messpunkt messen.",
       "rotating": "Wird gewechselt …",
       "scan": "Hostschlüssel lesen",
       "scanning": "Wird gelesen …",
@@ -602,8 +614,10 @@
       "sourceCidr": "Quellnetz",
       "sourceCidrHint": "Netz, aus dem der Host diese Plattform akzeptiert. Leer lassen, wenn IPERF_SSH_SOURCE_CIDR gesetzt ist. Mehrere durch Komma getrennt.",
       "sshPort": "SSH-Port",
-      "startedBody": "Die Plattform meldet sich an, installiert den Zugang und richtet iperf3 ein. Der Fortschritt steht im Auftrag.",
-      "startedTitle": "Der Messpunkt wird eingerichtet"
+      "startedBody": "Die Plattform meldet sich an, installiert den Zugang und richtet iperf3 ein. Der Fortschritt steht im Job.",
+      "startedTitle": "Der Messpunkt wird eingerichtet",
+      "rotateTitle": "Passwort des Messpunkts wechseln",
+      "rotateBody": "Für \"{{name}}\" wird ein neues Passwort gesetzt und an die {{count}} Probe(s) verteilt, die dagegen messen."
     }
   },
   "settings": {
@@ -826,7 +840,9 @@
     "create": "Konto anlegen",
     "createTitle": "Neues NATS-Konto",
     "createHint": "Das Kennwort wird erzeugt und in der geschützten Zugangsdatei abgelegt. Anzeigen nur, wenn der PRTG Core es eingetippt braucht.",
-    "rotate": "Rotieren",
+    "rotate": "Passwort wechseln",
+    "rotateWarning": "Für {{account}} wird ein neues Kennwort erzeugt. Das bisherige gilt sofort nicht mehr.",
+    "rotateProbeHint": "Die eingebundene Probe bekommt das neue Kennwort im selben Job und verbindet sich damit neu.",
     "delete": "Löschen",
     "deleteBlockedProbe": "Für dieses Konto ist eine Probe eingebunden.",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",

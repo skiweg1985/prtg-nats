@@ -14,7 +14,7 @@
     "nats": "NATS",
     "iperf": "iperf endpoints",
     "certificates": "Certificates",
-    "credentials": "Credentials",
+    "credentials": "NATS accounts",
     "audit": "Audit",
     "settings": "Settings",
     "updates": "Updates"
@@ -145,6 +145,7 @@
     "validate": "Run check",
     "refreshState": "Refresh state",
     "helper": "Probe helper",
+    "pendingTransaction": "Pending transaction",
     "helperVersion": "version {{version}}",
     "helperUnknown": "no version reported",
     "helperOutdated": "outdated",
@@ -325,6 +326,8 @@
     "create": "New deployment",
     "selectSensor": "Sensor",
     "selectProbes": "Probes",
+    "selectAll": "Select all",
+    "selectNone": "Clear selection",
     "dryRun": "Dry run",
     "dryRunHint": "Reports what would happen without changing anything on the probe.",
     "start": "Start deployment",
@@ -552,6 +555,9 @@
   "infrastructure": {
     "natsTitle": "NATS server",
     "certificatesTitle": "Certificates",
+    "certificatesEmpty": "No certificate is on record.",
+    "containers": "Containers",
+    "containersEmpty": "No container of the stack is running.",
     "iperfTitle": "iperf endpoints",
     "iperfSubtitle": "The counterparts the iperf-throughput sensor measures against",
     "iperfEmpty": "No measurement endpoint is set up.",
@@ -563,6 +569,13 @@
     "keyMismatch": "The certificate and its private key do not belong together.",
     "iperf": {
       "add": "Set up endpoint",
+      "columns": {
+        "name": "Name",
+        "address": "Address",
+        "user": "Measurement user",
+        "deployedTo": "On probes"
+      },
+      "host": "Address",
       "addIntro": "The platform signs in over SSH once and sets the endpoint up itself. Afterwards it holds its own narrow access - the credentials used here are not stored.",
       "addTitle": "Set up a measurement endpoint",
       "adminHint": "An account that may become root on that host. Used for this one connection.",
@@ -593,7 +606,6 @@
       "removePackage": "The iperf3 package is not uninstalled - something else on that host may be using it.",
       "removeTitle": "Remove endpoint",
       "rotate": "Change password",
-      "rotateHint": "Sets a new password and carries it to every probe measuring against this endpoint.",
       "rotating": "Changing …",
       "scan": "Read host keys",
       "scanning": "Reading …",
@@ -603,7 +615,9 @@
       "sourceCidrHint": "The network the host will accept this platform from. Leave empty when IPERF_SSH_SOURCE_CIDR is set. Several, separated by commas.",
       "sshPort": "SSH port",
       "startedBody": "The platform signs in, installs the access and sets up iperf3. The job carries the progress.",
-      "startedTitle": "The endpoint is being set up"
+      "startedTitle": "The endpoint is being set up",
+      "rotateTitle": "Change the endpoint password",
+      "rotateBody": "A new password is set for \"{{name}}\" and handed to the {{count}} probe(s) measuring against it."
     }
   },
   "settings": {
@@ -826,7 +840,9 @@
     "create": "Create account",
     "createTitle": "New NATS account",
     "createHint": "The password is generated and stored in the protected credential file. Reveal it only when the PRTG core needs it typed in.",
-    "rotate": "Rotate",
+    "rotate": "Change password",
+    "rotateWarning": "A new password is generated for {{account}}. The current one stops working immediately.",
+    "rotateProbeHint": "The enrolled probe receives the new password in the same job and reconnects with it.",
     "delete": "Delete",
     "deleteBlockedProbe": "A probe is enrolled for this account.",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",

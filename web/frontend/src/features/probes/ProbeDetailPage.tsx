@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -45,6 +45,9 @@ import { formatRelative, shortFingerprint } from '@/utils/format'
 const TABS = ['overview', 'sensors', 'deviations', 'diagnostics'] as const
 type Tab = (typeof TABS)[number]
 
+/** Where the tab lives in the address; every other parameter is the list's. */
+const TAB_PARAM = 'tab'
+
 /**
  * How loudly a finding is drawn.
  *
@@ -74,7 +77,26 @@ export function ProbeDetailPage() {
   const updateHelper = useProbeAction('helper-update')
   const configure = useConfigureProbe()
   const unenroll = useUnenrollProbe()
-  const [tab, setTab] = useState<Tab>('overview')
+  // In the address rather than in state. Every action on this page ends in a
+  // job, and coming back from one used to put the overview in front of
+  // somebody who had been reading the deviations. It also makes a tab
+  // something that can be linked to and survives a reload.
+  const [params, setParams] = useSearchParams()
+  const tab: Tab = TABS.find((entry) => entry === params.get(TAB_PARAM)) ?? 'overview'
+
+  function selectTab(next: Tab) {
+    const updated = new URLSearchParams(params)
+    if (next === 'overview') updated.delete(TAB_PARAM)
+    else updated.set(TAB_PARAM, next)
+    setParams(updated, { replace: true })
+  }
+
+  // What the list was showing when this page was opened: the row link brings
+  // its filters and search term along, and the way out hands them back.
+  const listParams = new URLSearchParams(params)
+  listParams.delete(TAB_PARAM)
+  const listSearch = listParams.toString()
+  const backToList = `/probes${listSearch ? `?${listSearch}` : ''}`
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
   // Every option starts off. Retiring a probe is destructive enough on its
   // own; what else goes has to be chosen, not merely left checked.
@@ -107,7 +129,7 @@ export function ProbeDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <Link to="/probes" className="text-ink-3 text-xs">
+          <Link to={backToList} className="text-ink-3 text-xs">
             ← {t('probes.title')}
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -285,7 +307,7 @@ export function ProbeDetailPage() {
           <button
             key={entry}
             type="button"
-            onClick={() => setTab(entry)}
+            onClick={() => selectTab(entry)}
             className={
               tab === entry
                 ? 'border-accent text-ink -mb-px border-b-2 px-3 py-2 text-sm font-medium'
@@ -732,6 +754,11 @@ function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDeta
         </ul>
       </Card>
 
+      {/* Pressing the button changed nothing until the plan came back, and
+          nothing at all when it failed. */}
+      {preview && plan.isLoading && <Skeleton className="h-32" />}
+      {preview && plan.error && <ErrorDetails error={plan.error} />}
+
       {preview && plan.data && (
         <Card title={t('probes.planPreview')}>
           {plan.data.is_empty ? (
@@ -821,7 +848,7 @@ function DiagnosticsTab({ detail }: { detail: ProbeDetail }) {
         <DetailRow label="ca_sha256">
           <Mono truncate>{observed?.ca_sha256 ?? '—'}</Mono>
         </DetailRow>
-        <DetailRow label="pending transaction">
+        <DetailRow label={t('probes.pendingTransaction')}>
           <Mono>{inventory.pending_transaction || '—'}</Mono>
         </DetailRow>
         <DetailRow label={t('nav.iperf')}>
