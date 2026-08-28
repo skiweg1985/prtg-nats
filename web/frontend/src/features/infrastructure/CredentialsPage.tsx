@@ -45,6 +45,10 @@ export function CredentialsPage() {
     null,
   )
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  // Rotating cuts a probe's current credentials and hands it new ones. It ran
+  // on a single click, while deleting - the one the server refuses outright
+  // while a probe depends on the account - asked first.
+  const [confirmRotate, setConfirmRotate] = useState<NatsAccount | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -98,15 +102,7 @@ export function CredentialsPage() {
             >
               {t('common.reveal')}
             </Button>
-            <Button
-              size="sm"
-              onClick={() =>
-                rotate.mutate(row.username, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
-              disabled={rotate.isPending}
-            >
+            <Button size="sm" onClick={() => setConfirmRotate(row)}>
               {t('credentials.rotate')}
             </Button>
             <Button
@@ -163,7 +159,6 @@ export function CredentialsPage() {
         </Card>
       </PermissionGate>
 
-      {rotate.error && <ErrorDetails error={rotate.error} />}
       {reveal.error && <ErrorDetails error={reveal.error} />}
 
       {revealed && (
@@ -185,6 +180,43 @@ export function CredentialsPage() {
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>
+          </div>
+        </Dialog>
+      )}
+
+      {confirmRotate && (
+        <Dialog title={t('confirm.title')} onClose={() => setConfirmRotate(null)}>
+          <p className="text-ink-2 text-sm">
+            {t('credentials.rotateWarning', { account: confirmRotate.username })}
+          </p>
+          {confirmRotate.probe_enrolled && (
+            <p className="text-ink-2 mt-2 text-sm">
+              {t('credentials.rotateProbeHint')}
+            </p>
+          )}
+          {rotate.error && (
+            <div className="mt-3">
+              <ErrorDetails error={rotate.error} />
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmRotate(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() =>
+                rotate.mutate(confirmRotate.username, {
+                  onSuccess: (accepted) => {
+                    setConfirmRotate(null)
+                    navigate(`/jobs/${accepted.job_id}`)
+                  },
+                })
+              }
+              disabled={rotate.isPending}
+            >
+              {t('credentials.rotate')}
+            </Button>
           </div>
         </Dialog>
       )}

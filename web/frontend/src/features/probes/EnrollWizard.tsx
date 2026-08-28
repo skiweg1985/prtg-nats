@@ -76,9 +76,16 @@ export function EnrollWizard() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('probes.enroll.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('probes.enroll.subtitle')}</p>
+      <header>
+        {/* The only page under /probes without one. From step two on, the
+            browser's own button was the way out. */}
+        <Link to="/probes" className="text-ink-3 text-xs">
+          ← {t('probes.title')}
+        </Link>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="text-lg">{t('probes.enroll.title')}</h1>
+          <p className="text-ink-3 text-sm">{t('probes.enroll.subtitle')}</p>
+        </div>
       </header>
 
       {!issued && (

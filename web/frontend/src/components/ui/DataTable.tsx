@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { Button, EmptyState, Input, Skeleton } from './primitives'
@@ -53,6 +53,17 @@ interface DataTableProps<T> {
   filters?: ReactNode
   searchPlaceholder?: string
   /**
+   * Query parameter the search box reads and writes, for the lists whose rows
+   * lead somewhere.
+   *
+   * Without it the term lives in this component and is gone the moment
+   * somebody opens a row and steps back - which is most of what searching a
+   * fleet is for. With it the term survives the trip, a reload and a link sent
+   * to a colleague. Tables inside tabs and dialogs leave it unset; two of them
+   * on one screen would fight over the same parameter.
+   */
+  searchParamKey?: string
+  /**
    * Rendered under a row while it is open, with a toggle in its own column.
    *
    * For the detail a row summarises into a number - "3 of 5 probes succeeded"
@@ -73,11 +84,28 @@ export function DataTable<T>({
   selection,
   filters,
   searchPlaceholder,
+  searchParamKey,
   expandedContent,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
+  const [params, setParams] = useSearchParams()
+  const [localQuery, setLocalQuery] = useState('')
+  const query = searchParamKey ? (params.get(searchParamKey) ?? '') : localQuery
+
+  function setQuery(next: string) {
+    if (!searchParamKey) {
+      setLocalQuery(next)
+      return
+    }
+    const updated = new URLSearchParams(params)
+    // An empty term is no term, not an empty parameter: it would ride along
+    // into every row link and come back out as `?q=`.
+    if (next) updated.set(searchParamKey, next)
+    else updated.delete(searchParamKey)
+    // Replace, or typing a term puts one entry per keystroke into the history.
+    setParams(updated, { replace: true })
+  }
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
     null,

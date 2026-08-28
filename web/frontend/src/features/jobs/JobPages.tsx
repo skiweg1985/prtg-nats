@@ -191,7 +191,21 @@ export function JobDetailPage() {
             </h1>
             <JobStatusBadge status={job.status} />
           </div>
-          {job.target_label && <p className="text-ink-3 text-sm">{job.target_label}</p>}
+          {/* The way back to where this was started. Almost every action in
+              the interface ends on this page, and until now its only link led
+              to the job list - not to the probe somebody was looking at when
+              they pressed the button. */}
+          {job.target_label &&
+            (job.target_type === 'probe' && job.target_id ? (
+              <Link
+                to={`/probes/${job.target_id}`}
+                className="text-accent text-sm hover:underline"
+              >
+                {job.target_label}
+              </Link>
+            ) : (
+              <p className="text-ink-3 text-sm">{job.target_label}</p>
+            ))}
         </div>
 
         <div className="flex gap-2">

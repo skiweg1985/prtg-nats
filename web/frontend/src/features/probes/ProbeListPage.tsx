@@ -70,6 +70,11 @@ export function ProbeListPage() {
     setParams([], { replace: true })
   }
 
+  // Carried into every row link and handed back by the detail page's own way
+  // out. Without it, opening a probe from a filtered, searched list and
+  // stepping back lands on the unfiltered fleet with the search box empty.
+  const listSearch = params.toString()
+
   const columns: Column<ProbeSummary>[] = [
     {
       key: 'name',
@@ -193,7 +198,8 @@ export function ProbeListPage() {
             </PermissionGate>
           )
         }
-        rowHref={(row) => `/probes/${row.id}`}
+        rowHref={(row) => `/probes/${row.id}${listSearch ? `?${listSearch}` : ''}`}
+        searchParamKey="q"
         filters={
           <div className="flex flex-wrap items-center gap-2">
             <FilterToggle
