@@ -224,6 +224,61 @@ describe('UpdatesPage', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('keeps asking for the job, so the steps move while it runs', async () => {
+    /**
+     * The log arrives over the event stream; the step list and the final
+     * status come from the job query. Without a poll the log scrolls while
+     * the steps sit still, and the run looks stuck on whatever step was
+     * current when the page rendered - which is exactly how it looked on the
+     * first real update.
+     */
+    await changeLanguage('en')
+    sessionStorage.setItem('prtg-nats:update-job', 'J5')
+
+    let step = 'backup'
+    let asked = 0
+    server.use(
+      http.get('/api/v1/jobs/J5', () => {
+        asked += 1
+        // The job moves on between two requests. A page that asks once would
+        // never learn about it.
+        if (asked > 1) step = 'build'
+        return HttpResponse.json({
+          id: 'J5',
+          type: 'stack.update',
+          status: 'running',
+          current_step: step,
+          progress: 50,
+          steps: [
+            { name: 'backup', status: asked > 1 ? 'succeeded' : 'running', position: 1 },
+            { name: 'build', status: asked > 1 ? 'running' : 'pending', position: 2 },
+          ],
+          target_label: 'dev',
+          created_at: '2026-08-28T08:00:00Z',
+          started_at: '2026-08-28T08:00:00Z',
+          finished_at: null,
+          error_code: null,
+          error_params: {},
+          error_details: null,
+          result: null,
+          retry_of_job_id: null,
+          blocked_reason_key: null,
+          blocked_by_job_id: null,
+          cancel_requested: false,
+          requested_by_username: 'admin',
+        })
+      }),
+      http.get('/api/v1/jobs/J5/log', () => HttpResponse.json([])),
+    )
+
+    renderPage()
+
+    // The step list renders every step from the start, pending ones included,
+    // so its text proves nothing. What has to be true is that the page keeps
+    // asking - that is the thing whose absence made the run look stuck.
+    await waitFor(() => expect(asked).toBeGreaterThan(1), { timeout: 8000 })
+  }, 15_000)
+
   it('treats the API going away mid-job as a restart, not a failure', { timeout: 20_000 }, async () => {
     /**
      * The heart of it. The job is being watched, the recreate begins, and

@@ -56,7 +56,18 @@ export function UpdatesPage() {
   // While the API is gone every request fails, and React Query would turn that
   // into a page full of red. The job query is switched off for the duration
   // and the plain health poll below takes over.
-  const job = useJob(phase === 'waiting' ? undefined : (jobId ?? undefined))
+  //
+  // The poll is not optional, which cost an evening to learn. The log arrives
+  // over the event stream, but the step list and the final status come from
+  // this query - so without it the log scrolls while the steps sit still, and
+  // the run appears to hang on whatever step was current when the page
+  // rendered. Worse, the reload that ends a successful update waits for a
+  // terminal status here, so it never fires and the page stays on a finished
+  // job forever.
+  const job = useJob(phase === 'waiting' ? undefined : (jobId ?? undefined), {
+    refetchInterval: (query) =>
+      query.state.data && !isTerminal(query.state.data.status) ? 3_000 : false,
+  })
   const log = useJobLog(jobId ?? undefined)
 
   const onStart = useCallback(
