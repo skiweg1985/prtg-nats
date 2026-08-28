@@ -559,6 +559,15 @@ class RuntimeFileStore:
     def forget_iperf(self, nats_username: str, endpoint: str) -> None:
         self._forget_line(self._sidecar(nats_username, "iperf"), endpoint)
 
+    def assigned_iperf(self, nats_username: str) -> tuple[str, ...]:
+        """The endpoints one probe is meant to measure against.
+
+        The counterpart of assigned_profiles for the endpoints, and read for
+        the same reason: a rollout deploys what a probe is meant to hold, not
+        everything the installation happens to know.
+        """
+        return self._read_lines(self._sidecar(nats_username, "iperf"))
+
     def remove_probe(self, nats_username: str) -> None:
         """Delete the inventory and its sidecars - the unenroll bookkeeping."""
         for suffix in ("env", "sensors", "iperf", "profiles"):

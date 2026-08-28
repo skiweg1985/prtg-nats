@@ -692,8 +692,12 @@ check "the iperf sensor declares its endpoints" \
 # The credentials take the path the repository already has. A second
 # channel for the same thing would be a second place to maintain - and
 # the one overlooked at the next permission bug.
+#
+# The five: deploy writes the endpoint's own profile, then either writes or
+# removes "default" depending on whether the endpoint is still alone; revoke
+# removes both again.
 check "the rollout uses the profile mechanism" \
-  "$(grep -c 'manage-sensors.sh" profile' libexec/manage-iperf-server.sh)" "4"
+  "$(grep -c 'manage-sensors.sh" profile' libexec/manage-iperf-server.sh)" "5"
 check "and invents no channel of its own" \
   "$(grep -c 'sensor-write-iperf' libexec/prtg-nats-probe-helper)" "0"
 # The sensor reads the profile under the names "iperf-server deploy"

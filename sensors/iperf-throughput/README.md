@@ -124,9 +124,11 @@ not managed, only measured; every intervention signs in anew. That is why
 `--rotate` needs an SSH target again as well.
 
 **Rollout happens as a profile**, over the same path as the credentials of
-all other sensors — see [credentials](#credentials). As long as only one
-endpoint is configured, its profile is additionally called `default`; the
-sensor then finds it without `--profile`.
+all other sensors — see [credentials](#credentials). As long as a probe holds
+only one endpoint, its profile is additionally called `default`; the sensor
+then finds it without `--profile`. The alias follows: a second endpoint on
+that probe removes it, a password change renews it, and revoking the endpoint
+takes it away with the profile it mirrors.
 
 The Debian package's unit stays untouched — the authentication sits next
 to it as a drop-in under `/etc/systemd/system/iperf3.service.d/auth.conf`.
@@ -168,9 +170,10 @@ the profile is named after the endpoint:
 --server iperf-south.example.com --username prtg-probe --profile iperf-south --download-mbit 30 --upload-mbit 10
 ```
 
-As long as only one is configured, its profile is additionally called
-`default`, and the sensor finds it without further ado. From the second on
-that stops: which path is measured should not depend on which endpoint was
+As long as a probe holds only one, its profile is additionally called
+`default`, and the sensor finds it without further ado. From the second one on
+that stops, and the alias is taken off the probe rather than left pointing at
+the first: which path is measured should not depend on which endpoint was
 created first.
 
 **One test at a time, per endpoint.** Several endpoints are also the
@@ -318,7 +321,7 @@ after the endpoint — `iperf-server deploy` creates it:
 --server iperf-south.example --username prtg-probe --profile iperf-south
 ```
 
-As long as only one is configured, its profile is additionally called
+As long as a probe holds only one, its profile is additionally called
 `default`, and `--profile` can be dropped.
 
 ### Changing the password

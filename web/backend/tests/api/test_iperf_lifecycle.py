@@ -561,3 +561,78 @@ async def test_removing_an_endpoint_that_was_never_registered_is_a_404(
     response = await client.delete("/api/v1/iperf-endpoints/nowhere")
 
     assert response.status_code == 404, response.text
+
+
+async def test_rotation_also_refreshes_the_default_alias(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The alias is the profile the sensors actually use, and it was missed.
+
+    With one endpoint, "default" is what makes --profile unnecessary - so it is
+    the profile every PRTG sensor object on this probe reads. Refreshing only
+    the one named after the endpoint left that alias on the old password and
+    locked out exactly the probes the rotation was meant to keep running, with
+    nothing to see but a sensor going red some minutes later.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", sensors=("iperf-throughput",))
+    (project_dir / "runtime" / "probes" / "mpp-berlin.iperf").write_text(
+        "berlin\n", encoding="utf-8"
+    )
+    transport.responses.update({"endpoint-setup": _setup_answer()})
+
+    accepted = await client.post("/api/v1/iperf-endpoints/berlin/rotate")
+    assert accepted.status_code == 202, accepted.text
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    written = {
+        request.arguments[1]: request.payload
+        for _, request in transport.calls
+        if request.command.value == "sensor-write-profile"
+    }
+    assert set(written) == {"berlin", "default"}
+    # Byte for byte: the alias is the same profile under a second name, and a
+    # difference between the two is the bug this test exists for.
+    assert written["default"] == written["berlin"]
+
+
+async def test_removal_takes_the_default_alias_off_the_probes_too(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """Left behind, it names a host that no longer answers.
+
+    Worse than a missing profile: the sensor finds credentials, tries, and
+    reports a failed measurement rather than an endpoint that is gone.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", sensors=("iperf-throughput",))
+    (project_dir / "runtime" / "probes" / "mpp-berlin.iperf").write_text(
+        "berlin\n", encoding="utf-8"
+    )
+
+    accepted = await client.delete("/api/v1/iperf-endpoints/berlin")
+    assert accepted.status_code == 202, accepted.text
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    removed = [
+        request.arguments[1]
+        for _, request in transport.calls
+        if request.command.value == "sensor-remove-profile"
+    ]
+    assert removed == ["berlin", "default"]

@@ -110,13 +110,32 @@ iperf_sensors() {
 # Bookkeeping
 # ---------------------------------------------------------------------------
 
-assigned_iperf_servers() {
-  local username="$1"
-  local assignment=""
+# assigned_iperf_servers lives in common.sh: the sensor rollout reads the same
+# assignment to decide which endpoints belong on a probe.
 
-  assignment="$(probe_iperf_path "${username}")"
-  [[ -f "${assignment}" ]] || return 0
-  grep -E -v '^[[:space:]]*(#.*)?$' "${assignment}" || true
+# Which endpoints a probe holds once "name" is deployed to it, ignoring any
+# assignment that outlived the endpoint it names.
+#
+# Only these decide whether "default" still stands for exactly one endpoint.
+# What the installation knows elsewhere does not come into it: a probe that was
+# revoked may not measure against that endpoint, and an alias standing in for
+# it would hand back the very credentials the revoke took away.
+held_after_deploy() {
+  local username="$1"
+  local name="$2"
+  local endpoint=""
+
+  while read -r endpoint; do
+    if registered_iperf_servers | grep -q -x -- "${endpoint}"; then
+      printf '%s\n' "${endpoint}"
+    fi
+  done < <(
+    {
+      assigned_iperf_servers "${username}"
+      printf '%s\n' "${name}"
+    } | sort -u
+  )
+  return 0
 }
 
 remember_iperf() {
@@ -545,16 +564,26 @@ deploy_iperf() {
   mapfile -t sensors < <(iperf_sensors)
   [[ "${#sensors[@]}" -gt 0 ]] ||
     die "No sensor in sensors/ declares SENSOR_IPERF=${IPERF_KIND}"
-  # As long as there is exactly one endpoint, its profile is additionally
-  # called "default" - the name the sensor looks for without --profile.
-  # Nobody should have to enter a name while there is nothing to tell apart.
-  [[ "$(registered_iperf_servers | wc -l | tr -d ' ')" != "1" ]] ||
+  # As long as this probe holds exactly one endpoint, its profile is
+  # additionally called "default" - the name the sensor looks for without
+  # --profile. Nobody should have to enter a name while there is nothing on
+  # this probe to tell apart.
+  #
+  # The alias is maintained in both directions, not only written. With a second
+  # endpoint on the probe it has no defined meaning any more, and a copy left
+  # there would keep the credentials of whichever endpoint was once alone - a
+  # host that may since have been decommissioned or had its password rotated.
+  [[ "$(held_after_deploy "${username}" "${name}" | wc -l | tr -d ' ')" != "1" ]] ||
     only_one="true"
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     printf 'Would deploy the credentials of %s to %s as profile %s' \
       "${name}" "${username}" "${name}"
-    [[ "${only_one}" != "true" ]] || printf ' (and as "default")'
+    if [[ "${only_one}" == "true" ]]; then
+      printf ' (and as "default")'
+    else
+      printf ' (and remove "default", which no longer stands for one endpoint)'
+    fi
     printf ' for: %s\n' "${sensors[*]}"
     return 0
   fi
@@ -578,6 +607,10 @@ deploy_iperf() {
       "${SCRIPT_DIR}/manage-sensors.sh" profile \
         "${sensor}" "${username}" default --from-file "${profile}" >/dev/null ||
         die "The probe rejected the default profile of ${name} for ${sensor}"
+    else
+      # Removing one that was never written is not an error on the probe.
+      "${SCRIPT_DIR}/manage-sensors.sh" profile \
+        "${sensor}" "${username}" default --remove >/dev/null 2>&1 || true
     fi
     printf 'Deployed the credentials of %s to %s for sensor %s' \
       "${name}" "${username}" "${sensor}"
@@ -618,9 +651,10 @@ deploy_to_all() {
       "${failures}" >&2
 }
 
-# Counterpart to deploy, over the same path. The "default" profile goes
-# along if it was this one - otherwise a sensor without --profile would be
-# left with credentials nobody can attribute any more.
+# Counterpart to deploy, over the same path. The "default" profile goes along,
+# always: either it was this endpoint's alias and would now name a host this
+# probe may no longer talk to, or a second endpoint had already left it without
+# a meaning. It comes back on the next rollout if one endpoint is left alone.
 revoke_iperf() {
   local name="$1"
   local username="$2"
@@ -631,9 +665,8 @@ revoke_iperf() {
   while read -r sensor; do
     "${SCRIPT_DIR}/manage-sensors.sh" profile \
       "${sensor}" "${username}" "${name}" --remove >/dev/null 2>&1 || true
-    [[ "$(registered_iperf_servers | wc -l | tr -d ' ')" != "1" ]] ||
-      "${SCRIPT_DIR}/manage-sensors.sh" profile \
-        "${sensor}" "${username}" default --remove >/dev/null 2>&1 || true
+    "${SCRIPT_DIR}/manage-sensors.sh" profile \
+      "${sensor}" "${username}" default --remove >/dev/null 2>&1 || true
   done < <(iperf_sensors)
   forget_iperf_assignment "${username}" "${name}"
   printf 'Removed the credentials of %s from %s.\n' "${name}" "${username}"

@@ -30,7 +30,11 @@ from app.infrastructure.runtime_files import ProbeInventory
 from app.infrastructure.ssh_provisioning import AdminCredentials, install_access
 from app.services.enrollment import IPERF_ASSETS, EnrollmentService
 from app.workers.context import JobContext
-from app.workers.handlers.deploy_sensor import endpoint_profile_content
+from app.workers.handlers import deploy_sensor
+from app.workers.handlers.deploy_sensor import (
+    endpoint_profile_content,
+    sync_default_profile,
+)
 from app.workers.handlers.iperf_enrollment import PASSWORD_BYTES, finish_setup
 
 PROVISION_STEPS: tuple[str, ...] = (
@@ -190,6 +194,13 @@ async def remove(context: JobContext) -> dict[str, Any]:
         for sensor in sensors:
             try:
                 await context.helper.remove_profile(connection, sensor, name)
+                # "default" goes with it, always. Either it was this endpoint's
+                # alias and would now name a host that no longer answers, or a
+                # second endpoint had already left it without a meaning. It
+                # comes back on the next rollout if one endpoint is left alone.
+                await context.helper.remove_profile(
+                    connection, sensor, deploy_sensor.DEFAULT_PROFILE
+                )
                 removed = True
             except Exception:
                 # One sensor on one probe that did not let go is not a reason
@@ -354,7 +365,14 @@ def _probe_connection(probe: str, inventory: ProbeInventory) -> ProbeConnection:
 async def _redeploy_profiles(
     context: JobContext, name: str, payload: dict[str, Any]
 ) -> list[str]:
-    """Write the new credentials to every probe that holds this endpoint."""
+    """Write the new credentials to every probe that holds this endpoint.
+
+    "default" is refreshed along with the profile under the endpoint's own
+    name. On an installation with one endpoint that alias is the profile the
+    sensors actually use - it is what makes --profile unnecessary - so leaving
+    it on the old password would lock out exactly the probes a rotation is
+    meant to keep running, and do it silently.
+    """
     probes: list[str] = list(payload.get("probes") or [])
     sensors: list[str] = list(payload.get("sensors") or [])
     content = endpoint_profile_content(context.runtime, name)
@@ -366,6 +384,7 @@ async def _redeploy_profiles(
             connection = _probe_connection(probe, inventory)
             for sensor in sensors:
                 await context.helper.write_profile(connection, sensor, name, content)
+                await sync_default_profile(context, connection, sensor, probe)
             refreshed.append(probe)
             await context.log(
                 "jobs.iperf.profile_deployed",

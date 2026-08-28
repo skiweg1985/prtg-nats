@@ -112,6 +112,10 @@ async def deploy_one(
             host=inventory.ssh_host,
             port=inventory.ssh_port,
         )
+        # Read before the commit step below records the sensor, because that is
+        # what tells a first rollout from a repeat - and the two treat the
+        # endpoint assignment differently.
+        first_rollout = definition.name not in inventory.assigned_sensors
 
         await context.step("check_reachable")
         info = await context.helper.probe_info(connection)
@@ -188,7 +192,9 @@ async def deploy_one(
             # "credentials-unreadable". Deliberately after the transaction: the
             # self-test proves the sensor can run, not that it may measure, and
             # an endpoint that does not exist yet must not roll the sensor back.
-            await _deploy_endpoint_profiles(context, connection, definition, username)
+            await _deploy_endpoint_profiles(
+                context, connection, definition, username, seed=first_rollout
+            )
         # The same for the variants an operator configured: whoever deploys the
         # sensor deploys what it needs to work with it.
         await deploy_assigned_variants(context, connection, definition, username)
@@ -288,6 +294,67 @@ async def _finalise_deployment(
         deployment.status = JobStatus.SUCCESSFUL
 
 
+DEFAULT_PROFILE = "default"
+
+
+def default_endpoint(runtime: RuntimeFileStore, username: str) -> str | None:
+    """Which endpoint the profile called "default" stands for on one probe.
+
+    The alias exists so nobody has to name a profile while there is nothing to
+    tell apart. That reasoning ends with the second endpoint: "default" has no
+    defined meaning from then on, and a copy left behind keeps the credentials
+    of whichever endpoint was once alone - a host that may since have been
+    decommissioned, rotated, or handed to somebody else. So the alias is not
+    written once and forgotten; it tracks the state in both directions, which
+    is what sync_default_profile is for.
+
+    What counts is what this probe holds, not what the installation knows. An
+    endpoint revoked here is one this probe may no longer measure against, and
+    an alias standing in for it would hand back exactly the credentials the
+    revoke took away.
+    """
+    registered = {endpoint.name for endpoint in runtime.list_iperf_endpoints()}
+    held = [name for name in runtime.assigned_iperf(username) if name in registered]
+    return held[0] if len(held) == 1 else None
+
+
+async def sync_default_profile(
+    context: JobContext,
+    connection: ProbeConnection,
+    sensor: str,
+    username: str,
+) -> None:
+    """Bring "default" on one probe in line with what that probe holds.
+
+    Called wherever the endpoints of a probe or their credentials change,
+    because every one of those moments can leave the alias behind: a second
+    endpoint makes it ambiguous, a rotation makes it wrong, and losing the last
+    one makes it point at nothing.
+    """
+    alias = default_endpoint(context.runtime, username)
+    if alias is None:
+        # rm -f on the probe: removing one that was never written is not an
+        # error, and asking first would only cost a second round trip.
+        await context.helper.remove_profile(connection, sensor, DEFAULT_PROFILE)
+        await context.log(
+            "jobs.sensor.default_cleared",
+            params={"probe": username, "sensor": sensor},
+            target=username,
+        )
+        return
+    await context.helper.write_profile(
+        connection,
+        sensor,
+        DEFAULT_PROFILE,
+        endpoint_profile_content(context.runtime, alias),
+    )
+    await context.log(
+        "jobs.sensor.default_deployed",
+        params={"probe": username, "endpoint": alias},
+        target=username,
+    )
+
+
 def endpoint_profile_content(runtime: RuntimeFileStore, endpoint: str) -> str:
     """The credential profile for one endpoint, as the sensor reads it.
 
@@ -347,9 +414,13 @@ async def deploy_variant(
     content = context.runtime.sensor_profile_content(definition.name, profile)
     await context.helper.write_profile(connection, definition.name, profile, content)
     context.runtime.assign_profile(username, definition.name, profile)
+    # Its own message rather than the endpoint one: both write a profile, but a
+    # variant is something an operator filled in and an endpoint is a machine
+    # somebody set up. A job log that calls the first an endpoint sends whoever
+    # reads it looking for a host that does not exist.
     await context.log(
-        "jobs.sensor.profile_deployed",
-        params={"probe": username, "endpoint": profile},
+        "jobs.sensor.variant_deployed",
+        params={"probe": username, "variant": profile},
         target=username,
     )
 
@@ -386,16 +457,44 @@ async def _deploy_endpoint_profiles(
     connection: ProbeConnection,
     definition: SensorDefinition,
     username: str,
+    *,
+    seed: bool,
 ) -> None:
-    endpoints = context.runtime.list_iperf_endpoints()
-    if not endpoints:
+    """The credentials of the endpoints this probe measures against.
+
+    Which ones those are is the probe's own assignment, not the whole registry.
+    A rollout that deployed everything would silently undo a revoke - the one
+    operation whose entire point is that a probe stops holding credentials -
+    and it would spread every endpoint's password across every probe that
+    happens to run the sensor.
+
+    Only the first rollout of this sensor to this probe seeds the assignment
+    with every registered endpoint, and that is what makes the promise
+    "whoever deploys the sensor deploys the credentials with it" hold for a new
+    probe. Afterwards an empty assignment means what it says - everything was
+    revoked - rather than "nothing has happened here yet". The two are
+    indistinguishable from the sidecar alone, because it is deleted once its
+    last entry goes.
+    """
+    registered = context.runtime.list_iperf_endpoints()
+    if not registered:
         await context.log(
             "jobs.sensor.no_endpoints",
             level=LogLevel.WARNING,
             params={"probe": username, "sensor": definition.name},
             target=username,
         )
+        # Still, deliberately: with the last endpoint gone the alias points at
+        # a host that no longer answers, and this is the moment we are talking
+        # to the probe anyway.
+        await sync_default_profile(context, connection, definition.name, username)
         return
+
+    if seed:
+        endpoints = list(registered)
+    else:
+        assigned = set(context.runtime.assigned_iperf(username))
+        endpoints = [endpoint for endpoint in registered if endpoint.name in assigned]
 
     for endpoint in endpoints:
         content = endpoint_profile_content(context.runtime, endpoint.name)
@@ -409,12 +508,4 @@ async def _deploy_endpoint_profiles(
             target=username,
         )
 
-    if len(endpoints) == 1:
-        # With exactly one endpoint its profile is also "default", so nobody
-        # has to name a profile while there is nothing to distinguish.
-        await context.helper.write_profile(
-            connection,
-            definition.name,
-            "default",
-            endpoint_profile_content(context.runtime, endpoints[0].name),
-        )
+    await sync_default_profile(context, connection, definition.name, username)
