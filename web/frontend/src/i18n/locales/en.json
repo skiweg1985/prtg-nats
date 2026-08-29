@@ -811,8 +811,7 @@
       "enrolled": "Enrolled",
       "healthy": "Healthy",
       "degraded": "Degraded",
-      "unreachable": "Unreachable",
-      "retired": "Retired"
+      "unreachable": "Unreachable"
     },
     "sensor": {
       "absent": "Not installed",
@@ -904,8 +903,7 @@
     "common": {
       "not_found": "{{resource}} \"{{id}}\" does not exist.",
       "validation_failed": "The values submitted were not accepted.",
-      "conflict": "This conflicts with the current state.",
-      "resource_busy": "Another job is working on this object. It will be free shortly."
+      "conflict": "This conflicts with the current state."
     },
     "auth": {
       "authentication_required": "Please sign in.",
@@ -938,7 +936,6 @@
       "host_already_enrolled.action": "Enrol this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrolment installs again."
     },
     "nats": {
-      "unavailable": "The NATS server did not answer.",
       "reload_refused": "NATS kept its previous configuration.",
       "reload_refused.cause": "Some settings cannot be applied without a restart - a changed server name above all. The change is written to disk and is not active yet.",
       "reload_refused.action": "Restart the NATS server from the maintenance page (Infrastructure → Maintenance). Every probe and the PRTG core reconnect afterwards."

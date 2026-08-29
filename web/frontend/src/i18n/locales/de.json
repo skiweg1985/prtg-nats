@@ -811,8 +811,7 @@
       "enrolled": "Eingebunden",
       "healthy": "In Ordnung",
       "degraded": "Beeinträchtigt",
-      "unreachable": "Nicht erreichbar",
-      "retired": "Außer Betrieb"
+      "unreachable": "Nicht erreichbar"
     },
     "sensor": {
       "absent": "Nicht installiert",
@@ -904,8 +903,7 @@
     "common": {
       "not_found": "{{resource}} „{{id}}“ existiert nicht.",
       "validation_failed": "Die übermittelten Werte wurden nicht angenommen.",
-      "conflict": "Das steht im Widerspruch zum aktuellen Zustand.",
-      "resource_busy": "Ein anderer Job arbeitet an diesem Objekt. Es wird in Kürze frei."
+      "conflict": "Das steht im Widerspruch zum aktuellen Zustand."
     },
     "auth": {
       "authentication_required": "Bitte anmelden.",
@@ -938,7 +936,6 @@
       "host_already_enrolled.action": "Melden Sie diesen Host erneut unter „{{probe}}\" an, wenn Sie das meinten. Soll er ein anderes Konto bekommen, entfernen Sie zuerst „{{probe}}\" - damit wird auch der Verwaltungszugang auf dem Host zurückgezogen, den die nächste Anmeldung neu einrichtet."
     },
     "nats": {
-      "unavailable": "Der NATS-Server hat nicht geantwortet.",
       "reload_refused": "NATS hat seine bisherige Konfiguration behalten.",
       "reload_refused.cause": "Manche Einstellungen lassen sich ohne Neustart nicht übernehmen - allen voran ein geänderter Servername. Die Änderung steht auf der Platte und ist noch nicht aktiv.",
       "reload_refused.action": "Starten Sie den NATS-Server auf der Wartungsseite (Infrastruktur → Wartung) neu. Danach verbinden sich alle Probes und der PRTG-Core neu."

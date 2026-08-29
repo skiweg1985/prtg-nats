@@ -220,7 +220,10 @@ export function useUpdateProbe() {
 export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-update') {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.post<JobAccepted>(`/probes/${id}/${action}`),
+    // The fleet route with a one-probe selection: the per-probe twins did the
+    // same thing under a second path, and both had to be kept working.
+    mutationFn: (id: string) =>
+      api.post<JobAccepted>(`/probes/actions/${action}`, { probe_ids: [id] }),
     onSuccess: (_, id) => {
       void client.invalidateQueries({ queryKey: ['jobs'] })
       // The probe now holds a job, and its detail decides by that whether to
@@ -783,7 +786,8 @@ export function useRevealAccessKey() {
 export function useConfigureProbe() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.post<JobAccepted>(`/probes/${id}/configure`),
+    mutationFn: (id: string) =>
+      api.post<JobAccepted>('/probes/actions/configure', { probe_ids: [id] }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }

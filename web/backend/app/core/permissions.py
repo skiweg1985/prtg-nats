@@ -48,7 +48,6 @@ class Permission(StrEnum):
 
     AUDIT_READ = "audit.read"
     USER_MANAGE = "user.manage"
-    ROLE_MANAGE = "role.manage"
 
 
 class RoleName(StrEnum):
@@ -77,14 +76,6 @@ ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {
     RoleName.VIEWER: READ_PERMISSIONS,
     RoleName.OPERATOR: OPERATOR_PERMISSIONS,
     RoleName.ADMINISTRATOR: frozenset(Permission),
-}
-
-# Shown in Settings so an administrator can see what a role actually grants
-# without reading source code.
-ROLE_DESCRIPTION_KEYS: dict[RoleName, str] = {
-    RoleName.VIEWER: "roles.viewer.description",
-    RoleName.OPERATOR: "roles.operator.description",
-    RoleName.ADMINISTRATOR: "roles.administrator.description",
 }
 
 

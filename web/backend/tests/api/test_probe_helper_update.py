@@ -85,7 +85,9 @@ async def test_the_helper_is_sent_with_a_signature_over_its_own_bytes(
     await sign_in(client)
     probe_id = await probe_id_of(client)
 
-    accepted = await client.post(f"/api/v1/probes/{probe_id}/helper-update")
+    accepted = await client.post(
+        "/api/v1/probes/actions/helper-update", json={"probe_ids": [probe_id]}
+    )
     assert accepted.status_code == 202, accepted.text
 
     await drain(build_runner(settings, transport))
@@ -143,7 +145,9 @@ async def test_a_tampered_payload_does_not_verify(
     await sign_in(client)
     probe_id = await probe_id_of(client)
 
-    accepted = await client.post(f"/api/v1/probes/{probe_id}/helper-update")
+    accepted = await client.post(
+        "/api/v1/probes/actions/helper-update", json={"probe_ids": [probe_id]}
+    )
     assert accepted.status_code == 202, accepted.text
     await drain(build_runner(settings, transport))
 
@@ -184,7 +188,9 @@ async def test_an_old_probe_fails_the_job_with_its_own_error(
     await sign_in(client)
     probe_id = await probe_id_of(client)
 
-    accepted = await client.post(f"/api/v1/probes/{probe_id}/helper-update")
+    accepted = await client.post(
+        "/api/v1/probes/actions/helper-update", json={"probe_ids": [probe_id]}
+    )
     assert accepted.status_code == 202, accepted.text
     await drain(build_runner(settings, transport))
 

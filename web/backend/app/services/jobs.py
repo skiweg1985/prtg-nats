@@ -24,7 +24,6 @@ from app.domain.enums import JobStatus, JobStepStatus, LogLevel
 from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
 from app.services.auth import Principal
 from app.services.events import (
-    JOBS_TOPIC,
     EventBroadcaster,
     StreamEvent,
     job_topic,
@@ -566,9 +565,6 @@ class JobService:
         }
         await self._events.publish(
             StreamEvent(topic=job_topic(job.id), kind="job.status", payload=payload)
-        )
-        await self._events.publish(
-            StreamEvent(topic=JOBS_TOPIC, kind="job.status", payload=payload)
         )
 
 

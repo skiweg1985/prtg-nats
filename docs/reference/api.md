@@ -33,7 +33,6 @@ application.
 | `POST /auth/setup` | create the first administrator - refused once one exists |
 | `POST /auth/login` | sign in, sets the session cookie |
 | `POST /auth/logout` | end the session |
-| `GET /auth/me` | the signed-in principal and its permissions |
 | `POST /auth/change-password` | change one's own password |
 
 Repeated failures are throttled with a lockout that doubles per attempt; the
@@ -133,8 +132,7 @@ comes back up, so its status passes through `detached` on the way. See
 | `GET /probes/{id}` | detail with sensors and deviations |
 | `PATCH /probes/{id}` | display name, notes, labels, the PRTG tick |
 | `POST /probes/{id}/refresh` | ask this probe now, synchronously |
-| `GET`/`PUT /probes/{id}/desired-state` | what should be true |
-| `GET /probes/{id}/deviations` | what differs |
+| `GET`/`PUT /probes/{id}/desired-state` | what should be true - no UI, for automation |
 
 Two deviation kinds cover states a green job hides: `interface_missing` (a
 sensor that needs a wireless interface is installed and the probe holds none
@@ -144,10 +142,6 @@ interface is a decision about a specific interface, and an inactive helper
 wants a look rather than a blind redeploy. Every deviation also carries
 `remediation`, a token naming the fix.
 | `POST /probes/{id}/reconcile?dry_run=true` | the plan, before anything runs |
-| `POST /probes/{id}/configure` | roll the configuration out → job |
-| `POST /probes/{id}/install-ca` | → job |
-| `POST /probes/{id}/validate` | → job |
-| `POST /probes/{id}/helper-update` | renew the management helper → job |
 | `POST /probes/{id}/sensors/{name}/remove` | remove one sensor → job |
 | `DELETE /probes/{id}` | unenrol the probe → job |
 | `GET /probes/{id}/access-key` | the PRTG access key, audited |
@@ -159,10 +153,13 @@ leaves it. The summary carries `prtg_registered`, the detail `..._at`/`.._by`,
 and the dashboard counts `probe_pending` (stuck mid-enrolment) and
 `probe_prtg_missing` (enrolled here, never registered over there).
 
-Six of those actions also take a selection. `POST /probes/actions/{action}`
-with a body of `{"probe_ids": [...]}` creates one job holding one lock per
-probe - the shape a sensor rollout already uses - and applies the action to
-them one after another:
+Actions go through `POST /probes/actions/{action}` with a body of
+`{"probe_ids": [...]}` - one job holding one lock per probe, the shape a
+sensor rollout already uses. A single id is a legitimate selection; the
+per-probe twin routes (`/probes/{id}/validate` and friends) are gone, they
+did the same thing under a second path. **Breaking** for callers of the old
+paths; already-queued jobs keep running, the worker reads both payload
+shapes:
 
 | | |
 | --- | --- |
@@ -415,7 +412,6 @@ which sets a fresh password.
 | --- | --- |
 | `GET /sensors` | the catalogue read from `sensors/` |
 | `GET /sensors/{name}` | files, checksums, who runs it at which version |
-| `GET /sensors/{name}/parameter-schema` | what the sensor declares: parameters, settings, credentials, files |
 | `POST /sensors/{name}/render-parameters` | the line to paste into PRTG |
 | `GET`/`POST /deployments` | rollouts and their outcome per probe |
 | `GET /deployments/{id}` | one rollout with its per-probe result |
@@ -547,6 +543,17 @@ declaration, so a sensor calling it `--variant` is quoted with `--variant`.
 `GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`. The first administrator is
 created through `POST /auth/setup` instead, which is refused once one exists.
 Which role may call what is in [Roles and permissions](../web/roles.md).
+
+### Removed endpoints
+
+**Breaking, deliberately:** `GET /auth/me` (a strict subset of
+`GET /auth/state`), `GET /probes/{id}/deviations` (the detail carries the
+same list), `GET /sensors/{name}/parameter-schema` (the sensor detail
+carries the schema), the per-probe action twins (`/probes/{id}/validate`
+and friends - the `/probes/actions/*` routes with a one-id selection do the
+same), and the `stack_update` field of `GET /system/capabilities` (it cost
+Docker calls on every page load; `GET /system/update` answers the question
+when asked). Each had no caller in the interface or the tooling.
 
 ## Errors
 

@@ -28,7 +28,6 @@ const PROBE_TONE: Record<ProbeStatus, Tone> = {
   healthy: 'ok',
   degraded: 'warn',
   unreachable: 'danger',
-  retired: 'neutral',
 }
 
 const SENSOR_TONE: Record<SensorInstallationStatus, Tone> = {
@@ -121,22 +120,6 @@ export function StateCell({
     <span className="inline-flex items-center gap-1.5 text-sm">
       <Dot tone={tone} />
       {t(`status.${kind}.${value}`)}
-    </span>
-  )
-}
-
-/** The overall health of one thing, as a dot with an accessible name. */
-export function HealthIndicator({
-  ok,
-  label,
-}: {
-  ok: boolean | null
-  label: string
-}) {
-  return (
-    <span className="inline-flex items-center gap-2" title={label}>
-      <Dot tone={ok === null ? 'neutral' : ok ? 'ok' : 'danger'} />
-      <span className="sr-only">{label}</span>
     </span>
   )
 }

@@ -17,7 +17,6 @@ self sensor setup ssh-key start status stop update user verify'
 # drift check in tests/check-static.sh knows them and does not wrongly report
 # a missing command.
 # shellcheck disable=SC2034  # only read by the check
-_prtg_nats_deprecated='configure rotate-password test-persistence tui'
 
 # The internal probe verbs (internal-*) are deliberately missing here: they
 # are only called by the tool itself.

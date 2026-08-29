@@ -66,7 +66,6 @@ class ProbeInvitationIn(ApiModel):
     # network and wrong behind NAT, so the field exists.
     expected_host: str | None = Field(default=None, max_length=255)
     install_package: bool = True
-    create_account: bool = True
     ttl_minutes: int = Field(default=DEFAULT_TTL_MINUTES, ge=5, le=1440)
 
     @field_validator("nats_username")
@@ -341,7 +340,6 @@ async def create_probe_invitation(
                 "nats_username": payload.nats_username,
                 "probe_name": payload.probe_name,
                 "install_package": payload.install_package,
-                "create_account": payload.create_account,
             },
             expected_host=payload.expected_host,
             ttl_minutes=payload.ttl_minutes,

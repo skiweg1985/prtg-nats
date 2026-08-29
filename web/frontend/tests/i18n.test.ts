@@ -67,7 +67,7 @@ describe('translations', () => {
     // exactly the kind of thing nobody notices until it is in front of a
     // customer.
     const expected: Record<string, string[]> = {
-      probe: ['pending', 'enrolled', 'healthy', 'degraded', 'unreachable', 'retired'],
+      probe: ['pending', 'enrolled', 'healthy', 'degraded', 'unreachable'],
       sensor: ['absent', 'current', 'outdated', 'drifted', 'failed', 'unmanaged'],
       job: [
         'queued',

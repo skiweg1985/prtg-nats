@@ -116,7 +116,7 @@ describe('what the probe actions report back', () => {
   it('follows the job a check started', async () => {
     await changeLanguage('en')
     server.use(
-      http.post('/api/v1/probes/P1/validate', () =>
+      http.post('/api/v1/probes/actions/validate', () =>
         HttpResponse.json(
           { job_id: 'J7', status: 'queued', events_url: '/api/v1/jobs/J7/events' },
           { status: 202 },
@@ -133,7 +133,7 @@ describe('what the probe actions report back', () => {
   it('follows the job a CA install started', async () => {
     await changeLanguage('en')
     server.use(
-      http.post('/api/v1/probes/P1/install-ca', () =>
+      http.post('/api/v1/probes/actions/install-ca', () =>
         HttpResponse.json(
           { job_id: 'J8', status: 'queued', events_url: '/api/v1/jobs/J8/events' },
           { status: 202 },
@@ -150,7 +150,7 @@ describe('what the probe actions report back', () => {
   it('shows the failure of an action that used to fail silently', async () => {
     await changeLanguage('en')
     server.use(
-      http.post('/api/v1/probes/P1/install-ca', () =>
+      http.post('/api/v1/probes/actions/install-ca', () =>
         HttpResponse.json(
           {
             error: {

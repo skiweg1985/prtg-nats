@@ -569,8 +569,6 @@ def _derive_status(
     made an adopted sensor nobody had declared a permanent warning about a
     probe the platform had already decided needed nothing doing.
     """
-    if record.retired_at is not None:
-        return ProbeStatus.RETIRED
     if observed is None:
         return ProbeStatus.PENDING
     if not observed.reachable:

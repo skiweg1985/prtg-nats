@@ -15,7 +15,6 @@ class ProbeStatus(StrEnum):
     HEALTHY = "healthy"  # service active, CA matches, connected to NATS
     DEGRADED = "degraded"  # reachable, something is off
     UNREACHABLE = "unreachable"  # management channel does not answer
-    RETIRED = "retired"  # deliberately removed from service
 
 
 class SensorInstallationStatus(StrEnum):
@@ -87,13 +86,6 @@ class CertificateStatus(StrEnum):
     EXPIRED = "expired"
     MISMATCHED = "mismatched"  # certificate and key do not belong together
     MISSING = "missing"
-
-
-class IperfEndpointStatus(StrEnum):
-    REACHABLE = "reachable"
-    UNREACHABLE = "unreachable"
-    CREDENTIALS_STALE = "credentials_stale"
-    UNKNOWN = "unknown"
 
 
 class NatsConnectionState(StrEnum):

@@ -37,7 +37,6 @@ UNGUARDED: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/auth/setup",
     ): "creates the first account; refuses once one exists",
-    ("GET", "/api/v1/auth/me"): "the caller's own identity",
     ("POST", "/api/v1/auth/change-password"): "changing one's own password",
     ("GET", "/api/v1/system/capabilities"): "what the interface may render at all",
     # A host being enrolled has no identity yet. The invitation token is its
@@ -228,7 +227,6 @@ def test_operator_cannot_touch_credentials_or_users() -> None:
         Permission.CREDENTIAL_ROTATE,
         Permission.CERTIFICATE_RENEW,
         Permission.USER_MANAGE,
-        Permission.ROLE_MANAGE,
         Permission.SYSTEM_RESTART,
         Permission.SYSTEM_SETTINGS,
         Permission.PROBE_DELETE,
@@ -337,8 +335,8 @@ async def test_the_last_administrator_cannot_be_demoted(
     await client.post(
         "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
     )
-    me = await client.get("/api/v1/auth/me")
-    user_id = me.json()["user_id"]
+    state = await client.get("/api/v1/auth/state")
+    user_id = state.json()["principal"]["user_id"]
 
     response = await client.patch(
         f"/api/v1/users/{user_id}", json={"roles": ["viewer"]}

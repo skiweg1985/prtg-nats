@@ -9,8 +9,6 @@ written in there was in neither piece. register() exists to close it.
 
 from __future__ import annotations
 
-import asyncio
-
 from app.services.events import SUBSCRIBER_QUEUE_SIZE, EventBroadcaster, StreamEvent
 
 
@@ -39,7 +37,9 @@ async def test_unregistering_stops_delivery_and_drops_the_topic() -> None:
     await broadcaster.publish(_event(1))
 
     assert queue.empty()
-    assert await broadcaster.subscriber_count("job:x") == 0
+    # Reaching into the private map: the public reader this used to go
+    # through existed only for this assertion.
+    assert "job:x" not in broadcaster._subscribers
 
 
 async def test_unregistering_one_of_two_leaves_the_other_listening() -> None:
@@ -66,18 +66,3 @@ async def test_a_subscriber_that_cannot_keep_up_loses_the_oldest_line() -> None:
     assert queue.qsize() == SUBSCRIBER_QUEUE_SIZE
     assert queue.get_nowait().payload["sequence"] == 1
     await broadcaster.unregister("job:x", queue)
-
-
-async def test_subscribe_still_registers_and_cleans_up_after_itself() -> None:
-    broadcaster = EventBroadcaster()
-    subscription = broadcaster.subscribe("job:x")
-    iterator = subscription.__aiter__()
-    pending = asyncio.ensure_future(iterator.__anext__())
-    # Let the generator run far enough to register its queue.
-    await asyncio.sleep(0)
-
-    await broadcaster.publish(_event(1))
-    assert (await pending).payload["sequence"] == 1
-
-    await subscription.aclose()
-    assert await broadcaster.subscriber_count("job:x") == 0

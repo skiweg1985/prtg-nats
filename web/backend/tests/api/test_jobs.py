@@ -303,7 +303,9 @@ async def test_configuring_a_probe_without_the_package_stages_nothing(
     await sign_in(client)
 
     probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
-    accepted = await client.post(f"/api/v1/probes/{probe_id}/configure")
+    accepted = await client.post(
+        "/api/v1/probes/actions/configure", json={"probe_ids": [probe_id]}
+    )
     job_id = accepted.json()["job_id"]
 
     await drain(build_runner(settings, transport))

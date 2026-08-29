@@ -446,12 +446,3 @@ class ProvisioningService:
             self._settings.nats_monitoring_url
         ).fetch_state()
         return state.config_load_time if state.available else None
-
-
-def snapshot_paths(settings: Settings) -> list[str]:
-    """The paths an operator should back up off-machine, for the docs page.
-
-    One entry, because runtime/ now holds the backups and the site settings
-    too - a volume to copy rather than a list of host paths to remember.
-    """
-    return [str(settings.runtime_dir)]

@@ -50,10 +50,6 @@ def hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def constant_time_equals(left: str, right: str) -> bool:
-    return secrets.compare_digest(left, right)
-
-
 def password_problems(password: str) -> list[str]:
     """Field-level complaints, as translation key suffixes.
 

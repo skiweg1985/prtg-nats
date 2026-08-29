@@ -163,13 +163,16 @@ async def system_status(
 async def capabilities(
     docker: DockerDep, runtime: RuntimeDep, settings: SettingsDep, _: PrincipalDep
 ) -> CapabilitiesOut:
-    """What this installation supports. Read by the interface on every load."""
-    readiness = await StackUpdateService(settings, docker).readiness()
+    """What this installation supports. Read by the interface on every load.
+
+    Deliberately cheap: this is fetched on every page load, and the update
+    readiness it used to carry cost up to three Docker calls for a field the
+    interface never read - /system/update answers that question when asked.
+    """
     return CapabilitiesOut(
         docker=docker.available,
         runtime_state=runtime.health().state,
         dev_auth=settings.dev_auth_enabled,
-        stack_update=readiness.available,
     )
 
 

@@ -9,7 +9,6 @@ has to grow a backend; nothing else changes.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
@@ -70,26 +69,10 @@ class EventBroadcaster:
                 if not subscribers:
                     del self._subscribers[topic]
 
-    async def subscribe(self, topic: str) -> AsyncGenerator[StreamEvent, None]:
-        queue = await self.register(topic)
-        try:
-            while True:
-                yield await queue.get()
-        finally:
-            await self.unregister(topic, queue)
-
-    async def subscriber_count(self, topic: str) -> int:
-        async with self._lock:
-            return len(self._subscribers.get(topic, ()))
-
 
 def job_topic(job_id: str) -> str:
     return f"job:{job_id}"
 
-
-# The stream every client watches for "a job somewhere changed state", so the
-# job list and the header badge update without polling.
-JOBS_TOPIC = "jobs"
 
 _broadcaster = EventBroadcaster()
 
