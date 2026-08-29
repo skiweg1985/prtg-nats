@@ -193,23 +193,6 @@ async def get_sensor(
     )
 
 
-@router.get("/{name}/parameter-schema", response_model=SensorSchemaOut)
-async def parameter_schema(
-    name: str,
-    catalog: CatalogDep,
-    _: Annotated[object, Depends(require_permission(Permission.SENSOR_READ))],
-) -> SensorSchemaOut:
-    """What the sensor declares, for the reference and the forms.
-
-    Empty rather than 404 when a sensor ships nothing: the caller renders a
-    plain text field in that case, which is still better than nothing.
-    """
-    definition = catalog.get(name)
-    if definition.schema is None:
-        return SensorSchemaOut()
-    return _schema_out(definition.schema)
-
-
 @router.post("/{name}/render-parameters", response_model=RenderParametersOut)
 async def render_parameters(
     name: str,

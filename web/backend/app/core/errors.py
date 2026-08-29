@@ -99,14 +99,6 @@ class ConflictError(AppError):
     http_status = status.HTTP_409_CONFLICT
 
 
-class ResourceBusyError(AppError):
-    """Another job holds the lock on this object."""
-
-    code = "common.resource_busy"
-    http_status = status.HTTP_409_CONFLICT
-    retryable = True
-
-
 class AuthenticationRequiredError(AppError):
     code = "auth.authentication_required"
     http_status = status.HTTP_401_UNAUTHORIZED
@@ -190,12 +182,6 @@ class ProbePackageMissingError(AppError):
 
     code = "probe.package_missing"
     http_status = status.HTTP_409_CONFLICT
-
-
-class NatsUnavailableError(AppError):
-    code = "nats.unavailable"
-    http_status = status.HTTP_502_BAD_GATEWAY
-    retryable = True
 
 
 class DockerUnavailableError(AppError):
@@ -282,16 +268,6 @@ class StackUpdateBlockedError(AppError):
 
     code = "stack.update_blocked"
     http_status = status.HTTP_409_CONFLICT
-
-
-class StackUpdateFailedError(AppError):
-    """The updater ran and did not get there. The log says how far it got."""
-
-    code = "stack.update_failed"
-    http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
-
-
-# --- FastAPI wiring ---------------------------------------------------------
 
 
 async def app_error_handler(_: Request, exc: Exception) -> JSONResponse:

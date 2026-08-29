@@ -1932,22 +1932,6 @@ EOF
     source "${LIBEXEC_DIR}/runtime-dir.sh"
     printf '%s\n' "${CERT_DIR}/ca.pem"
     ;;
-  tui|rotate-password)
-    printf 'The command "%s" moved to the web interface.\n' "${command_name}" >&2
-    printf 'Start it with: docker compose up -d\n' >&2
-    printf 'For the shared account, "user rotate prtg-nats --server-only" still works.\n' >&2
-    exit 2
-    ;;
-  test-persistence)
-    printf 'The command "test-persistence" was retired without replacement.\n' >&2
-    printf 'The container health check proves JetStream is serving; "verify" covers the login.\n' >&2
-    exit 2
-    ;;
-  # One release of grace for the old name.
-  configure)
-    printf 'Note: "configure" is now "config --edit".\n' >&2
-    configure_environment
-    ;;
   help|-h|--help)
     usage
     ;;

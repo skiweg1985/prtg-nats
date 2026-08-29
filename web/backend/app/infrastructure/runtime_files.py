@@ -139,18 +139,6 @@ class SensorProfileRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class CertificateFile:
-    path: Path
-    exists: bool
-    subject: str | None = None
-    issuer: str | None = None
-    not_before: datetime | None = None
-    not_after: datetime | None = None
-    sha256: str | None = None
-    sans: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class SiteSettings:
     """Which NATS server this installation is, and who may reach it.
 

@@ -140,10 +140,10 @@ async def test_logout_invalidates_the_session(client: AsyncClient) -> None:
     await client.post(
         "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
     )
-    assert (await client.get("/api/v1/auth/me")).status_code == 200
+    assert (await client.get("/api/v1/auth/state")).json()["authenticated"] is True
 
     assert (await client.post("/api/v1/auth/logout")).status_code == 204
-    assert (await client.get("/api/v1/auth/me")).status_code == 401
+    assert (await client.get("/api/v1/auth/state")).json()["authenticated"] is False
 
 
 async def test_an_unauthenticated_request_is_refused(client: AsyncClient) -> None:

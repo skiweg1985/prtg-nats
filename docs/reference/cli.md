@@ -1,7 +1,7 @@
 ---
 title: Command reference
 role: operator
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # Command reference
@@ -226,10 +226,11 @@ distribution, is in
 
 ## Retired
 
-`tui` and `rotate-password` moved into the web interface entirely and now say
-so when called. `test-persistence` was retired without replacement: the
-container health check proves JetStream is serving, and `verify` covers the
-authenticated login. The `check` alias is gone.
+`tui` and `rotate-password` moved into the web interface entirely;
+`test-persistence` was retired without replacement (the container health
+check proves JetStream is serving, and `verify` covers the authenticated
+login); `configure` became `config --edit`. Their grace-period stubs are
+gone - an unknown command now prints the usage.
 
 **Migration note for existing installations:** `runtime/` moved out of the
 checkout and into the `prtg-nats-runtime` volume. Every command reads the

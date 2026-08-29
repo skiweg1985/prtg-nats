@@ -12,7 +12,6 @@ export type ProbeStatus =
   | 'healthy'
   | 'degraded'
   | 'unreachable'
-  | 'retired'
 
 export type SensorInstallationStatus =
   | 'absent'
@@ -422,7 +421,6 @@ export interface Capabilities {
   runtime_state: 'missing' | 'partial' | 'complete'
   dev_auth: boolean
   /** Whether this installation can update itself from its own checkout. */
-  stack_update: boolean
 }
 
 export interface StackCommit {

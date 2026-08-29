@@ -46,8 +46,6 @@ class ProbeRecord(Base, IdMixin, TimestampMixin):
     display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     labels: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
-    # Set when an operator retires a probe without removing it yet.
-    retired_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     # The operator's own tick for the two steps the platform cannot take or
     # see: the access key entered in PRTG and the probe approved there. Not a
     # probe status - a probe is healthy without it, just invisible to PRTG.
@@ -90,7 +88,6 @@ class ProbeDesiredState(Base, IdMixin, TimestampMixin):
         ForeignKey("web_user.id", ondelete="SET NULL"), nullable=True
     )
     author_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    applied_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     probe: Mapped[ProbeRecord] = relationship(back_populates="desired_states")
 

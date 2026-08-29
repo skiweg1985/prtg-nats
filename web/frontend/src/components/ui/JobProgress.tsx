@@ -347,18 +347,3 @@ export function ProgressBar({ value }: { value: number }) {
     </div>
   )
 }
-
-export function RetryButton({
-  onRetry,
-  disabled,
-}: {
-  onRetry: () => void
-  disabled?: boolean
-}) {
-  const { t } = useTranslation()
-  return (
-    <Button variant="secondary" size="sm" onClick={onRetry} disabled={disabled}>
-      {t('jobs.retry')}
-    </Button>
-  )
-}

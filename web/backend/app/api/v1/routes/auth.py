@@ -193,15 +193,6 @@ async def logout(
     response.delete_cookie(settings.session_cookie_name, path="/")
 
 
-@router.get("/me", response_model=PrincipalOut)
-async def me(principal: PrincipalDep, db: DbSession) -> PrincipalOut:
-    must_change = False
-    if not principal.is_development:
-        user = await db.get(WebUser, principal.user_id)
-        must_change = bool(user and user.must_change_password)
-    return _principal_out(principal, must_change_password=must_change)
-
-
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     payload: ChangePasswordIn,

@@ -429,18 +429,11 @@ completion_list() {
   printf '%s' "${!1}" | tr -s ' \n' '\n' | sort -u | tr '\n' ' '
 }
 
-# Legacy names stay in the dispatcher but disappear from the
-# suggestions. The check therefore runs against the sum of both.
+# The grace-period stubs for retired names are gone, so the completion list
+# and the dispatcher have to agree exactly.
 check "the command list matches the dispatcher" \
-  "$(
-    # shellcheck disable=SC1091  # path is only known at run time
-    source ./completions/prtg-nats.bash
-    printf '%s %s' "${_prtg_nats_commands}" "${_prtg_nats_deprecated}" |
-      tr -s ' \n' '\n' | sort -u | tr '\n' ' '
-  )" \
+  "$(completion_list _prtg_nats_commands)" \
   "$(dispatch_commands ./prtg-nats)"
-check "legacy names are no longer suggested" \
-  "$(completion_list _prtg_nats_commands | grep -cE '\b(check|configure)\b')" "0"
 check "probe subcommands match" \
   "$(completion_list _prtg_nats_probe_commands)" \
   "$(dispatch_commands ./libexec/manage-probes.sh)"
@@ -711,9 +704,8 @@ check "install-mpp --help shows the help" \
 check "config --help shows the help" \
   "$(./prtg-nats config --help | grep -c 'config --edit')" "1"
 
-# The legacy names have to keep working, or scripts break.
-check "configure points at config --edit" \
-  "$(./prtg-nats configure 2>&1 | grep -c 'config --edit')" "1"
+# The grace period is over: a retired name is an unknown command again.
+expect_failure "configure is no longer dispatched" ./prtg-nats configure
 check "config without .env names the way" \
   "$(cd "$(mktemp -d)" && "${PROJECT_DIR}/prtg-nats" config 2>&1 |
     grep -c 'Not configured yet')" "1"

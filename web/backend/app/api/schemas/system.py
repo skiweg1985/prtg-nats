@@ -101,11 +101,6 @@ class CapabilitiesOut(ApiModel):
     docker: bool
     runtime_state: str
     dev_auth: bool
-    # Whether this installation can update itself from its own checkout. False
-    # for a stack started without Compose, without the socket, or from before
-    # the updater image existed - each of which is a fact about the
-    # installation rather than a failure to report.
-    stack_update: bool = False
 
 
 class SystemStatusOut(ApiModel):
