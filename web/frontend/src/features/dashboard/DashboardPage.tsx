@@ -56,6 +56,8 @@ export function DashboardPage() {
   const attention =
     data.probe_unreachable +
     data.probe_degraded +
+    data.probe_pending +
+    data.probe_prtg_missing +
     data.failed_jobs_24h +
     data.expiring_certificates.length +
     data.alerts.length
@@ -312,6 +314,25 @@ function ProbeCard({ dashboard }: { dashboard: Dashboard }) {
               : undefined
           }
         />
+        {/* The probes no other number counted: stuck mid-enrolment, or done
+            here and never entered in PRTG - green on this side, invisible on
+            the other. "All good" used to show over both. */}
+        {dashboard.probe_pending > 0 && (
+          <Metric
+            label={t('dashboard.pendingEnrolled')}
+            value={dashboard.probe_pending}
+            tone="warn"
+            to="/probes"
+          />
+        )}
+        {dashboard.probe_prtg_missing > 0 && (
+          <Metric
+            label={t('dashboard.prtgMissing')}
+            value={dashboard.probe_prtg_missing}
+            tone="warn"
+            to="/probes"
+          />
+        )}
       </div>
     </Card>
   )

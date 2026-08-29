@@ -94,7 +94,9 @@
     "natsUnavailable": "The NATS monitoring endpoint did not answer. Container state and probe connections cannot be reported.",
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
-    "setupAction": "Initialise now"
+    "setupAction": "Initialise now",
+    "pendingEnrolled": "Enrolment open",
+    "prtgMissing": "PRTG missing"
   },
   "probes": {
     "title": "Probes",
@@ -289,7 +291,17 @@
       "empty": "No variant is assigned to this sensor on this probe."
     },
     "openInvitations_one": "{{count}} open invitation",
-    "openInvitations_other": "{{count}} open invitations"
+    "openInvitations_other": "{{count}} open invitations",
+    "prtg": {
+      "missingBadge": "PRTG missing",
+      "bannerTitle": "This probe is not registered in PRTG yet",
+      "bannerBody": "The two steps the platform cannot take: add the access key in PRTG (Setup > System Administration > Probes > Probe Connection Settings) and approve the connection request - not via \"Approve and auto-discover\". Then tick it off here.",
+      "markDone": "Mark as registered",
+      "markUndone": "Reset",
+      "markedBy": "Registered in PRTG - ticked by {{by}} {{when}}.",
+      "alreadyMarked": "Marked as registered in PRTG."
+    },
+    "accessKeyMarkDone": "Registered in PRTG - tick it off"
   },
   "sensors": {
     "title": "Sensors",

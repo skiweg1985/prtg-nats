@@ -131,7 +131,7 @@ comes back up, so its status passes through `detached` on the way. See
 | --- | --- |
 | `GET /probes` | the table, entirely from cached state |
 | `GET /probes/{id}` | detail with sensors and deviations |
-| `PATCH /probes/{id}` | display name, notes, labels |
+| `PATCH /probes/{id}` | display name, notes, labels, the PRTG tick |
 | `POST /probes/{id}/refresh` | ask this probe now, synchronously |
 | `GET`/`PUT /probes/{id}/desired-state` | what should be true |
 | `GET /probes/{id}/deviations` | what differs |
@@ -151,6 +151,13 @@ wants a look rather than a blind redeploy. Every deviation also carries
 | `POST /probes/{id}/sensors/{name}/remove` | remove one sensor → job |
 | `DELETE /probes/{id}` | unenrol the probe → job |
 | `GET /probes/{id}/access-key` | the PRTG access key, audited |
+
+`prtg_registered` on the PATCH is the operator's own tick for the two steps
+the platform cannot take or see: the access key entered in PRTG and the probe
+approved there. `true` records who ticked and when, `false` clears it, absent
+leaves it. The summary carries `prtg_registered`, the detail `..._at`/`.._by`,
+and the dashboard counts `probe_pending` (stuck mid-enrolment) and
+`probe_prtg_missing` (enrolled here, never registered over there).
 
 Six of those actions also take a selection. `POST /probes/actions/{action}`
 with a body of `{"probe_ids": [...]}` creates one job holding one lock per

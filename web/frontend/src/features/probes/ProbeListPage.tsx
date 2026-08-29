@@ -129,6 +129,13 @@ export function ProbeListPage() {
           {/* Beside the status rather than in its own column: it decides
               whether the next job on this probe will run at all. */}
           {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
+          {/* Green here and invisible in PRTG is exactly what the status
+              colour hides; a pending probe has an earlier problem. */}
+          {!row.prtg_registered &&
+            row.status !== 'pending' &&
+            row.status !== 'enrolled' && (
+              <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>
+            )}
         </div>
       ),
     },

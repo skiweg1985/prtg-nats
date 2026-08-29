@@ -41,6 +41,7 @@ class ProbeSummaryOut(ApiModel):
     error_code: str | None = None
     helper_version: int | None = None
     helper_outdated: bool = False
+    prtg_registered: bool = False
 
 
 class SensorStateOut(ApiModel):
@@ -117,12 +118,16 @@ class ProbeDetailOut(ApiModel):
     deviations: list[DeviationOut]
     notes: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
+    prtg_registered_at: datetime | None = None
+    prtg_registered_by: str | None = None
 
 
 class ProbeUpdateIn(ApiModel):
     display_name: str | None = Field(default=None, max_length=128)
     notes: str | None = Field(default=None, max_length=4000)
     labels: dict[str, str] | None = None
+    # True records who ticked and when, False clears the tick, None leaves it.
+    prtg_registered: bool | None = None
 
 
 class ProbeActionIn(ApiModel):
