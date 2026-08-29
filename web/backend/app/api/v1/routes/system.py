@@ -192,6 +192,8 @@ async def dashboard(
         probe_healthy=data.probe_healthy,
         probe_degraded=data.probe_degraded,
         probe_unreachable=data.probe_unreachable,
+        probe_pending=data.probe_pending,
+        probe_prtg_missing=data.probe_prtg_missing,
         probes_with_deviations=data.probes_with_deviations,
         failed_jobs_24h=data.failed_jobs_24h,
         running_jobs=data.running_jobs,

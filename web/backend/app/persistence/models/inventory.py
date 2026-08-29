@@ -48,6 +48,13 @@ class ProbeRecord(Base, IdMixin, TimestampMixin):
     labels: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
     # Set when an operator retires a probe without removing it yet.
     retired_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    # The operator's own tick for the two steps the platform cannot take or
+    # see: the access key entered in PRTG and the probe approved there. Not a
+    # probe status - a probe is healthy without it, just invisible to PRTG.
+    prtg_registered_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    prtg_registered_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     desired_states: Mapped[list[ProbeDesiredState]] = relationship(
         back_populates="probe", cascade="all, delete-orphan"

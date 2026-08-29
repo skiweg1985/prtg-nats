@@ -48,6 +48,8 @@ const DASHBOARD = {
   probe_healthy: 1,
   probe_degraded: 0,
   probe_unreachable: 0,
+  probe_pending: 0,
+  probe_prtg_missing: 0,
   probes_with_deviations: 0,
   failed_jobs_24h: 0,
   running_jobs: 0,
@@ -138,5 +140,33 @@ describe('the warnings card', () => {
     wrap()
 
     expect(await screen.findByText('Active warnings')).toBeInTheDocument()
+  })
+})
+
+/**
+ * A probe stuck mid-enrolment or never entered in PRTG used to be in no
+ * number at all: "all good" showed over both.
+ */
+describe('the probes no status colour counts', () => {
+  it('shows the two catch-up tiles only when they are non-zero', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({ ...DASHBOARD, probe_pending: 1, probe_prtg_missing: 2 }),
+      ),
+    )
+    wrap()
+
+    expect(await screen.findByText('Enrolment open')).toBeInTheDocument()
+    expect(screen.getByText('PRTG missing')).toBeInTheDocument()
+  })
+
+  it('keeps them away at zero', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    await screen.findByText(/certificate/i)
+    expect(screen.queryByText('Enrolment open')).not.toBeInTheDocument()
+    expect(screen.queryByText('PRTG missing')).not.toBeInTheDocument()
   })
 })

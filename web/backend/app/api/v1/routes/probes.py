@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -122,6 +123,8 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
         ],
         notes=detail.record.notes,
         labels=detail.record.labels,
+        prtg_registered_at=detail.record.prtg_registered_at,
+        prtg_registered_by=detail.record.prtg_registered_by,
     )
 
 
@@ -455,7 +458,9 @@ async def update_probe(
     system: SystemServiceDep,
     nats: NatsDep,
     audit: AuditDep,
-    _: Annotated[object, Depends(require_permission(Permission.PROBE_UPDATE))],
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
 ) -> ProbeDetailOut:
     """Edit only what the web platform owns: label, notes, tags.
 
@@ -467,6 +472,7 @@ async def update_probe(
         "display_name": record.display_name,
         "notes": record.notes,
         "labels": dict(record.labels),
+        "prtg_registered": record.prtg_registered_at is not None,
     }
     if payload.display_name is not None:
         record.display_name = payload.display_name
@@ -474,6 +480,15 @@ async def update_probe(
         record.notes = payload.notes
     if payload.labels is not None:
         record.labels = payload.labels
+    # The one manual state the platform cannot observe: the access key entered
+    # in PRTG and the probe approved there. Who ticked it and when is the
+    # whole value of the record.
+    if payload.prtg_registered is True:
+        record.prtg_registered_at = datetime.now(UTC)
+        record.prtg_registered_by = principal.username
+    elif payload.prtg_registered is False:
+        record.prtg_registered_at = None
+        record.prtg_registered_by = None
 
     audit.record(
         action="probe.update",
@@ -485,6 +500,7 @@ async def update_probe(
             "display_name": record.display_name,
             "notes": record.notes,
             "labels": dict(record.labels),
+            "prtg_registered": record.prtg_registered_at is not None,
         },
     )
     connected = await nats.connected_users()

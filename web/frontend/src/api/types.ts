@@ -99,6 +99,7 @@ export interface ProbeSummary {
   error_code: string | null
   helper_version: number | null
   helper_outdated: boolean
+  prtg_registered: boolean
 }
 
 export interface SensorState {
@@ -167,6 +168,8 @@ export interface ProbeDetail {
   deviations: Deviation[]
   notes: string | null
   labels: Record<string, string>
+  prtg_registered_at: string | null
+  prtg_registered_by: string | null
 }
 
 export interface WirelessInterface {
@@ -542,6 +545,8 @@ export interface Dashboard {
   probe_healthy: number
   probe_degraded: number
   probe_unreachable: number
+  probe_pending: number
+  probe_prtg_missing: number
   probes_with_deviations: number
   failed_jobs_24h: number
   running_jobs: number

@@ -142,6 +142,8 @@ class DashboardOut(ApiModel):
     probe_healthy: int
     probe_degraded: int
     probe_unreachable: int
+    probe_pending: int
+    probe_prtg_missing: int
     probes_with_deviations: int
     failed_jobs_24h: int
     running_jobs: int

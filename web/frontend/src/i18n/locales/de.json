@@ -94,7 +94,9 @@
     "natsUnavailable": "Der NATS-Monitoring-Endpunkt hat nicht geantwortet. Containerzustand und Probe-Verbindungen lassen sich nicht ermitteln.",
     "setupTitle": "Diese Installation ist noch nicht initialisiert",
     "setupHint": "Standortdaten sind vorhanden, aber Zertifikate, Zugangsdaten und die Serverkonfiguration wurden noch nicht erzeugt. Die Initialisierung läuft als Job und dauert unter einer Minute.",
-    "setupAction": "Jetzt initialisieren"
+    "setupAction": "Jetzt initialisieren",
+    "pendingEnrolled": "Anmeldung offen",
+    "prtgMissing": "PRTG fehlt"
   },
   "probes": {
     "title": "Probes",
@@ -289,7 +291,17 @@
       "empty": "Diesem Sensor ist auf dieser Probe keine Variante zugewiesen."
     },
     "openInvitations_one": "{{count}} offene Einladung",
-    "openInvitations_other": "{{count}} offene Einladungen"
+    "openInvitations_other": "{{count}} offene Einladungen",
+    "prtg": {
+      "missingBadge": "PRTG fehlt",
+      "bannerTitle": "In PRTG ist diese Probe noch nicht eingetragen",
+      "bannerBody": "Die zwei Handgriffe, die die Plattform nicht übernehmen kann: den Access Key in PRTG hinterlegen (Setup > Systemverwaltung > Probes > Probe Connection Settings) und die Verbindungsanfrage genehmigen - ohne \"Approve and auto-discover\". Danach hier abhaken.",
+      "markDone": "Als eingetragen markieren",
+      "markUndone": "Zurücksetzen",
+      "markedBy": "In PRTG eingetragen - abgehakt von {{by}} {{when}}.",
+      "alreadyMarked": "Als in PRTG eingetragen markiert."
+    },
+    "accessKeyMarkDone": "In PRTG eingetragen - abhaken"
   },
   "sensors": {
     "title": "Sensoren",

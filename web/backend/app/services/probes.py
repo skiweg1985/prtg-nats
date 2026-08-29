@@ -547,6 +547,7 @@ class ProbeService:
             error_code=observed.error_code if observed else None,
             helper_version=observed.helper_version if observed else None,
             helper_outdated=observed.helper_outdated if observed else False,
+            prtg_registered=record.prtg_registered_at is not None,
         )
 
 

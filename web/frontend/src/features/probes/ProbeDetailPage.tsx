@@ -16,6 +16,7 @@ import {
   useRevealAccessKey,
   useSensorProfiles,
   useSensors,
+  useUpdateProbe,
   useUnenrollProbe,
   useWirelessInterfaces,
   type UnenrollOptions,
@@ -81,6 +82,7 @@ export function ProbeDetailPage() {
   const updateHelper = useProbeAction('helper-update')
   const configure = useConfigureProbe()
   const unenroll = useUnenrollProbe()
+  const updateProbe = useUpdateProbe()
   // In the address rather than in state. Every action on this page ends in a
   // job, and coming back from one used to put the overview in front of
   // somebody who had been reading the deviations. It also makes a tab
@@ -306,6 +308,55 @@ export function ProbeDetailPage() {
         </Banner>
       )}
 
+      {/* The two manual PRTG steps have no observer, only this tick. Until it
+          is set, the probe is green here and invisible over there - the one
+          state the status colour cannot show. */}
+      {!summary.prtg_registered &&
+        summary.status !== 'pending' &&
+        summary.status !== 'enrolled' && (
+          <Banner
+            tone="warn"
+            title={t('probes.prtg.bannerTitle')}
+            action={
+              <PermissionGate permission="probe.update">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={updateProbe.isPending}
+                  onClick={() =>
+                    updateProbe.mutate({ id: probeId, prtg_registered: true })
+                  }
+                >
+                  {t('probes.prtg.markDone')}
+                </Button>
+              </PermissionGate>
+            }
+          >
+            {t('probes.prtg.bannerBody')}
+          </Banner>
+        )}
+      {summary.prtg_registered && data.prtg_registered_by && (
+        <p className="text-ink-3 text-xs">
+          {t('probes.prtg.markedBy', {
+            by: data.prtg_registered_by,
+            when: data.prtg_registered_at
+              ? formatRelative(data.prtg_registered_at)
+              : '—',
+          })}{' '}
+          <PermissionGate permission="probe.update">
+            <button
+              type="button"
+              className="hover:text-ink underline"
+              onClick={() =>
+                updateProbe.mutate({ id: probeId, prtg_registered: false })
+              }
+            >
+              {t('probes.prtg.markUndone')}
+            </button>
+          </PermissionGate>
+        </p>
+      )}
+
       <nav className="border-rule flex gap-1 border-b">
         {TABS.map((entry) => (
           <button
@@ -343,6 +394,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
   const { t } = useTranslation()
   const { summary, inventory, observed } = detail
   const reveal = useRevealAccessKey()
+  const updateProbe = useUpdateProbe()
   // A mutation, not a query: nothing refetches it, and closing the dialog
   // drops the value out of both this state and the mutation's own.
   const [accessKey, setAccessKey] = useState<string | null>(null)
@@ -463,7 +515,27 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             </Button>
           </div>
           <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex items-center justify-between gap-2">
+            {/* The dialog is open because somebody is working in PRTG right
+                now - the tick belongs where the work happens. */}
+            {!summary.prtg_registered ? (
+              <PermissionGate permission="probe.update">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={updateProbe.isPending}
+                  onClick={() =>
+                    updateProbe.mutate({ id: summary.id, prtg_registered: true })
+                  }
+                >
+                  {t('probes.accessKeyMarkDone')}
+                </Button>
+              </PermissionGate>
+            ) : (
+              <span className="text-ink-3 text-xs">
+                {t('probes.prtg.alreadyMarked')}
+              </span>
+            )}
             <Button onClick={hideAccessKey}>{t('common.close')}</Button>
           </div>
         </Dialog>

@@ -43,6 +43,11 @@ class DashboardData:
     probe_healthy: int
     probe_degraded: int
     probe_unreachable: int
+    # Probes stuck between the states the three counters above cover: half
+    # enrolled, or enrolled and never registered in PRTG. Both used to be in
+    # no number at all, so "all good" could show over a probe nobody finished.
+    probe_pending: int
+    probe_prtg_missing: int
     probes_with_deviations: int
     failed_jobs_24h: int
     running_jobs: int
@@ -140,6 +145,17 @@ class SystemService:
             ),
             probe_unreachable=sum(
                 1 for s in summaries if s.status is ProbeStatus.UNREACHABLE
+            ),
+            probe_pending=sum(
+                1
+                for s in summaries
+                if s.status in (ProbeStatus.PENDING, ProbeStatus.ENROLLED)
+            ),
+            probe_prtg_missing=sum(
+                1
+                for s in summaries
+                if not s.prtg_registered
+                and s.status not in (ProbeStatus.PENDING, ProbeStatus.ENROLLED)
             ),
             probes_with_deviations=sum(1 for s in summaries if s.deviation_count),
             failed_jobs_24h=int(failed_jobs or 0),

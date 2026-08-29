@@ -345,3 +345,8 @@ class ProbeSummary:
     # In the row rather than only on the detail page: an operator should see
     # which probes will refuse the next job before starting it.
     helper_outdated: bool = False
+    # The operator's tick that the access key was entered in PRTG and the
+    # probe approved there. Not part of the status: a probe without it is
+    # healthy here and invisible over there, which is exactly why it needs
+    # its own signal.
+    prtg_registered: bool = False

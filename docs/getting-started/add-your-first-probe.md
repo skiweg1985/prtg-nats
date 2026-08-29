@@ -116,6 +116,12 @@ When the connection request appears in PRTG:
 If the probe was denied earlier, remove its GID from **Deny GIDs** in the probe
 connection settings and restart `prtg.mpprobe.service` on the host.
 
+Once both steps are done, tick **Registered in PRTG** on the probe's page or
+in the access key dialog. The platform cannot see PRTG, so the tick is the
+operator's own record - until it is set, the probe carries a "PRTG missing"
+badge and counts on the dashboard, instead of standing green while PRTG shows
+nothing.
+
 ## Completion check
 
 - [ ] the probe has a dedicated NATS account and PRTG access key
