@@ -137,6 +137,43 @@ function wrap() {
   )
 }
 
+/** The wlan-auth shape: an AUTH switch and fields that belong to one kind. */
+const GROUPED_SCHEMA: ParameterSchema = {
+  ...SCHEMA,
+  credentials: [
+    { name: 'PSK', type: 'string', sensitive: true, group: 'psk', required: true },
+    {
+      name: 'PASSWORD',
+      type: 'string',
+      sensitive: true,
+      group: 'peap',
+      required: true,
+    },
+  ],
+  files: [
+    { name: 'CA_CERT', kind: 'certificate', max_bytes: 65536, extension: '.pem' },
+    {
+      name: 'CLIENT_CERT',
+      kind: 'certificate',
+      max_bytes: 65536,
+      extension: '.pem',
+      group: 'eap-tls',
+      required: true,
+    },
+  ],
+}
+
+function wrapGrouped() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <AppProviders client={client}>
+      <MemoryRouter>
+        <SensorVariants sensorName="wlan-auth" schema={GROUPED_SCHEMA} />
+      </MemoryRouter>
+    </AppProviders>,
+  )
+}
+
 describe('SensorVariants', () => {
   it('lists a variant with the line that selects it in PRTG', async () => {
     wrap()
@@ -205,5 +242,61 @@ describe('SensorVariants', () => {
     await user.type(screen.getByLabelText(/name/i), 'gaeste')
 
     expect(screen.getByRole('button', { name: /speichern|save/i })).toBeDisabled()
+  })
+
+  it('shows only the fields of the chosen auth kind', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+
+    // A PSK variant has no business seeing the PEAP password or the client
+    // certificate - the schema says so via groups, and now the dialog reads it.
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
+    expect(screen.getByLabelText(/^PSK/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^PASSWORD/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^CLIENT_CERT/)).not.toBeInTheDocument()
+    // The ungrouped CA certificate applies to every kind.
+    expect(screen.getByLabelText(/^CA_CERT/)).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
+    expect(screen.queryByLabelText(/^PSK/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^PASSWORD/)).toBeInTheDocument()
+  })
+
+  it('treats a grouped credential as required only while its group applies', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+    await user.type(screen.getByLabelText(/name/i), 'gaeste')
+    await user.type(screen.getByLabelText(/^SSID/), 'Guest')
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
+
+    // The PSK is the whole credential of this kind - without it the variant
+    // fails on every run, which used to surface only in PRTG.
+    expect(screen.getByRole('button', { name: /speichern|save/i })).toBeDisabled()
+    await user.type(screen.getByLabelText(/^PSK/), 'wpa2-passphrase')
+    expect(screen.getByRole('button', { name: /speichern|save/i })).toBeEnabled()
+  })
+
+  it('names the probes a deletion reaches before it happens', async () => {
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('standort-nord')
+    await user.click(screen.getByRole('button', { name: /entfernen|remove/i }))
+
+    // Named, not counted - and nothing was deleted yet.
+    expect(
+      await screen.findByText(/removed from the server and from these probes/),
+    ).toHaveTextContent('mpp-nord')
+    expect(
+      requests.filter(
+        (entry) => entry.path.includes('profiles') && entry.body === null,
+      ),
+    ).toHaveLength(0)
   })
 })

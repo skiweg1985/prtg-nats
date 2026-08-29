@@ -4,6 +4,7 @@
       "name": "--mode",
       "type": "choice",
       "choices": ["maximum", "minimum"],
+      "required": true,
       "description": "Measure the peak (maximum). The value \"minimum\" has moved to the iperf-throughput sensor."
     },
     {
@@ -47,6 +48,7 @@
     {
       "name": "--self-check",
       "type": "boolean",
+      "group": "internal",
       "description": "Only verify that the sensor is able to run."
     }
   ]

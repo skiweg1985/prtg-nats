@@ -135,6 +135,14 @@ comes back up, so its status passes through `detached` on the way. See
 | `POST /probes/{id}/refresh` | ask this probe now, synchronously |
 | `GET`/`PUT /probes/{id}/desired-state` | what should be true |
 | `GET /probes/{id}/deviations` | what differs |
+
+Two deviation kinds cover states a green job hides: `interface_missing` (a
+sensor that needs a wireless interface is installed and the probe holds none
+for it) and `helper_inactive` (the sensor's privileged helper socket is not
+listening). Neither joins the automatic reconciliation plan - reserving an
+interface is a decision about a specific interface, and an inactive helper
+wants a look rather than a blind redeploy. Every deviation also carries
+`remediation`, a token naming the fix.
 | `POST /probes/{id}/reconcile?dry_run=true` | the plan, before anything runs |
 | `POST /probes/{id}/configure` | roll the configuration out → job |
 | `POST /probes/{id}/install-ca` | → job |

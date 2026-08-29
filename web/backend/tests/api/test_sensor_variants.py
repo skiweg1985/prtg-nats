@@ -260,7 +260,10 @@ async def test_only_a_role_with_sensor_configure_may_write_one(
     await sign_in(client, role)
     written = await client.put(
         "/api/v1/sensors/wlan-auth/profiles/nord",
-        json={"values": {"SSID": "Corporate", "AUTH": "psk"}, "probes": []},
+        json={
+            "values": {"SSID": "Corporate", "AUTH": "psk", "PSK": "wpa2-pass"},
+            "probes": [],
+        },
     )
     allowed = Permission.SENSOR_CONFIGURE in ROLE_PERMISSIONS[role]
     assert (written.status_code == 202) is allowed, written.text

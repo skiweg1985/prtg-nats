@@ -14,6 +14,8 @@ import {
   useRemoveSensorFromProbe,
   useReserveInterface,
   useRevealAccessKey,
+  useSensorProfiles,
+  useSensors,
   useUnenrollProbe,
   useWirelessInterfaces,
   type UnenrollOptions,
@@ -517,15 +519,31 @@ function InterfacesCard({
   const navigate = useNavigate()
   const reserve = useReserveInterface()
   const release = useReleaseInterface()
+  const { data: catalogue } = useSensors()
 
-  // Only sensors that take an interface can hold one. With none of them
-  // installed there is nothing to reserve for, and the card stays away.
-  const candidates = sensors.filter((entry) => entry.status !== 'absent')
+  // Only sensors that take an interface can hold one. The comment used to
+  // claim this filter while the code checked only the status - a probe with
+  // nothing but link-quality got offered reservations that do nothing.
+  const takesInterface = new Set(
+    (catalogue ?? [])
+      .filter((entry) => entry.needs_interface)
+      .map((entry) => entry.name),
+  )
+  const candidates = sensors.filter(
+    (entry) => entry.status !== 'absent' && takesInterface.has(entry.name),
+  )
   const { data, isLoading, error } = useWirelessInterfaces(probeId, candidates.length > 0)
   const [sensorName, setSensorName] = useState('')
   const target = sensorName || candidates[0]?.name || ''
 
   if (!candidates.length) return null
+
+  // The rollout is green without a reservation, the sensor refuses every run
+  // with one missing, and only PRTG shows the refusal. This card is the one
+  // place the platform can say it first.
+  const unserved = candidates.filter(
+    (entry) => entry.interfaces.length === 0,
+  )
 
   const columns: Column<WirelessInterface>[] = [
     {
@@ -592,7 +610,14 @@ function InterfacesCard({
             <Button
               size="sm"
               variant="ghost"
-              disabled={reserve.isPending || !target}
+              // The probe would refuse anyway; a button that works until it
+              // does not, with a red badge beside it, reads like a dare.
+              disabled={reserve.isPending || !target || row.carries_default_route}
+              title={
+                row.carries_default_route
+                  ? t('probes.interfaces.defaultRouteHint')
+                  : undefined
+              }
               onClick={() =>
                 reserve.mutate(
                   { probeId, sensor: target, iface: row.name },
@@ -631,6 +656,15 @@ function InterfacesCard({
       }
     >
       <p className="text-muted mb-3 text-sm">{t('probes.interfaces.hint')}</p>
+      {unserved.length > 0 && (
+        <div className="mb-3">
+          <Banner tone="warn" title={t('probes.interfaces.neededTitle')}>
+            {t('probes.interfaces.neededBody', {
+              sensors: unserved.map((entry) => entry.name).join(', '),
+            })}
+          </Banner>
+        </div>
+      )}
       {error ? (
         <ErrorDetails error={error} />
       ) : isLoading ? (
@@ -684,6 +718,20 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       header: t('probes.interfaces.columns.name'),
       cell: (row) =>
         row.interfaces.length ? <Mono>{row.interfaces.join(', ')}</Mono> : '—',
+    },
+    {
+      key: 'helper',
+      header: t('probes.sensorHelper'),
+      cell: (row) =>
+        row.helper_state === null || row.helper_state === 'none' ? (
+          '—'
+        ) : row.helper_state === 'listening' ? (
+          <Badge tone="ok">{t('sensors.helperState.listening')}</Badge>
+        ) : (
+          // In PRTG this sensor reports "helper unreachable" on every scan;
+          // here it used to look exactly like a healthy one.
+          <Badge tone="danger">{t('sensors.helperState.inactive')}</Badge>
+        ),
     },
     {
       key: 'actions',
@@ -746,6 +794,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
           </PermissionGate>
         }
       />
+      <VariantsCard detail={detail} />
       <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />
       {deploying !== null && (
@@ -867,6 +916,15 @@ function DeviationRow({ deviation }: { deviation: Deviation }) {
             {shortFingerprint(deviation.actual) ?? '—'} → {shortFingerprint(deviation.expected) ?? '—'}
           </p>
         )}
+        {/* Set for every finding since the beginning, shown nowhere: what to
+            do about it stayed the reader's own conclusion. */}
+        {deviation.remediation && (
+          <p className="text-ink-3 mt-0.5 text-xs">
+            {t(`deviations.remediation.${deviation.remediation}`, {
+              defaultValue: deviation.remediation,
+            })}
+          </p>
+        )}
       </div>
     </li>
   )
@@ -913,13 +971,113 @@ function DiagnosticsTab({ detail }: { detail: ProbeDetail }) {
  * A name the registry no longer knows still shows: the file on the probe says
  * it, and a sensor reading it there is a real state rather than a display bug.
  */
+/**
+ * The variants this probe holds, next to the sensors that read them.
+ *
+ * Assignment happens on the sensor page; this card only shows and links. A
+ * variant is a resource the probe carries for a sensor, like a reserved
+ * interface or an iperf endpoint - and it was the one of the three that the
+ * probe page did not know about.
+ */
+function VariantsCard({ detail }: { detail: ProbeDetail }) {
+  const { t } = useTranslation()
+  const { data: catalogue } = useSensors()
+
+  const withProfiles = (catalogue ?? []).filter(
+    (entry) =>
+      entry.supports_profiles &&
+      detail.sensors.some(
+        (sensor) => sensor.name === entry.name && sensor.status !== 'absent',
+      ),
+  )
+  if (withProfiles.length === 0) return null
+
+  return (
+    <Card title={t('probes.variants.title')}>
+      <div className="space-y-2">
+        {withProfiles.map((entry) => (
+          <SensorVariantRows
+            key={entry.name}
+            sensor={entry.name}
+            username={detail.summary.nats_username}
+          />
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function SensorVariantRows({
+  sensor,
+  username,
+}: {
+  sensor: string
+  username: string
+}) {
+  const { t } = useTranslation()
+  const { data } = useSensorProfiles(sensor)
+
+  const held = (data ?? []).filter((variant) => variant.probes.includes(username))
+
+  return (
+    <div className="text-sm">
+      <Link to={`/sensors/${sensor}`} className="text-accent hover:underline">
+        {sensor}
+      </Link>
+      {held.length === 0 ? (
+        <p className="text-ink-3 text-xs">{t('probes.variants.empty')}</p>
+      ) : (
+        <ul className="mt-1 space-y-1">
+          {held.map((variant) => (
+            <li key={variant.name} className="flex flex-wrap items-center gap-2">
+              <Mono>{variant.name}</Mono>
+              <code className="bg-surface-2 rounded-inset text-ink px-1.5 py-0.5 font-mono text-xs">
+                {variant.parameter_line}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function EndpointsCard({ detail }: { detail: ProbeDetail }) {
   const { t } = useTranslation()
   const { can } = useAuth()
   const { data: endpoints } = useIperfEndpoints(can('iperf.read'))
+  const { data: catalogue } = useSensors()
 
   const held = detail.inventory.known_iperf_endpoints
-  if (held.length === 0) return null
+  // An iperf sensor with nothing to measure against is exactly the state the
+  // rollout dialog warns about - but the warning has to live where the state
+  // does, not only in the dialog that caused it.
+  const iperfSensors = new Set(
+    (catalogue ?? [])
+      .filter((entry) => entry.iperf_kind)
+      .map((entry) => entry.name),
+  )
+  const hasIperfSensor = detail.sensors.some(
+    (entry) => entry.status !== 'absent' && iperfSensors.has(entry.name),
+  )
+  if (held.length === 0) {
+    if (!hasIperfSensor) return null
+    return (
+      <Banner
+        tone="warn"
+        title={t('probes.iperf.noneHeldTitle')}
+        action={
+          <Link to="/infrastructure/iperf">
+            <Button size="sm" variant="primary">
+              {t('probes.iperf.toEndpoints')}
+            </Button>
+          </Link>
+        }
+      >
+        {t('probes.iperf.noneHeldBody')}
+      </Banner>
+    )
+  }
 
   const known = new Map((endpoints ?? []).map((entry) => [entry.name, entry]))
 
@@ -958,7 +1116,7 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
                 )}
               </span>
               {holder &&
-                (holder.parameter_line === '' ? (
+                (holder.uses_default_alias ? (
                   <Badge tone="ok">
                     {t('infrastructure.iperf.noParameterNeeded')}
                   </Badge>

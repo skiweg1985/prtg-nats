@@ -164,8 +164,12 @@ class ProbeService:
             )
         }
         active_jobs = await self._active_job_ids()
+        definitions = self._catalog.list()
         catalogue_versions = {
-            definition.name: definition.version for definition in self._catalog.list()
+            definition.name: definition.version for definition in definitions
+        }
+        needs_interface = {
+            definition.name for definition in definitions if definition.needs_interface
         }
 
         summaries: list[ProbeSummary] = []
@@ -179,6 +183,7 @@ class ProbeService:
                     desired,
                     observed,
                     catalogue_versions=catalogue_versions,
+                    catalogue_needs_interface=needs_interface,
                     expected_ca_sha256=expected_ca_sha256,
                 )
             summaries.append(
@@ -241,6 +246,9 @@ class ProbeService:
                     catalogue_versions=catalogue_versions,
                     catalogue_checksums=catalogue_checksums,
                     catalogue_helper_checksums=catalogue_helper_checksums,
+                    catalogue_needs_interface={
+                        d.name for d in definitions if d.needs_interface
+                    },
                     expected_ca_sha256=expected_ca_sha256,
                 )
             )

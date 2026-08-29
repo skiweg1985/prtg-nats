@@ -422,10 +422,14 @@ def _merge_values(
         elif field.sensitive and stored.get(field.name):
             values[field.name] = stored[field.name]
 
+    # Required within the group the variant chose: demanding the PSK of a
+    # PEAP variant would refuse every valid one.
     missing = [
         field.name
         for field in schema.profile_fields
-        if field.required and not values.get(field.name)
+        if field.required
+        and schema.field_applies(field, values)
+        and not values.get(field.name)
     ]
     if missing:
         raise ValidationFailedError(

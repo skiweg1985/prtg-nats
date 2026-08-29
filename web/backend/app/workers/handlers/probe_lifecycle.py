@@ -282,6 +282,7 @@ async def reconcile_on(context: JobContext, username: str) -> dict[str, Any]:
         desired,
         observed,
         catalogue_versions={d.name: d.version for d in definitions},
+        catalogue_needs_interface={d.name for d in definitions if d.needs_interface},
         catalogue_checksums={
             d.name: f.sha256 for d in definitions if (f := d.file_for("script"))
         },

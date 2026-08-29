@@ -212,7 +212,11 @@ export function SensorDetailPage() {
         </dl>
       </Card>
 
-      <SensorVariants sensorName={name} schema={data.parameter_schema} />
+      <SensorVariants
+        sensorName={name}
+        schema={data.parameter_schema}
+        needsInterface={data.needs_interface}
+      />
       {/* The builder first: it is what somebody setting up a sensor came for,
           and the reference below lists the same parameters a second time. */}
       <ParameterBuilder sensorName={name} schema={data.parameter_schema} />
@@ -324,6 +328,11 @@ export function ParameterReference({ schema }: { schema: ParameterSchema | null 
     if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
   }
 
+  const listed = schema.parameters.filter(
+    (field) => field.group !== 'internal' && field.group !== 'moved',
+  )
+  const moved = schema.parameters.filter((field) => field.group === 'moved')
+
   return (
     <Card title={t('sensors.reference.title')}>
       <p className="text-ink-3 mb-3 text-sm">{t('sensors.reference.intro')}</p>
@@ -369,7 +378,7 @@ export function ParameterReference({ schema }: { schema: ParameterSchema | null 
             </tr>
           </thead>
           <tbody>
-            {schema.parameters.map((field) => (
+            {listed.map((field) => (
               <tr key={field.name} className="border-rule border-b last:border-0">
                 <td className="py-2 pr-3 align-top">
                   <Mono>{fieldLabel(t, field)}</Mono>
@@ -418,6 +427,21 @@ export function ParameterReference({ schema }: { schema: ParameterSchema | null 
           </tbody>
         </table>
       </div>
+
+      {moved.length > 0 && (
+        <details className="mt-3">
+          <summary className="text-ink-3 cursor-pointer text-xs">
+            {t('sensors.reference.movedSection')}
+          </summary>
+          <ul className="text-ink-3 mt-2 space-y-1 text-xs">
+            {moved.map((field) => (
+              <li key={field.name}>
+                <Mono>{field.name}</Mono> · {fieldDescription(t, field)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </Card>
   )
 }
@@ -444,7 +468,15 @@ function ParameterBuilder({
   const [values, setValues] = useState<Record<string, unknown>>({})
   const render = useRenderParameters(sensorName)
 
-  const fields = (schema?.parameters ?? []).filter((field) => field.source !== 'prtg')
+  // 'internal' is deployment plumbing (--self-check would build a line whose
+  // sensor never measures); 'moved' produces a line the script rejects. The
+  // sensor declares both - the filter only honours the declaration.
+  const fields = (schema?.parameters ?? []).filter(
+    (field) =>
+      field.source !== 'prtg' &&
+      field.group !== 'internal' &&
+      field.group !== 'moved',
+  )
   if (fields.length === 0) return null
 
   const missing = fields.filter(

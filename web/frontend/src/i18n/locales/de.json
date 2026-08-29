@@ -249,14 +249,25 @@
         "reserved": "Reserviert für",
         "inUse": "Wird benutzt",
         "state": "Zustand"
-      }
+      },
+      "neededTitle": "Ohne Reservierung misst hier nichts",
+      "neededBody": "Diese Sensoren brauchen ein reserviertes Funk-Interface und halten keins: {{sensors}}. Der Rollout war trotzdem grün - der Sensor verweigert jeden Lauf, und nur PRTG zeigt es.",
+      "defaultRouteHint": "Dieses Interface trägt die Standardroute. Es zu reservieren würde die Verbindung des Hosts kappen; die Probe lehnt es ab."
     },
     "iperf": {
-      "title": "Gehaltene Messpunkte"
+      "title": "Gehaltene Messpunkte",
+      "noneHeldTitle": "Der Sensor hat nichts, wogegen er messen kann",
+      "noneHeldBody": "Ein iperf-Sensor ist installiert, aber diese Probe hält keinen Messpunkt. Die Zuweisung passiert auf der Messpunktseite.",
+      "toEndpoints": "Zu den Messpunkten"
     },
     "accessKeyPrtgPath": "In PRTG: Setup > Systemverwaltung > Probes > Probe Connection Settings > Access Keys. Danach die Probe genehmigen - nicht über \"Approve and auto-discover\".",
     "sensorsEmpty": "Auf dieser Probe ist kein Sensor installiert.",
-    "deploySensor": "Sensor ausrollen"
+    "deploySensor": "Sensor ausrollen",
+    "sensorHelper": "Helfer",
+    "variants": {
+      "title": "Gehaltene Varianten",
+      "empty": "Diesem Sensor ist auf dieser Probe keine Variante zugewiesen."
+    }
   },
   "sensors": {
     "title": "Sensoren",
@@ -299,7 +310,8 @@
         "integer": "Ganzzahl",
         "boolean": "Schalter",
         "choice": "Auswahl"
-      }
+      },
+      "movedSection": "Verschobene Parameter (werden abgelehnt)"
     },
     "installedOn": "Installiert auf diesen Probes",
     "remove": "Entfernen",
@@ -322,7 +334,10 @@
       "fileStored": "Hinterlegt ({{fingerprint}}). Neue Datei wählen, um sie zu ersetzen.",
       "notDeployed": "Nicht ausgerollt",
       "missing": "Es fehlen noch Pflichtangaben: {{fields}}",
-      "confirmDelete": "Variante {{name}} vom Server und von allen Probes entfernen?"
+      "interfaceSuffix": "plus --interface der jeweiligen Probe",
+      "confirmDeleteTitle": "Variante \"{{name}}\" löschen?",
+      "confirmDeleteBody": "Sie wird vom Server und von diesen Probes entfernt: {{probes}}. PRTG-Objekte, die sie per --profile nennen, schlagen danach fehl.",
+      "confirmDeleteUnused": "Sie ist auf keiner Probe ausgerollt; entfernt wird nur der Eintrag auf dem Server."
     },
     "iperfBadge": "braucht Messpunkt",
     "updateOnProbe": "Aktualisieren",
@@ -334,7 +349,11 @@
       "readme": "Anleitung des Sensors (README)"
     },
     "outdatedBadge": "veraltet",
-    "updateOutdated": "Veraltete Probes aktualisieren"
+    "updateOutdated": "Veraltete Probes aktualisieren",
+    "helperState": {
+      "listening": "bereit",
+      "inactive": "inaktiv"
+    }
   },
   "deployments": {
     "title": "Ausrollvorgänge",
@@ -364,7 +383,8 @@
     "toSensor": "Zum Sensor {{sensor}}",
     "versionChange": "v{{from}} → v{{to}}",
     "dryRunBadge": "Probelauf",
-    "helperOutdatedWarning": "Auf diesen Probes ist der Verwaltungshelfer veraltet, der Rollout würde dort scheitern: {{probes}}. Erst den Helfer aktualisieren (Probe-Seite oder Flottenaktion)."
+    "helperOutdatedWarning": "Auf diesen Probes ist der Verwaltungshelfer veraltet, der Rollout würde dort scheitern: {{probes}}. Erst den Helfer aktualisieren (Probe-Seite oder Flottenaktion).",
+    "needsInterfaceHint": "Dieser Sensor braucht nach dem Rollout ein reserviertes Funk-Interface je Probe. Die Reservierung passiert auf der Probe-Seite im Reiter Sensoren - vorher misst er nicht."
   },
   "jobs": {
     "title": "Jobs",
@@ -795,7 +815,20 @@
     "ca_missing": "Das CA-Zertifikat fehlt",
     "ca_mismatched": "Die Probe trägt eine andere CA",
     "service_inactive": "Der Probe-Dienst läuft nicht",
-    "probe_name_mismatch": "Der Probe-Name weicht vom gewünschten ab"
+    "probe_name_mismatch": "Der Probe-Name weicht vom gewünschten ab",
+    "interface_missing": "Sensor \"{{sensor}}\" braucht ein reserviertes Funk-Interface, hält aber keins",
+    "helper_inactive": "Der privilegierte Helfer von \"{{sensor}}\" läuft nicht",
+    "remediation": {
+      "probe": {
+        "restart_service": "Behebung: den Probe-Dienst neu starten (Abweichungen beheben).",
+        "install_ca": "Behebung: die CA erneut installieren (Abweichungen beheben).",
+        "configure": "Behebung: die Probe neu konfigurieren (Abweichungen beheben)."
+      },
+      "sensor": {
+        "deploy": "Behebung: den Sensor erneut ausrollen.",
+        "reserve_interface": "Behebung: im Reiter Sensoren ein Funk-Interface für den Sensor reservieren."
+      }
+    }
   },
   "plan": {
     "restart_service": "Probe-Dienst auf {{probe}} neu starten",

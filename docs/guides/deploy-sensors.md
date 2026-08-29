@@ -34,6 +34,12 @@ sensors page of the web interface, or from the shell.
 | remove a profile | `./prtg-nats sensor profile NAME USER PROFILE --remove` |
 | remove a sensor | `./prtg-nats sensor remove NAME USER` |
 
+A sensor that needs a wireless interface does not measure until one is
+reserved for it on the probe - the rollout is green regardless, and only PRTG
+would show the refusal. The platform now says it first: the probe's sensor tab
+warns while the reservation is missing, the rollout dialog announces the step,
+and the configuration tab reports it as a deviation.
+
 Sensors that measure against a self-operated endpoint additionally need
 `./prtg-nats iperf-server` - see
 [measurement endpoints](#measurement-endpoints).

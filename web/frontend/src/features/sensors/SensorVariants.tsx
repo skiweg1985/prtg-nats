@@ -10,7 +10,7 @@ import {
   useSensorProfiles,
   useWriteSensorProfile,
 } from '@/api/hooks'
-import type { FileField, ParameterSchema, ProfileField } from '@/api/types'
+import type { FileField, ParameterSchema, ProfileField, SensorProfile } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -48,9 +48,13 @@ function hint(t: TFunction, field: { description?: string; description_key?: str
 export function SensorVariants({
   sensorName,
   schema,
+  needsInterface = false,
 }: {
   sensorName: string
   schema: ParameterSchema | null
+  /** The sensor also takes --interface, which is per probe - the copied
+   *  profile line alone is not the whole PRTG line then. */
+  needsInterface?: boolean
 }) {
   const { t } = useTranslation()
   const supported = Boolean(schema?.supports_profiles)
@@ -59,6 +63,7 @@ export function SensorVariants({
   const navigate = useNavigate()
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [removing, setRemoving] = useState<SensorProfile | null>(null)
 
   if (!supported || !schema) return null
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -88,7 +93,13 @@ export function SensorVariants({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-ink font-medium">{variant.name}</span>
                   {variant.probes.length === 0 && (
-                    <Badge tone="neutral">{t('sensors.variants.notDeployed')}</Badge>
+                    // The state and its cure are the same click: deploying a
+                    // variant means ticking probes in the edit dialog.
+                    <button type="button" onClick={() => setEditing(variant.name)}>
+                      <Badge tone="warn">
+                        {t('sensors.variants.notDeployed')}
+                      </Badge>
+                    </button>
                   )}
                 </div>
                 <p className="text-ink-3 mt-0.5 text-xs">
@@ -110,9 +121,16 @@ export function SensorVariants({
               <div className="flex items-start gap-2">
                 {/* What to paste into PRTG - the point where the variant
                     actually arrives at the sensor. */}
-                <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
-                  {variant.parameter_line}
-                </code>
+                <span>
+                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                    {variant.parameter_line}
+                  </code>
+                  {needsInterface && (
+                    <span className="text-ink-3 block text-right text-xs">
+                      {t('sensors.variants.interfaceSuffix')}
+                    </span>
+                  )}
+                </span>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -129,18 +147,7 @@ export function SensorVariants({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => {
-                      if (!window.confirm(t('sensors.variants.confirmDelete', {
-                        name: variant.name,
-                      }))) {
-                        return
-                      }
-                      remove.mutate(variant.name, {
-                        onSuccess: (job) => {
-                          if (job.job_id) navigate(`/jobs/${job.job_id}`)
-                        },
-                      })
-                    }}
+                    onClick={() => setRemoving(variant)}
                   >
                     {t('common.remove')}
                   </Button>
@@ -152,6 +159,44 @@ export function SensorVariants({
       )}
 
       {remove.error && <ErrorDetails error={remove.error} />}
+
+      {removing && (
+        <Dialog
+          title={t('sensors.variants.confirmDeleteTitle', { name: removing.name })}
+          onClose={() => setRemoving(null)}
+        >
+          <div className="space-y-4">
+            {/* Named, not counted: the deletion reaches into every probe that
+                holds the variant, and this is the last moment to see which. */}
+            <p className="text-ink-2 text-sm">
+              {removing.probes.length > 0
+                ? t('sensors.variants.confirmDeleteBody', {
+                    probes: removing.probes.join(', '),
+                  })
+                : t('sensors.variants.confirmDeleteUnused')}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRemoving(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={remove.isPending}
+                onClick={() =>
+                  remove.mutate(removing.name, {
+                    onSuccess: (job) => {
+                      setRemoving(null)
+                      if (job.job_id) navigate(`/jobs/${job.job_id}`)
+                    },
+                  })
+                }
+              >
+                {t('common.remove')}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
 
       {(creating || editing) && (
         <VariantDialog
@@ -210,9 +255,58 @@ function VariantDialog({
 
   const chosen = selected ?? new Set<string>()
   const nameIsValid = NAME_PATTERN.test(name)
-  const missing = schema.settings
-    .filter((field) => field.required && !values[field.name]?.trim())
-    .map((field) => field.name)
+
+  /**
+   * The schema's own conditionality. A choice setting whose options are the
+   * group names used by other fields (wlan-auth's AUTH: psk/peap/eap-tls) is
+   * the switch that decides which of them apply - showing a PSK variant the
+   * three certificate fields only invites filling in the wrong half.
+   */
+  const groups = new Set(
+    [...schema.settings, ...schema.credentials, ...schema.files]
+      .map((field) => field.group)
+      .filter((group): group is string => Boolean(group)),
+  )
+  const groupSelector =
+    groups.size > 0
+      ? schema.settings.find(
+          (field) =>
+            field.type === 'choice' &&
+            [...groups].every((group) => field.choices?.includes(group)),
+        )
+      : undefined
+  const activeGroup = groupSelector
+    ? values[groupSelector.name]?.trim() || String(groupSelector.default ?? '')
+    : null
+
+  function applies(field: { group?: string }): boolean {
+    if (!field.group || !groupSelector) return true
+    return field.group === activeGroup
+  }
+
+  const visibleSettings = schema.settings.filter(applies)
+  const visibleCredentials = schema.credentials.filter(applies)
+  const visibleFiles = schema.files.filter(applies)
+
+  // Required means "required while its group applies" - and a credential the
+  // server already holds, or a file already uploaded, counts as filled in.
+  const missing = [
+    ...visibleSettings.filter(
+      (field) => field.required && !values[field.name]?.trim(),
+    ),
+    ...visibleCredentials.filter(
+      (field) =>
+        field.required &&
+        !values[field.name]?.trim() &&
+        !stored?.secrets_set.includes(field.name),
+    ),
+    ...visibleFiles.filter(
+      (field) =>
+        field.required &&
+        !files[field.name] &&
+        !stored?.files.some((entry) => entry.key === field.name),
+    ),
+  ].map((field) => field.name)
 
   function update(key: string, value: string) {
     setTouched(true)
@@ -285,9 +379,9 @@ function VariantDialog({
             />
           </Field>
 
-          {schema.settings.length > 0 && (
+          {visibleSettings.length > 0 && (
             <FieldGroup title={t('sensors.variants.settings')}>
-              {schema.settings.map((field) => (
+              {visibleSettings.map((field) => (
                 <ProfileInput
                   key={field.name}
                   field={field}
@@ -298,9 +392,9 @@ function VariantDialog({
             </FieldGroup>
           )}
 
-          {schema.credentials.length > 0 && (
+          {visibleCredentials.length > 0 && (
             <FieldGroup title={t('sensors.variants.credentials')}>
-              {schema.credentials.map((field) => (
+              {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
                   label={label(t, field)}
@@ -326,9 +420,9 @@ function VariantDialog({
             </FieldGroup>
           )}
 
-          {schema.files.length > 0 && (
+          {visibleFiles.length > 0 && (
             <FieldGroup title={t('sensors.variants.files')}>
-              {schema.files.map((field) => {
+              {visibleFiles.map((field) => {
                 const uploaded = stored?.files.find(
                   (entry) => entry.key === field.name,
                 )
