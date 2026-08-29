@@ -591,7 +591,7 @@
         "deployedTo": "Auf Probes"
       },
       "host": "Adresse",
-      "addIntro": "Die Plattform meldet sich einmalig per SSH an und richtet den Messpunkt selbst ein. Danach hält sie einen eigenen, eng begrenzten Zugang - die Anmeldedaten von hier werden nicht gespeichert.",
+      "addIntro": "Zwei Schritte: erst wird der Host geprüft, dann meldet sich die Plattform einmalig per SSH an und richtet den Messpunkt selbst ein. Danach hält sie einen eigenen, eng begrenzten Zugang - die Anmeldedaten von hier werden nicht gespeichert.",
       "addTitle": "Messpunkt einrichten",
       "adminHint": "Ein Konto, das auf dem Host root werden darf. Wird nur für diese eine Verbindung benutzt.",
       "adminUser": "Administrator",
@@ -662,7 +662,11 @@
       "aliasReturnsBody": "Diese Probes halten danach nur noch einen Messpunkt und bekommen das Profil \"default\" zurück: {{probes}}. Ein bereits eingetragenes --profile bleibt richtig, ist aber nicht mehr nötig.",
       "sensorMissingTitle": "Die Zugangsdaten liegen da, aber nichts liest sie",
       "sensorMissingBody": "Diese Probes halten den Messpunkt, haben \"{{sensor}}\" aber nicht installiert: {{probes}}. Bis der Sensor ausgerollt ist, wird nicht gemessen.",
-      "startedNext": "Danach steht der Messpunkt in der Liste. Von dort aus wird er den Probes zugewiesen und der Sensor ausgerollt - erst dann wird gemessen."
+      "startedNext": "Danach steht der Messpunkt in der Liste. Von dort aus wird er den Probes zugewiesen und der Sensor ausgerollt - erst dann wird gemessen.",
+      "addStep1": "1. Host benennen und Schlüssel lesen",
+      "addStep1Done": "geprüft",
+      "addStep2": "2. Einmalig anmelden und einrichten",
+      "addStep2Preview": "Danach fragt dieser Dialog nach einem Konto, das auf dem Host root werden darf - mit Passwort oder privatem Schlüssel. Es gilt für diese eine Verbindung."
     }
   },
   "settings": {

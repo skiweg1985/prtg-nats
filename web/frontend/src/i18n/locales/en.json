@@ -591,7 +591,7 @@
         "deployedTo": "On probes"
       },
       "host": "Address",
-      "addIntro": "The platform signs in over SSH once and sets the endpoint up itself. Afterwards it holds its own narrow access - the credentials used here are not stored.",
+      "addIntro": "Two steps: the host is checked first, then the platform signs in over SSH once and sets the endpoint up itself. Afterwards it holds its own narrow access - the credentials used here are not stored.",
       "addTitle": "Set up a measurement endpoint",
       "adminHint": "An account that may become root on that host. Used for this one connection.",
       "adminUser": "Administrator",
@@ -662,7 +662,11 @@
       "aliasReturnsBody": "These probes will hold only one endpoint afterwards and get the \"default\" profile back: {{probes}}. A --profile already entered stays correct, but is no longer needed.",
       "sensorMissingTitle": "The credentials are there, but nothing reads them",
       "sensorMissingBody": "These probes hold the endpoint but do not have \"{{sensor}}\" installed: {{probes}}. Until the sensor is deployed, nothing is measured.",
-      "startedNext": "After that the endpoint appears in the list. From there it is assigned to probes and the sensor is deployed - only then is anything measured."
+      "startedNext": "After that the endpoint appears in the list. From there it is assigned to probes and the sensor is deployed - only then is anything measured.",
+      "addStep1": "1. Name the host and read its keys",
+      "addStep1Done": "checked",
+      "addStep2": "2. Sign in once and set it up",
+      "addStep2Preview": "After this, the dialog asks for an account that may become root on the host - with a password or a private key. It is good for this one connection."
     }
   },
   "settings": {

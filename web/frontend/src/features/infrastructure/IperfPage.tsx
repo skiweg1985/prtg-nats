@@ -185,6 +185,10 @@ export function IperfPage() {
  * The host's SSH keys are read first and shown, because the sign-in in step two
  * carries an administrator credential and it has to go to the host somebody
  * looked at - not to whatever answered the address.
+ *
+ * Both steps are named from the start, though. Withholding the fields is the
+ * design; withholding that they are coming only left people wondering where a
+ * sign-in was ever going to be asked for.
  */
 function ProvisionDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
@@ -231,6 +235,15 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
         <div className="space-y-4">
           <p className="text-ink-2 text-sm">{t('infrastructure.iperf.addIntro')}</p>
 
+          <div className="flex items-center gap-2">
+            <h3 className="text-ink text-sm font-semibold">
+              {t('infrastructure.iperf.addStep1')}
+            </h3>
+            {accepted && (
+              <Badge tone="ok">{t('infrastructure.iperf.addStep1Done')}</Badge>
+            )}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Field
               label={t('infrastructure.iperf.columns.name')}
@@ -272,7 +285,7 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
             </Field>
           </div>
 
-          {/* Step one. Nothing that authenticates has been typed yet. */}
+          {/* Nothing that authenticates has been typed yet. */}
           {!accepted && (
             <div className="space-y-3">
               <Button
@@ -291,6 +304,18 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
               </Button>
               {scan.error != null && <ErrorDetails error={scan.error} />}
             </div>
+          )}
+
+          {/* The heading stands whether or not the step is reachable. Without
+              it the dialog is four fields and a button, and where the sign-in
+              happens is something you find out by pressing it. */}
+          <h3 className="text-ink text-sm font-semibold">
+            {t('infrastructure.iperf.addStep2')}
+          </h3>
+          {!accepted && (
+            <p className="text-ink-3 text-sm">
+              {t('infrastructure.iperf.addStep2Preview')}
+            </p>
           )}
 
           {accepted && (
