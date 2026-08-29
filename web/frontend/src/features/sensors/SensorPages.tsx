@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 
 import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
-import type { ParameterSchema, SensorSummary } from '@/api/types'
+import type { ParameterSchema, SensorDetail, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -135,32 +135,29 @@ export function SensorDetailPage() {
         </PermissionGate>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={t('sensors.files')}>
-          <dl>
-            {data.files.map((file) => (
-              <DetailRow key={file.slot} label={file.slot}>
-                <Mono truncate>{file.relative_path}</Mono>
-                <p className="text-ink-3 mt-0.5 font-mono text-[0.6875rem]">
-                  {formatBytes(file.size_bytes)} · {shortFingerprint(file.sha256)}
-                </p>
-              </DetailRow>
-            ))}
-            {data.needs_interface && (
-              <DetailRow label="">{t('sensors.needsInterface')}</DetailRow>
-            )}
+      {(data.needs_interface || data.requires_privileged_helper || data.iperf_kind) && (
+        <Card title={t('sensors.requirements')}>
+          <ul className="text-ink-2 space-y-1 text-sm">
+            {data.needs_interface && <li>{t('sensors.needsInterface')}</li>}
             {data.requires_privileged_helper && (
-              <DetailRow label="">{t('sensors.privilegedHelper')}</DetailRow>
+              <li>{t('sensors.privilegedHelper')}</li>
             )}
             {data.iperf_kind && (
-              <DetailRow label="">
-                <Link to="/infrastructure/iperf" className="hover:underline">
+              <li>
+                <Link
+                  to="/infrastructure/iperf"
+                  className="text-accent hover:underline"
+                >
                   {t('sensors.iperfEndpoint')}
                 </Link>
-              </DetailRow>
+              </li>
             )}
-          </dl>
+          </ul>
         </Card>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PrtgCard sensor={data} />
 
         <Card title={t('sensors.installedOn')}>
           {data.probes.length === 0 ? (
@@ -177,6 +174,19 @@ export function SensorDetailPage() {
         </Card>
       </div>
 
+      <Card title={t('sensors.files')}>
+        <dl>
+          {data.files.map((file) => (
+            <DetailRow key={file.slot} label={file.slot}>
+              <Mono truncate>{file.relative_path}</Mono>
+              <p className="text-ink-3 mt-0.5 font-mono text-[0.6875rem]">
+                {formatBytes(file.size_bytes)} · {shortFingerprint(file.sha256)}
+              </p>
+            </DetailRow>
+          ))}
+        </dl>
+      </Card>
+
       <SensorVariants sensorName={name} schema={data.parameter_schema} />
       {/* The builder first: it is what somebody setting up a sensor came for,
           and the reference below lists the same parameters a second time. */}
@@ -191,6 +201,54 @@ export function SensorDetailPage() {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * What to type on the PRTG side.
+ *
+ * The files card names repository paths, but PRTG's Script v2 dropdown shows
+ * the installed basename - the one translation every setup has to make and
+ * the interface never made. The README below it is the sensor's own manual,
+ * shipped with every version and delivered to the browser all along.
+ */
+export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
+  const { t } = useTranslation()
+
+  const script = sensor.files.find((file) => file.slot === 'script')
+  const basename = script?.relative_path.split('/').pop() ?? null
+
+  return (
+    <Card title={t('sensors.prtg.title')}>
+      <div className="space-y-3 text-sm">
+        <p className="text-ink-2">{t('sensors.prtg.intro')}</p>
+        {basename && (
+          <div className="flex items-center gap-2">
+            <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+              {basename}
+            </code>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void navigator.clipboard.writeText(basename)}
+            >
+              {t('common.copy')}
+            </Button>
+          </div>
+        )}
+        <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
+        {sensor.readme && (
+          <details>
+            <summary className="text-ink-3 cursor-pointer text-xs">
+              {t('sensors.prtg.readme')}
+            </summary>
+            <pre className="bg-surface-2 rounded-inset text-ink-2 mt-2 max-h-96 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
+              {sensor.readme}
+            </pre>
+          </details>
+        )}
+      </div>
+    </Card>
   )
 }
 

@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 
-import type { ParameterSchema } from '@/api/types'
+import type { ParameterSchema, SensorDetail } from '@/api/types'
 import { AppProviders } from '@/app/providers'
-import { ParameterReference } from '@/features/sensors/SensorPages'
+import { ParameterReference, PrtgCard } from '@/features/sensors/SensorPages'
 
 function wrap(children: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -83,5 +83,46 @@ describe('ParameterReference', () => {
   it('falls back to the README hint when a sensor declares nothing', () => {
     wrap(<ParameterReference schema={null} />)
     expect(screen.getByText(/README/)).toBeInTheDocument()
+  })
+})
+
+/**
+ * The one translation every setup has to make: the repository path is
+ * script/wlan-auth.py, the PRTG dropdown shows wlan-auth.py.
+ */
+describe('PrtgCard', () => {
+  const sensor: SensorDetail = {
+    name: 'wlan-auth',
+    version: '6',
+    description: 'WLAN auth',
+    needs_interface: true,
+    requires_privileged_helper: true,
+    iperf_kind: null,
+    supports_profiles: true,
+    installed_on: 1,
+    outdated_on: 0,
+    files: [
+      {
+        slot: 'script',
+        relative_path: 'script/wlan-auth.py',
+        size_bytes: 1000,
+        sha256: 'ab'.repeat(32),
+      },
+    ],
+    parameter_schema: null,
+    readme: '# wlan-auth\n\nCreate the sensor in PRTG…',
+    profile_template: null,
+    probes: [],
+  }
+
+  it('names the script as the PRTG dropdown shows it', () => {
+    wrap(<PrtgCard sensor={sensor} />)
+    expect(screen.getByText('wlan-auth.py')).toBeInTheDocument()
+    expect(screen.queryByText('script/wlan-auth.py')).not.toBeInTheDocument()
+  })
+
+  it("carries the sensor's own manual", () => {
+    wrap(<PrtgCard sensor={sensor} />)
+    expect(screen.getByText(/Create the sensor in PRTG/)).toBeInTheDocument()
   })
 })

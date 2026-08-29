@@ -2,8 +2,15 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { ApiError } from '@/api/client'
-import { useCancelJob, useJob, useJobLog, useJobs, useRetryJob } from '@/api/hooks'
-import type { JobSummary } from '@/api/types'
+import {
+  useCancelJob,
+  useJob,
+  useJobLog,
+  useJobs,
+  useProbes,
+  useRetryJob,
+} from '@/api/hooks'
+import type { JobDetail, JobSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -17,6 +24,7 @@ import {
   Mono,
   Skeleton,
 } from '@/components/ui/primitives'
+import { ProbeLink } from '@/components/ui/ProbeLink'
 import { JobStatusBadge } from '@/components/ui/status'
 import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
 
@@ -172,9 +180,22 @@ export function JobDetailPage() {
   const retry = useRetryJob()
   const cancel = useCancelJob()
 
+  // Enrollment jobs name their probe by NATS account, most others by record
+  // id; the fleet listing answers for both, and a name it cannot place stays
+  // plain text rather than becoming a link to nothing.
+  const { data: probes } = useProbes()
+
   if (isLoading) return <Skeleton className="h-64" />
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
   if (!job || !jobId) return null
+
+  const probeRoute =
+    job.target_type === 'probe' && job.target_id
+      ? (probes?.find(
+          (probe) =>
+            probe.id === job.target_id || probe.nats_username === job.target_id,
+        )?.id ?? null)
+      : null
 
   const running = !isTerminal(job.status)
 
@@ -196,11 +217,15 @@ export function JobDetailPage() {
               to the job list - not to the probe somebody was looking at when
               they pressed the button. */}
           {job.target_label &&
-            (job.target_type === 'probe' && job.target_id ? (
+            (probeRoute ? (
               <Link
-                to={`/probes/${job.target_id}`}
+                to={`/probes/${probeRoute}`}
                 className="text-accent text-sm hover:underline"
               >
+                {job.target_label}
+              </Link>
+            ) : job.target_type === 'deployment' ? (
+              <Link to="/deployments" className="text-accent text-sm hover:underline">
                 {job.target_label}
               </Link>
             ) : (
@@ -262,6 +287,8 @@ export function JobDetailPage() {
         </div>
       </Card>
 
+      <NextSteps job={job} probeRoute={probeRoute} />
+
       {job.error_code && (
         <ErrorDetails
           error={
@@ -315,14 +342,137 @@ export function JobDetailPage() {
               {job.requested_by_name ?? job.trigger}
             </DetailRow>
           </dl>
-          {job.result && (
-            <pre className="bg-surface-2 rounded-inset text-ink-2 mt-3 max-h-64 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
-              {JSON.stringify(job.result, null, 2)}
-            </pre>
-          )}
+          {job.result && <JobResult job={job} />}
         </Card>
       </div>
     </div>
+  )
+}
+
+/**
+ * What is still to be done once the job itself is green.
+ *
+ * Almost every flow in this interface ends on this page, so this is where the
+ * hand-off to PRTG has to be said - the wizard's success banner only exists
+ * while its tab is open, and a job opened from the list or a shared link
+ * would otherwise read as finished when two manual steps still remain.
+ */
+function NextSteps({ job, probeRoute }: { job: JobDetail; probeRoute: string | null }) {
+  const { t } = useTranslation()
+
+  if (job.status !== 'successful' && job.status !== 'partially_successful') {
+    return null
+  }
+
+  if (job.type === 'probe.enroll') {
+    return (
+      <Banner tone="ok" title={t('probes.enroll.step3.doneTitle')}>
+        <div className="space-y-2">
+          <p>{t('probes.enroll.step3.donePrtg')}</p>
+          {probeRoute && (
+            <Link to={`/probes/${probeRoute}`}>
+              <Button size="sm" variant="primary">
+                {t('probes.enroll.step3.toProbe')}
+              </Button>
+            </Link>
+          )}
+        </div>
+      </Banner>
+    )
+  }
+
+  if (job.type === 'sensor.deploy') {
+    const sensor = typeof job.result?.sensor === 'string' ? job.result.sensor : null
+    if (job.result?.dry_run) {
+      return (
+        <Banner tone="neutral" title={t('jobs.deploy.dryRunTitle')}>
+          {t('jobs.deploy.dryRunBody')}
+        </Banner>
+      )
+    }
+    return (
+      <Banner
+        tone="ok"
+        title={t('jobs.deploy.prtgNextTitle')}
+        action={
+          sensor && (
+            <Link to={`/sensors/${sensor}`}>
+              <Button size="sm" variant="primary">
+                {t('jobs.deploy.toSensor')}
+              </Button>
+            </Link>
+          )
+        }
+      >
+        {t('jobs.deploy.prtgNextBody')}
+      </Banner>
+    )
+  }
+
+  return null
+}
+
+/**
+ * The job's outcome, rendered for the types this page is the finish line of.
+ *
+ * A deployment answers "on which probes did it land"; the JSON dump answered
+ * "what does the worker's dictionary look like". Types without a renderer
+ * keep the raw form, folded away rather than removed - it is still the only
+ * record there is.
+ */
+function JobResult({ job }: { job: JobDetail }) {
+  const { t } = useTranslation()
+
+  if (job.type === 'sensor.deploy' && job.result) {
+    const succeeded = Array.isArray(job.result.succeeded)
+      ? (job.result.succeeded as string[])
+      : []
+    const failed = Array.isArray(job.result.failed)
+      ? (job.result.failed as string[])
+      : []
+    return (
+      <div className="mt-3 space-y-2 text-sm">
+        {succeeded.length > 0 && (
+          <div>
+            <p className="text-ink-3 text-xs">
+              {t('jobs.deploy.succeededList', { count: succeeded.length })}
+            </p>
+            <ul className="mt-0.5 space-y-0.5">
+              {succeeded.map((name) => (
+                <li key={name}>
+                  <ProbeLink username={name} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {failed.length > 0 && (
+          <div>
+            <p className="text-danger text-xs">
+              {t('jobs.deploy.failedList', { count: failed.length })}
+            </p>
+            <ul className="mt-0.5 space-y-0.5">
+              {failed.map((name) => (
+                <li key={name}>
+                  <ProbeLink username={name} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <details className="mt-3">
+      <summary className="text-ink-3 cursor-pointer text-xs">
+        {t('jobs.rawResult')}
+      </summary>
+      <pre className="bg-surface-2 rounded-inset text-ink-2 mt-2 max-h-64 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
+        {JSON.stringify(job.result, null, 2)}
+      </pre>
+    </details>
   )
 }
 

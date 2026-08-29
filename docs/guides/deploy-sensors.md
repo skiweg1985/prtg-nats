@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Manage sensor scripts centrally
@@ -56,6 +56,10 @@ configuration:
    reproduction stays faithful even if Paessler changes them later.
 4. If the self-test fails, the helper restores the previous state. No
    half-deployed sensor is left on the probe.
+
+Once the job is green, the job page says what remains: the sensor object in
+PRTG. Its page in the interface names the script as PRTG's Script v2 dropdown
+shows it and carries the sensor's own README.
 
 That also proves the permission chain, not just the file: a script that
 cannot reach its privileged helper through `sudo` does not get through.

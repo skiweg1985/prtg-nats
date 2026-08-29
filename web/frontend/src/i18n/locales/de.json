@@ -215,7 +215,8 @@
         "toProbe": "Zur Probe",
         "toProbes": "Zur Probenliste",
         "toJob": "Job öffnen",
-        "reportedBy": "Host"
+        "reportedBy": "Host",
+        "toDeploy": "Sensor ausrollen"
       },
       "fields": {
         "account": "NATS-Konto",
@@ -252,7 +253,10 @@
     },
     "iperf": {
       "title": "Gehaltene Messpunkte"
-    }
+    },
+    "accessKeyPrtgPath": "In PRTG: Setup > Systemverwaltung > Probes > Probe Connection Settings > Access Keys. Danach die Probe genehmigen - nicht über \"Approve and auto-discover\".",
+    "sensorsEmpty": "Auf dieser Probe ist kein Sensor installiert.",
+    "deploySensor": "Sensor ausrollen"
   },
   "sensors": {
     "title": "Sensoren",
@@ -320,7 +324,15 @@
       "missing": "Es fehlen noch Pflichtangaben: {{fields}}",
       "confirmDelete": "Variante {{name}} vom Server und von allen Probes entfernen?"
     },
-    "iperfBadge": "braucht Messpunkt"
+    "iperfBadge": "braucht Messpunkt",
+    "updateOnProbe": "Aktualisieren",
+    "requirements": "Voraussetzungen",
+    "prtg": {
+      "title": "In PRTG",
+      "intro": "Das Sensorobjekt entsteht in PRTG als Script-v2-Sensor auf dem Gerät der Probe. Im Skript-Auswahlfeld steht dieser Name:",
+      "parametersHint": "Die Parameterzeile liefert der Baukasten unten; bei Varianten steht sie an der jeweiligen Variante.",
+      "readme": "Anleitung des Sensors (README)"
+    }
   },
   "deployments": {
     "title": "Ausrollvorgänge",
@@ -346,7 +358,8 @@
     "iperf": {
       "noEndpoints": "Für diesen Sensor ist kein Messpunkt registriert. Er wird installiert, misst aber erst, wenn einer eingerichtet und zugewiesen ist.",
       "probesWithout": "Diese Probes haben den Sensor bereits, halten aber keinen Messpunkt: {{probes}}. Ein erneutes Ausrollen ändert daran nichts - die Zuweisung passiert auf der Messpunktseite."
-    }
+    },
+    "toSensor": "Zum Sensor {{sensor}}"
   },
   "jobs": {
     "title": "Jobs",
@@ -551,7 +564,19 @@
         "updated": "Der Stack läuft jetzt auf {{commit}}",
         "updater_output": "{{line}}"
       }
-    }
+    },
+    "deploy": {
+      "prtgNextTitle": "Der Sensor liegt auf den Probes",
+      "prtgNextBody": "Gemessen wird erst, wenn in PRTG ein Script-v2-Sensorobjekt auf dem Gerät der Probe angelegt ist. Den Skriptnamen und die Parameterzeile nennt die Sensorseite.",
+      "toSensor": "Zum Sensor",
+      "dryRunTitle": "Das war ein Probelauf",
+      "dryRunBody": "Es wurde nichts installiert - der Lauf hat nur gezeigt, was passieren würde. Zum tatsächlichen Ausrollen den Vorgang ohne Probelauf starten.",
+      "succeededList_one": "{{count}} Probe erfolgreich",
+      "succeededList_other": "{{count}} Probes erfolgreich",
+      "failedList_one": "{{count}} Probe fehlgeschlagen",
+      "failedList_other": "{{count}} Probes fehlgeschlagen"
+    },
+    "rawResult": "Rohdaten des Ergebnisses"
   },
   "audit": {
     "title": "Protokoll",

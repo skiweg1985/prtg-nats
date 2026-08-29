@@ -127,7 +127,9 @@ export function DeploymentListPage() {
         isLoading={isLoading}
         emptyTitle={t('deployments.empty')}
         rowHref={(row) => (row.job_id ? `/jobs/${row.job_id}` : null)}
-        expandedContent={(row) => <DeploymentTargets targets={row.targets} />}
+        expandedContent={(row) => (
+          <DeploymentTargets sensor={row.sensor_name} targets={row.targets} />
+        )}
         emptyAction={
           <PermissionGate permission="deployment.create">
             <Button variant="primary" onClick={() => setDeploying(true)}>
@@ -154,7 +156,13 @@ export function DeploymentListPage() {
  * answer: the two that did not are the reason anybody opened this page. Every
  * field here was recorded per target when the job ran and had nowhere to go.
  */
-function DeploymentTargets({ targets }: { targets: DeploymentTarget[] }) {
+function DeploymentTargets({
+  sensor,
+  targets,
+}: {
+  sensor: string
+  targets: DeploymentTarget[]
+}) {
   const { t } = useTranslation()
 
   if (targets.length === 0) {
@@ -162,40 +170,50 @@ function DeploymentTargets({ targets }: { targets: DeploymentTarget[] }) {
   }
 
   return (
-    <ul className="space-y-2">
-      {targets.map((target) => (
-        <li key={target.probe_id} className="text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <JobStatusBadge status={target.status} />
-            <Mono className="text-ink-2">{target.probe_label}</Mono>
-            {target.error_code && (
-              // The label fills the {{probe}} the probe-side messages carry -
-              // the target row is the one thing this record knows for certain.
-              // A code with no message of its own falls back to the code, which
-              // is still something to search for.
-              <span className="text-danger text-xs">
-                {t(`errors.${target.error_code}`, {
-                  probe: target.probe_label,
-                  defaultValue: target.error_code,
-                })}
-              </span>
+    <div className="space-y-2">
+      {/* The row itself leads to the job; the way to the sensor lives here,
+          where somebody is already digging into one rollout. */}
+      <Link
+        to={`/sensors/${sensor}`}
+        className="text-accent text-xs hover:underline"
+      >
+        {t('deployments.toSensor', { sensor })}
+      </Link>
+      <ul className="space-y-2">
+        {targets.map((target) => (
+          <li key={target.probe_id} className="text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <JobStatusBadge status={target.status} />
+              <Mono className="text-ink-2">{target.probe_label}</Mono>
+              {target.error_code && (
+                // The label fills the {{probe}} the probe-side messages carry -
+                // the target row is the one thing this record knows for certain.
+                // A code with no message of its own falls back to the code, which
+                // is still something to search for.
+                <span className="text-danger text-xs">
+                  {t(`errors.${target.error_code}`, {
+                    probe: target.probe_label,
+                    defaultValue: target.error_code,
+                  })}
+                </span>
+              )}
+              {target.finished_at && (
+                <span className="text-ink-3 ml-auto text-xs">
+                  {formatRelative(target.finished_at)}
+                </span>
+              )}
+            </div>
+            {/* The machine's own words, never translated - the same rule the
+                error panel follows. */}
+            {target.error_details && (
+              <pre className="text-ink-3 mt-1 max-h-24 overflow-auto font-mono text-xs whitespace-pre-wrap">
+                {target.error_details}
+              </pre>
             )}
-            {target.finished_at && (
-              <span className="text-ink-3 ml-auto text-xs">
-                {formatRelative(target.finished_at)}
-              </span>
-            )}
-          </div>
-          {/* The machine's own words, never translated - the same rule the
-              error panel follows. */}
-          {target.error_details && (
-            <pre className="text-ink-3 mt-1 max-h-24 overflow-auto font-mono text-xs whitespace-pre-wrap">
-              {target.error_details}
-            </pre>
-          )}
-        </li>
-      ))}
-    </ul>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

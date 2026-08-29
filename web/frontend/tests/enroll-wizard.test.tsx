@@ -286,6 +286,81 @@ describe('EnrollWizard', () => {
     expect(screen.getByText(/approve the probe/)).toBeInTheDocument()
   })
 
+  it('offers the promised next step, not just the promise', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          {
+            id: 'P9',
+            nats_username: 'mpp-berlin',
+            display_name: null,
+            host: '192.0.2.11',
+            probe_name: 'berlin',
+            status: 'healthy',
+            service: 'active',
+            package_version: '3.10.0-1',
+            ca_state: 'ok',
+            nats_connection: 'connected',
+            sensor_count: 0,
+            deviation_count: 0,
+            observed_at: null,
+            stale: false,
+            running_job_id: null,
+            error_code: null,
+          },
+        ]),
+      ),
+    )
+    wrap()
+
+    await reachTheEnd(user)
+
+    // "Sensors deploy like on any other probe" used to be a sentence without
+    // a button; the button leads straight to the sensors tab.
+    const deploy = screen.getByRole('link', { name: /deploy a sensor/i })
+    expect(deploy).toHaveAttribute('href', '/probes/P9?tab=sensors')
+  })
+
+  it('shows the cause and the recommended action when the job fails', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/v1/jobs/:id', ({ params }) =>
+        HttpResponse.json({
+          id: params.id,
+          type: 'probe.enroll',
+          status: 'failed',
+          steps: [{ name: 'verify_access', status: 'failed' }],
+          error_code: 'probe.package_missing',
+          error_params: {},
+          error_details: 'apt reported: unable to locate package prtgmpprobe',
+          current_step: 'verify_access',
+          created_at: new Date().toISOString(),
+        }),
+      ),
+    )
+    wrap()
+
+    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    await screen.findByText(/waiting for the probe/i)
+    invitation = {
+      ...INVITATION,
+      redeemed_at: new Date().toISOString(),
+      job_id: 'JOB1',
+    }
+    openInvitations = []
+
+    // The full panel, not the thin banner: cause and action are written for
+    // exactly this code, and this is the moment they are needed.
+    expect(
+      await screen.findByText(/likely cause/i, {}, { timeout: 6000 }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/what to do/i)).toBeInTheDocument()
+  }, 10_000)
+
   it('links to the probe itself, where the access key can be revealed', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
