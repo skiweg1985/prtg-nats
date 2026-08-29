@@ -171,6 +171,10 @@ describe('IperfPage', () => {
     // address nobody has verified.
     expect(screen.queryByLabelText(/^password$/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/administrator/i)).not.toBeInTheDocument()
+    // Announced, though. Which step asks for the sign-in used to be something
+    // you found out by pressing the button.
+    expect(screen.getByText('2. Sign in once and set it up')).toBeInTheDocument()
+    expect(screen.getByText(/asks for an account that may become root/)).toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('berlin'), 'berlin')
     await user.type(screen.getByPlaceholderText('iperf.example.com'), 'iperf.example.test')
