@@ -42,6 +42,7 @@ const INFRASTRUCTURE: NavEntry[] = [
     labelKey: 'nav.credentials',
     permission: 'credential.read',
   },
+  { to: '/infrastructure/system', labelKey: 'nav.system', permission: 'system.read' },
 ]
 
 const SECONDARY: NavEntry[] = [

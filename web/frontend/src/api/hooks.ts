@@ -9,6 +9,7 @@ import { api } from './client'
 import type {
   AuditEvent,
   AuthState,
+  BackupFile,
   Capabilities,
   StackVersion,
   Certificate,
@@ -67,6 +68,7 @@ export const keys = {
   jobLog: (id: string) => ['jobs', id, 'log'] as const,
   audit: (filters?: Record<string, unknown>) => ['audit', filters ?? {}] as const,
   certificates: ['certificates'] as const,
+  backups: ['system', 'backups'] as const,
   credentials: ['credentials'] as const,
   invitations: ['probes', 'invitations'] as const,
   invitation: (id: string) => ['probes', 'invitations', id] as const,
@@ -531,6 +533,65 @@ export function useRemoveEndpoint() {
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+// --- Maintenance -------------------------------------------------------------
+
+export function useBackups(enabled = true) {
+  return useQuery({
+    queryKey: keys.backups,
+    queryFn: () => api.get<BackupFile[]>('/system/backups'),
+    enabled,
+  })
+}
+
+export function useVerifySystem() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/system/verify'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useCreateBackup() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/system/backup'),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.backups })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useExportRuntime() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/system/export'),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.backups })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
+export function useRestartNats() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/system/restart'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+}
+
+export function useRenewServerCertificate() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<JobAccepted>('/certificates/server/renew'),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.certificates })
       void client.invalidateQueries({ queryKey: ['jobs'] })
     },
   })

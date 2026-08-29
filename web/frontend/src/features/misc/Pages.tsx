@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -7,6 +7,7 @@ import {
   useCapabilities,
   useCertificates,
   useDeployments,
+  useRenewServerCertificate,
   useSystemStatus,
 } from '@/api/hooks'
 import type {
@@ -20,9 +21,11 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
+  Banner,
   Button,
   Card,
   DetailRow,
+  Dialog,
   Dot,
   EmptyState,
   Mono,
@@ -423,10 +426,27 @@ export function CertificatesPage() {
 
 function CertificateCard({ certificate }: { certificate: Certificate }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const renew = useRenewServerCertificate()
+  const [confirming, setConfirming] = useState(false)
+
   return (
     <Card
       title={certificate.kind.toUpperCase()}
-      action={<CertificateStatusBadge status={certificate.status} />}
+      action={
+        <span className="flex items-center gap-2">
+          {/* Renewal existed as an endpoint and a CLI command; the page that
+              shows the expiry date had no way to act on it. */}
+          {certificate.kind === 'server' && (
+            <PermissionGate permission="certificate.renew">
+              <Button size="sm" onClick={() => setConfirming(true)}>
+                {t('infrastructure.renewServer')}
+              </Button>
+            </PermissionGate>
+          )}
+          <CertificateStatusBadge status={certificate.status} />
+        </span>
+      }
     >
       <dl>
         <DetailRow label="subject">
@@ -456,6 +476,33 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
       </dl>
       {certificate.key_matches === false && (
         <p className="text-danger mt-3 text-sm">{t('infrastructure.keyMismatch')}</p>
+      )}
+      {confirming && (
+        <Dialog
+          title={t('infrastructure.renewServer')}
+          onClose={() => setConfirming(false)}
+        >
+          <div className="space-y-4">
+            <Banner tone="warn">{t('infrastructure.renewServerConfirm')}</Banner>
+            {renew.error != null && <ErrorDetails error={renew.error} />}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={renew.isPending}
+                onClick={() =>
+                  renew.mutate(undefined, {
+                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                  })
+                }
+              >
+                {t('infrastructure.renewServer')}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
       )}
     </Card>
   )

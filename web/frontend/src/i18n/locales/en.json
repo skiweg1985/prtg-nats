@@ -17,7 +17,8 @@
     "credentials": "NATS accounts",
     "audit": "Audit",
     "settings": "Settings",
-    "updates": "Updates"
+    "updates": "Updates",
+    "system": "Maintenance"
   },
   "common": {
     "cancel": "Cancel",
@@ -757,7 +758,9 @@
       "inviteDoneTitle": "The endpoint is set up",
       "inviteToEndpoint": "To the endpoint",
       "inviteOpenTitle": "Open invitations"
-    }
+    },
+    "renewServer": "Renew",
+    "renewServerConfirm": "The server certificate is renewed and activated. The NATS container restarts; every probe reconnects."
   },
   "settings": {
     "title": "Settings",
@@ -926,7 +929,7 @@
       "unavailable": "The NATS server did not answer.",
       "reload_refused": "NATS kept its previous configuration.",
       "reload_refused.cause": "Some settings cannot be applied without a restart - a changed server name above all. The change is written to disk and is not active yet.",
-      "reload_refused.action": "Restart the NATS server from the system page. Every probe and the PRTG core reconnect afterwards."
+      "reload_refused.action": "Restart the NATS server from the maintenance page (Infrastructure → Maintenance). Every probe and the PRTG core reconnect afterwards."
     },
     "docker": {
       "unavailable": "Container control is not available in this installation.",
@@ -1051,5 +1054,39 @@
     "last_update": "Last updated from here",
     "view_log": "view log",
     "rebuild": "Rebuild now"
+  },
+  "system": {
+    "title": "Maintenance",
+    "subtitle": "Verify, back up, restart - the hands-on work on the server itself.",
+    "verify": {
+      "title": "Verify the installation",
+      "body": "Runs the same check as ./prtg-nats verify: containers, certificates, runtime directory, NATS reachability. The result is in the job.",
+      "run": "Verify"
+    },
+    "restart": {
+      "title": "Restart NATS",
+      "body": "Restarts the NATS container. Every probe and the PRTG core reconnect afterwards.",
+      "run": "Restart",
+      "confirmTitle": "Really restart NATS?",
+      "confirmBody": "All probes and the core briefly lose their connection and reconnect. Measurements of that moment are lost."
+    },
+    "backup": {
+      "title": "Backups",
+      "body": "The JetStream backup holds the message store; the runtime export archives the whole runtime directory for migration or recovery.",
+      "jetstream": "Back up JetStream",
+      "export": "Export runtime",
+      "exportConfirmTitle": "Export the runtime directory?",
+      "exportWarning": "The archive contains the CA key, every account and every password in the clear. It belongs in a safe place, not in a ticket."
+    },
+    "backups": {
+      "title": "Existing archives",
+      "empty": "No archive sits in the runtime directory yet.",
+      "download": "Download",
+      "hint": "The archives live in the runtime volume under backups/. Retention and rotation stay with operations.",
+      "kind": {
+        "runtime": "Runtime export",
+        "jetstream": "JetStream"
+      }
+    }
   }
 }
