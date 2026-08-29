@@ -738,7 +738,25 @@
       "addStep1": "1. Host benennen und Schlüssel lesen",
       "addStep1Done": "geprüft",
       "addStep2": "2. Einmalig anmelden und einrichten",
-      "addStep2Preview": "Danach fragt dieser Dialog nach einem Konto, das auf dem Host root werden darf - mit Passwort oder privatem Schlüssel. Es gilt für diese eine Verbindung."
+      "addStep2Preview": "Danach fragt dieser Dialog nach einem Konto, das auf dem Host root werden darf - mit Passwort oder privatem Schlüssel. Es gilt für diese eine Verbindung.",
+      "invite": "Per Einladung",
+      "inviteTitle": "Messpunkt per Einladung einrichten",
+      "inviteIntro": "Für einen Host, den diese Plattform nicht per SSH erreicht - hinter NAT oder Firewall. Er bekommt einen Befehl, richtet sich selbst ein und meldet sich zurück; erreichen können muss er nur diese Plattform.",
+      "inviteHostHint": "Die Adresse, unter der die Probes messen. Leer lassen, wenn der Host sie beim Zurückmelden selbst mitbringt.",
+      "inviteTtl": "Gültigkeit",
+      "inviteTtlHint": "So lange kann der Befehl auf dem Host ausgeführt werden.",
+      "inviteCreate": "Einladung erzeugen",
+      "inviteCreating": "Wird erzeugt…",
+      "inviteCommandIntro": "Diesen Befehl auf dem Messpunkt-Host ausführen, als Benutzer mit sudo-Recht. Er richtet iperf3 ein, hinterlegt den Zugang für diese Plattform und meldet zurück.",
+      "inviteSecretBody": "Der Befehl enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host als diesen Messpunkt anmelden.",
+      "inviteWaiting": "Warten auf den Host",
+      "inviteDeadTitle": "Diese Einladung ist nicht mehr verwendbar",
+      "inviteDeadBody": "Sie ist abgelaufen oder wurde zurückgezogen; der Befehl würde abgewiesen.",
+      "inviteRestart": "Neue Einladung",
+      "inviteProgress": "Der Host hat sich gemeldet. Die Plattform hinterlegt den Zugang und schreibt den Eintrag.",
+      "inviteDoneTitle": "Der Messpunkt ist eingerichtet",
+      "inviteToEndpoint": "Zum Messpunkt",
+      "inviteOpenTitle": "Offene Einladungen"
     }
   },
   "settings": {

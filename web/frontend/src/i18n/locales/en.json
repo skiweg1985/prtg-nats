@@ -738,7 +738,25 @@
       "addStep1": "1. Name the host and read its keys",
       "addStep1Done": "checked",
       "addStep2": "2. Sign in once and set it up",
-      "addStep2Preview": "After this, the dialog asks for an account that may become root on the host - with a password or a private key. It is good for this one connection."
+      "addStep2Preview": "After this, the dialog asks for an account that may become root on the host - with a password or a private key. It is good for this one connection.",
+      "invite": "By invitation",
+      "inviteTitle": "Set up an endpoint by invitation",
+      "inviteIntro": "For a host this platform cannot reach over SSH - behind NAT or a firewall. It gets a command, sets itself up and reports back; the only thing it has to reach is this platform.",
+      "inviteHostHint": "The address the probes measure against. Leave empty if the host brings it along when it reports back.",
+      "inviteTtl": "Valid for",
+      "inviteTtlHint": "How long the command can be run on the host.",
+      "inviteCreate": "Create the invitation",
+      "inviteCreating": "Creating…",
+      "inviteCommandIntro": "Run this command on the endpoint host, as a user with sudo. It sets up iperf3, installs the access for this platform and reports back.",
+      "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enrol a host as this endpoint until it is spent or expires.",
+      "inviteWaiting": "Waiting for the host",
+      "inviteDeadTitle": "This invitation can no longer be used",
+      "inviteDeadBody": "It expired or was revoked; the command would be refused.",
+      "inviteRestart": "New invitation",
+      "inviteProgress": "The host reported in. The platform installs the access and writes the record.",
+      "inviteDoneTitle": "The endpoint is set up",
+      "inviteToEndpoint": "To the endpoint",
+      "inviteOpenTitle": "Open invitations"
     }
   },
   "settings": {

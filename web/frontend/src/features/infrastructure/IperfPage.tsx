@@ -4,8 +4,10 @@ import { useTranslation } from 'react-i18next'
 
 import {
   useIperfEndpoints,
+  useIperfInvitations,
   useProvisionEndpoint,
   useRegisterEndpoint,
+  useRevokeIperfInvitation,
   useScanHostKeys,
 } from '@/api/hooks'
 import type { HostKeyScan, IperfEndpoint } from '@/api/types'
@@ -24,10 +26,10 @@ import {
   Mono,
 } from '@/components/ui/primitives'
 
-import { RemoveDialog, RotateDialog } from './IperfEndpointDialogs'
+import { InviteDialog, RemoveDialog, RotateDialog } from './IperfEndpointDialogs'
 import { IperfProbesDialog } from './IperfProbesDialog'
 import { endpointsHeldByProbe } from './iperfProfiles'
-import { PermissionGate } from '@/app/providers'
+import { PermissionGate, useAuth } from '@/app/providers'
 import { formatRelative } from '@/utils/format'
 
 /**
@@ -41,7 +43,9 @@ import { formatRelative } from '@/utils/format'
 export function IperfPage() {
   const { t } = useTranslation()
   const { data, isLoading, error, refetch } = useIperfEndpoints()
-  const [dialog, setDialog] = useState<'provision' | 'register' | null>(null)
+  const [dialog, setDialog] = useState<'provision' | 'register' | 'invite' | null>(
+    null,
+  )
   const [removing, setRemoving] = useState<IperfEndpoint | null>(null)
   const [rotating, setRotating] = useState<IperfEndpoint | null>(null)
   const [assigning, setAssigning] = useState<IperfEndpoint | null>(null)
@@ -142,6 +146,11 @@ export function IperfPage() {
             <Button size="sm" onClick={() => setDialog('register')}>
               {t('infrastructure.iperf.register')}
             </Button>
+            {/* The third way in, for the host this platform cannot reach:
+                the endpoint runs a command and reports back, like a probe. */}
+            <Button size="sm" onClick={() => setDialog('invite')}>
+              {t('infrastructure.iperf.invite')}
+            </Button>
             <Button size="sm" variant="primary" onClick={() => setDialog('provision')}>
               {t('infrastructure.iperf.add')}
             </Button>
@@ -158,8 +167,11 @@ export function IperfPage() {
         rowHref={(row) => `/infrastructure/iperf/${row.name}`}
       />
 
+      <OpenIperfInvitations />
+
       {dialog === 'provision' && <ProvisionDialog onClose={() => setDialog(null)} />}
       {dialog === 'register' && <RegisterDialog onClose={() => setDialog(null)} />}
+      {dialog === 'invite' && <InviteDialog onClose={() => setDialog(null)} />}
       {rotating && (
         <RotateDialog endpoint={rotating} onClose={() => setRotating(null)} />
       )}
@@ -174,6 +186,56 @@ export function IperfPage() {
         <RemoveDialog endpoint={removing} onClose={() => setRemoving(null)} />
       )}
     </div>
+  )
+}
+
+/**
+ * The iperf invitations that are out. Same reasoning as the probe wizard's
+ * card: the command lives only in the tab that created it, the invitation
+ * lives on the server.
+ */
+function OpenIperfInvitations() {
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  const { data } = useIperfInvitations(can('iperf.manage'))
+  const revoke = useRevokeIperfInvitation()
+
+  if (!data || data.length === 0) return null
+
+  return (
+    <Card title={t('infrastructure.iperf.inviteOpenTitle')} dense>
+      <ul className="divide-rule divide-y">
+        {data.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm"
+          >
+            <div className="min-w-0 flex-1">
+              <Mono>{entry.name ?? '—'}</Mono>
+              <p className="text-ink-3 text-xs">
+                {t('probes.enroll.open.meta', {
+                  host: entry.expected_host ?? '—',
+                  by: entry.created_by_name ?? '—',
+                })}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={revoke.isPending}
+              onClick={() => revoke.mutate(entry.id)}
+            >
+              {t('probes.enroll.open.revoke')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {revoke.error != null && (
+        <div className="px-4 py-2">
+          <ErrorDetails error={revoke.error} />
+        </div>
+      )}
+    </Card>
   )
 }
 
