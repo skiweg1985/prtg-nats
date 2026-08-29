@@ -659,6 +659,38 @@ export interface IssuedInvitation extends Invitation {
   ca_sha256: string
 }
 
+/** An open invitation for an iperf endpoint to enrol itself. */
+export interface IperfInvitation {
+  id: string
+  kind: string
+  name: string | null
+  expected_host: string | null
+  iperf_port: number | null
+  username: string | null
+  ssh_source_cidr: string | null
+  expires_at: string
+  created_by_name: string | null
+  redeemed_at: string | null
+  revoked_at: string | null
+  source_ip: string | null
+  job_id: string | null
+}
+
+export interface IssuedIperfInvitation extends IperfInvitation {
+  token: string
+  command: string
+  ca_sha256: string
+}
+
+export interface IperfInvitationRequest {
+  name: string
+  expected_host?: string | null
+  iperf_port?: number
+  username?: string
+  ssh_source_cidr?: string | null
+  ttl_minutes?: number
+}
+
 export interface InvitationRequest {
   nats_username: string
   probe_name?: string | null

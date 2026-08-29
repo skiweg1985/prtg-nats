@@ -18,7 +18,10 @@ import type {
   Invitation,
   InvitationRequest,
   IperfEndpoint,
+  IperfInvitation,
+  IperfInvitationRequest,
   IssuedInvitation,
+  IssuedIperfInvitation,
   JobAccepted,
   JobDetail,
   JobEvent,
@@ -68,6 +71,7 @@ export const keys = {
   invitations: ['probes', 'invitations'] as const,
   invitation: (id: string) => ['probes', 'invitations', id] as const,
   iperf: ['iperf'] as const,
+  iperfInvitations: ['iperf-invitations'] as const,
   users: ['users'] as const,
 }
 
@@ -601,6 +605,48 @@ export function useInvitations(enabled = true) {
     queryKey: keys.invitations,
     queryFn: () => api.get<Invitation[]>('/probes/enrollment/tokens'),
     enabled,
+  })
+}
+
+export function useIperfInvitations(enabled = true) {
+  return useQuery({
+    queryKey: keys.iperfInvitations,
+    queryFn: () => api.get<IperfInvitation[]>('/iperf-endpoints/enrollment/tokens'),
+    enabled,
+  })
+}
+
+/** Watched by id while the dialog waits - redemption removes the record from
+ *  the open list in the same request that gives it its job. */
+export function useIperfInvitation(
+  id: string | null,
+  options?: { refetchInterval?: number | false },
+) {
+  return useQuery({
+    queryKey: [...keys.iperfInvitations, id],
+    queryFn: () => api.get<IperfInvitation>(`/iperf-endpoints/enrollment/tokens/${id}`),
+    enabled: id !== null,
+    refetchInterval: options?.refetchInterval ?? false,
+  })
+}
+
+export function useCreateIperfInvitation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: IperfInvitationRequest) =>
+      api.post<IssuedIperfInvitation>('/iperf-endpoints/enrollment/tokens', request),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: keys.iperfInvitations }),
+  })
+}
+
+export function useRevokeIperfInvitation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<void>(`/iperf-endpoints/enrollment/tokens/${id}`),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: keys.iperfInvitations }),
   })
 }
 

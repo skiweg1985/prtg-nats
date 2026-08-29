@@ -367,6 +367,11 @@ administrator credential passes through this API at all.
 | `GET /enroll/{token}/iperf-bootstrap.sh` | the rendered script, no auth |
 | `POST /enroll/{token}/iperf-callback` | the endpoint reports in, no auth |
 
+The invitation path is the third way onto the endpoint list, for a host this
+platform cannot reach over SSH - behind NAT or a firewall. The interface
+offers it as *By invitation* on the iperf page; the host only has to reach
+this platform once, with the command from the creation response.
+
 `name` is required and has to be free: it is also the profile name the
 credentials carry on every probe, so two endpoints under one name would
 overwrite each other's credentials on every probe measuring against both. A
