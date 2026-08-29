@@ -249,14 +249,25 @@
         "reserved": "Reserved for",
         "inUse": "In use",
         "state": "State"
-      }
+      },
+      "neededTitle": "Nothing measures here without a reservation",
+      "neededBody": "These sensors need a reserved wireless interface and hold none: {{sensors}}. The rollout was green regardless - the sensor refuses every run, and only PRTG shows it.",
+      "defaultRouteHint": "This interface carries the default route. Reserving it would cut the host’s connection; the probe refuses it."
     },
     "iperf": {
-      "title": "Endpoints held"
+      "title": "Endpoints held",
+      "noneHeldTitle": "The sensor has nothing to measure against",
+      "noneHeldBody": "An iperf sensor is installed, but this probe holds no measurement endpoint. The assignment happens on the endpoint page.",
+      "toEndpoints": "To the endpoints"
     },
     "accessKeyPrtgPath": "In PRTG: Setup > System Administration > Probes > Probe Connection Settings > Access Keys. Then approve the probe - not via \"Approve and auto-discover\".",
     "sensorsEmpty": "No sensor is installed on this probe.",
-    "deploySensor": "Deploy sensor"
+    "deploySensor": "Deploy sensor",
+    "sensorHelper": "Helper",
+    "variants": {
+      "title": "Variants held",
+      "empty": "No variant is assigned to this sensor on this probe."
+    }
   },
   "sensors": {
     "title": "Sensors",
@@ -299,7 +310,8 @@
         "integer": "Integer",
         "boolean": "Switch",
         "choice": "Choice"
-      }
+      },
+      "movedSection": "Moved parameters (rejected by the sensor)"
     },
     "installedOn": "Installed on these probes",
     "remove": "Remove",
@@ -322,7 +334,10 @@
       "fileStored": "Stored ({{fingerprint}}). Choose a new file to replace it.",
       "notDeployed": "Not deployed",
       "missing": "Required fields are still missing: {{fields}}",
-      "confirmDelete": "Remove variant {{name}} from the server and from every probe?"
+      "interfaceSuffix": "plus the probe’s own --interface",
+      "confirmDeleteTitle": "Delete variant \"{{name}}\"?",
+      "confirmDeleteBody": "It is removed from the server and from these probes: {{probes}}. PRTG objects naming it via --profile fail afterwards.",
+      "confirmDeleteUnused": "It is not deployed to any probe; only the record on the server is removed."
     },
     "iperfBadge": "needs an endpoint",
     "updateOnProbe": "Update",
@@ -334,7 +349,11 @@
       "readme": "The sensor’s own manual (README)"
     },
     "outdatedBadge": "outdated",
-    "updateOutdated": "Update the outdated probes"
+    "updateOutdated": "Update the outdated probes",
+    "helperState": {
+      "listening": "ready",
+      "inactive": "inactive"
+    }
   },
   "deployments": {
     "title": "Deployments",
@@ -364,7 +383,8 @@
     "toSensor": "To sensor {{sensor}}",
     "versionChange": "v{{from}} → v{{to}}",
     "dryRunBadge": "Dry run",
-    "helperOutdatedWarning": "The management helper is outdated on these probes and the rollout would fail there: {{probes}}. Update the helper first (probe page or fleet action)."
+    "helperOutdatedWarning": "The management helper is outdated on these probes and the rollout would fail there: {{probes}}. Update the helper first (probe page or fleet action).",
+    "needsInterfaceHint": "After the rollout this sensor needs a reserved wireless interface per probe. The reservation happens on the probe page, Sensors tab - it does not measure before."
   },
   "jobs": {
     "title": "Jobs",
@@ -795,7 +815,20 @@
     "ca_missing": "The CA certificate is missing",
     "ca_mismatched": "The probe carries a different CA",
     "service_inactive": "The probe service is not running",
-    "probe_name_mismatch": "The probe name differs from the desired one"
+    "probe_name_mismatch": "The probe name differs from the desired one",
+    "interface_missing": "Sensor \"{{sensor}}\" needs a reserved wireless interface but holds none",
+    "helper_inactive": "The privileged helper of \"{{sensor}}\" is not running",
+    "remediation": {
+      "probe": {
+        "restart_service": "Fix: restart the probe service (fix deviations).",
+        "install_ca": "Fix: install the CA again (fix deviations).",
+        "configure": "Fix: configure the probe again (fix deviations)."
+      },
+      "sensor": {
+        "deploy": "Fix: deploy the sensor again.",
+        "reserve_interface": "Fix: reserve a wireless interface for the sensor on the Sensors tab."
+      }
+    }
   },
   "plan": {
     "restart_service": "Restart the probe service on {{probe}}",

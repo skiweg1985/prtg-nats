@@ -269,3 +269,94 @@ def test_observed_state_survives_a_round_trip_through_json() -> None:
     assert restored.sensors == state.sensors
     assert restored.service is state.service
     assert restored.ca_sha256 == state.ca_sha256
+
+
+def test_an_installed_sensor_without_its_interface_is_a_finding() -> None:
+    """The rollout is green either way; only PRTG showed the refusal."""
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="wlan-auth"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="wlan-auth", version="6", sha256="aaaa", interfaces=()
+            ),
+        )
+    )
+
+    deviations = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"wlan-auth": "6"},
+        catalogue_needs_interface={"wlan-auth"},
+    )
+    kinds = [entry.kind for entry in deviations]
+    assert DeviationKind.INTERFACE_MISSING in kinds
+    finding = next(
+        entry for entry in deviations if entry.kind is DeviationKind.INTERFACE_MISSING
+    )
+    assert finding.remediation == "sensor.reserve_interface"
+
+    # With an interface reserved the finding disappears.
+    served = observed(
+        sensors=(
+            InstalledSensor(
+                name="wlan-auth", version="6", sha256="aaaa", interfaces=("wlan0",)
+            ),
+        )
+    )
+    again = find_deviations(
+        desired,
+        served,
+        catalogue_versions={"wlan-auth": "6"},
+        catalogue_needs_interface={"wlan-auth"},
+    )
+    assert DeviationKind.INTERFACE_MISSING not in [entry.kind for entry in again]
+
+
+def test_an_inactive_privileged_helper_is_a_finding() -> None:
+    """helper_state travelled through every layer and was judged nowhere."""
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="wlan-auth"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="wlan-auth", version="6", sha256="aaaa", helper_state="inactive"
+            ),
+        )
+    )
+
+    deviations = find_deviations(desired, state, catalogue_versions={"wlan-auth": "6"})
+    kinds = [entry.kind for entry in deviations]
+    assert DeviationKind.HELPER_INACTIVE in kinds
+
+    listening = observed(
+        sensors=(
+            InstalledSensor(
+                name="wlan-auth", version="6", sha256="aaaa", helper_state="listening"
+            ),
+        )
+    )
+    again = find_deviations(desired, listening, catalogue_versions={"wlan-auth": "6"})
+    assert DeviationKind.HELPER_INACTIVE not in [entry.kind for entry in again]
+
+
+def test_the_quiet_findings_plan_no_automatic_action() -> None:
+    """Reserving an interface picks a specific one; a plan cannot."""
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="wlan-auth"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="wlan-auth",
+                version="6",
+                sha256="aaaa",
+                interfaces=(),
+                helper_state="inactive",
+            ),
+        )
+    )
+    deviations = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"wlan-auth": "6"},
+        catalogue_needs_interface={"wlan-auth"},
+    )
+    plan = build_plan("mpp-berlin-01", deviations)
+    assert all(action.kind != "reserve_interface" for action in plan.actions)

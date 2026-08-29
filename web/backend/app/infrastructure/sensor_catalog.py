@@ -168,6 +168,41 @@ class SensorSchema:
         """Settings and credentials together: every key of the profile file."""
         return self.settings + self.credentials
 
+    def group_selector(self) -> ProfileField | None:
+        """The choice setting whose options are the group names other fields use.
+
+        wlan-auth's AUTH (psk/peap/eap-tls) is the shape this describes: a
+        grouped field applies only while the selector holds its group's name,
+        and "required" then means "required within that group".
+        """
+        groups = {field.group for field in self.profile_fields if field.group} | {
+            field.group for field in self.files if field.group
+        }
+        if not groups:
+            return None
+        return next(
+            (
+                field
+                for field in self.settings
+                if field.type == "choice" and groups <= set(field.choices)
+            ),
+            None,
+        )
+
+    def field_applies(
+        self, field: ProfileField | FileField, values: dict[str, str]
+    ) -> bool:
+        """Whether the field belongs to the variant these values describe."""
+        if not field.group:
+            return True
+        selector = self.group_selector()
+        if selector is None:
+            return True
+        active = (values.get(selector.name) or "").strip() or str(
+            selector.default or ""
+        )
+        return field.group == active
+
     def profile_field(self, name: str) -> ProfileField | None:
         fields = self.profile_fields
         return next((entry for entry in fields if entry.name == name), None)

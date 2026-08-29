@@ -63,6 +63,7 @@
     {
       "name": "--self-check",
       "type": "boolean",
+      "group": "internal",
       "description": "Only verify that the sensor is able to run."
     }
   ]

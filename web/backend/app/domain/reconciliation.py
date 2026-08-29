@@ -191,6 +191,7 @@ def find_deviations(
     catalogue_versions: dict[str, str],
     catalogue_checksums: dict[str, str] | None = None,
     catalogue_helper_checksums: dict[str, str] | None = None,
+    catalogue_needs_interface: set[str] | None = None,
     expected_ca_sha256: str | None = None,
 ) -> list[Deviation]:
     """Everything that differs, ordered by how much it hurts."""
@@ -266,6 +267,47 @@ def find_deviations(
         deviation = _sensor_deviation(observed.nats_username, comparison)
         if deviation is not None:
             deviations.append(deviation)
+
+    # The quiet failures: everything above is about files, these are about
+    # whether an installed sensor can measure at all. Neither produces a
+    # planned action - reserving an interface is a decision about a specific
+    # interface, and an inactive helper socket wants a look, not a redeploy
+    # fired blind.
+    for sensor in observed.sensors:
+        if (
+            catalogue_needs_interface
+            and sensor.name in catalogue_needs_interface
+            and not sensor.interfaces
+        ):
+            deviations.append(
+                Deviation(
+                    kind=DeviationKind.INTERFACE_MISSING,
+                    severity=DeviationSeverity.WARNING,
+                    object_type="sensor",
+                    object_ref=sensor.name,
+                    remediation="sensor.reserve_interface",
+                    params={
+                        "probe": observed.nats_username,
+                        "sensor": sensor.name,
+                    },
+                )
+            )
+        if sensor.helper_state == "inactive":
+            deviations.append(
+                Deviation(
+                    kind=DeviationKind.HELPER_INACTIVE,
+                    severity=DeviationSeverity.WARNING,
+                    object_type="sensor",
+                    object_ref=sensor.name,
+                    expected="listening",
+                    actual=sensor.helper_state,
+                    remediation="sensor.deploy",
+                    params={
+                        "probe": observed.nats_username,
+                        "sensor": sensor.name,
+                    },
+                )
+            )
 
     order = {
         DeviationSeverity.CRITICAL: 0,

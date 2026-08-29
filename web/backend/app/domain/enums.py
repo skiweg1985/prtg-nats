@@ -121,6 +121,13 @@ class DeviationKind(StrEnum):
     SENSOR_DRIFTED = "sensor_drifted"
     SENSOR_UNMANAGED = "sensor_unmanaged"
     PROFILE_MISSING = "profile_missing"
+    # A sensor that needs a wireless interface is installed, and the probe
+    # holds none for it. The rollout is green either way - the sensor refuses
+    # every run and only PRTG shows it, which is why the platform has to.
+    INTERFACE_MISSING = "interface_missing"
+    # The sensor's privileged helper socket is not listening. Same silence:
+    # the sensor row looks healthy while every measurement fails.
+    HELPER_INACTIVE = "helper_inactive"
     CA_MISSING = "ca_missing"
     CA_MISMATCHED = "ca_mismatched"
     SERVICE_INACTIVE = "service_inactive"

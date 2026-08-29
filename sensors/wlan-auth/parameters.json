@@ -98,6 +98,7 @@
     {
       "name": "--self-check",
       "type": "boolean",
+      "group": "internal",
       "description": "Only verify that the privileged helper is reachable."
     }
   ],
@@ -149,6 +150,7 @@
   "credentials": [
     {
       "name": "PSK",
+      "required": true,
       "type": "string",
       "maps_to": "--psk",
       "group": "psk",
@@ -156,6 +158,7 @@
     },
     {
       "name": "PASSWORD",
+      "required": true,
       "type": "string",
       "maps_to": "--password",
       "group": "peap",
@@ -180,6 +183,7 @@
     },
     {
       "name": "CLIENT_CERT",
+      "required": true,
       "kind": "certificate",
       "extension": ".pem",
       "maps_to": "--client-cert",
@@ -188,6 +192,7 @@
     },
     {
       "name": "PRIVATE_KEY",
+      "required": true,
       "kind": "key",
       "secret": true,
       "extension": ".pem",

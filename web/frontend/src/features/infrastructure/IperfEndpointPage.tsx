@@ -197,7 +197,7 @@ function HolderRow({ holder }: { holder: IperfHolder }) {
           {t('infrastructure.iperf.endpointsHeld', { count: holder.endpoints_held })}
         </p>
       </div>
-      {holder.parameter_line === '' ? (
+      {holder.uses_default_alias ? (
         <div className="text-right">
           <Badge tone="ok">{t('infrastructure.iperf.noParameterNeeded')}</Badge>
           <p className="text-ink-3 mt-0.5 max-w-xs text-xs">

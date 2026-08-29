@@ -240,6 +240,13 @@ export function DeployDialog({
           )
         })()}
 
+        {chosenSensor?.needs_interface && (
+          // The rollout succeeds without a reservation and the sensor then
+          // refuses every run - the probe page is where the reservation
+          // happens, after the rollout.
+          <Banner tone="neutral">{t('deployments.needsInterfaceHint')}</Banner>
+        )}
+
         {chosenSensor?.iperf_kind && (
           <IperfReadiness
             kind={chosenSensor.iperf_kind}
