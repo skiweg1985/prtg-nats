@@ -51,6 +51,26 @@ let openInvitations: unknown[] = []
 let createdBodies: Record<string, unknown>[] = []
 
 const server = setupServer(
+  // The wizard now refuses to render its form without probe.create - the
+  // route is reachable by URL, and a form that 403s on submit is the worse
+  // version of no.
+  http.get('/api/v1/auth/state', () =>
+    HttpResponse.json({
+      authenticated: true,
+      setup_required: false,
+      dev_auth: false,
+      principal: {
+        user_id: 'U1',
+        username: 'admin',
+        display_name: 'admin',
+        roles: ['administrator'],
+        permissions: ['probe.read', 'probe.create', 'job.read', 'job.retry'],
+        locale: 'en',
+        is_development: false,
+        must_change_password: false,
+      },
+    }),
+  ),
   http.get('/api/v1/credentials', () =>
     HttpResponse.json([
       {
@@ -140,7 +160,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.type(
       screen.getByPlaceholderText('multi-platform-probe@berlin'),
       'Testprobe 191',
@@ -158,7 +178,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
 
     expect(await screen.findByText(ISSUED.command)).toBeInTheDocument()
@@ -174,7 +194,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(/waiting for the probe/i)
 
@@ -199,7 +219,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(/waiting for the probe/i)
 
@@ -222,7 +242,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
 
     expect(await screen.findByText(/treat the command as a secret/i)).toBeInTheDocument()
@@ -233,7 +253,7 @@ describe('EnrollWizard', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.type(screen.getByPlaceholderText('probe.example.com'), '192.0.2.10')
 
     // Two entries for one address share the management access that lives on
@@ -262,7 +282,7 @@ describe('EnrollWizard', () => {
         }),
       ),
     )
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(/waiting for the probe/i)
 
@@ -343,7 +363,7 @@ describe('EnrollWizard', () => {
     )
     wrap()
 
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(/waiting for the probe/i)
     invitation = {
@@ -410,13 +430,83 @@ describe('EnrollWizard', () => {
     expect(link).toHaveAttribute('href', '/probes')
   })
 
+  it('lists an open invitation, and reissues it as a fresh one', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    openInvitations = [INVITATION]
+    let revoked = 0
+    server.use(
+      http.delete('/api/v1/probes/enrollment/tokens/:id', () => {
+        revoked += 1
+        openInvitations = []
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    wrap()
+
+    // The invitation is out; a closed tab used to mean nobody remembered it.
+    expect(await screen.findByText('Open invitations')).toBeInTheDocument()
+    expect(
+      screen.getByText(/The command was only visible when it was issued/),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reissue' }))
+
+    // Withdrawn first, then the same request again - and the new command is
+    // on screen without retyping anything.
+    expect(await screen.findByText(ISSUED.command)).toBeInTheDocument()
+    expect(revoked).toBe(1)
+    expect(createdBodies[0]).toMatchObject({ nats_username: 'mpp-berlin' })
+  })
+
+  it('sends the chosen validity along', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.selectOptions(screen.getByLabelText(/valid for/i), '240')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+
+    expect(await screen.findByText(ISSUED.command)).toBeInTheDocument()
+    expect(createdBodies[0]).toMatchObject({ ttl_minutes: 240 })
+  })
+
+  it('allows enrolling a known probe again, with a warning instead of a wall', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    server.use(
+      http.get('/api/v1/credentials', () =>
+        HttpResponse.json([
+          {
+            username: 'mpp-rebuilt',
+            is_shared: false,
+            has_auth_entry: true,
+            probe_enrolled: true,
+          },
+        ]),
+      ),
+    )
+    wrap()
+
+    // The interface used to recommend re-enrolment in one message and refuse
+    // it in this form; the server always could.
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-rebuilt')
+    expect(
+      await screen.findByText('Enrolling a known probe again'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /create the command/i }),
+    ).toBeEnabled()
+  })
+
   it('names an account that already exists instead of failing later', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
     wrap()
 
     await screen.findByPlaceholderText('mpp-berlin-01')
-    await user.type(screen.getByPlaceholderText('mpp-berlin-01'), 'prtg-nats')
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'prtg-nats')
 
     expect(await screen.findByText(/already exists/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /create the command/i })).toBeDisabled()

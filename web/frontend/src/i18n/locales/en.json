@@ -226,14 +226,33 @@
         "host": "Address (optional)",
         "hostHint": "How the platform reaches the probe afterwards. Left empty, the address the host reports from is used - which is wrong if it sits behind NAT.",
         "installPackage": "Install the prtgmpprobe package",
-        "installPackageHint": "Leave this on unless the package is already installed and managed elsewhere."
+        "installPackageHint": "Leave this on unless the package is already installed and managed elsewhere.",
+        "ttl": "Valid for",
+        "ttlHint": "How long the command can be run on the probe. For a colleague on site it may be longer.",
+        "ttlMinutes_one": "{{count}} minute",
+        "ttlMinutes_other": "{{count}} minutes",
+        "ttlHours_one": "{{count}} hour",
+        "ttlHours_other": "{{count}} hours"
       },
       "errors": {
         "accountTaken": "This account already exists. Pick another name, or enrol the probe that uses it again.",
         "accountShape": "Lower-case letters, digits and hyphens only, at least two characters.",
         "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
         "hostTaken": "This address is already enrolled as \"{{probe}}\". Enrol it again under that account, or remove it first to give it a different one."
-      }
+      },
+      "open": {
+        "title": "Open invitations",
+        "meta": "Host: {{host}} · issued by {{by}}",
+        "commandGone": "The command was only visible when it was issued. Revoke and reissue if it is needed again.",
+        "revoke": "Revoke",
+        "reissue": "Reissue"
+      },
+      "reenroll": {
+        "title": "Enrolling a known probe again",
+        "body": "This account belongs to an enrolled probe. Enrolling again keeps the probe id and the access key - PRTG sees the same probe, nothing needs re-entering there."
+      },
+      "noPermissionTitle": "No permission",
+      "noPermission": "Enrolling a probe needs the probe.create permission."
     },
     "interfaces": {
       "title": "Radio interfaces",
@@ -267,7 +286,9 @@
     "variants": {
       "title": "Variants held",
       "empty": "No variant is assigned to this sensor on this probe."
-    }
+    },
+    "openInvitations_one": "{{count}} open invitation",
+    "openInvitations_other": "{{count}} open invitations"
   },
   "sensors": {
     "title": "Sensors",

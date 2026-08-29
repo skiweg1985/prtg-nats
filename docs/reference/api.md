@@ -235,7 +235,10 @@ through this API, and nothing outbound happens until the host has answered.
 | `DELETE /probes/enrollment/tokens/{id}` | revoke one |
 
 The token is in the creation response and nowhere else - only its SHA-256 is
-stored, the same way sessions are kept. `expected_host` is optional: without
+stored, the same way sessions are kept. One open invitation per account:
+minting a second one for the same `nats_username` is refused with a conflict
+until the first is revoked or expires, because two of them redeemed on two
+hosts would overwrite each other's inventory under one name. `expected_host` is optional: without
 it the address the host reports from is used, which is right on a flat network
 and wrong behind NAT. Either way an address that another probe already claims
 is refused with `probe.host_already_enrolled`, because the management access

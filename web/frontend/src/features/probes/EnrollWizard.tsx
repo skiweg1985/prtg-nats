@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import {
   useCreateInvitation,
   useInvitation,
+  useInvitations,
   useJob,
   useJobLog,
   useNatsAccounts,
@@ -13,7 +14,14 @@ import {
   useRetryJob,
   useRevokeInvitation,
 } from '@/api/hooks'
-import type { IssuedInvitation } from '@/api/types'
+import type {
+  Invitation,
+  InvitationRequest,
+  IssuedInvitation,
+  NatsAccount,
+} from '@/api/types'
+import { useAuth } from '@/app/providers'
+import { CopyBlock, useCountdown } from '@/components/ui/CopyBlock'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
@@ -22,10 +30,12 @@ import {
   Button,
   Card,
   DetailRow,
+  EmptyState,
   Field,
   Input,
   Label,
   Mono,
+  Skeleton,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -44,17 +54,22 @@ import { JobStatusBadge } from '@/components/ui/status'
 export function EnrollWizard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { can, isLoading } = useAuth()
 
   const accounts = useNatsAccounts()
   // For the address check below. The server refuses a second entry for an
   // address that is already enrolled; knowing the list here means saying so
   // while the operator is still typing.
   const probes = useProbes()
+  const open = useInvitations(can('probe.create'))
   const createInvitation = useCreateInvitation()
   const revokeInvitation = useRevokeInvitation()
 
   const [issued, setIssued] = useState<IssuedInvitation | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  // The last request survives the invitation: an expired one used to mean
+  // typing account, name and address a second time.
+  const [lastRequest, setLastRequest] = useState<InvitationRequest | null>(null)
 
   // Only while an invitation is out and has not started a job yet. Once the
   // job exists there is nothing left to ask about the invitation.
@@ -75,6 +90,20 @@ export function EnrollWizard() {
     return <ErrorDetails error={accounts.error} onRetry={() => void accounts.refetch()} />
   }
 
+  // The route is reachable by URL; the buttons that lead here are gated. A
+  // full form that fails on submit with a 403 is the worse version of no.
+  if (isLoading) return <Skeleton className="h-64" />
+  if (!can('probe.create')) {
+    return (
+      <Card>
+        <EmptyState
+          title={t('probes.enroll.noPermissionTitle')}
+          hint={t('probes.enroll.noPermission')}
+        />
+      </Card>
+    )
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4">
       <header>
@@ -90,67 +119,185 @@ export function EnrollWizard() {
       </header>
 
       {!issued && (
-        <InvitationForm
-          existingAccounts={(accounts.data ?? []).map((account) => account.username)}
-          enrolledHosts={(probes.data ?? []).map((probe) => ({
-            host: probe.host,
-            username: probe.nats_username,
-          }))}
-          pending={createInvitation.isPending}
-          error={createInvitation.error}
-          onSubmit={(request) =>
-            createInvitation.mutate(request, { onSuccess: setIssued })
-          }
-          onCancel={() => navigate('/probes')}
-        />
+        <>
+          <OpenInvitations
+            invitations={open.data ?? []}
+            onReissue={(request) => {
+              setLastRequest(request)
+              createInvitation.mutate(request, { onSuccess: setIssued })
+            }}
+          />
+          <InvitationForm
+            accounts={accounts.data ?? []}
+            enrolledHosts={(probes.data ?? []).map((probe) => ({
+              host: probe.host,
+              username: probe.nats_username,
+            }))}
+            initial={lastRequest}
+            pending={createInvitation.isPending}
+            error={createInvitation.error}
+            onSubmit={(request) => {
+              setLastRequest(request)
+              createInvitation.mutate(request, { onSuccess: setIssued })
+            }}
+            onCancel={() => navigate('/probes')}
+          />
+        </>
       )}
 
       {issued && !jobId && (
         <CommandStep
           invitation={issued}
           revoked={invitation.data?.revoked_at != null}
-          onCancel={() => {
-            revokeInvitation.mutate(issued.id)
-            setIssued(null)
-          }}
+          revokeError={revokeInvitation.error}
+          onCancel={() =>
+            // Back to the form only once the server confirms - jumping back
+            // regardless would claim an invitation is dead that is not.
+            revokeInvitation.mutate(issued.id, {
+              onSuccess: () => setIssued(null),
+            })
+          }
           onRestart={() => setIssued(null)}
         />
       )}
 
-      {issued && jobId && <ProgressStep jobId={jobId} invitation={issued} />}
+      {issued && jobId && (
+        <ProgressStep jobId={jobId} invitation={issued} reported={invitation.data} />
+      )}
     </div>
+  )
+}
+
+/**
+ * The invitations that are out. They lived only in the tab that created them:
+ * a reload lost the command for good while the invitation stayed usable for
+ * up to a day - unfindable, unrevokable, and free to be redeemed.
+ */
+function OpenInvitations({
+  invitations,
+  onReissue,
+}: {
+  invitations: Invitation[]
+  onReissue: (request: InvitationRequest) => void
+}) {
+  const { t } = useTranslation()
+  const revoke = useRevokeInvitation()
+
+  if (invitations.length === 0) return null
+
+  return (
+    <Card title={t('probes.enroll.open.title')} dense>
+      <ul className="divide-rule divide-y">
+        {invitations.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm"
+          >
+            <div className="min-w-0 flex-1">
+              <Mono>{entry.nats_username ?? '—'}</Mono>
+              <p className="text-ink-3 text-xs">
+                {t('probes.enroll.open.meta', {
+                  host: entry.expected_host ?? '—',
+                  by: entry.created_by_name ?? '—',
+                })}{' '}
+                · <InvitationCountdown deadline={entry.expires_at} />
+              </p>
+              {/* The command was only ever shown at creation; there is no way
+                  to show it again, and pretending otherwise would be worse. */}
+              <p className="text-ink-3 text-xs">
+                {t('probes.enroll.open.commandGone')}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate(entry.id)}
+              >
+                {t('probes.enroll.open.revoke')}
+              </Button>
+              <Button
+                size="sm"
+                disabled={revoke.isPending}
+                onClick={() =>
+                  // A fresh command for the same probe: the old invitation is
+                  // withdrawn first, then the same request goes out again.
+                  revoke.mutate(entry.id, {
+                    onSuccess: () =>
+                      onReissue({
+                        nats_username: entry.nats_username ?? '',
+                        probe_name: entry.probe_name,
+                        expected_host: entry.expected_host,
+                      }),
+                  })
+                }
+              >
+                {t('probes.enroll.open.reissue')}
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {revoke.error != null && (
+        <div className="px-4 py-2">
+          <ErrorDetails error={revoke.error} />
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function InvitationCountdown({ deadline }: { deadline: string }) {
+  const { t } = useTranslation()
+  const remaining = useCountdown(deadline)
+  return (
+    <span>
+      {remaining
+        ? `${t('probes.enroll.step2.expires')} ${remaining}`
+        : t('probes.enroll.step2.expired')}
+    </span>
   )
 }
 
 // --- Step 1: what the probe should become -----------------------------------
 
+const TTL_CHOICES = [15, 60, 240, 1440] as const
+
 function InvitationForm({
-  existingAccounts,
+  accounts,
   enrolledHosts,
+  initial,
   pending,
   error,
   onSubmit,
   onCancel,
 }: {
-  existingAccounts: string[]
+  accounts: NatsAccount[]
   enrolledHosts: { host: string; username: string }[]
+  /** The previous request, so an expired invitation costs a click, not a form. */
+  initial: InvitationRequest | null
   pending: boolean
   error: ApiError | Error | null
-  onSubmit: (request: {
-    nats_username: string
-    probe_name: string | null
-    expected_host: string | null
-    install_package: boolean
-  }) => void
+  onSubmit: (request: InvitationRequest) => void
   onCancel: () => void
 }) {
   const { t } = useTranslation()
-  const [username, setUsername] = useState('')
-  const [probeName, setProbeName] = useState('')
-  const [host, setHost] = useState('')
-  const [installPackage, setInstallPackage] = useState(true)
+  const [username, setUsername] = useState(initial?.nats_username ?? '')
+  const [probeName, setProbeName] = useState(initial?.probe_name ?? '')
+  const [host, setHost] = useState(initial?.expected_host ?? '')
+  const [installPackage, setInstallPackage] = useState(
+    initial?.install_package ?? true,
+  )
+  const [ttl, setTtl] = useState(initial?.ttl_minutes ?? 60)
 
-  const taken = existingAccounts.includes(username)
+  const existing = accounts.find((account) => account.username === username)
+  // An account that belongs to an enrolled probe can be enrolled again - the
+  // server keeps probe id and access key so PRTG sees the same probe. Only an
+  // account that belongs to something else stays refused. The interface used
+  // to recommend re-enrolment in one message and refuse it in this form.
+  const reenrolling = existing !== undefined && existing.probe_enrolled
+  const taken = existing !== undefined && !existing.probe_enrolled
   // Mirrors NATS_USERNAME_PATTERN and PROBE_NAME_PATTERN on the server. The
   // server refuses these too; saying so here saves a round trip and a
   // half-filled form.
@@ -180,6 +327,7 @@ function InvitationForm({
             probe_name: probeName || null,
             expected_host: host || null,
             install_package: installPackage,
+            ttl_minutes: ttl,
           })
         }}
       >
@@ -238,6 +386,31 @@ function InvitationForm({
           />
         </Field>
 
+        {reenrolling && (
+          <Banner tone="warn" title={t('probes.enroll.reenroll.title')}>
+            {t('probes.enroll.reenroll.body')}
+          </Banner>
+        )}
+
+        <Field
+          label={t('probes.enroll.fields.ttl')}
+          hint={t('probes.enroll.fields.ttlHint')}
+        >
+          <select
+            value={ttl}
+            onChange={(event) => setTtl(Number(event.target.value))}
+            className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
+          >
+            {TTL_CHOICES.map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes < 60
+                  ? t('probes.enroll.fields.ttlMinutes', { count: minutes })
+                  : t('probes.enroll.fields.ttlHours', { count: minutes / 60 })}
+              </option>
+            ))}
+          </select>
+        </Field>
+
         <label className="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -275,11 +448,13 @@ function InvitationForm({
 function CommandStep({
   invitation,
   revoked,
+  revokeError,
   onCancel,
   onRestart,
 }: {
   invitation: IssuedInvitation
   revoked: boolean
+  revokeError: ApiError | Error | null
   onCancel: () => void
   onRestart: () => void
 }) {
@@ -354,6 +529,10 @@ function CommandStep({
           </div>
         </Card>
       )}
+
+      {/* A failed withdrawal used to vanish: the form came back as if the
+          invitation were dead, while it was still out there. */}
+      {revokeError != null && <ErrorDetails error={revokeError} />}
     </div>
   )
 }
@@ -363,9 +542,11 @@ function CommandStep({
 function ProgressStep({
   jobId,
   invitation,
+  reported,
 }: {
   jobId: string
   invitation: IssuedInvitation
+  reported: Invitation | undefined
 }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -479,7 +660,11 @@ function ProgressStep({
 
       <p className="text-ink-3 text-xs">
         <Label>{t('probes.enroll.step3.reportedBy')}</Label>{' '}
-        <Mono>{invitation.expected_host ?? '—'}</Mono>
+        {/* The issued snapshot only knows what was typed; when the address
+            field stayed empty - the documented normal case - the server took
+            the caller's own address, and that is the one that matters for
+            NAT and firewall rules. */}
+        <Mono>{reported?.source_ip ?? invitation.expected_host ?? '—'}</Mono>
       </p>
     </div>
   )
@@ -487,47 +672,3 @@ function ProgressStep({
 
 // --- Bits --------------------------------------------------------------------
 
-function CopyBlock({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 2000)
-    return () => window.clearTimeout(timer)
-  }, [copied])
-
-  return (
-    <div className="relative">
-      <pre className="border-rule-2 bg-surface-2 text-ink overflow-x-auto rounded-card border p-3 font-mono text-xs leading-relaxed">
-        {value}
-      </pre>
-      <Button
-        size="sm"
-        className="absolute top-2 right-2"
-        onClick={() => {
-          void navigator.clipboard.writeText(value).then(() => setCopied(true))
-        }}
-      >
-        {copied ? '✓' : label}
-      </Button>
-    </div>
-  )
-}
-
-/** Time left, as a string, or null once it has run out. */
-function useCountdown(deadline: string): string | null {
-  const target = useMemo(() => new Date(deadline).getTime(), [deadline])
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const seconds = Math.floor((target - now) / 1000)
-  if (seconds <= 0) return null
-  const minutes = Math.floor(seconds / 60)
-  return minutes > 0
-    ? `${minutes} min ${String(seconds % 60).padStart(2, '0')} s`
-    : `${seconds} s`
-}
