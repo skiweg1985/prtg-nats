@@ -332,7 +332,9 @@
       "intro": "Das Sensorobjekt entsteht in PRTG als Script-v2-Sensor auf dem Gerät der Probe. Im Skript-Auswahlfeld steht dieser Name:",
       "parametersHint": "Die Parameterzeile liefert der Baukasten unten; bei Varianten steht sie an der jeweiligen Variante.",
       "readme": "Anleitung des Sensors (README)"
-    }
+    },
+    "outdatedBadge": "veraltet",
+    "updateOutdated": "Veraltete Probes aktualisieren"
   },
   "deployments": {
     "title": "Ausrollvorgänge",
@@ -359,7 +361,10 @@
       "noEndpoints": "Für diesen Sensor ist kein Messpunkt registriert. Er wird installiert, misst aber erst, wenn einer eingerichtet und zugewiesen ist.",
       "probesWithout": "Diese Probes haben den Sensor bereits, halten aber keinen Messpunkt: {{probes}}. Ein erneutes Ausrollen ändert daran nichts - die Zuweisung passiert auf der Messpunktseite."
     },
-    "toSensor": "Zum Sensor {{sensor}}"
+    "toSensor": "Zum Sensor {{sensor}}",
+    "versionChange": "v{{from}} → v{{to}}",
+    "dryRunBadge": "Probelauf",
+    "helperOutdatedWarning": "Auf diesen Probes ist der Verwaltungshelfer veraltet, der Rollout würde dort scheitern: {{probes}}. Erst den Helfer aktualisieren (Probe-Seite oder Flottenaktion)."
   },
   "jobs": {
     "title": "Jobs",
@@ -574,7 +579,8 @@
       "succeededList_one": "{{count}} Probe erfolgreich",
       "succeededList_other": "{{count}} Probes erfolgreich",
       "failedList_one": "{{count}} Probe fehlgeschlagen",
-      "failedList_other": "{{count}} Probes fehlgeschlagen"
+      "failedList_other": "{{count}} Probes fehlgeschlagen",
+      "runForReal": "Jetzt wirklich ausrollen"
     },
     "rawResult": "Rohdaten des Ergebnisses"
   },

@@ -92,7 +92,10 @@ const server = setupServer(
       parameter_schema: null,
       readme: null,
       profile_template: null,
-      probes: ['holding', 'installed'],
+      installations: [
+        { probe: 'holding', version: '1.0.0', current: true },
+        { probe: 'installed', version: '1.0.0', current: true },
+      ],
     }),
   ),
   http.get('/api/v1/iperf-endpoints', () => {

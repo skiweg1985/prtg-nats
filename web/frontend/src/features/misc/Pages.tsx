@@ -65,12 +65,14 @@ export function DeploymentListPage() {
       key: 'status',
       header: t('deployments.columns.status'),
       sortValue: (row) => row.status,
-      cell: (row) => (
-        <div className="flex items-center gap-2">
+      cell: (row) =>
+        row.dry_run ? (
+          // "Successful" on a dry run reads as a rollout that happened; what
+          // succeeded was only the rehearsal.
+          <Badge tone="neutral">{t('deployments.dryRunBadge')}</Badge>
+        ) : (
           <JobStatusBadge status={row.status} />
-          {row.dry_run && <Badge tone="neutral">{t('deployments.dryRun')}</Badge>}
-        </div>
-      ),
+        ),
     },
     {
       key: 'targets',
@@ -128,7 +130,11 @@ export function DeploymentListPage() {
         emptyTitle={t('deployments.empty')}
         rowHref={(row) => (row.job_id ? `/jobs/${row.job_id}` : null)}
         expandedContent={(row) => (
-          <DeploymentTargets sensor={row.sensor_name} targets={row.targets} />
+          <DeploymentTargets
+            sensor={row.sensor_name}
+            version={row.sensor_version}
+            targets={row.targets}
+          />
         )}
         emptyAction={
           <PermissionGate permission="deployment.create">
@@ -158,9 +164,11 @@ export function DeploymentListPage() {
  */
 function DeploymentTargets({
   sensor,
+  version,
   targets,
 }: {
   sensor: string
+  version: string
   targets: DeploymentTarget[]
 }) {
   const { t } = useTranslation()
@@ -185,6 +193,18 @@ function DeploymentTargets({
             <div className="flex flex-wrap items-center gap-2">
               <JobStatusBadge status={target.status} />
               <Mono className="text-ink-2">{target.probe_label}</Mono>
+              {/* Was v3, is v4 - the column existed since the initial schema
+                  and is finally written by the worker. */}
+              {target.status === 'successful' && (
+                <span className="text-ink-3 text-xs">
+                  {target.previous_version
+                    ? t('deployments.versionChange', {
+                        from: target.previous_version,
+                        to: version,
+                      })
+                    : `v${version}`}
+                </span>
+              )}
               {target.error_code && (
                 // The label fills the {{probe}} the probe-side messages carry -
                 // the target row is the one thing this record knows for certain.

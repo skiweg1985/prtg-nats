@@ -29,6 +29,7 @@ from app.api.schemas.system import (
     RenderParametersOut,
     SensorDetailOut,
     SensorFileOut,
+    SensorInstallationOut,
     SensorProfileDetailOut,
     SensorProfileFileIn,
     SensorProfileFileOut,
@@ -146,16 +147,26 @@ async def get_sensor(
 ) -> SensorDetailOut:
     definition = catalog.get(name)
 
-    # Which probes report it installed.
-    probes: list[str] = []
+    # Which probes report it installed, and at which version - the answer
+    # "outdated on twelve" is only useful together with which twelve.
+    installations: list[SensorInstallationOut] = []
     rows = await db.execute(
         select(ProbeRecord.nats_username, ProbeObservedState.document).join(
             ProbeObservedState, ProbeObservedState.probe_id == ProbeRecord.id
         )
     )
     for username, document in rows:
-        if any(entry.get("name") == name for entry in document.get("sensors", [])):
-            probes.append(username)
+        for entry in document.get("sensors", []):
+            if entry.get("name") != name:
+                continue
+            version = str(entry.get("version") or "")
+            installations.append(
+                SensorInstallationOut(
+                    probe=username,
+                    version=version,
+                    current=version == definition.version,
+                )
+            )
 
     return SensorDetailOut(
         name=definition.name,
@@ -178,7 +189,7 @@ async def get_sensor(
         else _schema_out(definition.schema),
         readme=definition.readme,
         profile_template=definition.profile_template,
-        probes=sorted(probes),
+        installations=sorted(installations, key=lambda entry: entry.probe),
     )
 
 

@@ -260,6 +260,19 @@ class SensorSchemaOut(ApiModel):
     default_parameter_line: str = ""
 
 
+class SensorInstallationOut(ApiModel):
+    """One probe that reports the sensor installed, and how far behind.
+
+    The list used to be bare usernames, which made "outdated on 12" a number
+    with no way to find the twelve: the version comparison happened for the
+    counters and was thrown away.
+    """
+
+    probe: str
+    version: str
+    current: bool
+
+
 class SensorDetailOut(ApiModel):
     name: str
     version: str
@@ -271,7 +284,7 @@ class SensorDetailOut(ApiModel):
     parameter_schema: SensorSchemaOut | None = None
     readme: str | None = None
     profile_template: str | None = None
-    probes: list[str] = Field(default_factory=list)
+    installations: list[SensorInstallationOut] = Field(default_factory=list)
 
 
 class RenderParametersIn(ApiModel):

@@ -332,7 +332,9 @@
       "intro": "The sensor object is created in PRTG as a Script v2 sensor on the probe’s device. This is the name in the script dropdown:",
       "parametersHint": "The builder below produces the parameter line; for variants it stands next to each variant.",
       "readme": "The sensor’s own manual (README)"
-    }
+    },
+    "outdatedBadge": "outdated",
+    "updateOutdated": "Update the outdated probes"
   },
   "deployments": {
     "title": "Deployments",
@@ -359,7 +361,10 @@
       "noEndpoints": "No endpoint is registered for this sensor. It will be installed, but measures nothing until one is set up and assigned.",
       "probesWithout": "These probes already have the sensor but hold no endpoint: {{probes}}. Deploying again changes nothing - the assignment happens on the endpoint page."
     },
-    "toSensor": "To sensor {{sensor}}"
+    "toSensor": "To sensor {{sensor}}",
+    "versionChange": "v{{from}} → v{{to}}",
+    "dryRunBadge": "Dry run",
+    "helperOutdatedWarning": "The management helper is outdated on these probes and the rollout would fail there: {{probes}}. Update the helper first (probe page or fleet action)."
   },
   "jobs": {
     "title": "Jobs",
@@ -574,7 +579,8 @@
       "succeededList_one": "{{count}} probe succeeded",
       "succeededList_other": "{{count}} probes succeeded",
       "failedList_one": "{{count}} probe failed",
-      "failedList_other": "{{count}} probes failed"
+      "failedList_other": "{{count}} probes failed",
+      "runForReal": "Deploy for real"
     },
     "rawResult": "Raw result"
   },

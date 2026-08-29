@@ -270,12 +270,19 @@ export interface ParameterSchema {
   default_parameter_line: string
 }
 
+/** One probe that reports the sensor installed, and whether it is current. */
+export interface SensorInstallation {
+  probe: string
+  version: string
+  current: boolean
+}
+
 export interface SensorDetail extends Omit<SensorSummary, 'has_parameter_schema'> {
   files: SensorFile[]
   parameter_schema: ParameterSchema | null
   readme: string | null
   profile_template: string | null
-  probes: string[]
+  installations: SensorInstallation[]
 }
 
 /** An uploaded certificate or key. Described, never handed back. */

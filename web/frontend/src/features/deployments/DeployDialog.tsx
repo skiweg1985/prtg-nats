@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  Badge,
   Banner,
   Button,
   Dialog,
@@ -31,11 +32,14 @@ import {
 export function DeployDialog({
   probeIds,
   sensorName,
+  preselect,
   onClose,
   onDone,
 }: {
   probeIds?: string[]
   sensorName?: string
+  /** 'outdated' ticks the probes running an older version once they are known. */
+  preselect?: 'outdated'
   onClose: () => void
   onDone?: () => void
 }) {
@@ -51,6 +55,32 @@ export function DeployDialog({
   const [query, setQuery] = useState('')
 
   const chosenSensor = sensors?.find((entry) => entry.name === sensor)
+  // Who runs which version - the badge beside each probe and the preselection
+  // both come from here, so the dialog can answer "update the ones behind"
+  // without the reader collecting them by hand.
+  const { data: chosenDetail } = useSensor(sensor || undefined)
+  const installations = useMemo(
+    () => new Map(chosenDetail?.installations.map((entry) => [entry.probe, entry])),
+    [chosenDetail],
+  )
+
+  const [preselected, setPreselected] = useState(false)
+  useEffect(() => {
+    if (preselect !== 'outdated' || preselected || !chosenDetail || !probes) return
+    const behind = new Set(
+      chosenDetail.installations
+        .filter((entry) => !entry.current)
+        .map((entry) => entry.probe),
+    )
+    setSelected(
+      new Set(
+        probes
+          .filter((probe) => behind.has(probe.nats_username))
+          .map((probe) => probe.id),
+      ),
+    )
+    setPreselected(true)
+  }, [preselect, preselected, chosenDetail, probes])
 
   // Opened from the rollout page with nothing preselected, this box is the
   // whole fleet. Picking three out of forty by scrolling is what the list next
@@ -176,11 +206,39 @@ export function DeployDialog({
                 <span className="min-w-0 flex-1 truncate">
                   {probe.display_name ?? probe.nats_username}
                 </span>
+                {(() => {
+                  const entry = installations.get(probe.nats_username)
+                  if (!entry || entry.current || !chosenSensor) return null
+                  return (
+                    <Badge tone="warn">
+                      {t('deployments.versionChange', {
+                        from: entry.version,
+                        to: chosenSensor.version,
+                      })}
+                    </Badge>
+                  )
+                })()}
                 <Mono className="text-ink-3">{probe.host}</Mono>
               </label>
             ))}
           </div>
         </fieldset>
+
+        {(() => {
+          const behindHelpers = (probes ?? [])
+            .filter((probe) => selected.has(probe.id) && probe.helper_outdated)
+            .map((probe) => probe.display_name ?? probe.nats_username)
+          if (behindHelpers.length === 0) return null
+          // The rollout would only fail in the job, one probe at a time, with
+          // "unsupported management request" - the fix is one click away here.
+          return (
+            <Banner tone="warn">
+              {t('deployments.helperOutdatedWarning', {
+                probes: behindHelpers.join(', '),
+              })}
+            </Banner>
+          )
+        })()}
 
         {chosenSensor?.iperf_kind && (
           <IperfReadiness
@@ -258,7 +316,7 @@ function IperfReadiness({
   }
 
   if (!detail || !probes) return null
-  const installed = new Set(detail.probes)
+  const installed = new Set(detail.installations.map((entry) => entry.probe))
   const holding = new Set(
     matching.flatMap((endpoint) => endpoint.holders.map((holder) => holder.probe)),
   )

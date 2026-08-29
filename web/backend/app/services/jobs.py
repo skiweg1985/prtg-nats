@@ -130,27 +130,45 @@ class JobService:
         await self._db.flush()
         return job
 
-    async def retry(self, job_id: str, principal: Principal | None = None) -> Job:
+    async def retry(
+        self,
+        job_id: str,
+        principal: Principal | None = None,
+        *,
+        payload_override: dict[str, Any] | None = None,
+        resources_override: tuple[ResourceRef, ...] | None = None,
+        target_id: str | None = None,
+        target_label: str | None = None,
+    ) -> Job:
+        """Run the job again - by default with the same inputs.
+
+        The overrides exist for jobs whose payload names sibling records: a
+        deployment retry must point at a fresh deployment row and only the
+        probes that failed, or it overwrites the finished half of the history.
+        The caller that knows those records passes the corrected pieces.
+        """
         original = await self.get(job_id)
         if not original.status.is_terminal:
             raise ConflictError(
                 params={"job_id": job_id, "status": original.status.value},
                 details="only a finished job can be retried",
             )
-        resources = tuple(
+        resources = resources_override or tuple(
             _parse_resource(entry) for entry in original.payload.get("_resources", [])
         )
         payload = {
             key: value for key, value in original.payload.items() if key != "_resources"
         }
+        if payload_override:
+            payload.update(payload_override)
         retry = await self.create(
             JobRequest(
                 type=original.type,
                 steps=tuple(step.name for step in original.steps),
                 resources=resources,
                 target_type=original.target_type,
-                target_id=original.target_id,
-                target_label=original.target_label,
+                target_id=target_id or original.target_id,
+                target_label=target_label or original.target_label,
                 payload=payload,
                 trigger="user",
             ),
