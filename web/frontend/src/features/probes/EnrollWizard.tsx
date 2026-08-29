@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import type { ApiError } from '@/api/client'
+import { ApiError } from '@/api/client'
 import {
   useCreateInvitation,
   useInvitation,
@@ -10,6 +10,7 @@ import {
   useJobLog,
   useNatsAccounts,
   useProbes,
+  useRetryJob,
   useRevokeInvitation,
 } from '@/api/hooks'
 import type { IssuedInvitation } from '@/api/types'
@@ -367,6 +368,8 @@ function ProgressStep({
   invitation: IssuedInvitation
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const retry = useRetryJob()
   const job = useJob(jobId, {
     refetchInterval: (query) =>
       query.state.data?.status === 'running' || query.state.data?.status === 'queued'
@@ -403,9 +406,18 @@ function ProgressStep({
                 core by hand, and until they have, the probe is not there at
                 all. Saying so here is the only place it can be said in time. */}
             <p>{t('probes.enroll.step3.donePrtg')}</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {/* The body promises "sensors deploy like on any other probe";
+                  this is the button that starts exactly that. */}
+              {probeId && (
+                <Link to={`/probes/${probeId}?tab=sensors`}>
+                  <Button variant="primary" size="sm">
+                    {t('probes.enroll.step3.toDeploy')}
+                  </Button>
+                </Link>
+              )}
               <Link to={probeId ? `/probes/${probeId}` : '/probes'}>
-                <Button variant="primary" size="sm">
+                <Button size="sm">
                   {probeId
                     ? t('probes.enroll.step3.toProbe')
                     : t('probes.enroll.step3.toProbes')}
@@ -431,6 +443,34 @@ function ProgressStep({
             </Link>
           </div>
         </Banner>
+      )}
+
+      {/* The cause and the recommended action are already written - showing
+          only a generic banner here meant reading the thinnest version of the
+          answer at the moment it mattered most. */}
+      {job.data?.status === 'failed' && job.data.error_code && (
+        <ErrorDetails
+          error={
+            new ApiError(
+              {
+                code: job.data.error_code,
+                message_key: `errors.${job.data.error_code}`,
+                params: job.data.error_params ?? {},
+                fields: [],
+                details: job.data.error_details,
+                correlation_id: null,
+                retryable: true,
+              },
+              500,
+            )
+          }
+          step={job.data.current_step}
+          onRetry={() =>
+            retry.mutate(jobId, {
+              onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+            })
+          }
+        />
       )}
 
       <Card title={t('jobs.log')} dense>

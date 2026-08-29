@@ -26,6 +26,7 @@ import type {
   WirelessInterface,
 } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
+import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -459,6 +460,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
               {t('common.copy')}
             </Button>
           </div>
+          <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
           <div className="mt-4 flex justify-end">
             <Button onClick={hideAccessKey}>{t('common.close')}</Button>
           </div>
@@ -650,6 +652,8 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
   const sensors = detail.sensors
   const navigate = useNavigate()
   const removeSensor = useRemoveSensorFromProbe()
+  // Which sensor the dialog opens preselected on - null closed, '' free pick.
+  const [deploying, setDeploying] = useState<string | null>(null)
 
   const columns: Column<SensorState>[] = [
     {
@@ -687,37 +691,70 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       align: 'right',
       cell: (row) =>
         row.status === 'absent' ? null : (
-          <PermissionGate permission="sensor.remove">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                removeSensor.mutate(
-                  { probeId, sensor: row.name },
-                  {
-                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                  },
-                )
-              }
-              disabled={removeSensor.isPending}
-            >
-              {t('sensors.remove')}
-            </Button>
-          </PermissionGate>
+          <span className="flex justify-end gap-2">
+            {/* The row already names the cure's target: outdated and drifted
+                are fixed by rolling the sensor out again, and until now the
+                only button in reach was "remove". */}
+            {(row.status === 'outdated' || row.status === 'drifted') && (
+              <PermissionGate permission="deployment.create">
+                <Button size="sm" onClick={() => setDeploying(row.name)}>
+                  {t('sensors.updateOnProbe')}
+                </Button>
+              </PermissionGate>
+            )}
+            <PermissionGate permission="sensor.remove">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  removeSensor.mutate(
+                    { probeId, sensor: row.name },
+                    {
+                      onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                    },
+                  )
+                }
+                disabled={removeSensor.isPending}
+              >
+                {t('sensors.remove')}
+              </Button>
+            </PermissionGate>
+          </span>
         ),
     },
   ]
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <PermissionGate permission="deployment.create">
+          <Button size="sm" variant="primary" onClick={() => setDeploying('')}>
+            {t('probes.deploySensor')}
+          </Button>
+        </PermissionGate>
+      </div>
       <DataTable
         rows={sensors}
         columns={columns}
         rowKey={(row) => row.name}
-        emptyTitle={t('sensors.empty')}
+        emptyTitle={t('probes.sensorsEmpty')}
+        emptyAction={
+          <PermissionGate permission="deployment.create">
+            <Button size="sm" variant="primary" onClick={() => setDeploying('')}>
+              {t('probes.deploySensor')}
+            </Button>
+          </PermissionGate>
+        }
       />
       <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />
+      {deploying !== null && (
+        <DeployDialog
+          sensorName={deploying || undefined}
+          probeIds={[probeId]}
+          onClose={() => setDeploying(null)}
+        />
+      )}
     </div>
   )
 }

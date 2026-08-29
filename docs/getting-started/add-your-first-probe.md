@@ -1,7 +1,7 @@
 ---
 title: Add your first probe
 role: deployer
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # Add your first probe
@@ -78,9 +78,11 @@ host must run the bootstrap command again.
 
 ## 3. Add the access key in PRTG
 
-The platform cannot make the two remaining changes on the PRTG core. Open the
-new probe's **Overview** tab and reveal its **PRTG access key**. The disclosure
-is recorded in the audit trail.
+The platform cannot make the two remaining changes on the PRTG core, and it
+says so wherever the enrollment ends: in the wizard's success banner, on the
+job page, and in the access key dialog itself. Open the new probe's
+**Overview** tab and reveal its **PRTG access key**. The disclosure is
+recorded in the audit trail.
 
 In PRTG, open:
 

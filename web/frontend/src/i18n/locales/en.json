@@ -215,7 +215,8 @@
         "toProbe": "Open the probe",
         "toProbes": "To the probe list",
         "toJob": "Open the job",
-        "reportedBy": "Host"
+        "reportedBy": "Host",
+        "toDeploy": "Deploy a sensor"
       },
       "fields": {
         "account": "NATS account",
@@ -252,7 +253,10 @@
     },
     "iperf": {
       "title": "Endpoints held"
-    }
+    },
+    "accessKeyPrtgPath": "In PRTG: Setup > System Administration > Probes > Probe Connection Settings > Access Keys. Then approve the probe - not via \"Approve and auto-discover\".",
+    "sensorsEmpty": "No sensor is installed on this probe.",
+    "deploySensor": "Deploy sensor"
   },
   "sensors": {
     "title": "Sensors",
@@ -320,7 +324,15 @@
       "missing": "Required fields are still missing: {{fields}}",
       "confirmDelete": "Remove variant {{name}} from the server and from every probe?"
     },
-    "iperfBadge": "needs an endpoint"
+    "iperfBadge": "needs an endpoint",
+    "updateOnProbe": "Update",
+    "requirements": "Requirements",
+    "prtg": {
+      "title": "In PRTG",
+      "intro": "The sensor object is created in PRTG as a Script v2 sensor on the probe’s device. This is the name in the script dropdown:",
+      "parametersHint": "The builder below produces the parameter line; for variants it stands next to each variant.",
+      "readme": "The sensor’s own manual (README)"
+    }
   },
   "deployments": {
     "title": "Deployments",
@@ -346,7 +358,8 @@
     "iperf": {
       "noEndpoints": "No endpoint is registered for this sensor. It will be installed, but measures nothing until one is set up and assigned.",
       "probesWithout": "These probes already have the sensor but hold no endpoint: {{probes}}. Deploying again changes nothing - the assignment happens on the endpoint page."
-    }
+    },
+    "toSensor": "To sensor {{sensor}}"
   },
   "jobs": {
     "title": "Jobs",
@@ -551,7 +564,19 @@
         "updated": "The stack now runs {{commit}}",
         "updater_output": "{{line}}"
       }
-    }
+    },
+    "deploy": {
+      "prtgNextTitle": "The sensor is on the probes",
+      "prtgNextBody": "Nothing is measured until a Script v2 sensor object exists in PRTG on the probe’s device. The sensor page names the script and the parameter line.",
+      "toSensor": "To the sensor",
+      "dryRunTitle": "That was a dry run",
+      "dryRunBody": "Nothing was installed - the run only showed what would happen. To actually deploy, start the rollout again without the dry run.",
+      "succeededList_one": "{{count}} probe succeeded",
+      "succeededList_other": "{{count}} probes succeeded",
+      "failedList_one": "{{count}} probe failed",
+      "failedList_other": "{{count}} probes failed"
+    },
+    "rawResult": "Raw result"
   },
   "audit": {
     "title": "Audit",
