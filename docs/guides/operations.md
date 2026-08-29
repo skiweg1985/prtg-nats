@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # Operations and maintenance
@@ -142,7 +142,7 @@ sudo ./prtg-nats backup
 The command briefly stops a running NATS, archives the volume consistently,
 creates a SHA-256 checksum and starts the container again. Copy archive and
 checksum from `backups/` into the protected backup storage afterwards. The web
-interface offers the same backup as a job on the system page.
+interface offers the same backup as a job on the maintenance page (Infrastructure → Maintenance).
 
 ## Runtime export
 
@@ -161,7 +161,7 @@ is a new password on every endpoint and every probe that uses it.
 curl -sS --cacert nats-ca.pem -b cookies https://HOST/api/v1/system/export -X POST
 ```
 
-The system page offers the same as a job. Both write
+The maintenance page offers the same as a job. Both write
 `prtg-nats-runtime-<timestamp>.tar.gz` plus its checksum into the volume, and
 `GET /api/v1/system/backups` lists what is there with a download link for
 each. **Download it.** An export that only exists inside the volume it is

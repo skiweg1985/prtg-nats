@@ -628,6 +628,16 @@ export interface RegisterEndpointRequest {
   public_key_pem?: string | null
 }
 
+/** An archive in the runtime volume, and how to get it out. */
+export interface BackupFile {
+  name: string
+  kind: string
+  size_bytes: number
+  created_at: string
+  sha256: string | null
+  download_url: string
+}
+
 export interface JobAccepted {
   job_id: string
   status: JobStatus

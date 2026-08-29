@@ -1,7 +1,7 @@
 ---
 title: Install the server
 role: operator
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # Install the server
@@ -194,7 +194,7 @@ grants no ordinary shell, only the installed credential and status helper.
 
 ```bash
 sudo ./prtg-nats status
-sudo ./prtg-nats verify   # or the system page of the web interface
+sudo ./prtg-nats verify   # or the maintenance page of the web interface
 ```
 
 Expected:

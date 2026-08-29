@@ -1,7 +1,7 @@
 ---
 title: Monitoring
 role: operator
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # Monitoring
@@ -13,7 +13,7 @@ question.
 | Level | Question it answers | Where |
 | --- | --- | --- |
 | Container health checks | is the process serving? | Docker, automatic |
-| `status` and `verify` | is the installation correct? | the shell, or the system page |
+| `status` and `verify` | is the installation correct? | the shell, or the maintenance page |
 | PRTG sensors | is it still correct at three in the morning? | the PRTG core |
 
 The first two run without anyone watching. The third is the one that wakes
@@ -57,7 +57,7 @@ sudo ./prtg-nats verify --offline  # configuration only, no network
 It covers the Compose configuration, the certificate chain and the SAN, that
 the HTTP endpoint serves exactly the active runtime CA, the JetStream health
 check, and the authenticated login. The same check runs as a job from the
-system page of the web interface.
+maintenance page of the web interface (Infrastructure → Maintenance).
 
 ## The PRTG HTTP sensor
 

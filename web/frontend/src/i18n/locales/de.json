@@ -17,7 +17,8 @@
     "credentials": "NATS-Konten",
     "audit": "Protokoll",
     "settings": "Einstellungen",
-    "updates": "Updates"
+    "updates": "Updates",
+    "system": "Wartung"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -757,7 +758,9 @@
       "inviteDoneTitle": "Der Messpunkt ist eingerichtet",
       "inviteToEndpoint": "Zum Messpunkt",
       "inviteOpenTitle": "Offene Einladungen"
-    }
+    },
+    "renewServer": "Erneuern",
+    "renewServerConfirm": "Das Serverzertifikat wird erneuert und aktiviert. Der NATS-Container startet dabei neu; alle Probes verbinden sich neu."
   },
   "settings": {
     "title": "Einstellungen",
@@ -926,7 +929,7 @@
       "unavailable": "Der NATS-Server hat nicht geantwortet.",
       "reload_refused": "NATS hat seine bisherige Konfiguration behalten.",
       "reload_refused.cause": "Manche Einstellungen lassen sich ohne Neustart nicht übernehmen - allen voran ein geänderter Servername. Die Änderung steht auf der Platte und ist noch nicht aktiv.",
-      "reload_refused.action": "Starten Sie den NATS-Server auf der Systemseite neu. Danach verbinden sich alle Probes und der PRTG-Core neu."
+      "reload_refused.action": "Starten Sie den NATS-Server auf der Wartungsseite (Infrastruktur → Wartung) neu. Danach verbinden sich alle Probes und der PRTG-Core neu."
     },
     "docker": {
       "unavailable": "Die Containersteuerung steht in dieser Installation nicht zur Verfügung.",
@@ -1051,5 +1054,39 @@
     "last_update": "Zuletzt von hier aktualisiert",
     "view_log": "Protokoll ansehen",
     "rebuild": "Jetzt neu bauen"
+  },
+  "system": {
+    "title": "Wartung",
+    "subtitle": "Prüfen, sichern, neu starten - die Handgriffe am Server selbst.",
+    "verify": {
+      "title": "Installation prüfen",
+      "body": "Läuft dieselbe Prüfung wie ./prtg-nats verify: Container, Zertifikate, Laufzeitverzeichnis, NATS-Erreichbarkeit. Das Ergebnis steht im Job.",
+      "run": "Prüfen"
+    },
+    "restart": {
+      "title": "NATS neu starten",
+      "body": "Startet den NATS-Container neu. Jede Probe und der PRTG-Core verbinden sich danach neu.",
+      "run": "Neu starten",
+      "confirmTitle": "NATS wirklich neu starten?",
+      "confirmBody": "Alle Probes und der Core verlieren kurz die Verbindung und verbinden sich neu. Laufende Messungen dieses Moments gehen verloren."
+    },
+    "backup": {
+      "title": "Sicherungen",
+      "body": "Die JetStream-Sicherung hält den Nachrichtenbestand; der Laufzeit-Export archiviert das gesamte runtime-Verzeichnis für Umzug oder Wiederherstellung.",
+      "jetstream": "JetStream sichern",
+      "export": "Laufzeit exportieren",
+      "exportConfirmTitle": "Laufzeitverzeichnis exportieren?",
+      "exportWarning": "Das Archiv enthält den CA-Schlüssel, alle Konten und alle Passwörter im Klartext. Es gehört an einen sicheren Ort und nicht in ein Ticket."
+    },
+    "backups": {
+      "title": "Vorhandene Archive",
+      "empty": "Es liegt noch kein Archiv im Laufzeitverzeichnis.",
+      "download": "Herunterladen",
+      "hint": "Die Archive liegen im runtime-Volume unter backups/. Aufbewahrung und Rotation bleiben Sache des Betriebs.",
+      "kind": {
+        "runtime": "Laufzeit-Export",
+        "jetstream": "JetStream"
+      }
+    }
   }
 }
