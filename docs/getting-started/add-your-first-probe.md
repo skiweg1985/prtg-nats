@@ -76,6 +76,12 @@ the previous probe state. If the host has already reported in, retry a
 temporary job failure from the job page. Create a new invitation only when the
 host must run the bootstrap command again.
 
+Open invitations are listed on the wizard page itself, with their remaining
+validity, and can be revoked or reissued there. The command is only ever shown
+at creation; reissuing withdraws the old invitation and mints a fresh command
+with the same values. The validity is selectable when the invitation is
+created - up to a day, for a colleague travelling to the site.
+
 ## 3. Add the access key in PRTG
 
 The platform cannot make the two remaining changes on the PRTG core, and it

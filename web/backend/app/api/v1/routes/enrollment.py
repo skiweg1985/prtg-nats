@@ -318,6 +318,22 @@ async def create_probe_invitation(
                 details=(f"{payload.expected_host} is already enrolled as {claimed}"),
             )
 
+    # One open invitation per account. Two of them redeemed on two hosts would
+    # let the second overwrite the first host's inventory under the same name -
+    # and the operator holding the older command would never learn why.
+    for record in await enrollment.list_open(PROBE):
+        if record.payload.get("nats_username") == payload.nats_username:
+            raise ConflictError(
+                params={
+                    "resource": "enrollment_token",
+                    "name": payload.nats_username,
+                },
+                details=(
+                    f"an open invitation for {payload.nats_username} already"
+                    " exists; revoke it or let it expire"
+                ),
+            )
+
     issued = await enrollment.issue(
         EnrolmentTarget(
             kind=PROBE,

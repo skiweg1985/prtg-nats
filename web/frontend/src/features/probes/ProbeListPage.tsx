@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { useProbes } from '@/api/hooks'
+import { useInvitations, useProbes } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
 import type { ProbeSummary } from '@/api/types'
-import { PermissionGate } from '@/app/providers'
+import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Button, Mono } from '@/components/ui/primitives'
@@ -24,6 +24,24 @@ import { FleetActionBar } from './FleetActions'
  * where somebody goes once the badge has told them there is something to look
  * at. What stays here is what tells rows apart.
  */
+/**
+ * Invitations that are out live on the wizard page; this is the one line that
+ * says they exist. Without it, a closed tab meant an open invitation nobody
+ * remembered.
+ */
+function OpenInvitationsHint() {
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  const { data } = useInvitations(can('probe.create'))
+
+  if (!data || data.length === 0) return null
+  return (
+    <Link to="/probes/new" className="text-accent text-sm hover:underline">
+      {t('probes.openInvitations', { count: data.length })}
+    </Link>
+  )
+}
+
 export function ProbeListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -160,7 +178,8 @@ export function ProbeListPage() {
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="text-lg">{t('probes.title')}</h1>
         <p className="text-ink-3 text-sm">{t('probes.subtitle')}</p>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-baseline gap-3">
+          <OpenInvitationsHint />
           <PermissionGate permission="probe.create">
             <Button variant="primary" size="sm" onClick={() => navigate('/probes/new')}>
               {t('probes.enroll.action')}

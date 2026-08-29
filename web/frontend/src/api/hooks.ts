@@ -591,6 +591,19 @@ export function useInvitation(
   })
 }
 
+/**
+ * Every invitation that could still be used. The cache key existed since the
+ * beginning - two mutations invalidated it and nothing ever read it, which
+ * left an open invitation invisible the moment its tab closed.
+ */
+export function useInvitations(enabled = true) {
+  return useQuery({
+    queryKey: keys.invitations,
+    queryFn: () => api.get<Invitation[]>('/probes/enrollment/tokens'),
+    enabled,
+  })
+}
+
 export function useCreateInvitation() {
   const client = useQueryClient()
   return useMutation({

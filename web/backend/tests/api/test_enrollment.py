@@ -243,6 +243,33 @@ async def test_re_enrolling_the_same_probe_is_still_allowed(
     assert response.status_code == 201, response.text
 
 
+async def test_a_second_open_invitation_for_the_same_account_is_refused(
+    client: AsyncClient,
+    project_dir: Path,
+) -> None:
+    """Two open invitations redeemed on two hosts would overwrite each other
+    under one name - and the operator holding the older command would never
+    learn why."""
+    await _sign_in(client)
+    await _initialise(project_dir)
+
+    first = await _invite(client)
+
+    second = await client.post(
+        "/api/v1/probes/enrollment/tokens", json={"nats_username": "mpp-berlin"}
+    )
+    assert second.status_code == 409, second.text
+    assert second.json()["error"]["code"] == "common.conflict"
+
+    # Revoking the open one clears the way.
+    revoked = await client.delete(f"/api/v1/probes/enrollment/tokens/{first['id']}")
+    assert revoked.status_code == 204, revoked.text
+    third = await client.post(
+        "/api/v1/probes/enrollment/tokens", json={"nats_username": "mpp-berlin"}
+    )
+    assert third.status_code == 201, third.text
+
+
 async def test_a_different_host_is_not_confused_with_an_enrolled_one(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

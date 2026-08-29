@@ -226,14 +226,33 @@
         "host": "Adresse (optional)",
         "hostHint": "Worüber die Plattform die Probe danach erreicht. Bleibt das Feld leer, wird die Adresse verwendet, von der aus der Host sich meldet - die ist hinter NAT falsch.",
         "installPackage": "Paket prtgmpprobe installieren",
-        "installPackageHint": "Eingeschaltet lassen, außer das Paket ist bereits installiert und wird anderweitig gepflegt."
+        "installPackageHint": "Eingeschaltet lassen, außer das Paket ist bereits installiert und wird anderweitig gepflegt.",
+        "ttl": "Gültigkeit",
+        "ttlHint": "So lange kann der Befehl auf der Probe ausgeführt werden. Für einen Kollegen vor Ort darf es länger sein.",
+        "ttlMinutes_one": "{{count}} Minute",
+        "ttlMinutes_other": "{{count}} Minuten",
+        "ttlHours_one": "{{count}} Stunde",
+        "ttlHours_other": "{{count}} Stunden"
       },
       "errors": {
         "accountTaken": "Dieses Konto gibt es bereits. Wählen Sie einen anderen Namen, oder melden Sie die Probe erneut an, die es benutzt.",
         "accountShape": "Nur Kleinbuchstaben, Ziffern und Bindestriche, mindestens zwei Zeichen.",
         "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen.",
         "hostTaken": "Diese Adresse ist bereits als „{{probe}}\" angemeldet. Melden Sie sie erneut unter diesem Konto an, oder entfernen Sie sie zuerst, um ihr ein anderes zu geben."
-      }
+      },
+      "open": {
+        "title": "Offene Einladungen",
+        "meta": "Host: {{host}} · ausgestellt von {{by}}",
+        "commandGone": "Der Befehl war nur beim Ausstellen sichtbar. Bei Bedarf zurückziehen und neu ausstellen.",
+        "revoke": "Zurückziehen",
+        "reissue": "Neu ausstellen"
+      },
+      "reenroll": {
+        "title": "Erneutes Anmelden einer bekannten Probe",
+        "body": "Dieses Konto gehört zu einer angemeldeten Probe. Beim erneuten Anmelden bleiben Probe-ID und Access Key erhalten - PRTG sieht dieselbe Probe, nichts muss dort neu eingetragen werden."
+      },
+      "noPermissionTitle": "Keine Berechtigung",
+      "noPermission": "Zum Anmelden einer Probe fehlt die Berechtigung probe.create."
     },
     "interfaces": {
       "title": "Funk-Interfaces",
@@ -267,7 +286,9 @@
     "variants": {
       "title": "Gehaltene Varianten",
       "empty": "Diesem Sensor ist auf dieser Probe keine Variante zugewiesen."
-    }
+    },
+    "openInvitations_one": "{{count}} offene Einladung",
+    "openInvitations_other": "{{count}} offene Einladungen"
   },
   "sensors": {
     "title": "Sensoren",
