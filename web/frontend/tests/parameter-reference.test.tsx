@@ -112,7 +112,7 @@ describe('PrtgCard', () => {
     parameter_schema: null,
     readme: '# wlan-auth\n\nCreate the sensor in PRTG…',
     profile_template: null,
-    probes: [],
+    installations: [],
   }
 
   it('names the script as the PRTG dropdown shows it', () => {

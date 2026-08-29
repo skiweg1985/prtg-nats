@@ -28,7 +28,12 @@ from app.domain.enums import JobStatus, JobStepStatus, LogLevel
 from app.infrastructure.probe_helper import SENSOR_SLOTS, ProbeConnection
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorDefinition
-from app.persistence.models.inventory import Deployment, DeploymentTarget
+from app.persistence.models.inventory import (
+    Deployment,
+    DeploymentTarget,
+    ProbeObservedState,
+    ProbeRecord,
+)
 from app.workers.context import JobContext
 
 STEPS: tuple[str, ...] = (
@@ -63,10 +68,16 @@ async def run(context: JobContext) -> dict[str, Any]:
 
     succeeded: list[str] = []
     failed: list[dict[str, str]] = []
+    # What each probe ran before this rollout, from the observed cache - the
+    # deployment row has carried a previous_version column since the initial
+    # schema, and this is the moment that can fill it.
+    installed = await _installed_versions(context, definition.name)
 
-    for username in probe_usernames:
+    cancelled_after = len(probe_usernames)
+    for index, username in enumerate(probe_usernames):
         if context.cancelled:
             await context.log("jobs.cancelled", level=LogLevel.WARNING)
+            cancelled_after = index
             break
         outcome = await deploy_one(context, definition, username, dry_run=dry_run)
         if outcome is None:
@@ -74,7 +85,22 @@ async def run(context: JobContext) -> dict[str, Any]:
         else:
             failed.append({"probe": username, **outcome})
         if deployment_id:
-            await _record_target(context, deployment_id, username, outcome)
+            await _record_target(
+                context, deployment_id, username, outcome, installed.get(username)
+            )
+
+    # The probes the loop never reached would otherwise stand as "queued"
+    # forever, for a job that is no longer running.
+    if deployment_id and cancelled_after < len(probe_usernames):
+        for username in probe_usernames[cancelled_after:]:
+            await _record_target(
+                context,
+                deployment_id,
+                username,
+                None,
+                installed.get(username),
+                status=JobStatus.CANCELLED,
+            )
 
     await context.jobs.finish_step(
         context.job,
@@ -83,7 +109,13 @@ async def run(context: JobContext) -> dict[str, Any]:
     )
 
     if deployment_id:
-        await _finalise_deployment(context, deployment_id, succeeded, failed)
+        await _finalise_deployment(
+            context,
+            deployment_id,
+            succeeded,
+            failed,
+            cancelled=cancelled_after < len(probe_usernames),
+        )
 
     return {
         "sensor": definition.name,
@@ -256,11 +288,29 @@ def _slots_for(definition: SensorDefinition) -> tuple[str, ...]:
     return tuple(slot for slot in SENSOR_SLOTS if slot in available)
 
 
+async def _installed_versions(context: JobContext, sensor_name: str) -> dict[str, str]:
+    """Which version each probe reports installed, by NATS account."""
+    versions: dict[str, str] = {}
+    rows = await context.db.execute(
+        select(ProbeRecord.nats_username, ProbeObservedState.document).join(
+            ProbeObservedState, ProbeObservedState.probe_id == ProbeRecord.id
+        )
+    )
+    for username, document in rows:
+        for entry in document.get("sensors", []):
+            if entry.get("name") == sensor_name and entry.get("version"):
+                versions[username] = str(entry["version"])
+    return versions
+
+
 async def _record_target(
     context: JobContext,
     deployment_id: str,
     username: str,
     outcome: dict[str, str] | None,
+    previous_version: str | None,
+    *,
+    status: JobStatus | None = None,
 ) -> None:
     target = await context.db.scalar(
         select(DeploymentTarget).where(
@@ -270,8 +320,11 @@ async def _record_target(
     )
     if target is None:
         return
-    target.status = JobStatus.SUCCESSFUL if outcome is None else JobStatus.FAILED
+    target.status = status or (
+        JobStatus.SUCCESSFUL if outcome is None else JobStatus.FAILED
+    )
     target.finished_at = datetime.now(UTC)
+    target.previous_version = previous_version
     if outcome is not None:
         target.error_code = outcome.get("code")
         target.error_details = outcome.get("details")
@@ -282,11 +335,15 @@ async def _finalise_deployment(
     deployment_id: str,
     succeeded: list[str],
     failed: list[dict[str, str]],
+    *,
+    cancelled: bool = False,
 ) -> None:
     deployment = await context.db.get(Deployment, deployment_id)
     if deployment is None:
         return
-    if failed and succeeded:
+    if cancelled:
+        deployment.status = JobStatus.CANCELLED
+    elif failed and succeeded:
         deployment.status = JobStatus.PARTIALLY_SUCCESSFUL
     elif failed:
         deployment.status = JobStatus.FAILED

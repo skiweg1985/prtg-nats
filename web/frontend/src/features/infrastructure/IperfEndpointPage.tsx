@@ -244,7 +244,7 @@ function SensorMissingBanner({
   const { data: detail } = useSensor(reader?.name)
 
   if (!detail) return null
-  const installed = new Set(detail.probes)
+  const installed = new Set(detail.installations.map((entry) => entry.probe))
   const missing = endpoint.holders
     .map((holder) => holder.probe)
     .filter((probe) => !installed.has(probe))

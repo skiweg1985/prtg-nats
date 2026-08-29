@@ -110,4 +110,21 @@ describe('the targets of a rollout', () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/No route to host/)).toBeInTheDocument()
   })
+
+  it('says what version the probe came from, and where the sensor lives', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('1 of 2 probes succeeded')
+    await user.click(screen.getByRole('button', { name: 'Show details' }))
+
+    // The previous_version column existed since the initial schema; this is
+    // the first place it is readable.
+    expect(screen.getByText('v1.0.0 → v2.0.0')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /To sensor wlan-auth/ })).toHaveAttribute(
+      'href',
+      '/sensors/wlan-auth',
+    )
+  })
 })

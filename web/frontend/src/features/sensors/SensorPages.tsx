@@ -28,6 +28,7 @@ import { SensorVariants } from './SensorVariants'
 export function SensorListPage() {
   const { t } = useTranslation()
   const { data, isLoading, error, refetch } = useSensors()
+  const [updating, setUpdating] = useState<string | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -77,9 +78,21 @@ export function SensorListPage() {
       header: t('sensors.columns.outdated'),
       align: 'right',
       sortValue: (row) => row.outdated_on,
+      // The number used to be a dead end: it said twelve and left finding
+      // the twelve to the reader. Clicking it opens the rollout with exactly
+      // those probes already chosen.
       cell: (row) =>
         row.outdated_on > 0 ? (
-          <Badge tone="warn">{row.outdated_on}</Badge>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setUpdating(row.name)
+            }}
+            title={t('sensors.updateOutdated')}
+          >
+            <Badge tone="warn">{row.outdated_on}</Badge>
+          </button>
         ) : (
           <span className="text-ink-3 text-sm">0</span>
         ),
@@ -101,6 +114,14 @@ export function SensorListPage() {
         emptyTitle={t('sensors.empty')}
         rowHref={(row) => `/sensors/${row.name}`}
       />
+
+      {updating && (
+        <DeployDialog
+          sensorName={updating}
+          preselect="outdated"
+          onClose={() => setUpdating(null)}
+        />
+      )}
     </div>
   )
 }
@@ -160,13 +181,17 @@ export function SensorDetailPage() {
         <PrtgCard sensor={data} />
 
         <Card title={t('sensors.installedOn')}>
-          {data.probes.length === 0 ? (
+          {data.installations.length === 0 ? (
             <EmptyState title={t('common.none')} />
           ) : (
             <ul className="space-y-1">
-              {data.probes.map((probe) => (
-                <li key={probe}>
-                  <ProbeLink username={probe} />
+              {data.installations.map((entry) => (
+                <li key={entry.probe} className="flex items-center gap-2">
+                  <ProbeLink username={entry.probe} />
+                  <Mono className="text-ink-3 text-xs">v{entry.version}</Mono>
+                  {!entry.current && (
+                    <Badge tone="warn">{t('sensors.outdatedBadge')}</Badge>
+                  )}
                 </li>
               ))}
             </ul>

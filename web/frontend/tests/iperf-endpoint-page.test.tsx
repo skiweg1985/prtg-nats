@@ -98,7 +98,7 @@ const server = setupServer(
       parameter_schema: null,
       readme: null,
       profile_template: null,
-      probes: ['mpp-berlin'],
+      installations: [{ probe: 'mpp-berlin', version: '1.0.0', current: true }],
     }),
   ),
 )

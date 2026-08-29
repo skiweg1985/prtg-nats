@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ApiError } from '@/api/client'
 import {
   useCancelJob,
+  useCreateDeployment,
   useJob,
   useJobLog,
   useJobs,
@@ -384,11 +385,7 @@ function NextSteps({ job, probeRoute }: { job: JobDetail; probeRoute: string | n
   if (job.type === 'sensor.deploy') {
     const sensor = typeof job.result?.sensor === 'string' ? job.result.sensor : null
     if (job.result?.dry_run) {
-      return (
-        <Banner tone="neutral" title={t('jobs.deploy.dryRunTitle')}>
-          {t('jobs.deploy.dryRunBody')}
-        </Banner>
-      )
+      return <DryRunFollowUp job={job} sensor={sensor} />
     }
     return (
       <Banner
@@ -410,6 +407,60 @@ function NextSteps({ job, probeRoute }: { job: JobDetail; probeRoute: string | n
   }
 
   return null
+}
+
+/**
+ * A green dry run used to be a dead end: doing it for real meant reopening
+ * the dialog and picking the same probes again. The payload still has them.
+ */
+function DryRunFollowUp({ job, sensor }: { job: JobDetail; sensor: string | null }) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { data: probes } = useProbes()
+  const create = useCreateDeployment()
+
+  const usernames = Array.isArray(job.payload.probes)
+    ? (job.payload.probes as string[])
+    : []
+  const probeIds = (probes ?? [])
+    .filter((probe) => usernames.includes(probe.nats_username))
+    .map((probe) => probe.id)
+
+  return (
+    <Banner
+      tone="neutral"
+      title={t('jobs.deploy.dryRunTitle')}
+      action={
+        sensor &&
+        probeIds.length > 0 && (
+          <PermissionGate permission="deployment.create">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={create.isPending}
+              onClick={() =>
+                create.mutate(
+                  { sensor, probe_ids: probeIds, dry_run: false },
+                  {
+                    onSuccess: (deployment) => {
+                      if (deployment.job_id) navigate(`/jobs/${deployment.job_id}`)
+                    },
+                  },
+                )
+              }
+            >
+              {t('jobs.deploy.runForReal')}
+            </Button>
+          </PermissionGate>
+        )
+      }
+    >
+      <div className="space-y-2">
+        <p>{t('jobs.deploy.dryRunBody')}</p>
+        {create.error != null && <ErrorDetails error={create.error} />}
+      </div>
+    </Banner>
+  )
 }
 
 /**

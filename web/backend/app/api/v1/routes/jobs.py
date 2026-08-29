@@ -10,6 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from app.api.deps.common import (
     AuditDep,
@@ -23,8 +24,14 @@ from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
+from app.persistence.models.inventory import (
+    Deployment,
+    DeploymentTarget,
+    ProbeRecord,
+)
 from app.services.events import StreamEvent, job_topic
-from app.services.jobs import JobService
+from app.services.jobs import JobService, ResourceRef
+from app.workers.handlers import deploy_sensor
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -202,6 +209,7 @@ async def job_events(
 async def retry_job(
     job_id: str,
     jobs: JobServiceDep,
+    db: DbSession,
     audit: AuditDep,
     principal: Annotated[
         PrincipalDep, Depends(require_permission(Permission.JOB_RETRY))
@@ -210,9 +218,65 @@ async def retry_job(
     """Run the same job again, with the same inputs.
 
     A new job rather than a reset: the failed run stays in the history, which
-    is what makes "it failed twice for the same reason" visible.
+    is what makes "it failed twice for the same reason" visible. A deployment
+    retry additionally gets a deployment row of its own, restricted to the
+    probes that failed - re-running into the original row overwrote the
+    finished half of the history while its link kept pointing at the old job.
     """
-    job = await jobs.retry(job_id, principal)
+    original = await jobs.get(job_id)
+    overrides: dict[str, Any] = {}
+    if (
+        original.type == deploy_sensor.JOB_TYPE
+        and original.payload.get("deployment_id")
+        and original.status is not JobStatus.SUCCESSFUL
+    ):
+        result = original.result or {}
+        failed = [
+            str(entry.get("probe"))
+            for entry in result.get("failed", [])
+            if isinstance(entry, dict) and entry.get("probe")
+        ]
+        probes = failed or list(original.payload.get("probes", []))
+        rows = (
+            await db.scalars(
+                select(ProbeRecord).where(ProbeRecord.nats_username.in_(probes))
+            )
+        ).all()
+        deployment = Deployment(
+            sensor_name=str(original.payload.get("sensor")),
+            sensor_version=str(result.get("version") or ""),
+            status=JobStatus.QUEUED,
+            dry_run=bool(original.payload.get("dry_run")),
+            requested_by_name=principal.username,
+        )
+        db.add(deployment)
+        await db.flush()
+        for record in rows:
+            db.add(
+                DeploymentTarget(
+                    deployment_id=deployment.id,
+                    probe_id=record.id,
+                    probe_label=record.nats_username,
+                )
+            )
+        overrides = {
+            "payload_override": {
+                "probes": [record.nats_username for record in rows],
+                "deployment_id": deployment.id,
+            },
+            "resources_override": tuple(
+                ResourceRef("probe", record.id) for record in rows
+            ),
+            "target_id": deployment.id,
+            "target_label": (
+                f"{original.payload.get('sensor')} → {len(rows)} probe(s)"
+            ),
+        }
+
+    job = await jobs.retry(job_id, principal, **overrides)
+    if overrides:
+        deployment.job_id = job.id
+        await db.flush()
     audit.record(
         action="job.retry",
         object_type="job",

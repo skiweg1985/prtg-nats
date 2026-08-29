@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # REST API
@@ -391,11 +391,17 @@ which sets a fresh password.
 | | |
 | --- | --- |
 | `GET /sensors` | the catalogue read from `sensors/` |
-| `GET /sensors/{name}` | files, checksums, which probes run it |
+| `GET /sensors/{name}` | files, checksums, who runs it at which version |
 | `GET /sensors/{name}/parameter-schema` | what the sensor declares: parameters, settings, credentials, files |
 | `POST /sensors/{name}/render-parameters` | the line to paste into PRTG |
 | `GET`/`POST /deployments` | rollouts and their outcome per probe |
 | `GET /deployments/{id}` | one rollout with its per-probe result |
+
+The sensor detail carries `installations`, one entry per probe reporting the
+sensor: `{"probe", "version", "current"}`. It replaced the bare
+`probes: ["..."]` list - "outdated on twelve" is only useful together with
+which twelve. Each deployment target records `previous_version`, so a rollout
+answers "was v3, is now v4" per probe.
 
 #### Test interfaces
 
@@ -465,6 +471,13 @@ and what the sensor script reads to find the file.
 | `GET /jobs/{id}/events` | server-sent events, `?after=<sequence>` |
 | `POST /jobs/{id}/retry` | a new job with the same inputs |
 | `POST /jobs/{id}/cancel` | ask it to stop |
+
+Retrying a failed or partial `sensor.deploy` is the one exception to "same
+inputs": the retry gets a deployment row of its own and targets only the
+probes that failed. Re-running into the original row would overwrite the
+finished half of the history while its link kept pointing at the first job.
+A cancelled rollout marks the probes it never reached as `cancelled` instead
+of leaving them queued forever.
 
 ### NATS accounts
 
