@@ -500,6 +500,7 @@
       "finished": "Job finished",
       "finished_partial": "Job finished with failures",
       "failed": "Job failed: {{reason}}",
+      "failed_targets": "Job failed on all {{failed}} target(s)",
       "cancelled": "Job cancelled",
       "probe": {
         "reachable": "{{probe}} answered, package {{package}}",

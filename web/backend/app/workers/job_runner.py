@@ -267,7 +267,10 @@ class JobRunner:
                     level=LogLevel.INFO
                     if status is JobStatus.SUCCESSFUL
                     else LogLevel.WARNING,
-                    params={"status": status.value},
+                    params={
+                        "status": status.value,
+                        "failed": str(_failure_count(result)),
+                    },
                 )
                 await jobs.finish(
                     job,
@@ -277,7 +280,7 @@ class JobRunner:
                     # explanation. The per-target reasons stay in the result.
                     error_code=_outcome_error_code(status),
                     error_params=(
-                        {"failed": len(result.get("failed") or [])}
+                        {"failed": _failure_count(result)}
                         if status is not JobStatus.SUCCESSFUL
                         else None
                     ),
@@ -432,10 +435,14 @@ class JobRunner:
         return ended
 
 
+# Deliberately not "jobs.failed": that one names the reason a handler raised
+# with, and this path has none - the handler returned, and every target it was
+# given failed on its own. Sharing the message left the log reading "Job
+# failed: {{reason}}", because the placeholder had nothing to fill it.
 _OUTCOME_MESSAGES: dict[JobStatus, str] = {
     JobStatus.SUCCESSFUL: "jobs.finished",
     JobStatus.PARTIALLY_SUCCESSFUL: "jobs.finished_partial",
-    JobStatus.FAILED: "jobs.failed",
+    JobStatus.FAILED: "jobs.failed_targets",
     JobStatus.CANCELLED: "jobs.cancelled",
 }
 
@@ -449,12 +456,21 @@ def _outcome_error_code(status: JobStatus) -> str | None:
     return None
 
 
+def _failure_count(result: dict[str, object]) -> int:
+    """How many targets a handler reported as failed.
+
+    A handler that names its list something else - or nothing at all - counts
+    as none rather than taking the line that closes the job down with it.
+    """
+    failed = result.get("failed")
+    return len(failed) if isinstance(failed, list) else 0
+
+
 def _outcome_status(job: Job, result: dict[str, object]) -> JobStatus:
     if job.cancel_requested:
         return JobStatus.CANCELLED
-    failed = result.get("failed")
     succeeded = result.get("succeeded")
-    if isinstance(failed, list) and failed:
+    if _failure_count(result):
         if isinstance(succeeded, list) and succeeded:
             return JobStatus.PARTIALLY_SUCCESSFUL
         return JobStatus.FAILED
