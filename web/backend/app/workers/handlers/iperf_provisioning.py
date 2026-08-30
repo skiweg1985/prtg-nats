@@ -21,7 +21,7 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from app.core.errors import RuntimeStateError
+from app.core.errors import RuntimeStateError, technical_details
 from app.domain.enums import LogLevel
 from app.infrastructure import known_hosts
 from app.infrastructure.iperf_helper import EndpointConnection
@@ -242,7 +242,7 @@ async def remove(context: JobContext) -> dict[str, Any]:
                 "jobs.iperf.endpoint_unreachable",
                 level=LogLevel.WARNING,
                 params={"endpoint": name, "host": host},
-                raw=str(exc),
+                raw=technical_details(exc),
             )
     else:
         await context.log(
@@ -264,7 +264,7 @@ async def remove(context: JobContext) -> dict[str, Any]:
                 "jobs.iperf.access_kept",
                 level=LogLevel.WARNING,
                 params={"endpoint": name, "host": host},
-                raw=str(exc),
+                raw=technical_details(exc),
             )
 
     # --- 4. The record -------------------------------------------------------
@@ -349,7 +349,11 @@ async def deploy(context: JobContext) -> dict[str, Any]:
     )
 
     await context.step("deploy_profiles")
-    deployed: list[str] = []
+    # "succeeded" rather than a name of its own: the runner reads that key to
+    # tell a rollout that lost one probe from one that reached none, and a
+    # deployment naming its list differently was counted as a total failure
+    # however many probes it had reached.
+    succeeded: list[str] = []
     failed: list[dict[str, str]] = []
     for probe in probes:
         try:
@@ -362,7 +366,7 @@ async def deploy(context: JobContext) -> dict[str, Any]:
             context.runtime.remember_iperf(probe, name)
             for sensor in sensors:
                 await sync_default_profile(context, connection, sensor, probe)
-            deployed.append(probe)
+            succeeded.append(probe)
             await context.log(
                 "jobs.iperf.profile_deployed",
                 params={"probe": probe, "endpoint": name},
@@ -371,15 +375,15 @@ async def deploy(context: JobContext) -> dict[str, Any]:
         except Exception as exc:
             # Named rather than raised: one unreachable probe is not a reason to
             # abandon the rest, and it is exactly what has to be reported.
-            failed.append({"probe": probe, "details": str(exc)})
+            failed.append({"probe": probe, "details": technical_details(exc)})
             await context.log(
                 "jobs.iperf.probe_not_reached",
                 level=LogLevel.WARNING,
                 params={"probe": probe, "endpoint": name},
                 target=probe,
-                raw=str(exc),
+                raw=technical_details(exc),
             )
-    return {"endpoint": name, "deployed_to": deployed, "failed": failed}
+    return {"endpoint": name, "succeeded": succeeded, "failed": failed}
 
 
 async def revoke(context: JobContext) -> dict[str, Any]:
@@ -423,7 +427,7 @@ async def revoke(context: JobContext) -> dict[str, Any]:
                 level=LogLevel.WARNING,
                 params={"endpoint": name, "probe": probe},
                 target=probe,
-                raw=str(exc),
+                raw=technical_details(exc),
             )
     return {"endpoint": name, "revoked_from": revoked}
 
@@ -507,6 +511,6 @@ async def _redeploy_profiles(
                 level=LogLevel.WARNING,
                 params={"probe": probe, "endpoint": name},
                 target=probe,
-                raw=str(exc),
+                raw=technical_details(exc),
             )
     return refreshed

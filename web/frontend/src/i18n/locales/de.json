@@ -500,6 +500,7 @@
       "finished": "Job abgeschlossen",
       "finished_partial": "Job mit Fehlern abgeschlossen",
       "failed": "Job fehlgeschlagen: {{reason}}",
+      "failed_targets": "Job auf allen {{failed}} Zielen fehlgeschlagen",
       "cancelled": "Job abgebrochen",
       "probe": {
         "reachable": "{{probe}} hat geantwortet, Paket {{package}}",

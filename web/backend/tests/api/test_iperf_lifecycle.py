@@ -22,6 +22,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import Settings, get_settings
+from app.core.errors import ProbeRejectedError
 from app.core.permissions import RoleName
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.iperf_helper import IperfHelperClient
@@ -846,3 +847,104 @@ async def test_an_endpoint_can_be_read_on_its_own(
     # render itself empty.
     missing = await client.get("/api/v1/iperf-endpoints/nowhere")
     assert missing.status_code == 404, missing.text
+
+
+async def test_a_probe_that_refuses_is_named_with_the_words_it_refused_with(
+    client: AsyncClient,
+    project_dir: Path,
+) -> None:
+    """What the probe said, and what the rest of the fleet did anyway.
+
+    The refusal of a helper is precise - "Sensor iperf-throughput is not
+    installed" tells an operator exactly what to do next - and it used to be
+    replaced along the way by the error code, so the job log read
+    "probe.request_rejected" and the technical details said the same again.
+
+    The second half is the outcome: one probe out of two took the credentials,
+    which is a partial success. Reporting it as a total failure sent whoever
+    read it looking for a problem on the probe that is measuring fine.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    for probe in ("mpp-berlin", "mpp-hamburg"):
+        write_probe_inventory(project_dir, probe, sensors=("iperf-throughput",))
+
+    class RefusesHamburg(ScriptedTransport):
+        async def run(self, connection, request, timeout):  # type: ignore[no-untyped-def]
+            if connection.label == "mpp-hamburg":
+                raise ProbeRejectedError(
+                    params={"probe": "mpp-hamburg", "command": request.command.value},
+                    details="Sensor iperf-throughput is not installed",
+                )
+            return await super().run(connection, request, timeout)
+
+    transport = RefusesHamburg()
+    accepted = await client.post(
+        "/api/v1/iperf-endpoints/berlin/deploy",
+        json={"probes": ["mpp-berlin", "mpp-hamburg"]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["job_id"]
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "partially_successful"
+    assert job["result"]["succeeded"] == ["mpp-berlin"]
+    (failure,) = job["result"]["failed"]
+    assert failure["details"] == "Sensor iperf-throughput is not installed"
+
+    log = (await client.get(f"/api/v1/jobs/{job_id}/log")).json()
+    refused = [
+        entry for entry in log if entry["code"] == "jobs.iperf.probe_not_reached"
+    ]
+    assert [entry["raw"] for entry in refused] == [
+        "Sensor iperf-throughput is not installed"
+    ]
+
+
+async def test_a_deployment_no_probe_took_says_so_without_a_placeholder(
+    client: AsyncClient,
+    project_dir: Path,
+) -> None:
+    """The closing line of a job the handler survived.
+
+    It has no reason to name - nothing was raised - so it cannot borrow the
+    message that does. The one it used to borrow left "{{reason}}" standing in
+    the log where the cause belongs.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", sensors=("iperf-throughput",))
+
+    class RefusesEveryone(ScriptedTransport):
+        async def run(self, connection, request, timeout):  # type: ignore[no-untyped-def]
+            raise ProbeRejectedError(
+                params={"probe": connection.label, "command": request.command.value},
+                details="Sensor iperf-throughput is not installed",
+            )
+
+    accepted = await client.post(
+        "/api/v1/iperf-endpoints/berlin/deploy", json={"probes": ["mpp-berlin"]}
+    )
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["job_id"]
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, RefusesEveryone())
+    await _drain(runner, endpoints)
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "failed"
+    assert job["error_code"] == "jobs.all_targets_failed"
+
+    log = (await client.get(f"/api/v1/jobs/{job_id}/log")).json()
+    closing = log[-1]
+    assert closing["code"] == "jobs.failed_targets"
+    assert closing["params"]["failed"] == "1"

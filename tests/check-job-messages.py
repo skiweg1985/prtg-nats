@@ -26,6 +26,11 @@ Calls whose params are not literals - built from a variable, or merged with
 "**" - are still checked for their key; only their placeholders are skipped,
 because there is nothing to compare them against.
 
+Both shapes of the call are read: context.log(code) in the handlers and
+jobs.log(job, code) in the runner. A code the call picks out of a module-level
+table counts as every code in that table, because any of them can be the one
+that ends up in the log.
+
 Runs on its own, without Docker or network; the exit code is 1 as soon as
 one check fails.
 """
@@ -84,29 +89,90 @@ def dict_keys(node):
     return names
 
 
+def code_tables(tree):
+    """Module dicts whose values are job codes, by the name they are bound to.
+
+    The runner picks the message for a finished job out of one of these rather
+    than writing it at the call. Without them that call carries no readable
+    code at all and would be skipped - which is how "Job failed: {{reason}}"
+    reached an operator's screen with nothing to put in the placeholder.
+    """
+    tables = {}
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        elif isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        else:
+            continue
+        if not isinstance(value, ast.Dict):
+            continue
+        codes = {
+            entry.value
+            for entry in value.values
+            if isinstance(entry, ast.Constant)
+            and isinstance(entry.value, str)
+            and entry.value.startswith(CODE_PREFIX)
+        }
+        if not codes or len(codes) != len(value.values):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                tables[target.id] = codes
+    return tables
+
+
+def codes_of(node, tables):
+    """Every code one first argument to log() can turn out to be."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value} if node.value.startswith(CODE_PREFIX) else set()
+    # TABLE.get(key, "jobs.fallback") - the fallback is a code like any other.
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in tables
+    ):
+        found = set(tables[node.func.value.id])
+        for argument in node.args[1:]:
+            found |= codes_of(argument, tables)
+        return found
+    # An IfExp picks between two codes: both can be logged.
+    if isinstance(node, ast.IfExp):
+        return codes_of(node.body, tables) | codes_of(node.orelse, tables)
+    return set()
+
+
 def log_calls(path):
     """Every context.log("jobs.…") in one file."""
     with open(path, "r", encoding="utf-8") as handle:
         tree = ast.parse(handle.read(), filename=path)
 
+    tables = code_tables(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         if not isinstance(node.func, ast.Attribute) or node.func.attr != "log":
             continue
-        if not node.args:
-            continue
-        first = node.args[0]
-        if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
-            continue
-        if not first.value.startswith(CODE_PREFIX):
+        # Two shapes reach the same log: a handler calls context.log(code) and
+        # the runner calls jobs.log(job, code). Looking only at the first
+        # argument checked the handlers and left the runner - the one place
+        # that logs how a job ended - unchecked.
+        codes = set()
+        for argument in node.args:
+            codes = codes_of(argument, tables)
+            if codes:
+                break
+        if not codes:
             continue
 
         params = set()
         for keyword in node.keywords:
             if keyword.arg == "params":
                 params = dict_keys(keyword.value)
-        yield LogCall(path, node.lineno, first.value, params)
+        for code in sorted(codes):
+            yield LogCall(path, node.lineno, code, params)
 
 
 def collect_calls():

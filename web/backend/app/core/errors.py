@@ -76,6 +76,21 @@ class AppError(Exception):
         )
 
 
+def technical_details(exc: BaseException) -> str:
+    """The technical line for a failure, from any exception.
+
+    ``AppError`` carries its stable code as the exception message and the
+    untranslated output in ``details``. ``str()`` on one therefore yields
+    "probe.request_rejected" - the code the job already stores twice - while
+    the message the probe actually refused with is dropped, which leaves the
+    job log showing a code where the reason should be. Everything else has
+    nothing but its own text.
+    """
+    if isinstance(exc, AppError):
+        return exc.details or f"{type(exc).__name__}: {exc.code}"
+    return f"{type(exc).__name__}: {exc}"
+
+
 # --- Client errors ----------------------------------------------------------
 
 
