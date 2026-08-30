@@ -53,6 +53,43 @@ jobs:
             echo "npx is not available; Markdown check skipped"
           fi
 
+  iperf-artifacts:
+    name: Managed iPerf3 artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install artifact inspection tools
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq binutils shellcheck >/dev/null
+
+      - name: Build and validate every supported probe artifact
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: |
+          shellcheck --severity=warning tools/iperf3/*.sh
+          artifact_export="$(mktemp -d)"
+          docker build \
+            --file web/backend/Dockerfile \
+            --target iperf-artifacts \
+            --output "type=local,dest=${artifact_export}" \
+            .
+          bash tools/iperf3/check-artifacts.sh \
+            "${artifact_export}/tools/iperf3/artifacts"
+          # Execute the native artifact as well as inspecting every ELF. This
+          # catches a linkable but unusable amd64 build in every change; the
+          # helper performs the same version and feature check after activating
+          # a selected probe artifact.
+          amd64_output="$(
+            "${artifact_export}/tools/iperf3/artifacts/linux-amd64-glibc/iperf3" \
+              --version 2>&1
+          )"
+          source tools/iperf3/versions.env
+          grep -Fq "iperf ${IPERF_VERSION}" <<<"${amd64_output}"
+          grep -Fiq 'authentication' <<<"${amd64_output}"
+
   compose:
     name: Compose configuration
     runs-on: ubuntu-latest

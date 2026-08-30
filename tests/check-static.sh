@@ -471,17 +471,570 @@ check "reserve has a counterpart" \
   "$(./prtg-nats sensor | grep -c 'sensor release NAME USER INTERFACE')" "1"
 check "the probe knows the release verb" \
   "$(grep -c 'sensor-release-interface)' libexec/prtg-nats-probe-helper)" "1"
+check "sensor deployment requires the helper version that is shipped" \
+  "$(sed -n 's/^SENSOR_DEPLOYMENT_HELPER_VERSION=//p' \
+    libexec/manage-sensors.sh)" \
+  "$(sed -n 's/^HELPER_VERSION=//p' libexec/prtg-nats-probe-helper)"
 
-# A sensor's system packages are pulled in by the probe itself - but
-# only those named in the helper. If the package name came from the
-# manifest, an arbitrary package could be installed over the management
-# channel. The same rule as for the python3-venv package name.
-check "the probe knows the iperf sensor system package" \
-  "$(grep -c 'iperf-throughput)' libexec/prtg-nats-probe-helper)" "1"
-check "it pulls it in during activation" \
-  "$(grep -c 'ensure_sensor_package' libexec/prtg-nats-probe-helper)" "2"
+regular_sensor_helper_update_scenario() (
+  local mode="$1"
+  local fixture=""
+  local sensor_args=(deploy dns-check mpp-test)
+
+  fixture="$(mktemp -d)"
+  trap 'rm -rf -- "${fixture}"' EXIT
+  mkdir -p \
+    "${fixture}/bin" \
+    "${fixture}/libexec" \
+    "${fixture}/runtime/private/ssh" \
+    "${fixture}/runtime/probes" \
+    "${fixture}/sensors/dns-check/script"
+  cp \
+    libexec/manage-sensors.sh \
+    libexec/common.sh \
+    libexec/mpp-config.sh \
+    libexec/runtime-dir.sh \
+    "${fixture}/libexec/"
+  : > "${fixture}/runtime/private/ssh/prtg-nats-mpp-admin"
+  : > "${fixture}/runtime/private/ssh/prtg-nats-mpp-admin.pub"
+  cat > "${fixture}/.env" <<'EOF'
+NATS_FQDN=nats.example.test
+NATS_HOST_IP=192.0.2.10
+EOF
+  cat > "${fixture}/runtime/probes/mpp-test.env" <<'EOF'
+SSH_HOST=probe.example.test
+EOF
+  cat > "${fixture}/sensors/dns-check/manifest.env" <<'EOF'
+SENSOR_VERSION=1
+SENSOR_DESCRIPTION=DNS check
+SENSOR_SCRIPT=script/dns-check.py
+EOF
+  cat > "${fixture}/sensors/dns-check/script/dns-check.py" <<'EOF'
+print('{"prtg": {"result": []}}')
+EOF
+  cat > "${fixture}/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+request=""
+IFS= read -r request || true
+cat >/dev/null || true
+command_name="${request%%$'\t'*}"
+printf '%s\n' "${command_name}" >> "${FAKE_HELPER_LOG}"
+case "${command_name}" in
+  probe-info)
+    if [[ -f "${FAKE_HELPER_UPDATED}" ]]; then
+      printf 'OK probe-info\nhelper_version=8\n'
+    else
+      printf 'OK probe-info\nhelper_version=7\n'
+    fi
+    ;;
+  sensor-activate)
+    if [[ "${FAKE_BLOCK_ACTIVE:-}" == "yes" ]]; then
+      printf 'ERROR: Sensor dns-check has an active transaction\n' >&2
+      printf 'active_transaction=tx-old\n' >&2
+      exit 1
+    fi
+    printf 'OK sensor-activate\n'
+    ;;
+  sensor-recover)
+    printf 'OK sensor-recovered dns-check transaction=tx-old already-committed\n'
+    ;;
+  *)
+    printf 'OK %s\n' "${command_name}"
+    ;;
+esac
+EOF
+  cat > "${fixture}/bin/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat > "${fixture}/libexec/manage-probes.sh" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ "$1" == "helper-update" && "$2" == "mpp-test" ]]
+printf 'helper-update\n' >> "${FAKE_HELPER_LOG}"
+: > "${FAKE_HELPER_UPDATED}"
+EOF
+  chmod +x \
+    "${fixture}/bin/ssh" \
+    "${fixture}/bin/ssh-keygen" \
+    "${fixture}/libexec/manage-probes.sh"
+
+  case "${mode}" in
+    dry-run) sensor_args+=(--dry-run) ;;
+    blocked-active) : ;;
+    recover)
+      sensor_args=(recover dns-check mpp-test --transaction tx-old)
+      ;;
+    recover-without-transaction)
+      sensor_args=(recover dns-check mpp-test)
+      ;;
+  esac
+  if [[ "${mode}" == "recover-without-transaction" ]]; then
+    if PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
+      FAKE_HELPER_LOG="${fixture}/helper.log" \
+      FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+      PATH="${fixture}/bin:${PATH}" \
+      bash "${fixture}/libexec/manage-sensors.sh" \
+      "${sensor_args[@]}" >/dev/null 2>&1; then
+      printf 'accepted\n'
+    elif [[ ! -s "${fixture}/helper.log" ]]; then
+      printf 'rejected-before-remote\n'
+    else
+      printf 'rejected-after-remote\n'
+    fi
+    return 0
+  fi
+  if [[ "${mode}" == "blocked-active" ]]; then
+    local blocked_output=""
+    local expected_recovery="sudo ./prtg-nats sensor recover dns-check mpp-test --transaction tx-old"
+    if blocked_output="$(
+      PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
+        FAKE_HELPER_LOG="${fixture}/helper.log" \
+        FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+        FAKE_BLOCK_ACTIVE=yes \
+        PATH="${fixture}/bin:${PATH}" \
+        bash "${fixture}/libexec/manage-sensors.sh" \
+        "${sensor_args[@]}" 2>&1
+    )"; then
+      printf 'accepted\n'
+    elif [[ "${blocked_output}" == *"${expected_recovery}"* &&
+            "${blocked_output}" != *"--transaction sensor-"* ]]; then
+      printf 'blocked-with-active-transaction\n'
+    else
+      printf '%s\n' "${blocked_output}"
+    fi
+    return 0
+  fi
+  PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
+    FAKE_HELPER_LOG="${fixture}/helper.log" \
+    FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+    PATH="${fixture}/bin:${PATH}" \
+    bash "${fixture}/libexec/manage-sensors.sh" \
+    "${sensor_args[@]}" >/dev/null
+
+  if [[ "${mode}" == "dry-run" ]]; then
+    [[ ! -s "${fixture}/helper.log" ]] && printf 'no-remote-command\n'
+  elif [[ "${mode}" == "recover" ]]; then
+    paste -s -d ',' "${fixture}/helper.log" | tr -d '\n'
+    if grep -q -x 'dns-check' \
+      "${fixture}/runtime/probes/mpp-test.sensors"; then
+      printf ',assigned\n'
+    else
+      printf ',unassigned\n'
+    fi
+  else
+    paste -s -d ',' "${fixture}/helper.log"
+  fi
+)
+
+check "a regular sensor updates an old helper before its transaction" \
+  "$(regular_sensor_helper_update_scenario deploy)" \
+  "probe-info,helper-update,probe-info,sensor-stage,sensor-stage,sensor-activate,sensor-commit"
+check "a regular sensor dry-run does not update or contact the helper" \
+  "$(regular_sensor_helper_update_scenario dry-run)" "no-remote-command"
+check "a blocked deploy reports the previous active transaction for recovery" \
+  "$(regular_sensor_helper_update_scenario blocked-active)" \
+  "blocked-with-active-transaction"
+check "sensor recovery sends the sensor and required transaction together" \
+  "$(regular_sensor_helper_update_scenario recover)" \
+  "sensor-recover,assigned"
+check "sensor recovery rejects a missing transaction before SSH" \
+  "$(regular_sensor_helper_update_scenario recover-without-transaction)" \
+  "rejected-before-remote"
+check "sensor recovery help requires the expected transaction" \
+  "$(./prtg-nats sensor --help | grep -c \
+    'sensor recover NAME USER --transaction TRANSACTION')" "1"
+
+# iPerf is release-owned, not whatever version the distribution happens to
+# provide. The helper's fixed sensor-to-tool map is the privileged boundary;
+# a manifest cannot name a package or a target path.
+check "the iperf sensor declares its managed tool" \
+  "$(grep -c '^SENSOR_TOOL=iperf3$' sensors/iperf-throughput/manifest.env)" "1"
+iperf_release_version="$(
+  sed -n 's/^IPERF_VERSION=//p' tools/iperf3/versions.env
+)"
+iperf_system_min_version="$(
+  sed -n 's/^IPERF_SYSTEM_MIN_VERSION=//p' tools/iperf3/versions.env
+)"
+check "the sensor manifest pins the built iperf release" \
+  "$(sed -n 's/^SENSOR_TOOL_VERSION=//p' \
+    sensors/iperf-throughput/manifest.env)" "${iperf_release_version}"
+check "the sensor self-check pins the built iperf release" \
+  "$(sed -n 's/^APPROVED_IPERF_VERSION = "\([^"]*\)"/\1/p' \
+    sensors/iperf-throughput/script/iperf-throughput.py)" \
+  "${iperf_release_version}"
+check "the sensor manifest pins the system fallback minimum" \
+  "$(sed -n 's/^SENSOR_TOOL_FALLBACK_MIN_VERSION=//p' \
+    sensors/iperf-throughput/manifest.env)" "${iperf_system_min_version}"
+check "the sensor self-check pins the system fallback minimum" \
+  "$(sed -n 's/^SYSTEM_IPERF_MIN_VERSION = "\([^"]*\)"/\1/p' \
+    sensors/iperf-throughput/script/iperf-throughput.py)" \
+  "${iperf_system_min_version}"
+check "the probe helper pins the system fallback minimum" \
+  "$(sed -n 's/^SYSTEM_IPERF_MIN_VERSION="\([^"]*\)"/\1/p' \
+    libexec/prtg-nats-probe-helper)" "${iperf_system_min_version}"
+check "the probe helper fixes the system iperf path in its own code" \
+  "$(sed -n 's/^SYSTEM_IPERF_PATH="\([^"]*\)"/\1/p' \
+    libexec/prtg-nats-probe-helper)" "/usr/bin/iperf3"
+check "the fixed production iperf path is not duplicated at call sites" \
+  "$(grep -c '/usr/bin/iperf3' libexec/prtg-nats-probe-helper)" "1"
+check "the probe maps the iperf sensor to one fixed tool" \
+  "$(grep -c 'managed_tool_for_sensor' libexec/prtg-nats-probe-helper)" "5"
+check "the sensor uses only the managed current link" \
+  "$(grep -c '/opt/prtg-nats/tools/iperf3/current/iperf3' \
+    sensors/iperf-throughput/script/iperf-throughput.py)" "1"
+check "the helper never installs iperf from a distribution" \
+  "$(grep -c "printf 'iperf3 iperf3" libexec/prtg-nats-probe-helper)" "0"
 check "no manifest names a system package" \
   "$(grep -h 'SENSOR_PACKAGES' sensors/*/manifest.env 2>/dev/null | wc -l | tr -d ' ')" "0"
+
+reported_userspace_architecture() {
+  local package_architecture="$1"
+  (
+    # shellcheck disable=SC1090
+    source <(sed -n '/^probe_userspace_architecture()/,/^}/p' \
+      libexec/prtg-nats-probe-helper)
+    dpkg() {
+      [[ "$1" == '--print-architecture' ]] || return 1
+      printf '%s\n' "${package_architecture}"
+    }
+    # This is intentionally a 64-bit kernel in every case. armhf must still
+    # win when that is what the package database says the loader can run.
+    uname() { printf 'aarch64\n'; }
+    getconf() { printf '64\n'; }
+    probe_userspace_architecture
+  )
+}
+
+check "userspace detection recognises amd64" \
+  "$(reported_userspace_architecture amd64)" "amd64"
+check "userspace detection recognises arm64" \
+  "$(reported_userspace_architecture arm64)" "arm64"
+check "a 64-bit ARM kernel does not hide an armhf userspace" \
+  "$(reported_userspace_architecture armhf)" "armhf"
+
+forged_tool_stage_leftovers() {
+  local sandbox=""
+  local error_log=""
+  local rejection="wrong-path"
+  local leftovers=""
+  sandbox="$(mktemp -d)"
+  error_log="${sandbox}/error.log"
+  mkdir -p \
+    "${sandbox}/state/transactions" \
+    "${sandbox}/state/sensor-transactions/committed"
+  printf 'test public key\n' > "${sandbox}/public.pem"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    # shellcheck disable=SC2034  # read by stage_sensor_tool after sourcing
+    HELPER_SIGNING_KEY="${sandbox}/public.pem"
+    # shellcheck disable=SC2034  # read by stage_sensor_tool after sourcing
+    MAXIMUM_TOOL_ENVELOPE_BYTES=16777216
+    # shellcheck disable=SC2034  # read by stage_sensor_tool after sourcing
+    MAXIMUM_TOOL_BYTES=12582912
+    SIGNATURE_CHECK_MARKER="${sandbox}/signature-checked"
+    # shellcheck disable=SC1090
+    source <(sed -n '/^die()/,/^}/p
+      /^validate_token()/,/^}/p
+      /^is_free_of_control_characters()/,/^}/p
+      /^read_limited_input()/,/^}/p
+      /^sensor_commit_tombstone_path()/,/^}/p
+      /^committed_sensor_transaction_name()/,/^}/p
+      /^reject_committed_sensor_transaction_id()/,/^}/p
+      /^probe_userspace_architecture()/,/^}/p
+      /^probe_libc()/,/^}/p
+      /^probe_platform()/,/^}/p
+      /^managed_tool_for_sensor()/,/^}/p
+      /^validate_managed_tool_binary()/,/^}/p
+      /^stage_sensor_tool()/,/^}/p' libexec/prtg-nats-probe-helper)
+    openssl() {
+      local output=""
+
+      case "$1" in
+        base64)
+          while [[ "$#" -gt 0 ]]; do
+            if [[ "$1" == "-out" ]]; then
+              output="$2"
+              break
+            fi
+            shift
+          done
+          [[ -n "${output}" ]] || return 1
+          cat > "${output}"
+          ;;
+        dgst)
+          : > "${SIGNATURE_CHECK_MARKER}"
+          return 1
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+    }
+    printf 'forged envelope\n' |
+      stage_sensor_tool forged iperf-throughput AAAA
+  ) >/dev/null 2> "${error_log}" || true
+  if [[ -f "${sandbox}/signature-checked" ]] && grep -q -x \
+    'ERROR: sensor-tool-stage signature does not match this probe'\''s signing key' \
+    "${error_log}"; then
+    rejection="signature-rejected"
+  else
+    rejection="$(tail -n 1 "${error_log}")"
+  fi
+  leftovers="$({
+    find "${sandbox}/state" -mindepth 1 -maxdepth 1 -print |
+      grep -Ev '/(transactions|sensor-transactions)$' || true
+    find "${sandbox}/state/transactions" -mindepth 1 -print || true
+    find "${sandbox}/state/sensor-transactions" \
+      -mindepth 1 -maxdepth 1 -print |
+      grep -v '/committed$' || true
+    find "${sandbox}/state/sensor-transactions/committed" \
+      -mindepth 1 -print || true
+  } | wc -l | tr -d '[:space:]')"
+  printf '%s %s\n' "${rejection}" "${leftovers}"
+  rm -rf -- "${sandbox}"
+}
+
+check "a forged tool reaches signature verification and leaves no payload" \
+  "$(forged_tool_stage_leftovers)" "signature-rejected 0"
+
+system_fallback_boundary_scenario() {
+  local scenario="$1"
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    SENSOR_TOOL_ROOT="${sandbox}/tools"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    TEST_PLATFORM="linux-armhf-v6-glibc"
+    local transaction="${sandbox}/transaction"
+    local fake_root="${sandbox}/usr/bin"
+    local fake_path="${fake_root}/iperf3"
+    local version="3.18"
+    local mode="0755"
+    local authentication="yes"
+    mkdir -p "${transaction}" "${fake_root}"
+
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^die()/,/^}/p
+      /^managed_tool_for_sensor()/,/^}/p
+      /^managed_tool_binary_name()/,/^}/p
+      /^managed_tool_current_link()/,/^}/p
+      /^managed_tool_metadata_path()/,/^}/p
+      /^managed_tool_has_release_artifact()/,/^}/p
+      /^version_at_least()/,/^}/p
+      /^iperf_binary_version()/,/^}/p
+      /^iperf_binary_has_authentication()/,/^}/p
+      /^root_executable_path_is_trusted()/,/^}/p
+      /^managed_tool_path_is_trusted()/,/^}/p
+      /^system_tool_path_is_trusted()/,/^}/p
+      /^validate_system_tool_binary()/,/^}/p
+      /^prepare_sensor_tool_transaction()/,/^}/p
+      /^install_system_tool()/,/^}/p
+      /^managed_tool_metadata_value()/,/^}/p
+      /^sensor_tool_fields()/,/^}/p' libexec/prtg-nats-probe-helper)
+
+    # The complete helper overwrites any environment value with its literal
+    # top-level assignment. Only this extracted-function harness redirects it
+    # to a controlled root-owned fake instead of touching /usr/bin.
+    # shellcheck disable=SC2034  # read by dynamically sourced helper functions
+    SYSTEM_IPERF_PATH="${fake_path}"
+    SYSTEM_IPERF_MIN_VERSION="3.18"
+    probe_platform() { printf '%s\n' "${TEST_PLATFORM}"; }
+
+    case "${scenario}" in
+      old-version) version="3.17" ;;
+      no-auth) authentication="no" ;;
+      group-writable) mode="0775" ;;
+      world-writable) mode="0757" ;;
+      managed-platform) TEST_PLATFORM="linux-arm64-glibc" ;;
+    esac
+    install -o root -g root -m "${mode}" /dev/null "${fake_path}"
+    {
+      printf '#!/bin/sh\n'
+      printf "printf 'iperf %s\\n'\n" "${version}"
+      if [[ "${authentication}" == "yes" ]]; then
+        printf "printf 'Linux test authentication\\n'\n"
+      fi
+    } > "${fake_path}"
+    chmod "${mode}" "${fake_path}"
+
+    if [[ "${scenario}" == "pass" ||
+          "${scenario}" == "status-permission-drift" ]]; then
+      prepare_sensor_tool_transaction \
+        "${transaction}" iperf-throughput >/dev/null
+      install_system_tool "${transaction}" iperf-throughput >/dev/null
+      if [[ "${scenario}" == "status-permission-drift" ]]; then
+        chmod 0775 "${fake_path}"
+        if [[ "$(sensor_tool_fields iperf-throughput)" == \
+              *$'tool_compatible=no' ]]; then
+          printf 'incompatible'
+        else
+          printf 'falsely-compatible'
+        fi
+        return 0
+      fi
+      if [[ "$(stat -c '%U' "${fake_path}")" == "root" &&
+            "$(readlink "${SENSOR_TOOL_ROOT}/iperf3/current")" == \
+              "${fake_root}" ]] &&
+        grep -q -x 'SOURCE=system' \
+          "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env" &&
+        grep -q -x 'VERSION=3.18' \
+          "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env" &&
+        grep -q -F -x "PATH=${fake_path}" \
+          "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env"; then
+        printf 'accepted'
+      else
+        printf 'invalid-install'
+      fi
+      return 0
+    fi
+
+    if (
+      prepare_sensor_tool_transaction \
+        "${transaction}" iperf-throughput
+      install_system_tool "${transaction}" iperf-throughput
+    ) >/dev/null 2>&1; then
+      printf 'accepted'
+    else
+      printf 'rejected'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a root-owned system iperf 3.18 with auth is accepted" \
+  "$(system_fallback_boundary_scenario pass)" "accepted"
+check "system iperf permission drift is reported incompatible" \
+  "$(system_fallback_boundary_scenario status-permission-drift)" \
+  "incompatible"
+for rejected_system_fallback in \
+  old-version no-auth group-writable world-writable managed-platform; do
+  check "system fallback rejects ${rejected_system_fallback}" \
+    "$(system_fallback_boundary_scenario "${rejected_system_fallback}")" \
+    "rejected"
+done
+
+managed_tool_trust_scenario() {
+  local scenario="$1"
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    SENSOR_TOOL_ROOT="${sandbox}/tools"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    MANAGED_EXEC_MARKER="${sandbox}/executed"
+    export MANAGED_EXEC_MARKER
+    local transaction="${sandbox}/transaction"
+    local target="${SENSOR_TOOL_ROOT}/iperf3/3.21/linux-arm64-glibc/iperf3"
+    local fields=""
+    mkdir -p "${transaction}"
+    cat > "${transaction}/tool-binary" <<'EOF'
+#!/bin/sh
+: > "${MANAGED_EXEC_MARKER}"
+printf 'iperf 3.21\nLinux test authentication\n'
+EOF
+    chmod 0700 "${transaction}/tool-binary"
+    printf 'iperf3\n' > "${transaction}/tool-name"
+    printf '3.21\n' > "${transaction}/tool-version"
+    printf 'linux-arm64-glibc\n' > "${transaction}/tool-platform"
+    sha256sum "${transaction}/tool-binary" | awk '{print $1}' \
+      > "${transaction}/tool-sha256"
+
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^die()/,/^}/p
+      /^managed_tool_for_sensor()/,/^}/p
+      /^managed_tool_binary_name()/,/^}/p
+      /^managed_tool_current_link()/,/^}/p
+      /^managed_tool_metadata_path()/,/^}/p
+      /^managed_tool_has_release_artifact()/,/^}/p
+      /^validate_managed_tool_binary()/,/^}/p
+      /^version_at_least()/,/^}/p
+      /^iperf_binary_version()/,/^}/p
+      /^iperf_binary_has_authentication()/,/^}/p
+      /^root_executable_path_is_trusted()/,/^}/p
+      /^managed_tool_path_is_trusted()/,/^}/p
+      /^system_tool_path_is_trusted()/,/^}/p
+      /^install_managed_tool()/,/^}/p
+      /^managed_tool_metadata_value()/,/^}/p
+      /^sensor_tool_fields()/,/^}/p' libexec/prtg-nats-probe-helper)
+
+    install_managed_tool "${transaction}" iperf-throughput
+    rm -f -- "${MANAGED_EXEC_MARKER}"
+    case "${scenario}" in
+      chmod-status) chmod 0775 "${target}" ;;
+      owner-status) chown 65534:65534 "${target}" ;;
+      symlink-status)
+        mv "${target}" "${target}.foreign"
+        ln -s "${target}.foreign" "${target}"
+        ;;
+      content-status)
+        cat > "${target}" <<'EOF'
+#!/bin/sh
+: > "${MANAGED_EXEC_MARKER}"
+printf 'iperf foreign\nLinux test authentication\n'
+EOF
+        chown root:root "${target}"
+        chmod 0755 "${target}"
+        ;;
+      chmod-redeploy) chmod 0775 "${target}" ;;
+      owner-redeploy) chown 65534:65534 "${target}" ;;
+      symlink-redeploy)
+        mv "${target}" "${target}.foreign"
+        ln -s "${target}.foreign" "${target}"
+        ;;
+      content-redeploy)
+        cat > "${target}" <<'EOF'
+#!/bin/sh
+: > "${MANAGED_EXEC_MARKER}"
+printf 'iperf foreign\nLinux test authentication\n'
+EOF
+        chown root:root "${target}"
+        chmod 0755 "${target}"
+        ;;
+    esac
+
+    case "${scenario}" in
+      *-status)
+        fields="$(sensor_tool_fields iperf-throughput)"
+        if [[ "${fields}" == *$'tool_compatible=no' &&
+              "${fields}" == *$'tool_version=none'*
+              && ! -e "${MANAGED_EXEC_MARKER}" ]]; then
+          printf 'incompatible-not-executed'
+        else
+          printf 'unsafe-status'
+        fi
+        ;;
+      *-redeploy)
+        install_managed_tool "${transaction}" iperf-throughput
+        if [[ -f "${target}" && ! -L "${target}" &&
+              "$(stat -c '%u:%g:%a' "${target}")" == "0:0:755" &&
+              "$(sha256sum "${target}" | awk '{print $1}')" == \
+                "$(<"${transaction}/tool-sha256")" &&
+              -e "${MANAGED_EXEC_MARKER}" ]]; then
+          printf 'repaired-before-execution'
+        else
+          printf 'repair-failed'
+        fi
+        ;;
+    esac
+  )
+  rm -rf -- "${sandbox}"
+}
+
+for managed_status_drift in chmod owner symlink content; do
+  check "managed tool ${managed_status_drift} drift is not executed by status" \
+    "$(managed_tool_trust_scenario "${managed_status_drift}-status")" \
+    "incompatible-not-executed"
+done
+for managed_redeploy_drift in chmod owner symlink content; do
+  check "managed tool redeploy repairs ${managed_redeploy_drift} drift" \
+    "$(managed_tool_trust_scenario "${managed_redeploy_drift}-redeploy")" \
+    "repaired-before-execution"
+done
 
 # Sensors that measure throughput have to share the same lock file.
 # Otherwise one saturates the line while the other checks its target
@@ -603,6 +1156,7 @@ after_rollback() {
     # The unit half needs systemd; the file half is what this is about.
     write_sensor_units() { :; }
     remove_sensor_units() { :; }
+    restore_managed_tool() { :; }
 
     printf 'the running version\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
     printf 'the new version\n' > "${transaction}/slot-script"
@@ -630,12 +1184,698 @@ check "a rollback after activation puts the previous file back" \
 check "a rollback removes a sensor that was newly installed" \
   "$(after_rollback newly-installed)" "gone"
 
+after_tool_rollback() {
+  local scenario="$1"
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    SENSOR_TOOL_ROOT="${sandbox}/tools"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    local transaction="${sandbox}/transaction"
+    local tool_root="${SENSOR_TOOL_ROOT}/iperf3"
+    mkdir -p \
+      "${transaction}" \
+      "${tool_root}/3.20/linux-arm64-glibc" \
+      "${tool_root}/3.21/linux-arm64-glibc" \
+      "${SENSOR_CONFIG_ROOT}/iperf-throughput"
+    printf 'iperf3\n' > "${transaction}/tool-name"
+    ln -s '3.21/linux-arm64-glibc' "${tool_root}/current"
+    printf 'VERSION=3.21\n' \
+      > "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env"
+
+    case "${scenario}" in
+      previous)
+        printf '3.20/linux-arm64-glibc\n' \
+          > "${transaction}/original-tool-current"
+        printf 'VERSION=3.20\n' \
+          > "${transaction}/original-tool-metadata"
+        ;;
+      absent)
+        : > "${transaction}/original-tool-current-absent"
+        : > "${transaction}/original-tool-metadata-absent"
+        ;;
+    esac
+
+    # shellcheck disable=SC1090
+    source <(sed -n '/^managed_tool_current_link()/,/^}/p
+      /^managed_tool_metadata_path()/,/^}/p
+      /^restore_managed_tool()/,/^}/p' libexec/prtg-nats-probe-helper)
+    restore_managed_tool "${transaction}" iperf-throughput
+    if [[ -L "${tool_root}/current" ]]; then
+      printf '%s ' "$(readlink "${tool_root}/current")"
+    else
+      printf 'absent '
+    fi
+    if [[ -f "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env" ]]; then
+      tr -d '\n' < "${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env"
+    else
+      printf 'absent'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "managed tool rollback restores the previous current link" \
+  "$(after_tool_rollback previous)" \
+  "3.20/linux-arm64-glibc VERSION=3.20"
+check "managed tool rollback restores an absent state" \
+  "$(after_tool_rollback absent)" "absent absent"
+
 # The marker is what tells the two apart, so the rollback has to look for it
 # and the activation has to leave it behind.
 check "activation marks the transaction as activated" \
   "$(grep -c "> \"\${transaction}/activated\"" libexec/prtg-nats-probe-helper)" "1"
-check "the rollback asks for that marker" \
-  "$(grep -c '\-f "${transaction}/activated"' libexec/prtg-nats-probe-helper)" "1"
+check "sensor commits have their own transaction implementation" \
+  "$(grep -c 'commit_sensor "${argument_one}"' \
+    libexec/prtg-nats-probe-helper)" "1"
+
+load_sensor_transaction_functions() {
+  # shellcheck disable=SC1090  # process substitutions select shipped code
+  source <(sed -n '/^die()/,/^}/p
+    /^die_active_sensor_transaction()/,/^}/p
+    /^validate_token()/,/^}/p
+    /^sensor_transaction_lock_path()/,/^}/p
+    /^sensor_active_transaction_path()/,/^}/p
+    /^sensor_commit_tombstone_path()/,/^}/p
+    /^committed_sensor_transaction_name()/,/^}/p
+    /^reject_committed_sensor_transaction_id()/,/^}/p
+    /^prune_sensor_commit_tombstones()/,/^}/p
+    /^record_sensor_commit_tombstone()/,/^}/p
+    /^acquire_sensor_transaction_lock()/,/^}/p
+    /^release_sensor_transaction_lock()/,/^}/p
+    /^read_active_sensor_transaction()/,/^}/p
+    /^claim_sensor_activation()/,/^}/p
+    /^require_active_sensor_transaction()/,/^}/p
+    /^clear_active_sensor_transaction()/,/^}/p
+    /^clear_incomplete_sensor_snapshot()/,/^}/p
+    /^restore_failed_sensor_activation()/,/^}/p
+    /^sensor_activation_failure_exit()/,/^}/p
+    /^sensor_activation_signal_exit()/,/^}/p
+    /^activate_sensor()/,/^}/p
+    /^rollback_sensor()/,/^}/p
+    /^recover_sensor_transaction()/,/^}/p
+    /^commit_sensor()/,/^}/p
+    /^remove_sensor()/,/^}/p' libexec/prtg-nats-probe-helper)
+}
+
+sensor_transaction_marker_scenario() {
+  local sandbox=""
+  local blocked_output=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_SLOTS=(script wrapper requirements version)
+    mkdir -p \
+      "${TRANSACTION_DIR}/tx-one" \
+      "${TRANSACTION_DIR}/tx-two" \
+      "${SENSOR_TRANSACTION_STATE_DIR}"
+    load_sensor_transaction_functions
+
+    acquire_sensor_transaction_lock demo
+    printf '%s ' "$(claim_sensor_activation \
+      tx-one "${TRANSACTION_DIR}/tx-one" demo)"
+    : > "${TRANSACTION_DIR}/tx-one/activation-complete"
+    printf '%s ' "$(claim_sensor_activation \
+      tx-one "${TRANSACTION_DIR}/tx-one" demo)"
+    if blocked_output="$(
+      claim_sensor_activation \
+        tx-two "${TRANSACTION_DIR}/tx-two" demo 2>&1
+    )"; then
+      printf 'accepted-other '
+    elif [[ "${blocked_output}" == *$'active_transaction=tx-one'* ]]; then
+      printf 'blocked-other-structured '
+    else
+      printf 'blocked-other '
+    fi
+    if flock -n "$(sensor_transaction_lock_path demo)" -c true; then
+      printf 'unlocked'
+    else
+      printf 'locked'
+    fi
+    release_sensor_transaction_lock
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a completed activation retry is idempotent and another tx is blocked" \
+  "$(sensor_transaction_marker_scenario)" \
+  "pending complete blocked-other-structured locked"
+
+sensor_activation_success_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    # shellcheck disable=SC2034  # read by dynamically sourced helper functions
+    MAXIMUM_SENSOR_COMMIT_TOMBSTONES=1024
+    SENSOR_SCRIPT_DIR="${sandbox}/scripts"
+    SENSOR_SLOTS=(script wrapper requirements version)
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_TRANSACTION=""
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_NAME=""
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_SERVICE_USER=""
+    mkdir -p \
+      "${TRANSACTION_DIR}/tx-one" \
+      "${SENSOR_COMMIT_TOMBSTONE_DIR}" \
+      "${SENSOR_SCRIPT_DIR}"
+    printf 'demo\n' > "${TRANSACTION_DIR}/tx-one/sensor-name"
+    printf 'new\n' > "${TRANSACTION_DIR}/tx-one/slot-script"
+    printf 'old\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+    load_sensor_transaction_functions
+
+    sensor_slot_target() { printf '%s/%s.py\n' "${SENSOR_SCRIPT_DIR}" "$1"; }
+    sensor_service_user() { printf 'probe\n'; }
+    prepare_sensor_tool_transaction() { :; }
+    record_managed_tool_original() { :; }
+    install_sensor_files() {
+      cp "${TRANSACTION_DIR}/tx-one/slot-script" \
+        "${SENSOR_SCRIPT_DIR}/demo.py"
+      printf 'installed\n' >> "${sandbox}/installations"
+    }
+    sensor_self_check() { return 0; }
+    restore_sensor_files() {
+      cp "$1/original-script" "${SENSOR_SCRIPT_DIR}/demo.py"
+    }
+
+    activate_sensor tx-one >/dev/null
+    activate_sensor tx-one >/dev/null
+    printf '%s %s %s %s ' \
+      "$(<"${SENSOR_SCRIPT_DIR}/demo.py")" \
+      "$(<"${TRANSACTION_DIR}/tx-one/original-script")" \
+      "$(wc -l < "${sandbox}/installations" | tr -d '[:space:]')" \
+      "$(read_active_sensor_transaction demo)"
+    commit_sensor tx-one >/dev/null
+    if [[ ! -e "${TRANSACTION_DIR}/tx-one" &&
+          ! -e "$(sensor_active_transaction_path demo)" ]]; then
+      printf 'clean '
+    else
+      printf 'leftovers '
+    fi
+    printf '%s ' "$(committed_sensor_transaction_name tx-one)"
+    printf 'current\n' > "$(sensor_active_transaction_path demo)"
+    if [[ "$(commit_sensor tx-one)" == "OK sensor-committed demo" ]]; then
+      printf 'retry-ok '
+    else
+      printf 'retry-failed '
+    fi
+    printf '%s' "$(read_active_sensor_transaction demo)"
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "activation and response-loss commit retries preserve newer state" \
+  "$(sensor_activation_success_scenario)" \
+  "new old 1 tx-one clean demo retry-ok current"
+
+sensor_commit_retry_lock_order() {
+  local body=""
+  local lock_line=""
+  local inspect_line=""
+
+  body="$(sed -n '/^commit_sensor()/,/^}/p' \
+    libexec/prtg-nats-probe-helper)"
+  lock_line="$(printf '%s\n' "${body}" |
+    grep -n -m 1 'acquire_sensor_transaction_lock' | cut -d: -f1)"
+  inspect_line="$(printf '%s\n' "${body}" |
+    grep -n -m 1 '\[\[ -e "${transaction}"' | cut -d: -f1)"
+  if [[ -n "${lock_line}" && -n "${inspect_line}" &&
+        "${lock_line}" -lt "${inspect_line}" ]]; then
+    printf 'lock-first'
+  else
+    printf 'inspection-first'
+  fi
+}
+
+check "a tombstoned commit locks before inspecting its transaction" \
+  "$(sensor_commit_retry_lock_order)" "lock-first"
+
+commit_response_loss_wait_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    MAXIMUM_SENSOR_COMMIT_TOMBSTONES=1024
+    local transaction="${TRANSACTION_DIR}/race"
+    local lock_path="${SENSOR_TRANSACTION_STATE_DIR}/demo.lock"
+    local waiting="${sandbox}/waiting"
+    local result="${sandbox}/result"
+    local retry_pid=""
+    local attempt=0
+    mkdir -p "${transaction}" "${SENSOR_COMMIT_TOMBSTONE_DIR}"
+    printf 'demo\n' > "${transaction}/sensor-name"
+    load_sensor_transaction_functions
+    record_sensor_commit_tombstone race demo
+
+    eval "$(declare -f acquire_sensor_transaction_lock |
+      sed '1s/acquire_sensor_transaction_lock/original_acquire_sensor_transaction_lock/')"
+    acquire_sensor_transaction_lock() {
+      : > "${waiting}"
+      original_acquire_sensor_transaction_lock "$@"
+    }
+
+    exec 7> "${lock_path}"
+    flock -x 7
+    (
+      exec 7>&-
+      commit_sensor race > "${result}"
+    ) &
+    retry_pid="$!"
+    for ((attempt = 0; attempt < 100; attempt++)); do
+      [[ ! -e "${waiting}" ]] || break
+      sleep 0.01
+    done
+    if [[ ! -e "${waiting}" ]]; then
+      flock -u 7
+      exec 7>&-
+      wait "${retry_pid}" || true
+      printf 'did-not-wait'
+      return 0
+    fi
+
+    rm -rf -- "${transaction}"
+    flock -u 7
+    exec 7>&-
+    if wait "${retry_pid}" &&
+      [[ "$(<"${result}")" == "OK sensor-committed demo" &&
+         ! -e "${transaction}" ]]; then
+      printf 'retry-ok-after-wait'
+    else
+      printf 'retry-failed-after-wait'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a waiting response-loss retry accepts tx cleanup by the first commit" \
+  "$(commit_response_loss_wait_scenario)" "retry-ok-after-wait"
+
+stale_sensor_commit_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    MAXIMUM_SENSOR_COMMIT_TOMBSTONES=1024
+    mkdir -p \
+      "${TRANSACTION_DIR}/stale" \
+      "${SENSOR_COMMIT_TOMBSTONE_DIR}"
+    printf 'demo\n' > "${TRANSACTION_DIR}/stale/sensor-name"
+    : > "${TRANSACTION_DIR}/stale/activation-complete"
+    printf 'current\n' > "${SENSOR_TRANSACTION_STATE_DIR}/demo.active"
+    load_sensor_transaction_functions
+
+    if (commit_sensor stale) >/dev/null 2>&1; then
+      printf 'accepted '
+    else
+      printf 'blocked '
+    fi
+    printf '%s ' "$(read_active_sensor_transaction demo)"
+    if [[ -d "${TRANSACTION_DIR}/stale" &&
+          ! -e "$(sensor_commit_tombstone_path stale)" ]]; then
+      printf 'preserved'
+    else
+      printf 'mutated'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a stale sensor commit cannot acknowledge or touch a newer tx" \
+  "$(stale_sensor_commit_scenario)" "blocked current preserved"
+
+bounded_sensor_commit_tombstone_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    SENSOR_TRANSACTION_STATE_DIR="${sandbox}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    # shellcheck disable=SC2034  # read by pruning after dynamic sourcing
+    MAXIMUM_SENSOR_COMMIT_TOMBSTONES=2
+    mkdir -p "${SENSOR_COMMIT_TOMBSTONE_DIR}"
+    load_sensor_transaction_functions
+
+    record_sensor_commit_tombstone old-one demo
+    touch -d '@1' "$(sensor_commit_tombstone_path old-one)"
+    record_sensor_commit_tombstone old-two demo
+    touch -d '@2' "$(sensor_commit_tombstone_path old-two)"
+    record_sensor_commit_tombstone current demo
+    find "${SENSOR_COMMIT_TOMBSTONE_DIR}" \
+      -mindepth 1 -maxdepth 1 -type f ! -name '.*' -printf '%f\n' |
+      sort | paste -s -d ' ' -
+    if (reject_committed_sensor_transaction_id current) \
+      >/dev/null 2>&1; then
+      printf 'accepted-reuse\n'
+    else
+      printf 'blocked-reuse\n'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "sensor commit tombstones retain only the configured bound" \
+  "$(bounded_sensor_commit_tombstone_scenario)" \
+  $'current old-two\nblocked-reuse'
+
+sensor_activation_failure_scenario() {
+  local failure_mode="$1"
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_SCRIPT_DIR="${sandbox}/scripts"
+    SENSOR_SLOTS=(script wrapper requirements version)
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_TRANSACTION=""
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_NAME=""
+    # shellcheck disable=SC2034  # read by activation traps after sourcing
+    SENSOR_ACTIVATION_SERVICE_USER=""
+    FAILURE_MODE="${failure_mode}"
+    mkdir -p \
+      "${TRANSACTION_DIR}/tx-one" \
+      "${SENSOR_TRANSACTION_STATE_DIR}" \
+      "${SENSOR_SCRIPT_DIR}"
+    printf 'demo\n' > "${TRANSACTION_DIR}/tx-one/sensor-name"
+    printf 'new\n' > "${TRANSACTION_DIR}/tx-one/slot-script"
+    printf 'old\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+    load_sensor_transaction_functions
+
+    sensor_slot_target() { printf '%s/%s.py\n' "${SENSOR_SCRIPT_DIR}" "$1"; }
+    sensor_service_user() { printf 'probe\n'; }
+    prepare_sensor_tool_transaction() { :; }
+    record_managed_tool_original() { :; }
+    install_sensor_files() {
+      printf 'partial\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+      case "${FAILURE_MODE}" in
+        err) return 1 ;;
+        term) kill -TERM "${BASHPID}" ;;
+      esac
+    }
+    sensor_self_check() { [[ "${FAILURE_MODE}" != "exit" ]]; }
+    restore_sensor_files() {
+      cp "$1/original-script" "${SENSOR_SCRIPT_DIR}/demo.py"
+      printf 'restored\n' >> "${sandbox}/restorations"
+    }
+
+    # Do not put activate_sensor on the left side of `||`: Bash suppresses
+    # ERR traps throughout a function called from such a conditional.
+    set +e
+    (activate_sensor tx-one) >/dev/null 2>&1
+    set -e
+    printf '%s %s %s %s ' \
+      "$(<"${SENSOR_SCRIPT_DIR}/demo.py")" \
+      "$(wc -l < "${sandbox}/restorations" | tr -d '[:space:]')" \
+      "$(read_active_sensor_transaction demo)" \
+      "$(test -f "${TRANSACTION_DIR}/tx-one/activation-restored" &&
+        printf marked)"
+    rollback_sensor tx-one >/dev/null
+    if [[ ! -e "${TRANSACTION_DIR}/tx-one" &&
+          ! -e "$(sensor_active_transaction_path demo)" ]]; then
+      printf 'clean'
+    else
+      printf 'leftovers'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+for activation_failure_mode in err exit term; do
+  check "${activation_failure_mode} during activation restores under the lock" \
+    "$(sensor_activation_failure_scenario "${activation_failure_mode}")" \
+    "old 1 tx-one marked clean"
+done
+
+stale_sensor_rollback_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    # shellcheck disable=SC2034  # read by rollback_sensor after sourcing
+    SENSOR_SLOTS=(script wrapper requirements version)
+    mkdir -p \
+      "${TRANSACTION_DIR}/stale" \
+      "${SENSOR_TRANSACTION_STATE_DIR}"
+    printf 'demo\n' > "${TRANSACTION_DIR}/stale/sensor-name"
+    : > "${TRANSACTION_DIR}/stale/activated"
+    printf 'newer\n' > "${sandbox}/installed"
+    printf 'current\n' > "${SENSOR_TRANSACTION_STATE_DIR}/demo.active"
+    load_sensor_transaction_functions
+    sensor_service_user() { printf 'probe\n'; }
+    restore_sensor_files() { printf 'stale\n' > "${sandbox}/installed"; }
+
+    if (rollback_sensor stale) >/dev/null 2>&1; then
+      printf 'accepted '
+    else
+      printf 'blocked '
+    fi
+    printf '%s %s' \
+      "$(<"${sandbox}/installed")" \
+      "$(<"${SENSOR_TRANSACTION_STATE_DIR}/demo.active")"
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a stale rollback cannot replace a newer active deployment" \
+  "$(stale_sensor_rollback_scenario)" "blocked newer current"
+
+sensor_recovery_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+    # shellcheck disable=SC2034  # read by dynamically sourced helper functions
+    MAXIMUM_SENSOR_COMMIT_TOMBSTONES=1024
+    SENSOR_SCRIPT_DIR="${sandbox}/scripts"
+    SENSOR_WRAPPER_DIR="${sandbox}/wrappers"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    SENSOR_TOOL_ROOT="${sandbox}/tools"
+    # shellcheck disable=SC2034  # read by dynamically sourced helper functions
+    SENSOR_SLOTS=(script wrapper requirements version)
+    local old_transaction="${TRANSACTION_DIR}/tx-old"
+    local new_transaction="${TRANSACTION_DIR}/tx-new"
+    local tool_root="${SENSOR_TOOL_ROOT}/iperf3"
+    mkdir -p \
+      "${old_transaction}" \
+      "${new_transaction}" \
+      "${SENSOR_COMMIT_TOMBSTONE_DIR}" \
+      "${SENSOR_SCRIPT_DIR}" \
+      "${SENSOR_WRAPPER_DIR}" \
+      "${SENSOR_CONFIG_ROOT}/demo" \
+      "${tool_root}/3.20/linux-arm64-glibc" \
+      "${tool_root}/3.21/linux-arm64-glibc"
+    printf 'demo\n' > "${old_transaction}/sensor-name"
+    printf 'demo\n' > "${new_transaction}/sensor-name"
+    : > "${old_transaction}/activated"
+    : > "${old_transaction}/activation-complete"
+    printf 'new sensor\n' > "${old_transaction}/slot-script"
+    printf 'old sensor\n' > "${old_transaction}/original-script"
+    printf 'iperf3\n' > "${old_transaction}/tool-name"
+    printf '3.20/linux-arm64-glibc\n' \
+      > "${old_transaction}/original-tool-current"
+    printf 'VERSION=3.20\n' \
+      > "${old_transaction}/original-tool-metadata"
+    printf 'new sensor\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+    ln -s '3.21/linux-arm64-glibc' "${tool_root}/current"
+    printf 'VERSION=3.21\n' > "${SENSOR_CONFIG_ROOT}/demo/tool.env"
+    printf 'tx-old\n' > "${SENSOR_TRANSACTION_STATE_DIR}/demo.active"
+    load_sensor_transaction_functions
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^managed_tool_current_link()/,/^}/p
+      /^managed_tool_metadata_path()/,/^}/p
+      /^sensor_slot_target()/,/^}/p
+      /^restore_managed_tool()/,/^}/p
+      /^restore_sensor_files()/,/^}/p' libexec/prtg-nats-probe-helper)
+    sensor_service_user() { printf 'probe\n'; }
+    write_sensor_units() { :; }
+    remove_sensor_units() { :; }
+
+    recover_sensor_transaction other tx-old >/dev/null
+    if [[ "$(read_active_sensor_transaction demo)" == "tx-old" &&
+          "$(<"${SENSOR_SCRIPT_DIR}/demo.py")" == "new sensor" ]]; then
+      printf 'wrong-safe '
+    else
+      printf 'wrong-mutated '
+    fi
+    if (recover_sensor_transaction demo tx-new) >/dev/null 2>&1; then
+      printf 'stale-accepted '
+    else
+      printf 'stale-blocked '
+    fi
+    if (
+      acquire_sensor_transaction_lock demo
+      claim_sensor_activation tx-new "${new_transaction}" demo
+    ) >/dev/null 2>&1; then
+      printf 'deploy-accepted '
+    else
+      printf 'deploy-blocked '
+    fi
+
+    recover_sensor_transaction demo tx-old >/dev/null
+    if [[ "$(<"${SENSOR_SCRIPT_DIR}/demo.py")" == "old sensor" &&
+          "$(readlink "${tool_root}/current")" == \
+            "3.20/linux-arm64-glibc" &&
+          "$(<"${SENSOR_CONFIG_ROOT}/demo/tool.env")" == \
+            "VERSION=3.20" &&
+          ! -e "${old_transaction}" &&
+          ! -e "${SENSOR_TRANSACTION_STATE_DIR}/demo.active" ]]; then
+      printf 'restored '
+    else
+      printf 'restore-failed '
+    fi
+    if [[ "$(recover_sensor_transaction demo tx-old)" == \
+          "OK sensor-recovered demo transaction=tx-old no-active" ]]; then
+      printf 'retry-no-active '
+    else
+      printf 'retry-failed '
+    fi
+    acquire_sensor_transaction_lock demo
+    printf '%s ' "$(claim_sensor_activation \
+      tx-new "${new_transaction}" demo)"
+    clear_active_sensor_transaction tx-new demo
+    release_sensor_transaction_lock
+    record_sensor_commit_tombstone tx-done committed
+    if [[ "$(recover_sensor_transaction committed tx-done)" == \
+          "OK sensor-recovered committed transaction=tx-done already-committed" ]]; then
+      printf 'tombstone-retry'
+    else
+      printf 'tombstone-lost'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "explicit recovery restores only the named active transaction" \
+  "$(sensor_recovery_scenario)" \
+  "wrong-safe stale-blocked deploy-blocked restored retry-no-active pending tombstone-retry"
+
+sensor_remove_serialization_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    STATE_DIR="${sandbox}/state"
+    TRANSACTION_DIR="${STATE_DIR}/transactions"
+    SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+    SENSOR_SCRIPT_DIR="${sandbox}/scripts"
+    SENSOR_WRAPPER_DIR="${sandbox}/wrappers"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    SENSOR_VENV_ROOT="${sandbox}/venv"
+    mkdir -p \
+      "${SENSOR_TRANSACTION_STATE_DIR}" \
+      "${SENSOR_SCRIPT_DIR}" \
+      "${SENSOR_WRAPPER_DIR}" \
+      "${SENSOR_CONFIG_ROOT}/demo" \
+      "${SENSOR_VENV_ROOT}/demo"
+    printf 'current\n' > "${SENSOR_TRANSACTION_STATE_DIR}/demo.active"
+    printf 'sensor\n' > "${SENSOR_SCRIPT_DIR}/demo.py"
+    load_sensor_transaction_functions
+    release_sensor_interfaces() { :; }
+    remove_sensor_units() { :; }
+    sensor_slot_target() {
+      case "$2" in
+        script) printf '%s/%s.py\n' "${SENSOR_SCRIPT_DIR}" "$1" ;;
+        wrapper) printf '%s/prtg-sensor-%s\n' "${SENSOR_WRAPPER_DIR}" "$1" ;;
+      esac
+    }
+
+    if (remove_sensor demo) >/dev/null 2>&1; then
+      printf 'accepted '
+    else
+      printf 'blocked '
+    fi
+    if [[ -f "${SENSOR_SCRIPT_DIR}/demo.py" ]]; then
+      printf 'preserved '
+    else
+      printf 'removed-early '
+    fi
+    rm -f -- "${SENSOR_TRANSACTION_STATE_DIR}/demo.active"
+    remove_sensor demo >/dev/null
+    if [[ ! -e "${SENSOR_SCRIPT_DIR}/demo.py" &&
+          ! -e "${SENSOR_CONFIG_ROOT}/demo" ]]; then
+      printf 'removed'
+    else
+      printf 'leftovers'
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "sensor removal cannot cross an active deployment" \
+  "$(sensor_remove_serialization_scenario)" "blocked preserved removed"
+
+non_runnable_tool_status_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the dynamically sourced helper
+    SENSOR_TOOL_ROOT="${sandbox}/tools"
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    # shellcheck disable=SC2034  # read by sensor_tool_fields after sourcing
+    SYSTEM_IPERF_MIN_VERSION="3.18"
+    local release="${SENSOR_TOOL_ROOT}/iperf3/3.21/linux-amd64-glibc"
+    local metadata="${SENSOR_CONFIG_ROOT}/iperf-throughput/tool.env"
+    local fields=""
+    mkdir -p "${release}" "$(dirname -- "${metadata}")"
+    printf 'not an executable format\n' > "${release}/iperf3"
+    chmod 0755 "${release}/iperf3"
+    ln -s '3.21/linux-amd64-glibc' "${SENSOR_TOOL_ROOT}/iperf3/current"
+    {
+      printf 'SOURCE=managed\n'
+      printf 'VERSION=3.21\n'
+      printf 'PLATFORM=linux-amd64-glibc\n'
+      printf 'SHA256=%s\n' "$(sha256sum "${release}/iperf3" | awk '{print $1}')"
+    } > "${metadata}"
+
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^managed_tool_for_sensor()/,/^}/p
+      /^managed_tool_binary_name()/,/^}/p
+      /^managed_tool_current_link()/,/^}/p
+      /^managed_tool_metadata_path()/,/^}/p
+      /^managed_tool_has_release_artifact()/,/^}/p
+      /^version_at_least()/,/^}/p
+      /^iperf_binary_version()/,/^}/p
+      /^iperf_binary_has_authentication()/,/^}/p
+      /^root_executable_path_is_trusted()/,/^}/p
+      /^managed_tool_path_is_trusted()/,/^}/p
+      /^system_tool_path_is_trusted()/,/^}/p
+      /^managed_tool_metadata_value()/,/^}/p
+      /^sensor_tool_fields()/,/^}/p' libexec/prtg-nats-probe-helper)
+    fields="$(sensor_tool_fields iperf-throughput)"
+    if [[ "${fields}" == *$'tool_version=none\t'* &&
+          "${fields}" == *$'tool_source=managed\t'* &&
+          "${fields}" == *$'tool_compatible=no'* ]]; then
+      printf 'reported-incompatible'
+    else
+      printf '%s' "${fields}"
+    fi
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a wrong-ELF managed tool is reported instead of aborting sensor-list" \
+  "$(non_runnable_tool_status_scenario)" "reported-incompatible"
 
 # The endpoint is the second machine this tool sets up over SSH. What
 # holds for the probe holds for it too: help without a configured
@@ -671,6 +1911,19 @@ check "and the install asks it to" \
 check "and reads the copy, not the closed directory" \
   "$(grep -c 'cat .\${REMOTE_STAGE}/public.pem' \
     libexec/manage-iperf-server.sh)" "1"
+check "endpoint setup rejects pre-OAEP iperf versions" \
+  "$(grep -c 'authenticated endpoints require 3.17 or newer' \
+    sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh)" "1"
+check "endpoint setup requires the authentication feature" \
+  "$(grep -c "grep -i 'authentication'" \
+    sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh)" "1"
+check "endpoint service uses the exact executable that was checked" \
+  "$(grep -c '^ExecStart=\${IPERF_BIN} ' \
+    sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh)" "1"
+check "no component enables legacy PKCS1 padding" \
+  "$(grep -R --exclude='*.md' -c -- '--use-pkcs1-padding' \
+    sensors libexec web/backend 2>/dev/null | awk -F: '{ total += $2 } END { print total + 0 }')" \
+  "0"
 # The register dialog hands the same steps to somebody we never reach, so
 # the two describe one endpoint or the record here describes a host the
 # probes cannot authenticate against. Compared by the parts that decide

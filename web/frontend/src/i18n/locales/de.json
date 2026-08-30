@@ -286,6 +286,21 @@
     "sensorsEmpty": "Auf dieser Probe ist kein Sensor installiert.",
     "deploySensor": "Sensor ausrollen",
     "sensorHelper": "Helfer",
+    "sensorTool": {
+      "column": "Tool",
+      "source": {
+        "managed": "Verwaltet",
+        "system": "System"
+      },
+      "sourceUnknown": "Quelle unbekannt",
+      "compatible": "Kompatibel",
+      "incompatible": "Inkompatibel",
+      "notVerified": "Nicht verifiziert",
+      "managedVersions": "Installiert {{installed}} · Soll {{expected}}",
+      "systemVersions": "Installiert {{installed}} · Minimum {{expected}}",
+      "managedSha256": "SHA-256 {{installed}} → {{expected}}",
+      "systemSha256": "SHA-256 {{installed}}"
+    },
     "variants": {
       "title": "Gehaltene Varianten",
       "empty": "Diesem Sensor ist auf dieser Probe keine Variante zugewiesen."
@@ -546,6 +561,7 @@
         "failed": "{{probe}}: {{sensor}} fehlgeschlagen ({{reason}})",
         "rolled_back": "{{probe}}: vorheriger Stand wiederhergestellt",
         "dry_run": "{{probe}}: würde {{sensor}} Version {{version}} installieren ({{slots}})",
+        "dry_run_platform_deferred": "{{probe}}: Die Auswahl der Managed-Tool-Plattform folgt nach der geplanten signierten Helper-Aktualisierung",
         "removed": "{{probe}}: {{sensor}} entfernt",
         "interface_reserved": "{{probe}}: {{interface}} ist für {{sensor}} reserviert",
         "interface_released": "{{probe}}: {{interface}} ist wieder unter normaler Verwaltung",

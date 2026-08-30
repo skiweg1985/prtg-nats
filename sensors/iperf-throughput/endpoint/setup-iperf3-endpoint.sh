@@ -171,15 +171,32 @@ fi
 
 printf '== iperf3 ==\n'
 if command -v iperf3 >/dev/null 2>&1; then
-  note "$(iperf3 --version | head -1) is already installed"
+  :
 else
   command -v apt-get >/dev/null 2>&1 ||
     die "iperf3 is missing and this script only knows apt-get; install it yourself"
   DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
   DEBIAN_FRONTEND=noninteractive apt-get install -y iperf3 >/dev/null 2>&1 ||
     die "Could not install iperf3"
-  note "$(iperf3 --version | head -1) installed"
 fi
+IPERF_BIN="$(command -v iperf3)"
+[[ "${IPERF_BIN}" =~ ^/[A-Za-z0-9_./+-]+$ && -x "${IPERF_BIN}" ]] ||
+  die "Could not resolve iperf3 to a safe absolute executable path"
+note "$("${IPERF_BIN}" --version | head -1) is installed at ${IPERF_BIN}"
+iperf_version="$(
+  "${IPERF_BIN}" --version 2>&1 | head -n 1 |
+    sed -n 's/^iperf \([0-9][0-9.]*\).*/\1/p'
+)"
+[[ -n "${iperf_version}" ]] ||
+  die "Could not determine the installed iperf3 version"
+oldest_version="$(
+  printf '%s\n%s\n' 3.17 "${iperf_version}" | sort -V | head -n 1
+)"
+[[ "${oldest_version}" == "3.17" ]] ||
+  die "iperf3 ${iperf_version} is too old; authenticated endpoints require 3.17 or newer"
+"${IPERF_BIN}" --version 2>&1 | grep -i 'authentication' >/dev/null ||
+  die "This iperf3 build lacks authentication support"
+note "authenticated OAEP clients are supported"
 
 # The package creates the iperf3 user and group; the service runs under
 # them. Without the group the service could not get at its private key.
@@ -250,7 +267,7 @@ cat > "${DROP_IN}" <<UNIT
 # daemon-reload" takes the change back completely.
 [Service]
 ExecStart=
-ExecStart=/usr/bin/iperf3 --server --interval 0 --port ${port} \\
+ExecStart=${IPERF_BIN} --server --interval 0 --port ${port} \\
   --rsa-private-key-path ${CONFIG_DIR}/private.pem \\
   --authorized-users-path ${CONFIG_DIR}/credentials.csv
 UNIT
@@ -265,13 +282,15 @@ note "listening on port ${port}, running as $(systemctl show "${SERVICE}" -p Use
 printf '\n== Counter-check ==\n'
 # An endpoint that accepts unauthenticated clients looks exactly like a
 # working one until the day somebody else finds it.
-if iperf3 --client 127.0.0.1 --port "${port}" --time 1 >/dev/null 2>&1; then
+if "${IPERF_BIN}" --client 127.0.0.1 --port "${port}" \
+  --time 1 >/dev/null 2>&1; then
   die "The endpoint accepted a client without credentials; authentication is not in effect"
 fi
 note "a client without credentials is rejected"
 if [[ -n "${password}" ]]; then
-  if IPERF3_PASSWORD="${password}" iperf3 --client 127.0.0.1 --port "${port}" \
-    --time 1 --bitrate 10M --username "${user_name}" \
+  if IPERF3_PASSWORD="${password}" "${IPERF_BIN}" \
+    --client 127.0.0.1 --port "${port}" --time 1 --bitrate 10M \
+    --username "${user_name}" \
     --rsa-public-key-path "${CONFIG_DIR}/public.pem" >/dev/null 2>&1; then
     note "a client with credentials is accepted"
   else

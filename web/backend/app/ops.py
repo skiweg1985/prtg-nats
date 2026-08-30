@@ -93,6 +93,82 @@ async def _cmd_backup(_: argparse.Namespace) -> None:
     print("Copy it to protected backup storage; backups/ is excluded from Git.")
 
 
+async def _cmd_export_tool(args: argparse.Namespace) -> None:
+    """Emit a signed tool envelope for the legacy shell deployment path."""
+    from app.core.errors import RuntimeStateError
+    from app.infrastructure.helper_signing import HelperSigner
+    from app.infrastructure.tool_catalog import ToolCatalog, build_tool_envelope
+
+    settings = _settings()
+    artifact = ToolCatalog(settings.tool_source_dir).select(args.tool, args.platform)
+    if artifact.version != args.expected_version:
+        raise RuntimeStateError(
+            params={"path": str(artifact.path)},
+            details=(
+                f"the release image contains {artifact.name} {artifact.version}, "
+                f"not the requested {args.expected_version}"
+            ),
+        )
+    envelope = build_tool_envelope(artifact)
+    signature = HelperSigner(settings).sign(envelope.encode("utf-8"))
+    # First line is the protocol argument; every following byte is the exact
+    # signed payload. Neither is a secret.
+    sys.stdout.write(f"{signature}\n{envelope}")
+
+
+async def _cmd_check_tool(args: argparse.Namespace) -> None:
+    """Verify one release artifact without signing or changing runtime state."""
+    from app.core.errors import RuntimeStateError
+    from app.infrastructure.tool_catalog import ToolCatalog
+
+    artifact = ToolCatalog(_settings().tool_source_dir).select(args.tool, args.platform)
+    if artifact.version != args.expected_version:
+        raise RuntimeStateError(
+            params={"path": str(artifact.path)},
+            details=(
+                f"the release image contains {artifact.name} {artifact.version}, "
+                f"not the requested {args.expected_version}"
+            ),
+        )
+    artifact.read_verified()
+    print(
+        f"OK tool={artifact.name} version={artifact.version} "
+        f"platform={artifact.platform} sha256={artifact.sha256} size={artifact.size}"
+    )
+
+
+async def _cmd_tool_policy(args: argparse.Namespace) -> None:
+    """Resolve whether one platform must receive managed or system bytes."""
+    from app.core.errors import RuntimeStateError
+    from app.infrastructure.tool_catalog import ToolCatalog
+
+    catalog = ToolCatalog(_settings().tool_source_dir)
+    release_version = catalog.version(args.tool)
+    if release_version != args.expected_version:
+        raise RuntimeStateError(
+            params={"path": str(_settings().tool_source_dir)},
+            details=(
+                f"the release image contains {args.tool} {release_version}, "
+                f"not the requested {args.expected_version}"
+            ),
+        )
+    fallback_minimum = catalog.system_fallback_minimum(args.tool)
+    if fallback_minimum != args.expected_fallback_minimum:
+        raise RuntimeStateError(
+            params={"path": str(_settings().tool_source_dir)},
+            details=(
+                f"the release policy requires system {args.tool} "
+                f">={fallback_minimum}, not >={args.expected_fallback_minimum}"
+            ),
+        )
+    if catalog.has_managed_artifact(args.tool, args.platform):
+        catalog.select(args.tool, args.platform).read_verified()
+        print("managed")
+        return
+    catalog.validate_system_fallback(args.tool, args.platform)
+    print("system")
+
+
 async def _cmd_user(args: argparse.Namespace) -> None:
     from app.infrastructure.docker import DockerAdapter
     from app.infrastructure.nats_runtime import NatsRuntime
@@ -234,6 +310,28 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("renew-certificate", help="renew the server certificate")
     commands.add_parser("backup", help="create a consistent JetStream backup")
 
+    export_tool = commands.add_parser(
+        "export-tool", help="emit one signed managed-tool envelope"
+    )
+    export_tool.add_argument("tool")
+    export_tool.add_argument("platform")
+    export_tool.add_argument("expected_version")
+
+    check_tool = commands.add_parser(
+        "check-tool", help="verify one managed-tool release artifact"
+    )
+    check_tool.add_argument("tool")
+    check_tool.add_argument("platform")
+    check_tool.add_argument("expected_version")
+
+    tool_policy = commands.add_parser(
+        "tool-policy", help="resolve the approved source for one platform"
+    )
+    tool_policy.add_argument("tool")
+    tool_policy.add_argument("platform")
+    tool_policy.add_argument("expected_version")
+    tool_policy.add_argument("expected_fallback_minimum")
+
     user = commands.add_parser("user", help="manage NATS accounts")
     user_actions = user.add_subparsers(dest="action", required=True)
     user_actions.add_parser("list")
@@ -261,6 +359,9 @@ def main(argv: list[str] | None = None) -> None:
         "verify": _cmd_verify,
         "renew-certificate": _cmd_renew_certificate,
         "backup": _cmd_backup,
+        "export-tool": _cmd_export_tool,
+        "check-tool": _cmd_check_tool,
+        "tool-policy": _cmd_tool_policy,
         "user": _cmd_user,
     }
     try:

@@ -38,6 +38,13 @@ class InstalledSensor:
     # Absent from a helper below version 6. None therefore means "not
     # reported", never "no helper" - that is what helper_state says.
     helper_sha256: str | None = None
+    tool_name: str | None = None
+    tool_version: str | None = None
+    tool_platform: str | None = None
+    tool_sha256: str | None = None
+    tool_source: str | None = None
+    tool_path: str | None = None
+    tool_compatible: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +88,7 @@ class ObservedProbeState:
     # the probe that cannot be updated over the channel yet.
     helper_version: int | None = None
     helper_sha256: str | None = None
+    platform: str | None = None
     sensors: tuple[InstalledSensor, ...] = ()
     error_code: str | None = None
     error_details: str | None = None
@@ -124,6 +132,7 @@ class ObservedProbeState:
             "has_access_key": self.has_access_key,
             "helper_version": self.helper_version,
             "helper_sha256": self.helper_sha256,
+            "platform": self.platform,
             "sensors": [
                 {
                     "name": sensor.name,
@@ -131,6 +140,14 @@ class ObservedProbeState:
                     "sha256": sensor.sha256,
                     "interfaces": list(sensor.interfaces),
                     "helper_state": sensor.helper_state,
+                    "helper_sha256": sensor.helper_sha256,
+                    "tool_name": sensor.tool_name,
+                    "tool_version": sensor.tool_version,
+                    "tool_platform": sensor.tool_platform,
+                    "tool_sha256": sensor.tool_sha256,
+                    "tool_source": sensor.tool_source,
+                    "tool_path": sensor.tool_path,
+                    "tool_compatible": sensor.tool_compatible,
                 }
                 for sensor in self.sensors
             ],
@@ -161,6 +178,7 @@ class ObservedProbeState:
             has_access_key=bool(document.get("has_access_key")),
             helper_version=document.get("helper_version"),
             helper_sha256=document.get("helper_sha256"),
+            platform=document.get("platform"),
             sensors=tuple(
                 InstalledSensor(
                     name=entry.get("name", ""),
@@ -168,6 +186,14 @@ class ObservedProbeState:
                     sha256=entry.get("sha256"),
                     interfaces=tuple(entry.get("interfaces") or ()),
                     helper_state=entry.get("helper_state"),
+                    helper_sha256=entry.get("helper_sha256"),
+                    tool_name=entry.get("tool_name"),
+                    tool_version=entry.get("tool_version"),
+                    tool_platform=entry.get("tool_platform"),
+                    tool_sha256=entry.get("tool_sha256"),
+                    tool_source=entry.get("tool_source"),
+                    tool_path=entry.get("tool_path"),
+                    tool_compatible=entry.get("tool_compatible"),
                 )
                 for entry in document.get("sensors", [])
             ),
@@ -194,6 +220,7 @@ def parse_probe_info(
         has_access_key=normalise_optional(response.value("access_key")) is not None,
         helper_version=_helper_version(response.value("helper_version")),
         helper_sha256=normalise_optional(response.value("helper_sha256")),
+        platform=normalise_optional(response.value("platform")),
     )
 
 
@@ -221,6 +248,17 @@ def parse_sensor_list(response: HelperResponse) -> tuple[InstalledSensor, ...]:
                 interfaces=tuple(interfaces.split(",")) if interfaces else (),
                 helper_state=normalise_optional(record.get("helper")),
                 helper_sha256=normalise_optional(record.get("helper_sha256")),
+                tool_name=normalise_optional(record.get("tool")),
+                tool_version=normalise_optional(record.get("tool_version")),
+                tool_platform=normalise_optional(record.get("tool_platform")),
+                tool_sha256=normalise_optional(record.get("tool_sha256")),
+                tool_source=normalise_optional(record.get("tool_source")),
+                tool_path=normalise_optional(record.get("tool_path")),
+                tool_compatible=(
+                    record.get("tool_compatible") == "yes"
+                    if normalise_optional(record.get("tool_compatible")) is not None
+                    else None
+                ),
             )
         )
     return tuple(sensors)

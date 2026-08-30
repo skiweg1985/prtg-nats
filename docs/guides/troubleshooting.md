@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 role: everyone
-updated: 2026-08-04
+updated: 2026-08-30
 ---
 
 # Troubleshooting
@@ -23,12 +23,17 @@ the probe's own words behind a disclosure control. See
 | Certificate name does not match | an IP instead of the FQDN, or a wrong DNS record | use `nats.example.com` and correct DNS |
 | `Failed to read config file: Permission denied` | `config.yaml` is not readable by the service account | `prtg.mpprobe.service` runs as `paessler_mpprobe`; the file has to belong to that group and be at least `0640` |
 | `Authorization Violation` | wrong NATS account or password | compare the protected credential file; do not use PRTG login details |
+| An iperf3 rollout cannot identify the userspace platform | the helper cannot choose a managed artifact or a controlled system fallback | [Check the iperf3 tool selection](#an-iperf3-rollout-rejects-the-tool); do not select from `uname -m` |
+| An iperf3 rollout rejects a managed signature or SHA-256 digest | the artifact is incomplete, altered or from a different release | update the central stack and redeploy; a failed managed check never becomes a system fallback |
+| An iperf3 rollout requests `/usr/bin/iperf3` | this identified platform has no managed artifact and the system fallback is absent or incompatible | install or update the operating-system package manually, then redeploy |
+| `test authorization failed (auth-failed)` against a foreign iperf endpoint | the endpoint is older than 3.17 or the credentials, public key or clock do not match | [Check the endpoint's OAEP support](#iperf3-reports-auth-failed) |
 | `connection refused` or a timeout | firewall, DNS, or the container is not ready | check the network path; on the NATS host run `./prtg-nats status` |
 | `nats: IO error` in a loop while a port test says "reachable" | the firewall resets the session at the TLS upgrade | [The connection drops at the TLS upgrade](#the-connection-drops-at-the-tls-upgrade) |
 | `dpkg process was interrupted` | an earlier package run was aborted | on the probe run `sudo dpkg --configure -a`, `sudo apt-get -f install` and `sudo dpkg --audit` |
 | The probe does not appear | wrong PRTG access key, or the GID was denied | check the access key and `Deny GIDs`, then restart the service |
 | `result_evaluation was not available` | an old, incompatible ping v2 sensor | recreate the sensor in PRTG; this is not a NATS connection error |
 | A job stays on `running` and cancel does nothing | its worker is gone, usually the API container was restarted mid-job | [A job stays on running](#a-job-stays-on-running-and-cancel-does-nothing) |
+| `active_transaction=TRANSACTION` after a sensor activation refusal | an earlier sensor job stopped after activation and left its guarded snapshot | use the exact transaction-bound command from the failed job; see [Recover an interrupted transaction](deploy-sensors.md#recover-an-interrupted-transaction) |
 | `probe.package_missing`, or `Unit prtg.mpprobe.service not found` while configuring | the probe carries no `prtgmpprobe`, usually after an unenrollment with `--uninstall-mpp` | [Re-enrolling a probe whose package was removed](#re-enrolling-a-probe-whose-package-was-removed) |
 | `Sensor NAME was modified on the probe`, and redeploying does not clear it | a probe helper older than version 2 reports the digest of the rewritten shebang | [A sensor reports as modified right after deployment](#a-sensor-reports-as-modified-right-after-deployment) |
 | `bind: address already in use` after an update, and the proxy restarts in a loop | a container from an older checkout still holds the port | [A container from an older checkout holds a port](#a-container-from-an-older-checkout-holds-a-port) |
@@ -97,6 +102,112 @@ sudo ./prtg-nats probe configure mpp-probe-01
 
 Check the NATS account and password. Do not confuse them with the PRTG web
 login or with the PRTG access key.
+
+### An iperf3 rollout rejects the tool
+
+The `iperf-throughput` rollout chooses its source from the probe's userspace
+platform. It prefers a signed iperf3 3.21 release artifact. An identified
+platform without an artifact may use an already installed
+`/usr/bin/iperf3`, provided it is version 3.18 or newer and reports
+`authentication`. A failure leaves the previous sensor and managed tool active.
+
+Start on the NATS host:
+
+```bash
+./prtg-nats sensor status mpp-probe-01
+```
+
+The status names the source, absolute path, active version, platform, SHA-256
+digest and compatibility. The managed platform values are:
+
+- `linux-amd64-glibc`
+- `linux-arm64-glibc`
+- `linux-armhf-glibc`, for ARMv7 and newer
+
+If platform detection is the failure, check the **userspace** on the probe:
+
+```bash
+dpkg --print-architecture
+getconf LONG_BIT
+file -L /bin/sh
+```
+
+Use the equivalent package-architecture command on a non-Debian system. Do
+not decide from `uname -m` alone: a Raspberry Pi can report an `aarch64`
+kernel while its programs and dynamic loader are 32-bit `armhf`.
+
+An identified ABI outside those three values is not automatically unsupported.
+For example, `linux-armhf-v6-glibc` uses the controlled system fallback because
+the ARMv7 managed artifact cannot run there. An unidentifiable userspace still
+fails closed. Do not copy another platform's executable or create `current` by
+hand.
+
+For a managed platform, update the central stack so the catalogue, signatures
+and artifacts come from the same release, then deploy again:
+
+```bash
+./prtg-nats update
+./prtg-nats sensor deploy iperf-throughput mpp-probe-01
+```
+
+The rollout updates an outdated helper before it sends the tool. If the probe
+was enrolled before signed helper updates and has no verification key, follow
+the one-time bootstrap path in
+[Deploy sensors](deploy-sensors.md#prerequisite-a-current-probe-helper).
+
+If a signature, digest or version mismatch repeats after a clean stack update,
+stop. Keep the old `current` target in place and investigate the release
+artifact or transfer. That failure must not select `/usr/bin/iperf3`; the
+system fallback exists only when no artifact matches the identified platform.
+
+If the status says `source=system`, check the exact path on the probe:
+
+```bash
+/usr/bin/iperf3 --version
+```
+
+The first line must be version 3.18 or newer and the optional features must
+include `authentication`. If the file is absent or fails either check, install
+or update the distribution's `iperf3` package manually and redeploy. The helper
+does not run `apt`, `dnf` or another package manager, and it does not accept a
+binary from a different path.
+
+### iperf3 reports `auth-failed`
+
+The sensor reports this shape when the endpoint rejects its authenticated
+measurement:
+
+```text
+The endpoint refused the download measurement: test authorization failed
+(auth-failed)
+```
+
+First confirm that the probe status reports a compatible tool. A managed
+source must name iperf3 3.21 and its release path; a system source must name
+`/usr/bin/iperf3` and version 3.18 or newer. A missing or incompatible tool
+status is a rollout problem and belongs to the previous section.
+
+For a foreign endpoint, ask its operator to run:
+
+```bash
+iperf3 --version
+```
+
+It must report 3.17 or newer and list `authentication` in its optional
+features. Version 3.17 introduced the RSA-OAEP authentication path used by the
+managed client. An older endpoint uses incompatible legacy padding and must be
+upgraded before the credentials can work.
+
+Do not add `--use-pkcs1-padding` to the client or server. It uses a different
+authentication mode and is not a supported compatibility mode. Do not point
+the sensor at an older system iperf3 either.
+
+If the endpoint passes the version preflight, continue with the public-key,
+credential and clock checks in
+[the foreign-endpoint guide](foreign-iperf-endpoint.md#counter-check-on-the-endpoint-itself).
+The public key must belong to that endpoint, the user and password must be the
+pair used to build its authorization hash, and both clocks must be
+synchronized. None of those values should be printed in a job log.
 
 ### The probe runs, but creating a sensor fails
 

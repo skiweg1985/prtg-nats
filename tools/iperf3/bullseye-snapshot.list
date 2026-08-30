@@ -1,0 +1,6 @@
+# The minimal builder image deliberately has no CA bundle yet. APT still
+# verifies the signed Release files before accepting packages from these HTTP
+# snapshot endpoints; ca-certificates is installed before any source download.
+deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260824T000000Z/ bullseye main
+deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260824T000000Z/ bullseye-updates main
+deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260824T000000Z/ bullseye-security main

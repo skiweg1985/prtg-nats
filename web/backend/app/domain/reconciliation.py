@@ -25,6 +25,24 @@ from app.domain.models import (
 
 
 @dataclass(frozen=True, slots=True)
+class ToolExpectation:
+    """The executable contract for one sensor on one reported platform.
+
+    Managed tools are exact-version, exact-digest release artifacts. System
+    tools use ``version`` as a minimum and deliberately have no expected
+    digest because their bytes belong to the operating system.
+    """
+
+    name: str
+    version: str
+    platform: str
+    source: str | None
+    path: str | None
+    sha256: str | None
+    supported: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SensorComparison:
     """The per-sensor row of a probe's sensor tab."""
 
@@ -38,6 +56,21 @@ class SensorComparison:
     helper_state: str | None = None
     installed_helper_sha256: str | None = None
     expected_helper_sha256: str | None = None
+    tool_name: str | None = None
+    installed_tool_version: str | None = None
+    expected_tool_version: str | None = None
+    tool_platform: str | None = None
+    installed_tool_sha256: str | None = None
+    expected_tool_sha256: str | None = None
+    tool_supported: bool | None = None
+    tool_source: str | None = None
+    tool_path: str | None = None
+    tool_compatible: bool | None = None
+    installed_tool_name: str | None = None
+    installed_tool_platform: str | None = None
+    expected_tool_platform: str | None = None
+    expected_tool_source: str | None = None
+    expected_tool_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +113,7 @@ def compare_sensors(
     catalogue_versions: dict[str, str],
     catalogue_checksums: dict[str, str] | None = None,
     catalogue_helper_checksums: dict[str, str] | None = None,
+    catalogue_tools: dict[str, ToolExpectation] | None = None,
 ) -> list[SensorComparison]:
     """Line up wanted sensors against installed ones.
 
@@ -89,6 +123,7 @@ def compare_sensors(
     """
     checksums = catalogue_checksums or {}
     helper_checksums = catalogue_helper_checksums or {}
+    tools = catalogue_tools or {}
     comparisons: list[SensorComparison] = []
     seen: set[str] = set()
 
@@ -96,6 +131,7 @@ def compare_sensors(
         seen.add(wanted.name)
         target_version = wanted.version or catalogue_versions.get(wanted.name)
         installed = observed.sensor(wanted.name)
+        expected_tool = tools.get(wanted.name)
         comparisons.append(
             SensorComparison(
                 name=wanted.name,
@@ -104,6 +140,7 @@ def compare_sensors(
                     target_version,
                     checksums.get(wanted.name),
                     helper_checksums.get(wanted.name),
+                    expected_tool,
                 ),
                 desired_version=target_version,
                 installed_version=installed.version if installed else None,
@@ -115,6 +152,35 @@ def compare_sensors(
                     installed.helper_sha256 if installed else None
                 ),
                 expected_helper_sha256=helper_checksums.get(wanted.name),
+                tool_name=(
+                    expected_tool.name
+                    if expected_tool
+                    else (installed.tool_name if installed else None)
+                ),
+                installed_tool_version=(installed.tool_version if installed else None),
+                expected_tool_version=(
+                    expected_tool.version if expected_tool else None
+                ),
+                tool_platform=(
+                    installed.tool_platform
+                    if installed and installed.tool_platform
+                    else (expected_tool.platform if expected_tool else None)
+                ),
+                installed_tool_sha256=(installed.tool_sha256 if installed else None),
+                expected_tool_sha256=(expected_tool.sha256 if expected_tool else None),
+                tool_supported=(expected_tool.supported if expected_tool else None),
+                tool_source=(installed.tool_source if installed else None),
+                tool_path=(installed.tool_path if installed else None),
+                tool_compatible=(installed.tool_compatible if installed else None),
+                installed_tool_name=(installed.tool_name if installed else None),
+                installed_tool_platform=(
+                    installed.tool_platform if installed else None
+                ),
+                expected_tool_platform=(
+                    expected_tool.platform if expected_tool else None
+                ),
+                expected_tool_source=(expected_tool.source if expected_tool else None),
+                expected_tool_path=(expected_tool.path if expected_tool else None),
             )
         )
 
@@ -133,6 +199,34 @@ def compare_sensors(
                 expected_sha256=checksums.get(installed.name),
                 interfaces=installed.interfaces,
                 helper_state=installed.helper_state,
+                installed_helper_sha256=installed.helper_sha256,
+                tool_name=installed.tool_name,
+                installed_tool_version=installed.tool_version,
+                expected_tool_version=(
+                    tools[installed.name].version if installed.name in tools else None
+                ),
+                tool_platform=installed.tool_platform,
+                installed_tool_sha256=installed.tool_sha256,
+                expected_tool_sha256=(
+                    tools[installed.name].sha256 if installed.name in tools else None
+                ),
+                tool_supported=(
+                    tools[installed.name].supported if installed.name in tools else None
+                ),
+                tool_source=installed.tool_source,
+                tool_path=installed.tool_path,
+                tool_compatible=installed.tool_compatible,
+                installed_tool_name=installed.tool_name,
+                installed_tool_platform=installed.tool_platform,
+                expected_tool_platform=(
+                    tools[installed.name].platform if installed.name in tools else None
+                ),
+                expected_tool_source=(
+                    tools[installed.name].source if installed.name in tools else None
+                ),
+                expected_tool_path=(
+                    tools[installed.name].path if installed.name in tools else None
+                ),
             )
         )
 
@@ -144,6 +238,7 @@ def _sensor_status(
     target_version: str | None,
     expected_sha256: str | None,
     expected_helper_sha256: str | None = None,
+    expected_tool: ToolExpectation | None = None,
 ) -> SensorInstallationStatus:
     if installed is None:
         return SensorInstallationStatus.ABSENT
@@ -167,7 +262,45 @@ def _sensor_status(
         and installed.helper_sha256 != expected_helper_sha256
     ):
         return SensorInstallationStatus.DRIFTED
+    if expected_tool:
+        if not expected_tool.supported:
+            return SensorInstallationStatus.DRIFTED
+        if installed.tool_name != expected_tool.name:
+            return SensorInstallationStatus.DRIFTED
+        if installed.tool_platform != expected_tool.platform:
+            return SensorInstallationStatus.DRIFTED
+        if installed.tool_source != expected_tool.source:
+            return SensorInstallationStatus.DRIFTED
+        if installed.tool_path != expected_tool.path:
+            return SensorInstallationStatus.DRIFTED
+        if expected_tool.source == "system":
+            if not _version_at_least(installed.tool_version, expected_tool.version):
+                return SensorInstallationStatus.OUTDATED
+        elif installed.tool_version != expected_tool.version:
+            return SensorInstallationStatus.OUTDATED
+        if installed.tool_compatible is not True:
+            return SensorInstallationStatus.DRIFTED
+        if (
+            expected_tool.source == "managed"
+            and installed.tool_sha256 != expected_tool.sha256
+        ):
+            return SensorInstallationStatus.DRIFTED
     return SensorInstallationStatus.CURRENT
+
+
+def _version_at_least(actual: str | None, minimum: str) -> bool:
+    """Compare numeric dotted versions without treating 3.9 as newer than 3.18."""
+    if actual is None:
+        return False
+    try:
+        actual_parts = tuple(int(part) for part in actual.split("."))
+        minimum_parts = tuple(int(part) for part in minimum.split("."))
+    except ValueError:
+        return False
+    width = max(len(actual_parts), len(minimum_parts))
+    return actual_parts + (0,) * (width - len(actual_parts)) >= minimum_parts + (0,) * (
+        width - len(minimum_parts)
+    )
 
 
 def needs_attention(deviation: Deviation) -> bool:
@@ -191,6 +324,7 @@ def find_deviations(
     catalogue_versions: dict[str, str],
     catalogue_checksums: dict[str, str] | None = None,
     catalogue_helper_checksums: dict[str, str] | None = None,
+    catalogue_tools: dict[str, ToolExpectation] | None = None,
     catalogue_needs_interface: set[str] | None = None,
     expected_ca_sha256: str | None = None,
 ) -> list[Deviation]:
@@ -263,6 +397,7 @@ def find_deviations(
         catalogue_versions=catalogue_versions,
         catalogue_checksums=catalogue_checksums,
         catalogue_helper_checksums=catalogue_helper_checksums,
+        catalogue_tools=catalogue_tools,
     ):
         deviation = _sensor_deviation(observed.nats_username, comparison)
         if deviation is not None:
@@ -331,24 +466,79 @@ def _sensor_deviation(probe: str, comparison: SensorComparison) -> Deviation | N
                 params={"probe": probe, "sensor": comparison.name},
             )
         case SensorInstallationStatus.OUTDATED:
+            expected = comparison.desired_version
+            actual = comparison.installed_version
+            if _tool_version_is_outdated(comparison):
+                qualifier = ">=" if comparison.expected_tool_source == "system" else ""
+                expected = (
+                    f"{comparison.tool_name} {qualifier}"
+                    f"{comparison.expected_tool_version}"
+                )
+                actual = (
+                    f"{comparison.installed_tool_name or 'none'} "
+                    f"{comparison.installed_tool_version or 'none'}"
+                )
             return Deviation(
                 kind=DeviationKind.SENSOR_OUTDATED,
                 severity=DeviationSeverity.WARNING,
                 object_type="sensor",
                 object_ref=comparison.name,
-                expected=comparison.desired_version,
-                actual=comparison.installed_version,
+                expected=expected,
+                actual=actual,
                 remediation="sensor.deploy",
                 params={"probe": probe, "sensor": comparison.name},
             )
         case SensorInstallationStatus.DRIFTED:
+            expected = comparison.expected_sha256
+            actual = comparison.installed_sha256
+            if comparison.tool_supported is False:
+                expected = (
+                    f"supported {comparison.tool_name} source for "
+                    f"{comparison.expected_tool_platform}"
+                )
+                actual = f"unsupported platform {comparison.tool_platform}"
+            elif comparison.expected_tool_version and (
+                comparison.installed_tool_name != comparison.tool_name
+                or comparison.installed_tool_platform
+                != comparison.expected_tool_platform
+                or comparison.tool_source != comparison.expected_tool_source
+                or comparison.tool_path != comparison.expected_tool_path
+                or comparison.tool_compatible is not True
+                or (
+                    comparison.expected_tool_source == "managed"
+                    and comparison.installed_tool_sha256
+                    != comparison.expected_tool_sha256
+                )
+            ):
+                version = (
+                    f">={comparison.expected_tool_version}"
+                    if comparison.expected_tool_source == "system"
+                    else comparison.expected_tool_version
+                )
+                expected = " ".join(
+                    (
+                        comparison.tool_name or "none",
+                        version,
+                        comparison.expected_tool_platform or "none",
+                        comparison.expected_tool_source or "none",
+                        comparison.expected_tool_path or "none",
+                    )
+                )
+                actual = (
+                    f"{comparison.installed_tool_name or 'none'} "
+                    f"{comparison.installed_tool_version or 'none'} "
+                    f"{comparison.installed_tool_platform or 'none'} "
+                    f"{comparison.tool_source or 'none'} "
+                    f"{comparison.tool_path or 'none'} "
+                    f"compatible={comparison.tool_compatible}"
+                )
             return Deviation(
                 kind=DeviationKind.SENSOR_DRIFTED,
                 severity=DeviationSeverity.WARNING,
                 object_type="sensor",
                 object_ref=comparison.name,
-                expected=comparison.expected_sha256,
-                actual=comparison.installed_sha256,
+                expected=expected,
+                actual=actual,
                 remediation="sensor.deploy",
                 params={"probe": probe, "sensor": comparison.name},
             )
@@ -366,6 +556,15 @@ def _sensor_deviation(probe: str, comparison: SensorComparison) -> Deviation | N
             )
         case _:
             return None
+
+
+def _tool_version_is_outdated(comparison: SensorComparison) -> bool:
+    expected = comparison.expected_tool_version
+    if expected is None:
+        return False
+    if comparison.expected_tool_source == "system":
+        return not _version_at_least(comparison.installed_tool_version, expected)
+    return comparison.installed_tool_version != expected
 
 
 def build_plan(probe_username: str, deviations: list[Deviation]) -> ReconciliationPlan:

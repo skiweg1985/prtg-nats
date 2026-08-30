@@ -1128,6 +1128,59 @@ def check_iperf_throughput_output():
         check("the message names the cause",
               "tool-missing" in document.get("message", ""), True)
 
+    original_iperf = module.IPERF
+    original_config_root = module.CONFIG_ROOT
+    with tempfile.TemporaryDirectory() as tool_directory:
+        candidate = os.path.join(tool_directory, "iperf3")
+        module.CONFIG_ROOT = tool_directory
+
+        def managed_tool_self_check(version, authentication=True,
+                                    executable=True, source="managed"):
+            features = "authentication" if authentication else "sctp"
+            tool_env = os.path.join(tool_directory, "tool.env")
+            if source == "system":
+                with open(tool_env, "w", encoding="utf-8") as handle:
+                    handle.write("SOURCE=system\n")
+            elif os.path.exists(tool_env):
+                os.unlink(tool_env)
+            with open(candidate, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "#!/bin/sh\n"
+                    "printf '%s\\n' 'iperf %s' "
+                    "'Optional features available: %s'\n"
+                    % ("%s", version, features)
+                )
+            os.chmod(candidate, 0o755 if executable else 0o644)
+            module.IPERF = candidate
+            output = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(output):
+                    result = module.self_check(iperf_arguments(self_check=True))
+            except SystemExit:
+                result = json.loads(output.getvalue())
+            return result
+
+        document = managed_tool_self_check("3.21")
+        check("the approved authenticated iperf3 passes the self-test",
+              document.get("status"), "ok")
+        document = managed_tool_self_check("3.20")
+        check("the wrong managed iperf3 version fails the self-test",
+              document.get("status"), "error")
+        document = managed_tool_self_check("3.21", authentication=False)
+        check("an iperf3 without authentication fails the self-test",
+              document.get("status"), "error")
+        document = managed_tool_self_check("3.21", executable=False)
+        check("a non-executable managed iperf3 fails the self-test",
+              document.get("status"), "error")
+        document = managed_tool_self_check("3.18", source="system")
+        check("the Raspberry Pi OS iperf3 fallback passes the self-test",
+              document.get("status"), "ok")
+        document = managed_tool_self_check("3.17", source="system")
+        check("a system iperf3 below 3.18 fails the self-test",
+              document.get("status"), "error")
+    module.IPERF = original_iperf
+    module.CONFIG_ROOT = original_config_root
+
     completed = run_script(script, "--totally-unknown\n")
     document = json.loads(completed.stdout)
     check("an unknown parameter reports a sensor error",

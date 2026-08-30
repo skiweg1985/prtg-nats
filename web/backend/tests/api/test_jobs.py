@@ -19,7 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1.routes import jobs as jobs_route
 from app.core.config import Settings
-from app.core.errors import ProbeRejectedError, ProbeUnreachableError
+from app.core.errors import (
+    ProbeProtocolError,
+    ProbeRejectedError,
+    ProbeUnreachableError,
+)
 from app.domain.enums import JobStatus, JobStepStatus
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.probe_helper import ProbeHelperClient
@@ -30,7 +34,12 @@ from app.persistence.models.jobs import Job, JobEvent, ResourceLock
 from app.services.events import StreamEvent, get_broadcaster, job_topic
 from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, write_probe_inventory, write_sensor
+from tests.conftest import (
+    ScriptedTransport,
+    write_probe_inventory,
+    write_sensor,
+    write_tool_artifact,
+)
 
 PASSWORD = "correct-horse-battery"
 
@@ -192,7 +201,7 @@ async def test_a_sensor_rollout_drives_the_helper_transaction(
     write_probe_inventory(project_dir, "mpp-berlin-01")
     write_sensor(project_dir, "internet-speed", version="2")
     transport.responses["probe-info"] = (
-        "OK probe-info\npackage=2.1.0\nservice=active\nca_sha256=aa\n"
+        "OK probe-info\npackage=2.1.0\nservice=active\nca_sha256=aa\nhelper_version=8\n"
     )
     await sign_in(client)
 
@@ -232,6 +241,341 @@ async def test_a_sensor_rollout_drives_the_helper_transaction(
         assert job is not None
         assert job.status is JobStatus.SUCCESSFUL
         assert all(step.status is JobStepStatus.SUCCEEDED for step in job.steps)
+
+
+async def test_a_managed_tool_is_selected_and_staged_before_sensor_files(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    platform = "linux-arm64-glibc"
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(
+        project_dir,
+        "iperf-throughput",
+        version="2",
+        managed_tool="iperf3",
+    )
+    write_tool_artifact(project_dir, "iperf3", platform, b"approved executable")
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=2.1.0\nservice=active\n"
+        f"helper_version=8\nplatform={platform}\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "iperf-throughput", "probe_ids": [probe_id]},
+    )
+    await drain(build_runner(settings, transport))
+
+    commands = transport.commands()
+    assert commands.index("sensor-tool-stage") < commands.index("sensor-stage")
+    request = next(
+        request
+        for _, request in transport.calls
+        if request.command.value == "sensor-tool-stage"
+    )
+    assert len(request.arguments) == 3
+    assert request.arguments[1] == "iperf-throughput"
+    assert request.payload is not None
+    assert f"platform={platform}\n" in request.payload
+    assert "version=3.21\n" in request.payload
+
+
+async def test_an_ambiguous_sensor_commit_is_confirmed_idempotently(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "dns-check")
+    transport.responses["sensor-commit"] = [
+        ProbeUnreachableError.of("mpp-berlin-01"),
+        "OK sensor-committed dns-check\n",
+    ]
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    accepted = await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "dns-check", "probe_ids": [probe_id]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    await drain(build_runner(settings, transport))
+
+    assert transport.commands().count("sensor-commit") == 2
+    assert "sensor-rollback" not in transport.commands()
+
+
+@pytest.mark.parametrize(
+    "ambiguous_error",
+    [
+        ProbeRejectedError(details="the commit answer could not be classified"),
+        ProbeProtocolError(details="the commit answer was incomplete"),
+    ],
+    ids=["rejected", "protocol-error"],
+)
+async def test_every_ambiguous_commit_error_is_confirmed_once(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+    ambiguous_error: Exception,
+) -> None:
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "dns-check")
+    transport.responses["sensor-commit"] = [
+        ambiguous_error,
+        "OK sensor-committed dns-check\n",
+    ]
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    accepted = await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "dns-check", "probe_ids": [probe_id]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    await drain(build_runner(settings, transport))
+
+    assert transport.commands().count("sensor-commit") == 2
+    assert "sensor-rollback" not in transport.commands()
+
+
+async def test_a_regular_sensor_updates_an_old_helper_before_commit_retry(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "dns-check")
+    transport.responses["probe-info"] = [
+        "OK probe-info\npackage=2.1.0\nhelper_version=7\n",
+        "OK probe-info\npackage=2.1.0\nhelper_version=8\n",
+        "OK probe-info\npackage=2.1.0\nhelper_version=8\n",
+    ]
+    transport.responses["sensor-commit"] = [
+        ProbeUnreachableError.of("mpp-berlin-01"),
+        "OK sensor-committed dns-check\n",
+    ]
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    accepted = await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "dns-check", "probe_ids": [probe_id]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    await drain(build_runner(settings, transport))
+
+    commands = transport.commands()
+    assert commands[:4] == [
+        "probe-info",
+        "helper-update",
+        "probe-info",
+        "sensor-prepare",
+    ]
+    assert commands.count("sensor-commit") == 2
+    assert "sensor-rollback" not in commands
+    log = await client.get(f"/api/v1/jobs/{accepted.json()['job_id']}/log")
+    codes = [entry["code"] for entry in log.json()]
+    assert "jobs.probe.helper_sent" in codes
+    assert "jobs.probe.helper_updated" in codes
+
+
+async def test_a_managed_tool_rollout_updates_an_old_helper_first(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    platform = "linux-arm64-glibc"
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(
+        project_dir,
+        "iperf-throughput",
+        version="2",
+        managed_tool="iperf3",
+    )
+    write_tool_artifact(project_dir, "iperf3", platform, b"approved executable")
+    transport.responses["probe-info"] = [
+        "OK probe-info\npackage=2.1.0\nhelper_version=6\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n",
+    ]
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "iperf-throughput", "probe_ids": [probe_id]},
+    )
+    await drain(build_runner(settings, transport))
+
+    commands = transport.commands()
+    assert commands[:4] == [
+        "probe-info",
+        "helper-update",
+        "probe-info",
+        "sensor-prepare",
+    ]
+    assert commands.index("helper-update") < commands.index("sensor-tool-stage")
+
+
+async def test_a_missing_platform_artifact_fails_before_sensor_staging(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(
+        project_dir,
+        "iperf-throughput",
+        version="2",
+        managed_tool="iperf3",
+    )
+    write_tool_artifact(
+        project_dir, "iperf3", "linux-arm64-glibc", b"approved executable"
+    )
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=2.1.0\nservice=active\n"
+        "helper_version=8\nplatform=linux-amd64-glibc\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    deployment_id = (
+        await client.post(
+            "/api/v1/deployments",
+            json={"sensor": "iperf-throughput", "probe_ids": [probe_id]},
+        )
+    ).json()["id"]
+    await drain(build_runner(settings, transport))
+
+    assert "sensor-prepare" not in transport.commands()
+    assert "sensor-stage" not in transport.commands()
+    assert "sensor-tool-stage" not in transport.commands()
+    async with session_factory() as db:
+        deployment = await db.get(Deployment, deployment_id)
+        assert deployment is not None
+        assert deployment.status is JobStatus.FAILED
+
+
+async def test_dry_run_accepts_system_fallback_on_an_unmanaged_platform(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "iperf-throughput", managed_tool="iperf3")
+    write_tool_artifact(
+        project_dir, "iperf3", "linux-arm64-glibc", b"approved executable"
+    )
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform=linux-riscv64-glibc\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    deployment_id = (
+        await client.post(
+            "/api/v1/deployments",
+            json={
+                "sensor": "iperf-throughput",
+                "probe_ids": [probe_id],
+                "dry_run": True,
+            },
+        )
+    ).json()["id"]
+    await drain(build_runner(settings, transport))
+
+    assert "helper-update" not in transport.commands()
+    assert "sensor-prepare" not in transport.commands()
+    async with session_factory() as db:
+        deployment = await db.get(Deployment, deployment_id)
+        assert deployment is not None
+        assert deployment.status is JobStatus.SUCCESSFUL
+
+
+async def test_system_fallback_activates_without_staging_managed_bytes(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    platform = "linux-riscv64-glibc"
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "iperf-throughput", managed_tool="iperf3")
+    # The release manifest remains present and valid; this platform is simply
+    # outside the exact managed matrix and is validated on the probe instead.
+    write_tool_artifact(
+        project_dir, "iperf3", "linux-arm64-glibc", b"approved executable"
+    )
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=2.1.0\nservice=active\n"
+        f"helper_version=8\nplatform={platform}\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "iperf-throughput", "probe_ids": [probe_id]},
+    )
+    await drain(build_runner(settings, transport))
+
+    commands = transport.commands()
+    assert "sensor-tool-stage" not in commands
+    assert commands.index("sensor-stage") < commands.index("sensor-activate")
+    assert commands.index("sensor-activate") < commands.index("sensor-commit")
+
+
+async def test_dry_run_rejects_a_tampered_managed_tool_artifact(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    platform = "linux-arm64-glibc"
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "iperf-throughput", managed_tool="iperf3")
+    artifact = write_tool_artifact(
+        project_dir, "iperf3", platform, b"approved executable"
+    )
+    artifact.write_bytes(b"tampered")
+    transport.responses["probe-info"] = (
+        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n"
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    deployment_id = (
+        await client.post(
+            "/api/v1/deployments",
+            json={
+                "sensor": "iperf-throughput",
+                "probe_ids": [probe_id],
+                "dry_run": True,
+            },
+        )
+    ).json()["id"]
+    await drain(build_runner(settings, transport))
+
+    assert "sensor-prepare" not in transport.commands()
+    async with session_factory() as db:
+        deployment = await db.get(Deployment, deployment_id)
+        assert deployment is not None
+        assert deployment.status is JobStatus.FAILED
 
 
 async def test_the_version_file_is_written_last(
@@ -354,7 +698,76 @@ async def test_a_failed_activation_rolls_back_and_reports(
         target = deployment.targets[0]
         assert target.error_code == "probe.request_rejected"
         # The probe's own words, kept verbatim and untranslated.
-        assert "Script v2" in (target.error_details or "")
+        details = target.error_details or ""
+        assert "Script v2" in details
+        assert "Sensor: internet-speed" in details
+        transaction = next(
+            line.removeprefix("Transaction: ")
+            for line in details.splitlines()
+            if line.startswith("Transaction: ")
+        )
+        assert (
+            "./prtg-nats sensor recover internet-speed mpp-berlin-01 "
+            f"--transaction {transaction}"
+        ) in details
+
+
+async def test_a_previous_active_transaction_is_the_reported_recovery_target(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir,
+    transport: ScriptedTransport,
+) -> None:
+    """A colliding deploy Y must point recovery at the transaction X it met."""
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_sensor(project_dir, "internet-speed")
+    transport.responses["sensor-activate"] = ProbeRejectedError(
+        params={
+            "probe": "mpp-berlin-01",
+            "command": "sensor-activate",
+            "active_transaction": "tx-old",
+        },
+        details=(
+            "ERROR: Sensor internet-speed has an active transaction\n"
+            "active_transaction=tx-old"
+        ),
+    )
+    await sign_in(client)
+
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+    deployment_id = (
+        await client.post(
+            "/api/v1/deployments",
+            json={"sensor": "internet-speed", "probe_ids": [probe_id]},
+        )
+    ).json()["id"]
+
+    await drain(build_runner(settings, transport))
+
+    staged_transaction = next(
+        request.arguments[0]
+        for _, request in transport.calls
+        if request.command.value == "sensor-stage"
+    )
+    rollback_transaction = next(
+        request.arguments[0]
+        for _, request in transport.calls
+        if request.command.value == "sensor-rollback"
+    )
+    assert rollback_transaction == staged_transaction
+    assert staged_transaction != "tx-old"
+
+    async with session_factory() as db:
+        deployment = await db.get(Deployment, deployment_id)
+        assert deployment is not None
+        details = deployment.targets[0].error_details or ""
+    command = (
+        "sudo ./prtg-nats sensor recover internet-speed mpp-berlin-01 "
+        "--transaction tx-old"
+    )
+    assert command in details
+    assert f"--transaction {staged_transaction}" not in details
 
 
 async def test_one_unreachable_probe_does_not_stop_the_others(

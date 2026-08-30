@@ -19,6 +19,7 @@
 /web/frontend/dist/
 /web/backend/.venv/
 /web/backend/*.egg-info/
+/tools/iperf3/artifacts/
 
 __pycache__/
 *.pyc

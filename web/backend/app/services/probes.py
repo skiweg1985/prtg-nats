@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.errors import NotFoundError, ProbeUnreachableError
+from app.core.errors import NotFoundError, ProbeUnreachableError, RuntimeStateError
 from app.core.logging import get_logger
 from app.domain.enums import (
     CaState,
@@ -39,6 +39,7 @@ from app.domain.models import (
 from app.domain.reconciliation import (
     ReconciliationPlan,
     SensorComparison,
+    ToolExpectation,
     build_plan,
     compare_sensors,
     find_deviations,
@@ -46,7 +47,8 @@ from app.domain.reconciliation import (
 )
 from app.infrastructure.probe_helper import ProbeConnection, ProbeHelperClient
 from app.infrastructure.runtime_files import ProbeInventory, RuntimeFileStore
-from app.infrastructure.sensor_catalog import SensorCatalog
+from app.infrastructure.sensor_catalog import SensorCatalog, SensorDefinition
+from app.infrastructure.tool_catalog import ToolCatalog
 from app.persistence.models.inventory import (
     ProbeDesiredState,
     ProbeObservedState,
@@ -168,6 +170,16 @@ class ProbeService:
         catalogue_versions = {
             definition.name: definition.version for definition in definitions
         }
+        catalogue_checksums = {
+            definition.name: script.sha256
+            for definition in definitions
+            if (script := definition.file_for("script")) is not None
+        }
+        catalogue_helper_checksums = {
+            definition.name: wrapper.sha256
+            for definition in definitions
+            if (wrapper := definition.file_for("wrapper")) is not None
+        }
         needs_interface = {
             definition.name for definition in definitions if definition.needs_interface
         }
@@ -183,6 +195,11 @@ class ProbeService:
                     desired,
                     observed,
                     catalogue_versions=catalogue_versions,
+                    catalogue_checksums=catalogue_checksums,
+                    catalogue_helper_checksums=catalogue_helper_checksums,
+                    catalogue_tools=self._catalogue_tools(
+                        definitions, observed.platform
+                    ),
                     catalogue_needs_interface=needs_interface,
                     expected_ca_sha256=expected_ca_sha256,
                 )
@@ -226,6 +243,9 @@ class ProbeService:
             for d in definitions
             if (wrapper := d.file_for("wrapper")) is not None
         }
+        catalogue_tools = self._catalogue_tools(
+            definitions, observed.platform if observed is not None else None
+        )
 
         sensors: tuple[SensorComparison, ...] = ()
         deviations: tuple[Deviation, ...] = ()
@@ -237,6 +257,7 @@ class ProbeService:
                     catalogue_versions=catalogue_versions,
                     catalogue_checksums=catalogue_checksums,
                     catalogue_helper_checksums=catalogue_helper_checksums,
+                    catalogue_tools=catalogue_tools,
                 )
             )
             deviations = tuple(
@@ -246,6 +267,7 @@ class ProbeService:
                     catalogue_versions=catalogue_versions,
                     catalogue_checksums=catalogue_checksums,
                     catalogue_helper_checksums=catalogue_helper_checksums,
+                    catalogue_tools=catalogue_tools,
                     catalogue_needs_interface={
                         d.name for d in definitions if d.needs_interface
                     },
@@ -272,6 +294,93 @@ class ProbeService:
             sensors=sensors,
             deviations=deviations,
         )
+
+    def _catalogue_tools(
+        self,
+        definitions: list[SensorDefinition],
+        platform: str | None,
+    ) -> dict[str, ToolExpectation]:
+        if not platform:
+            return {}
+        expectations: dict[str, ToolExpectation] = {}
+        tool_catalog = ToolCatalog(self._settings.tool_source_dir)
+        for definition in definitions:
+            if not definition.managed_tool:
+                continue
+            tool_name = definition.managed_tool
+            minimum = definition.managed_tool_fallback_min_version
+            try:
+                policy_minimum = tool_catalog.system_fallback_minimum(tool_name)
+                if minimum != policy_minimum:
+                    raise RuntimeStateError(
+                        params={"path": str(definition.directory / "manifest.env")},
+                        details=(
+                            f"sensor {definition.name} declares system-tool minimum "
+                            f"{minimum or 'none'}, but release policy requires "
+                            f"{policy_minimum}"
+                        ),
+                    )
+                if tool_catalog.has_managed_artifact(tool_name, platform):
+                    artifact = tool_catalog.select(tool_name, platform)
+                    if artifact.version != definition.managed_tool_version:
+                        raise RuntimeStateError(
+                            params={"path": str(artifact.path)},
+                            details=(
+                                f"sensor {definition.name} requires "
+                                f"{definition.managed_tool_version}, but the release "
+                                f"catalogue contains {artifact.version}"
+                            ),
+                        )
+                    expectations[definition.name] = ToolExpectation(
+                        name=artifact.name,
+                        version=artifact.version,
+                        platform=artifact.platform,
+                        source="managed",
+                        path=(
+                            f"/opt/prtg-nats/tools/{tool_name}/{artifact.version}/"
+                            f"{artifact.platform}/{tool_name}"
+                        ),
+                        sha256=artifact.sha256,
+                        supported=True,
+                    )
+                    continue
+                tool_catalog.validate_system_fallback(tool_name, platform)
+                expectations[definition.name] = ToolExpectation(
+                    name=tool_name,
+                    version=policy_minimum,
+                    platform=platform,
+                    source="system",
+                    path=f"/usr/bin/{tool_name}",
+                    sha256=None,
+                    supported=True,
+                )
+                continue
+            except RuntimeStateError as exc:
+                # Reads stay available so the operator can see the reported
+                # platform and why no approved source can currently satisfy it.
+                logger.warning(
+                    "managed_tool_platform_unsupported",
+                    extra={
+                        "sensor": definition.name,
+                        "tool": tool_name,
+                        "platform": platform,
+                        "error": exc.details,
+                    },
+                )
+                expectations[definition.name] = ToolExpectation(
+                    name=tool_name,
+                    version=(
+                        minimum
+                        or definition.managed_tool_version
+                        or tool_catalog.version(tool_name)
+                    ),
+                    platform=platform,
+                    source=None,
+                    path=None,
+                    sha256=None,
+                    supported=False,
+                )
+        return expectations
 
     # --- Talking to the probe ----------------------------------------------
 

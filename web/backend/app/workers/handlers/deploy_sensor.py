@@ -17,17 +17,29 @@ the self-test on the probe, not our side.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 
-from app.core.errors import AppError
+from app.core.errors import AppError, RuntimeStateError
 from app.core.ids import new_id
 from app.domain.enums import JobStatus, JobStepStatus, LogLevel
-from app.infrastructure.probe_helper import SENSOR_SLOTS, ProbeConnection
+from app.infrastructure.helper_signing import HelperSigner
+from app.infrastructure.probe_helper import (
+    CURRENT_HELPER_VERSION,
+    SENSOR_SLOTS,
+    HelperResponse,
+    ProbeConnection,
+)
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorDefinition
+from app.infrastructure.tool_catalog import (
+    ToolArtifact,
+    ToolCatalog,
+    build_tool_envelope,
+)
 from app.persistence.models.inventory import (
     Deployment,
     DeploymentTarget,
@@ -47,6 +59,7 @@ STEPS: tuple[str, ...] = (
 )
 
 JOB_TYPE = "sensor.deploy"
+_TRANSACTION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 async def run(context: JobContext) -> dict[str, Any]:
@@ -159,6 +172,63 @@ async def deploy_one(
             },
             target=username,
         )
+        if not dry_run:
+            info = await _ensure_sensor_deployment_helper(
+                context, connection, username, info
+            )
+
+        artifact: ToolArtifact | None = None
+        tool_source: str | None = None
+        if definition.managed_tool:
+            tool_catalog = ToolCatalog(context.settings.tool_source_dir)
+            policy_minimum = tool_catalog.system_fallback_minimum(
+                definition.managed_tool
+            )
+            if definition.managed_tool_fallback_min_version != policy_minimum:
+                raise RuntimeStateError(
+                    params={"path": str(definition.directory / "manifest.env")},
+                    details=(
+                        f"sensor {definition.name} declares system-tool minimum "
+                        f"{definition.managed_tool_fallback_min_version or 'none'}, "
+                        f"but release policy requires {policy_minimum}"
+                    ),
+                )
+            platform = info.value("platform")
+            if not platform and dry_run:
+                await context.log(
+                    "jobs.sensor.dry_run_platform_deferred",
+                    params={"probe": username, "sensor": definition.name},
+                    target=username,
+                )
+
+            if not platform:
+                if not dry_run:
+                    raise RuntimeStateError(
+                        params={"path": str(context.settings.libexec_dir)},
+                        details=(
+                            "the updated probe helper did not report a userspace "
+                            "platform"
+                        ),
+                    )
+            else:
+                if tool_catalog.has_managed_artifact(definition.managed_tool, platform):
+                    artifact = tool_catalog.select(definition.managed_tool, platform)
+                    if artifact.version != definition.managed_tool_version:
+                        raise RuntimeStateError(
+                            params={"path": str(definition.directory / "manifest.env")},
+                            details=(
+                                f"sensor {definition.name} requires "
+                                f"{definition.managed_tool_version}, but the release "
+                                f"catalogue contains {artifact.version}"
+                            ),
+                        )
+                    artifact.read_verified()
+                    tool_source = "managed"
+                else:
+                    tool_catalog.validate_system_fallback(
+                        definition.managed_tool, platform
+                    )
+                    tool_source = "system"
 
         if dry_run:
             await context.log(
@@ -168,6 +238,7 @@ async def deploy_one(
                     "sensor": definition.name,
                     "version": definition.version,
                     "slots": ", ".join(_slots_for(definition)),
+                    "tool_source": tool_source or "deferred",
                 },
                 target=username,
             )
@@ -180,6 +251,25 @@ async def deploy_one(
         )
 
         await context.step("stage_files")
+        if artifact is not None:
+            envelope = build_tool_envelope(artifact)
+            signature = HelperSigner(context.settings).sign(envelope.encode("utf-8"))
+            await context.helper.sensor_tool_stage(
+                connection,
+                transaction,
+                definition.name,
+                envelope,
+                signature,
+            )
+            await context.log(
+                "jobs.sensor.staged",
+                params={
+                    "probe": username,
+                    "slot": f"tool:{artifact.name}/{artifact.platform}",
+                    "bytes": artifact.size,
+                },
+                target=username,
+            )
         for slot in _slots_for(definition):
             content = context.catalog.read_slot(definition, slot)
             await context.helper.sensor_stage(
@@ -204,7 +294,7 @@ async def deploy_one(
         )
 
         await context.step("commit")
-        await context.helper.sensor_commit(connection, transaction)
+        await _commit_sensor(context, connection, transaction)
         # The same bookkeeping the retired CLI kept: the assignment feeds the
         # desired-state fallback and the "which probes run it" views.
         context.runtime.remember_sensor(username, definition.name)
@@ -234,6 +324,10 @@ async def deploy_one(
 
     except AppError as error:
         await _try_rollback(context, username, transaction)
+        recovery_transaction = _reported_active_transaction(error) or transaction
+        details = _sensor_recovery_details(
+            error.details, definition.name, username, recovery_transaction
+        )
         await context.log(
             "jobs.sensor.failed",
             level=LogLevel.ERROR,
@@ -243,14 +337,17 @@ async def deploy_one(
                 "reason": error.code,
             },
             target=username,
-            raw=error.details,
+            raw=details,
         )
         return {
             "code": error.code,
-            "details": error.details or "",
+            "details": details,
         }
     except Exception as exc:
         await _try_rollback(context, username, transaction)
+        details = _sensor_recovery_details(
+            f"{type(exc).__name__}: {exc}", definition.name, username, transaction
+        )
         await context.log(
             "jobs.sensor.failed",
             level=LogLevel.ERROR,
@@ -260,9 +357,93 @@ async def deploy_one(
                 "reason": "internal.unexpected",
             },
             target=username,
-            raw=f"{type(exc).__name__}: {exc}",
+            raw=details,
         )
-        return {"code": "internal.unexpected", "details": str(exc)}
+        return {"code": "internal.unexpected", "details": details}
+
+
+def _sensor_recovery_details(
+    details: str | None, sensor: str, username: str, transaction: str
+) -> str:
+    """Attach the exact fail-closed recovery action to a rollout failure."""
+    recovery = (
+        f"Sensor: {sensor}\n"
+        f"Transaction: {transaction}\n"
+        "If this transaction remains active, run:\n"
+        f"sudo ./prtg-nats sensor recover {sensor} {username} "
+        f"--transaction {transaction}"
+    )
+    return f"{details.rstrip()}\n\n{recovery}" if details else recovery
+
+
+def _reported_active_transaction(error: AppError) -> str | None:
+    """Return only the helper's validated, structured blocking transaction."""
+    active_transaction = error.params.get("active_transaction")
+    if not isinstance(active_transaction, str):
+        return None
+    if _TRANSACTION_PATTERN.fullmatch(active_transaction) is None:
+        return None
+    return active_transaction
+
+
+async def _ensure_sensor_deployment_helper(
+    context: JobContext,
+    connection: ProbeConnection,
+    username: str,
+    info: HelperResponse,
+) -> HelperResponse:
+    """Upgrade the signed helper before any real sensor transaction starts."""
+    reported = info.value("helper_version") or ""
+    if reported.isdigit() and int(reported) >= CURRENT_HELPER_VERSION:
+        return info
+
+    asset = context.settings.libexec_dir / "prtg-nats-probe-helper"
+    if not asset.is_file():
+        raise RuntimeStateError(
+            params={"path": str(asset)}, details="the probe helper asset is missing"
+        )
+    script = asset.read_text(encoding="utf-8")
+    signature = HelperSigner(context.settings).sign(asset.read_bytes())
+    response = await context.helper.helper_update(connection, script, signature)
+    await context.log(
+        "jobs.probe.helper_sent",
+        params={
+            "probe": username,
+            "version": response.value("version") or str(CURRENT_HELPER_VERSION),
+        },
+        target=username,
+        raw=response.raw,
+    )
+    refreshed = await context.helper.probe_info(connection)
+    installed = refreshed.value("helper_version") or ""
+    if not installed.isdigit() or int(installed) < CURRENT_HELPER_VERSION:
+        raise RuntimeStateError(
+            params={"path": str(asset)},
+            details=("the probe still reports an older helper after its signed update"),
+        )
+    await context.log(
+        "jobs.probe.helper_updated",
+        params={"probe": username, "version": installed},
+        target=username,
+    )
+    return refreshed
+
+
+async def _commit_sensor(
+    context: JobContext, connection: ProbeConnection, transaction: str
+) -> None:
+    """Confirm an idempotent commit once after any ambiguous helper failure.
+
+    The v8 helper records a bounded commit tombstone before it answers. A
+    second request therefore covers both possibilities: the first request was
+    rejected before it committed, or it committed and the answer was lost or
+    could not be parsed. Every AppError is ambiguous at this boundary; only a
+    second matching commit can resolve it.
+    """
+    try:
+        await context.helper.sensor_commit(connection, transaction)
+    except AppError:
+        await context.helper.sensor_commit(connection, transaction)
 
 
 async def _try_rollback(context: JobContext, username: str, transaction: str) -> None:

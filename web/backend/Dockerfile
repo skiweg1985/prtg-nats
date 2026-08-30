@@ -11,6 +11,51 @@
 # Those used to arrive through a bind mount of the whole checkout, which is
 # also how runtime state ended up pinned to a host path.
 
+# One pinned Debian 11 amd64 builder produces all supported probe artifacts by
+# cross-compiling. This keeps the glibc baseline at 2.31 and needs no QEMU.
+ARG IPERF_BUILDER_PLATFORM=linux/amd64
+FROM --platform=${IPERF_BUILDER_PLATFORM} debian:11.11-slim@sha256:70509c95d1857a3704c0a5d92ee2e0adac95f612a9386889d70760bfd7c1ebba AS iperf-builder
+
+COPY tools/iperf3/bullseye-snapshot.list /etc/apt/sources.list
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install --no-install-recommends -y \
+        binutils \
+        binutils-aarch64-linux-gnu \
+        binutils-arm-linux-gnueabihf \
+        ca-certificates \
+        curl \
+        findutils \
+        gcc \
+        gcc-aarch64-linux-gnu \
+        gcc-arm-linux-gnueabihf \
+        libc6-dev \
+        libc6-dev-arm64-cross \
+        libc6-dev-armhf-cross \
+        make \
+        perl \
+        python3-minimal \
+    && rm -rf /var/lib/apt/lists/*
+
+# python3-minimal intentionally omits the JSON module used to produce and
+# verify the manifest. Kept separate so the large, pinned cross-toolchain layer
+# remains independently cacheable.
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install --no-install-recommends -y python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY tools/iperf3/build.sh \
+    tools/iperf3/check-artifacts.sh \
+    tools/iperf3/THIRD_PARTY_NOTICES.md \
+    tools/iperf3/versions.env \
+    /build/tools/iperf3/
+RUN bash /build/tools/iperf3/build.sh \
+    /build/output/tools/iperf3/artifacts
+
+# A named export target lets CI verify the exact tree that the API image gets.
+FROM scratch AS iperf-artifacts
+COPY --from=iperf-builder /build/output/tools /tools
+
 FROM python:3.11-slim-bookworm AS base
 
 # openssh-client: the probe helper channel falls back to it for host-key
@@ -42,6 +87,8 @@ COPY sensors /opt/prtg-nats/sensors
 COPY libexec /opt/prtg-nats/libexec
 COPY bootstrap /opt/prtg-nats/bootstrap
 COPY install-mpp.sh /opt/prtg-nats/
+COPY --from=iperf-artifacts /tools/iperf3/artifacts \
+    /opt/prtg-nats/tools/iperf3/artifacts
 
 # Which commit produced this image. A container has no checkout to ask, so
 # the answer has to be baked in - it is what lets the update page say "you

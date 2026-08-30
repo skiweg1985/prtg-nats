@@ -65,7 +65,7 @@ Unchanged, and staying: these need an interactive terminal.
 | `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
 | `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes |
 | `probe helper-update USER\|--all` | renew the management helper on the probe |
-| `sensor list/show/deploy/prepare/status/remove/reserve/release/profile` | manage sensors from the shell |
+| `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
 | `mpp-info [USER]` | the values of the generated configuration |
 | `ssh-key info/show` | the management public key |
@@ -73,6 +73,22 @@ Unchanged, and staying: these need an interactive terminal.
 
 Sensor deployments and probe maintenance are also - and preferably - done in
 the web interface, where they run as jobs with a live log and an audit trail.
+
+An interrupted sensor job can leave its exact transaction active on the
+probe. Use only the recovery command copied from that job; the transaction is
+mandatory so an old command cannot roll back a newer deployment:
+
+```bash
+sudo ./prtg-nats sensor recover NAME USER --transaction TRANSACTION
+```
+
+The probe takes the sensor lock and restores only when `TRANSACTION` is still
+the active transaction of `NAME`. No active transaction is an idempotent
+success; a different active transaction is refused without changing it. If
+the helper answers `already-committed`, the command keeps the committed sensor
+and records the central assignment that the interrupted deployment did not
+reach. The operational procedure is in
+[Deploy sensors](../guides/deploy-sensors.md#recover-an-interrupted-transaction).
 
 ### The bootstrap login
 

@@ -4,8 +4,8 @@
 #
 # A sensor lives versioned under sensors/NAME/ and is rolled out over the same
 # restricted channel as the MPP configuration: stage, then activate with a
-# self-test, and roll back automatically on failure. Only text travels over
-# the channel; the helper on the probe creates the sudo rule there itself.
+# self-test, and roll back automatically on failure. Sensor files are text;
+# release-owned executables travel in a separately signed text envelope.
 
 set -Eeuo pipefail
 umask 077
@@ -21,6 +21,7 @@ Usage:
   ./prtg-nats sensor deploy NAME --all [--dry-run]
   ./prtg-nats sensor prepare USER|--all
   ./prtg-nats sensor status USER|--all
+  ./prtg-nats sensor recover NAME USER --transaction TRANSACTION
   ./prtg-nats sensor remove NAME USER
   ./prtg-nats sensor reserve NAME USER INTERFACE
   ./prtg-nats sensor release NAME USER INTERFACE
@@ -45,6 +46,7 @@ require_command ssh
 SENSOR_SOURCE_DIR="${PROJECT_DIR}/sensors"
 SENSOR_PROFILE_DIR="${RUNTIME_DIR}/sensor-profiles"
 DRY_RUN="false"
+SENSOR_DEPLOYMENT_HELPER_VERSION=8
 
 require_username() {
   local username="${1:-}"
@@ -54,6 +56,20 @@ require_username() {
 
 validate_sensor_name() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
+}
+
+active_sensor_transaction_from_error() {
+  local helper_output="$1"
+  local active_transaction=""
+
+  active_transaction="$(
+    printf '%s\n' "${helper_output}" |
+      sed -n 's/^active_transaction=\([A-Za-z0-9][A-Za-z0-9._-]*\)$/\1/p' |
+      head -n 1
+  )"
+  [[ -n "${active_transaction}" ]] || return 1
+  validate_sensor_name "${active_transaction}" || return 1
+  printf '%s\n' "${active_transaction}"
 }
 
 sensor_directory() {
@@ -113,6 +129,10 @@ show_sensor() {
     registered_iperf_servers | sed 's/^/  /'
     [[ -n "$(registered_iperf_servers)" ]] ||
       printf '  none yet — "./prtg-nats iperf-server install ADMIN@HOST"\n'
+  fi
+  if [[ -n "$(sensor_manifest_value "${directory}" SENSOR_TOOL)" ]]; then
+    printf '\nManaged tool: %s (selected by probe userspace platform)\n' \
+      "$(sensor_manifest_value "${directory}" SENSOR_TOOL)"
   fi
   printf '\nAssigned to probes:\n'
   probes_with_sensor "${name}" | sed 's/^/  /'
@@ -226,6 +246,19 @@ deploy_sensor() {
   local source_path=""
   local version=""
   local first_rollout="false"
+  local managed_tool=""
+  local managed_tool_version=""
+  local managed_tool_fallback_min_version=""
+  local helper_version=""
+  local platform=""
+  local tool_policy=""
+  local probe_details=""
+  local exported_tool=""
+  local tool_envelope=""
+  local signature=""
+  local tool_preview=""
+  local activation_answer=""
+  local recovery_transaction=""
 
   directory="$(sensor_directory "${name}")"
   [[ -f "$(probe_path "${username}")" ]] ||
@@ -235,9 +268,55 @@ deploy_sensor() {
   # handled differently in the two cases.
   assigned_sensors "${username}" | grep -q -x -- "${name}" || first_rollout="true"
   version="$(sensor_manifest_value "${directory}" SENSOR_VERSION)"
+  managed_tool="$(sensor_manifest_value "${directory}" SENSOR_TOOL)"
+  managed_tool_version="$(
+    sensor_manifest_value "${directory}" SENSOR_TOOL_VERSION
+  )"
+  managed_tool_fallback_min_version="$(
+    sensor_manifest_value "${directory}" SENSOR_TOOL_FALLBACK_MIN_VERSION
+  )"
   [[ -n "${version}" ]] || die "The manifest of ${name} declares no version"
+  if [[ -n "${managed_tool}" && -z "${managed_tool_version}" ]]; then
+    die "The manifest of ${name} declares no managed tool version"
+  fi
+  if [[ -n "${managed_tool}" && -z "${managed_tool_fallback_min_version}" ]]; then
+    die "The manifest of ${name} declares no system tool minimum version"
+  fi
 
   if [[ "${DRY_RUN}" == "true" ]]; then
+    if [[ -n "${managed_tool}" ]]; then
+      probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+        die "The probe did not answer the managed-tool preflight"
+      helper_version="$(
+        printf '%s\n' "${probe_details}" |
+          sed -n 's/^helper_version=//p' | head -n 1
+      )"
+      if [[ "${helper_version}" =~ ^[0-9]+$ ]] &&
+        ((helper_version >= SENSOR_DEPLOYMENT_HELPER_VERSION)); then
+        platform="$(
+          printf '%s\n' "${probe_details}" |
+            sed -n 's/^platform=//p' | head -n 1
+        )"
+        [[ -n "${platform}" && "${platform}" != *unknown* ]] ||
+          die "The probe reported no supported userspace platform"
+        require_command docker
+        tool_policy="$(docker compose --project-directory "${PROJECT_DIR}" run \
+          --rm --no-deps -T web-api \
+          python -m app.ops tool-policy \
+          "${managed_tool}" "${platform}" "${managed_tool_version}" \
+          "${managed_tool_fallback_min_version}")" ||
+          die "No approved ${managed_tool} source is available for ${platform}"
+        if [[ "${tool_policy}" == "managed" ]]; then
+          tool_preview="${managed_tool} ${managed_tool_version} for ${platform} (verified release artifact)"
+        elif [[ "${tool_policy}" == "system" ]]; then
+          tool_preview="/usr/bin/${managed_tool} >=${managed_tool_fallback_min_version} for ${platform} (validated during activation)"
+        else
+          die "The tool policy returned an invalid source: ${tool_policy}"
+        fi
+      else
+        tool_preview="${managed_tool} ${managed_tool_version}; platform selection follows the signed helper update"
+      fi
+    fi
     printf 'Would deploy sensor %s (version %s) to %s:\n' \
       "${name}" "${version}" "${username}"
     for slot in script wrapper requirements; do
@@ -246,6 +325,10 @@ deploy_sensor() {
       printf '  %-13s %s\n' "${slot}" "$(remote_slot_path "${name}" "${slot}")"
     done
     printf '  %-13s %s\n' 'self-check' 'runs as the MPP service user'
+    if [[ -n "${managed_tool}" ]]; then
+      printf '  %-13s %s\n' 'managed-tool' \
+        "${tool_preview}"
+    fi
     if [[ -n "$(sensor_manifest_value "${directory}" SENSOR_IPERF)" ]]; then
       printf '  %-13s %s\n' 'iperf' \
         "$(registered_iperf_servers | paste -s -d ',' - || true)"
@@ -253,32 +336,129 @@ deploy_sensor() {
     return 0
   fi
 
+  # Commit retries depend on the current helper's durable tombstone. Upgrade
+  # before any transaction, including sensors that carry no managed tool: an
+  # old helper can commit successfully and still turn a lost SSH answer into
+  # an unresolvable retry.
+  probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+    die "The probe did not report its helper version"
+  helper_version="$(
+    printf '%s\n' "${probe_details}" |
+      sed -n 's/^helper_version=//p' | head -n 1
+  )"
+  if [[ ! "${helper_version}" =~ ^[0-9]+$ ]] ||
+    ((helper_version < SENSOR_DEPLOYMENT_HELPER_VERSION)); then
+    printf 'Updating the signed probe helper before the sensor rollout.\n'
+    "${SCRIPT_DIR}/manage-probes.sh" helper-update "${username}" >/dev/null ||
+      die "The probe helper could not be updated on ${username}"
+    probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+      die "The updated probe helper did not answer on ${username}"
+    helper_version="$(
+      printf '%s\n' "${probe_details}" |
+        sed -n 's/^helper_version=//p' | head -n 1
+    )"
+    if [[ ! "${helper_version}" =~ ^[0-9]+$ ]] ||
+      ((helper_version < SENSOR_DEPLOYMENT_HELPER_VERSION)); then
+      die "The probe still reports an older helper after its signed update"
+    fi
+  fi
+
+  if [[ -n "${managed_tool}" ]]; then
+    platform="$(
+      printf '%s\n' "${probe_details}" |
+        sed -n 's/^platform=//p' | head -n 1
+    )"
+    [[ -n "${platform}" && "${platform}" != *unknown* ]] ||
+      die "The probe reported no supported userspace platform"
+    require_command docker
+    tool_policy="$(docker compose --project-directory "${PROJECT_DIR}" run \
+      --rm --no-deps -T web-api \
+      python -m app.ops tool-policy \
+      "${managed_tool}" "${platform}" "${managed_tool_version}" \
+      "${managed_tool_fallback_min_version}")" ||
+      die "No approved ${managed_tool} source is available for ${platform}"
+    [[ "${tool_policy}" == "managed" || "${tool_policy}" == "system" ]] ||
+      die "The tool policy returned an invalid source: ${tool_policy}"
+  fi
+
   transaction_id="sensor-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  if [[ "${tool_policy}" == "managed" ]]; then
+    exported_tool="$(mktemp)"
+    tool_envelope="$(mktemp)"
+    require_command docker
+    # The release image owns the approved bytes, but its long-running web
+    # service is optional. A one-off container reads the same runtime signing
+    # key and exits after exporting the signed envelope.
+    docker compose --project-directory "${PROJECT_DIR}" run \
+      --rm --no-deps -T web-api \
+      python -m app.ops export-tool \
+      "${managed_tool}" "${platform}" "${managed_tool_version}" \
+      > "${exported_tool}" || {
+        rm -f -- "${exported_tool}" "${tool_envelope}"
+        die "No approved ${managed_tool} artifact is available for ${platform}; update the stack image first"
+      }
+    signature="$(head -n 1 "${exported_tool}")"
+    tail -n +2 "${exported_tool}" > "${tool_envelope}"
+    {
+      printf 'sensor-tool-stage\t%s\t%s\t%s\n' \
+        "${transaction_id}" "${name}" "${signature}"
+      cat "${tool_envelope}"
+    } | managed_ssh "${username}" || {
+      rm -f -- "${exported_tool}" "${tool_envelope}"
+      printf 'sensor-rollback\t%s\n' "${transaction_id}" |
+        managed_ssh "${username}" >/dev/null 2>&1 || true
+      die "The probe rejected the managed tool for ${name}"
+    }
+    rm -f -- "${exported_tool}" "${tool_envelope}"
+  fi
   for slot in script wrapper requirements; do
     source_path="$(sensor_slot_source "${directory}" "${slot}")"
     [[ -n "${source_path}" ]] || continue
     {
       printf 'sensor-stage\t%s\t%s\t%s\n' "${transaction_id}" "${name}" "${slot}"
       cat "${source_path}"
-    } | managed_ssh "${username}" ||
+    } | managed_ssh "${username}" || {
+      printf 'sensor-rollback\t%s\n' "${transaction_id}" |
+        managed_ssh "${username}" >/dev/null 2>&1 || true
       die "The probe rejected the ${slot} of ${name}"
+    }
   done
   {
     printf 'sensor-stage\t%s\t%s\tversion\n' "${transaction_id}" "${name}"
     printf '%s\n' "${version}"
-  } | managed_ssh "${username}" ||
+  } | managed_ssh "${username}" || {
+    printf 'sensor-rollback\t%s\n' "${transaction_id}" |
+      managed_ssh "${username}" >/dev/null 2>&1 || true
     die "The probe rejected the version of ${name}"
+  }
 
-  if ! printf 'sensor-activate\t%s\n' "${transaction_id}" |
-    managed_ssh "${username}"; then
+  if ! activation_answer="$(
+    printf 'sensor-activate\t%s\n' "${transaction_id}" |
+      managed_ssh "${username}" 2>&1
+  )"; then
     printf 'sensor-rollback\t%s\n' "${transaction_id}" |
       managed_ssh "${username}" || true
-    printf 'sensor-commit\t%s\n' "${transaction_id}" |
-      managed_ssh "${username}" || true
-    die "Sensor ${name} did not pass its self-check on ${username}"
+    recovery_transaction="$(
+      active_sensor_transaction_from_error "${activation_answer}" || true
+    )"
+    [[ -n "${recovery_transaction}" ]] ||
+      recovery_transaction="${transaction_id}"
+    [[ -z "${activation_answer}" ]] ||
+      printf '%s\n' "${activation_answer}" >&2
+    die "Sensor ${name} could not be activated on ${username}. If transaction ${recovery_transaction} remains active, run: sudo ./prtg-nats sensor recover ${name} ${username} --transaction ${recovery_transaction}"
   fi
-  printf 'sensor-commit\t%s\n' "${transaction_id}" |
-    managed_ssh "${username}" >/dev/null
+  [[ -z "${activation_answer}" ]] || printf '%s\n' "${activation_answer}"
+  if ! printf 'sensor-commit\t%s\n' "${transaction_id}" |
+    managed_ssh "${username}" >/dev/null; then
+    printf 'The first commit answer was lost; confirming transaction %s.\n' \
+      "${transaction_id}" >&2
+    if ! printf 'sensor-commit\t%s\n' "${transaction_id}" |
+      managed_ssh "${username}" >/dev/null; then
+      printf 'sensor-rollback\t%s\n' "${transaction_id}" |
+        managed_ssh "${username}" >/dev/null 2>&1 || true
+      die "Could not confirm sensor commit ${transaction_id} on ${username}; inspect sensor status before retrying"
+    fi
+  fi
   remember_assignment "${username}" "${name}"
   printf 'Deployed sensor %s (version %s) to %s.\n' \
     "${name}" "${version}" "${username}"
@@ -415,6 +595,30 @@ status_all_sensors() {
     assigned="$(assigned_sensors "${username}" | paste -s -d ',' - || true)"
     printf '%-28s %s\n' "${username}" "${assigned:-—}"
   done
+}
+
+recover_sensor() {
+  local name="$1"
+  local username="$2"
+  local transaction_id="$3"
+  local answer=""
+
+  validate_sensor_name "${name}" || die "Invalid sensor name: ${name}"
+  validate_sensor_name "${transaction_id}" ||
+    die "Invalid sensor transaction: ${transaction_id}"
+  answer="$(
+    printf 'sensor-recover\t%s\t%s\n' "${name}" "${transaction_id}" |
+      managed_ssh "${username}"
+  )" ||
+    die "Could not recover sensor ${name} transaction ${transaction_id} on ${username}"
+  printf '%s\n' "${answer}"
+  if [[ "${answer}" == \
+        "OK sensor-recovered ${name} transaction=${transaction_id} already-committed" ]]; then
+    # The probe committed before its SSH answer was lost, so the normal deploy
+    # path never reached its local bookkeeping. Recovery completes that half
+    # too; a rolled-back or no-active transaction must not create an assignment.
+    remember_assignment "${username}" "${name}"
+  fi
 }
 
 remove_sensor() {
@@ -572,6 +776,12 @@ case "${command_name}" in
       require_username "$1"
       status_sensors "$1"
     fi
+    ;;
+  recover)
+    [[ $# -eq 4 && "$3" == "--transaction" ]] ||
+      die "Usage: ./prtg-nats sensor recover NAME USER --transaction TRANSACTION"
+    require_username "$2"
+    recover_sensor "$1" "$2" "$4"
     ;;
   remove)
     [[ $# -eq 2 ]] || die "Usage: ./prtg-nats sensor remove NAME USER"

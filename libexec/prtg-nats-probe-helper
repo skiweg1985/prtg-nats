@@ -5,6 +5,9 @@ umask 077
 
 STATE_DIR="/var/lib/prtg-nats-probe-state"
 TRANSACTION_DIR="${STATE_DIR}/transactions"
+SENSOR_TRANSACTION_STATE_DIR="${STATE_DIR}/sensor-transactions"
+SENSOR_COMMIT_TOMBSTONE_DIR="${SENSOR_TRANSACTION_STATE_DIR}/committed"
+MAXIMUM_SENSOR_COMMIT_TOMBSTONES=1024
 MPP_SERVICE="prtg.mpprobe.service"
 MPP_CONFIG_DIR="/etc/paessler/mpprobe"
 CERT_DIR="${MPP_CONFIG_DIR}/certs"
@@ -26,10 +29,14 @@ MAXIMUM_SENSOR_BYTES=262144
 # This file is around 50 KB; the limit leaves room to grow without inviting
 # anyone to push a disk image through the channel.
 MAXIMUM_HELPER_BYTES=524288
+# One signed executable, base64 encoded. The decoded limit is checked again
+# before anything is made executable.
+MAXIMUM_TOOL_ENVELOPE_BYTES=16777216
+MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=6
+HELPER_VERSION=8
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -42,9 +49,27 @@ SENSOR_SUDOERS_DIR="/etc/sudoers.d"
 SENSOR_UNIT_DIR="/etc/systemd/system"
 SENSOR_VENV_ROOT="/var/lib/prtg-nats-sensors/venv"
 SENSOR_NM_CONFIG="/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf"
+SENSOR_TOOL_ROOT="/opt/prtg-nats/tools"
+SYSTEM_IPERF_MIN_VERSION="3.18"
+SYSTEM_IPERF_PATH="/usr/bin/iperf3"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+# A blocked deployment needs the transaction that owns the sensor, not the
+# transaction that happened to collide with it. Keep that identifier on its
+# own protocol line so both clients can offer an exact, tx-bound recovery
+# command without scraping the explanatory sentence.
+die_active_sensor_transaction() {
+  local active_transaction="$1"
+
+  shift
+  validate_token "${active_transaction}" ||
+    die "The active sensor transaction marker is invalid"
+  printf 'ERROR: %s\n' "$*" >&2
+  printf 'active_transaction=%s\n' "${active_transaction}" >&2
   exit 1
 }
 
@@ -91,6 +116,95 @@ helper_checksum() {
     return 0
   }
   sha256sum "${HELPER_PATH}" | awk '{print $1}'
+}
+
+# The executable has to match the userland that loads it. A Raspberry Pi can
+# run a 64-bit kernel over a 32-bit armhf installation, so uname alone is not
+# an architecture detector here.
+probe_userspace_architecture() {
+  local architecture=""
+  local bits=""
+  local machine=""
+
+  if command -v dpkg >/dev/null 2>&1; then
+    architecture="$(dpkg --print-architecture 2>/dev/null || true)"
+    case "${architecture}" in
+      amd64|arm64)
+        printf '%s\n' "${architecture}"
+        return 0
+        ;;
+      armhf)
+        machine="$(uname -m 2>/dev/null || true)"
+        if [[ "${machine}" == armv6l ]]; then
+          printf 'armhf-v6\n'
+        else
+          printf 'armhf\n'
+        fi
+        return 0
+        ;;
+    esac
+  fi
+  if command -v rpm >/dev/null 2>&1; then
+    architecture="$(rpm --eval '%{_arch}' 2>/dev/null || true)"
+    case "${architecture}" in
+      x86_64)
+        printf 'amd64\n'
+        return 0
+        ;;
+      aarch64)
+        printf 'arm64\n'
+        return 0
+        ;;
+      armv7hl|armv7l)
+        printf 'armhf\n'
+        return 0
+        ;;
+      armv6hl|armv6l)
+        printf 'armhf-v6\n'
+        return 0
+        ;;
+    esac
+  fi
+
+  bits="$(getconf LONG_BIT 2>/dev/null || true)"
+  machine="$(uname -m 2>/dev/null || true)"
+  case "${machine}:${bits}" in
+    x86_64:64)
+      printf 'amd64\n'
+      ;;
+    aarch64:64|arm64:64)
+      printf 'arm64\n'
+      ;;
+    aarch64:32|arm64:32|armv7l:32|armv8l:32)
+      printf 'armhf\n'
+      ;;
+    armv6l:32)
+      printf 'armhf-v6\n'
+      ;;
+    *)
+      printf 'unknown\n'
+      ;;
+  esac
+}
+
+probe_libc() {
+  local reported=""
+
+  reported="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  if [[ "${reported}" == glibc\ * ]]; then
+    printf 'glibc\n'
+    return 0
+  fi
+  reported="$(ldd --version 2>&1 | head -n 1 || true)"
+  if [[ "${reported,,}" == *musl* ]]; then
+    printf 'musl\n'
+    return 0
+  fi
+  printf 'unknown\n'
+}
+
+probe_platform() {
+  printf 'linux-%s-%s\n' "$(probe_userspace_architecture)" "$(probe_libc)"
 }
 
 read_limited_input() {
@@ -468,6 +582,7 @@ probe_info() {
   # fields simply omits them, and that absence is what marks it as old.
   printf 'helper_version=%s\n' "${HELPER_VERSION}"
   printf 'helper_sha256=%s\n' "$(helper_checksum)"
+  printf 'platform=%s\n' "$(probe_platform)"
   # When the probe is connected through its IP, its own host name is the
   # better name-giver than the address.
   printf 'hostname=%s\n' \
@@ -590,6 +705,269 @@ update_helper() {
 
 SENSOR_SLOTS=(script wrapper requirements version)
 
+# Sensor files, units and managed-tool links form one installed state. Keep the
+# lock outside the individual deployment transaction so two different
+# transaction IDs still serialize on the sensor they both modify. Staging does
+# not take this lock and can therefore continue while another transaction is
+# awaiting commit or rollback.
+sensor_transaction_lock_path() {
+  local name="$1"
+
+  validate_token "${name}" || die "Invalid sensor name"
+  printf '%s/%s.lock\n' "${SENSOR_TRANSACTION_STATE_DIR}" "${name}"
+}
+
+sensor_active_transaction_path() {
+  local name="$1"
+
+  validate_token "${name}" || die "Invalid sensor name"
+  printf '%s/%s.active\n' "${SENSOR_TRANSACTION_STATE_DIR}" "${name}"
+}
+
+sensor_commit_tombstone_path() {
+  local transaction_id="$1"
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  printf '%s/%s\n' "${SENSOR_COMMIT_TOMBSTONE_DIR}" "${transaction_id}"
+}
+
+committed_sensor_transaction_name() {
+  local transaction_id="$1"
+  local tombstone=""
+  local name=""
+  local owner=""
+  local mode=""
+
+  tombstone="$(sensor_commit_tombstone_path "${transaction_id}")"
+  [[ -e "${tombstone}" ]] || return 1
+  [[ -f "${tombstone}" && ! -L "${tombstone}" ]] ||
+    die "The sensor commit tombstone is invalid"
+  owner="$(stat -c '%u' "${tombstone}" 2>/dev/null || true)"
+  mode="$(stat -c '%a' "${tombstone}" 2>/dev/null || true)"
+  # The complete helper starts only as UID 0. Comparing with EUID keeps the
+  # function testable in isolation without weakening the deployed check.
+  [[ "${owner}" == "${EUID}" && "${mode}" == "600" ]] ||
+    die "The sensor commit tombstone is not root-only"
+  name="$(<"${tombstone}")"
+  validate_token "${name}" || die "The sensor commit tombstone is invalid"
+  [[ "$(wc -l < "${tombstone}" | tr -d '[:space:]')" == "1" ]] ||
+    die "The sensor commit tombstone is invalid"
+  printf '%s\n' "${name}"
+}
+
+reject_committed_sensor_transaction_id() {
+  local transaction_id="$1"
+
+  if committed_sensor_transaction_name "${transaction_id}" >/dev/null; then
+    die "Sensor transaction ${transaction_id} was already committed"
+  fi
+}
+
+prune_sensor_commit_tombstones() {
+  local current_transaction_id="$1"
+  local expired=()
+  local transaction_id=""
+
+  [[ "${MAXIMUM_SENSOR_COMMIT_TOMBSTONES}" =~ ^[0-9]+$ &&
+     "${MAXIMUM_SENSOR_COMMIT_TOMBSTONES}" -ge 1 ]] ||
+    die "The sensor commit tombstone limit is invalid"
+  mapfile -t expired < <(
+    find "${SENSOR_COMMIT_TOMBSTONE_DIR}" \
+      -mindepth 1 -maxdepth 1 -type f \
+      ! -name '.*' ! -name "${current_transaction_id}" \
+      -printf '%T@ %f\n' |
+      sort -rn |
+      awk -v maximum="${MAXIMUM_SENSOR_COMMIT_TOMBSTONES}" \
+        'NR >= maximum { print $2 }'
+  )
+  for transaction_id in "${expired[@]}"; do
+    validate_token "${transaction_id}" || continue
+    rm -f -- "$(sensor_commit_tombstone_path "${transaction_id}")"
+  done
+}
+
+record_sensor_commit_tombstone() {
+  local transaction_id="$1"
+  local name="$2"
+  local tombstone=""
+  local candidate="${SENSOR_COMMIT_TOMBSTONE_DIR}/.candidate"
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  validate_token "${name}" || die "Invalid sensor name"
+  command -v flock >/dev/null 2>&1 ||
+    die "flock is required for sensor commit tombstones"
+  tombstone="$(sensor_commit_tombstone_path "${transaction_id}")"
+  exec 8> "${SENSOR_COMMIT_TOMBSTONE_DIR}/.lock" ||
+    die "Could not open the sensor commit tombstone lock"
+  flock -x 8 || die "Could not lock sensor commit tombstones"
+  printf '%s\n' "${name}" > "${candidate}"
+  chmod 0600 "${candidate}"
+  mv -Tf -- "${candidate}" "${tombstone}"
+  prune_sensor_commit_tombstones "${transaction_id}"
+  flock -u 8 || die "Could not unlock sensor commit tombstones"
+  exec 8>&-
+}
+
+acquire_sensor_transaction_lock() {
+  local name="$1"
+  local lock_path=""
+
+  command -v flock >/dev/null 2>&1 ||
+    die "flock is required for serialized sensor deployments"
+  lock_path="$(sensor_transaction_lock_path "${name}")"
+  exec 9> "${lock_path}" || die "Could not open the sensor deployment lock"
+  flock -x 9 || die "Could not lock the sensor deployment"
+}
+
+release_sensor_transaction_lock() {
+  flock -u 9 || die "Could not unlock the sensor deployment"
+  exec 9>&-
+}
+
+read_active_sensor_transaction() {
+  local name="$1"
+  local marker=""
+  local transaction_id=""
+
+  marker="$(sensor_active_transaction_path "${name}")"
+  [[ -e "${marker}" ]] || return 0
+  [[ -f "${marker}" && ! -L "${marker}" ]] ||
+    die "The active sensor transaction marker is invalid"
+  transaction_id="$(<"${marker}")"
+  validate_token "${transaction_id}" ||
+    die "The active sensor transaction marker is invalid"
+  [[ "$(wc -l < "${marker}" | tr -d '[:space:]')" == "1" ]] ||
+    die "The active sensor transaction marker is invalid"
+  printf '%s\n' "${transaction_id}"
+}
+
+# Claims the installed sensor state for one transaction. The answer tells the
+# caller whether work remains. A completed activation is a successful retry;
+# an interrupted activation has to be rolled back because installation may
+# have stopped between any two filesystem or systemd operations.
+claim_sensor_activation() {
+  local transaction_id="$1"
+  local transaction="$2"
+  local name="$3"
+  local marker=""
+  local marker_candidate=""
+  local active_transaction=""
+
+  marker="$(sensor_active_transaction_path "${name}")"
+  active_transaction="$(read_active_sensor_transaction "${name}")"
+  if [[ -n "${active_transaction}" &&
+        "${active_transaction}" != "${transaction_id}" ]]; then
+    die_active_sensor_transaction "${active_transaction}" \
+      "Sensor ${name} has an active transaction; commit or roll it back first"
+  fi
+  if [[ -z "${active_transaction}" ]]; then
+    marker_candidate="${marker}.candidate-${BASHPID}"
+    printf '%s\n' "${transaction_id}" > "${marker_candidate}"
+    chmod 0600 "${marker_candidate}"
+    mv -Tf -- "${marker_candidate}" "${marker}"
+  fi
+
+  if [[ -f "${transaction}/activation-complete" ]]; then
+    printf 'complete\n'
+  elif [[ -f "${transaction}/activated" ]]; then
+    die "Sensor ${name} has an interrupted activation; roll transaction ${transaction_id} back"
+  else
+    printf 'pending\n'
+  fi
+}
+
+require_active_sensor_transaction() {
+  local transaction_id="$1"
+  local name="$2"
+  local active_transaction=""
+
+  active_transaction="$(read_active_sensor_transaction "${name}")"
+  [[ -n "${active_transaction}" ]] ||
+    die "Sensor ${name} has no active transaction"
+  [[ "${active_transaction}" == "${transaction_id}" ]] ||
+    die_active_sensor_transaction "${active_transaction}" \
+      "Transaction ${transaction_id} is not active for sensor ${name}"
+}
+
+clear_active_sensor_transaction() {
+  local transaction_id="$1"
+  local name="$2"
+  local marker=""
+
+  require_active_sensor_transaction "${transaction_id}" "${name}"
+  marker="$(sensor_active_transaction_path "${name}")"
+  rm -f -- "${marker}"
+}
+
+# Before the activated marker exists no installed file has been touched. A
+# retry may therefore discard a half-written snapshot and record it again.
+# Once activated exists, claim_sensor_activation rejects the retry instead.
+clear_incomplete_sensor_snapshot() {
+  local transaction="$1"
+  local slot=""
+
+  [[ ! -f "${transaction}/activated" ]] ||
+    die "An activated sensor snapshot cannot be replaced"
+  for slot in "${SENSOR_SLOTS[@]}"; do
+    rm -f -- \
+      "${transaction}/original-${slot}" \
+      "${transaction}/original-${slot}-absent"
+  done
+  rm -f -- \
+    "${transaction}/original-tool-current" \
+    "${transaction}/original-tool-current-absent" \
+    "${transaction}/original-tool-metadata" \
+    "${transaction}/original-tool-metadata-absent"
+}
+
+# The caller can ask for the tool a known sensor declares, never for an
+# arbitrary executable. The same fixed vocabulary decides the install path.
+managed_tool_for_sensor() {
+  case "$1" in
+    iperf-throughput)
+      printf 'iperf3\n'
+      ;;
+    *)
+      :
+      ;;
+  esac
+}
+
+managed_tool_binary_name() {
+  case "$1" in
+    iperf3)
+      printf 'iperf3\n'
+      ;;
+    *)
+      die "Unsupported managed tool: $1"
+      ;;
+  esac
+}
+
+managed_tool_current_link() {
+  printf '%s/%s/current\n' "${SENSOR_TOOL_ROOT}" "$1"
+}
+
+managed_tool_metadata_path() {
+  printf '%s/%s/tool.env\n' "${SENSOR_CONFIG_ROOT}" "$1"
+}
+
+managed_tool_has_release_artifact() {
+  local tool="$1"
+  local platform="$2"
+
+  case "${tool}:${platform}" in
+    iperf3:linux-amd64-glibc|\
+      iperf3:linux-arm64-glibc|\
+      iperf3:linux-armhf-glibc)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # The service user owns the scripts and runs them. On MPP 3.10 that is
 # paessler_mpprobe. If the unit query fails, the group of the script
 # directory serves as the substitute - the package creates it to match.
@@ -688,6 +1066,7 @@ stage_sensor() {
 
   validate_token "${transaction_id}" || die "Invalid transaction ID"
   validate_token "${name}" || die "Invalid sensor name"
+  reject_committed_sensor_transaction_id "${transaction_id}"
   sensor_slot_target "${name}" "${slot}" >/dev/null
 
   transaction="${TRANSACTION_DIR}/${transaction_id}"
@@ -706,6 +1085,212 @@ stage_sensor() {
   validate_sensor_payload "${slot}" "${transaction}/slot-${slot}"
   chmod 0600 "${transaction}/slot-${slot}"
   printf 'OK sensor-staged %s %s\n' "${name}" "${slot}"
+}
+
+validate_managed_tool_binary() {
+  local tool="$1"
+  local version="$2"
+  local candidate="$3"
+  local output=""
+  local reported_version=""
+
+  case "${tool}" in
+    iperf3)
+      output="$("${candidate}" --version 2>&1)" ||
+        die "The managed iperf3 executable cannot run on this probe"
+      reported_version="$(
+        printf '%s\n' "${output}" | head -n 1 | awk '{print $2}'
+      )"
+      [[ "${reported_version}" == "${version}" ]] ||
+        die "The managed iperf3 executable reports the wrong version"
+      printf '%s\n' "${output}" | grep -i 'authentication' >/dev/null ||
+        die "The managed iperf3 executable lacks authentication support"
+      ;;
+    *)
+      die "Unsupported managed tool: ${tool}"
+      ;;
+  esac
+}
+
+version_at_least() {
+  local actual="$1"
+  local minimum="$2"
+  local oldest=""
+
+  [[ "${actual}" =~ ^[0-9]+([.][0-9]+)*$ &&
+     "${minimum}" =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  oldest="$(printf '%s\n%s\n' "${minimum}" "${actual}" | sort -V | head -n 1)"
+  [[ "${oldest}" == "${minimum}" ]]
+}
+
+iperf_binary_version() {
+  local candidate="$1"
+
+  "${candidate}" --version 2>&1 | head -n 1 |
+    sed -n 's/^iperf \([0-9][0-9.]*\).*/\1/p'
+}
+
+iperf_binary_has_authentication() {
+  local candidate="$1"
+
+  "${candidate}" --version 2>&1 | grep -i 'authentication' >/dev/null
+}
+
+root_executable_path_is_trusted() {
+  local candidate="$1"
+  local owner=""
+  local mode=""
+
+  [[ -x "${candidate}" && -f "${candidate}" && ! -L "${candidate}" ]] ||
+    return 1
+  owner="$(stat -c '%u' "${candidate}" 2>/dev/null || true)"
+  mode="$(stat -c '%a' "${candidate}" 2>/dev/null || true)"
+  [[ "${owner}" == "0" && "${mode}" =~ ^[0-7]{3,4}$ &&
+     $((8#${mode} & 8#22)) -eq 0 ]]
+}
+
+managed_tool_path_is_trusted() {
+  root_executable_path_is_trusted "$1"
+}
+
+system_tool_path_is_trusted() {
+  local candidate="$1"
+
+  [[ "${candidate}" == "${SYSTEM_IPERF_PATH}" ]] &&
+    root_executable_path_is_trusted "${candidate}"
+}
+
+validate_system_tool_binary() {
+  local tool="$1"
+  local candidate="$2"
+  local version=""
+
+  case "${tool}" in
+    iperf3)
+      system_tool_path_is_trusted "${candidate}" ||
+        die "The system iperf3 fallback must be the fixed root-owned package executable ${SYSTEM_IPERF_PATH} and not writable by group or others"
+      version="$(iperf_binary_version "${candidate}")"
+      version_at_least "${version}" "${SYSTEM_IPERF_MIN_VERSION}" ||
+        die "System iperf3 ${version:-unknown} is older than ${SYSTEM_IPERF_MIN_VERSION}"
+      iperf_binary_has_authentication "${candidate}" ||
+        die "The system iperf3 executable lacks authentication support"
+      ;;
+    *)
+      die "Unsupported managed tool: ${tool}"
+      ;;
+  esac
+}
+
+# The signed envelope contains one executable and immutable metadata. Keeping
+# it to a single file avoids archive extraction at the root trust boundary.
+stage_sensor_tool() {
+  local transaction_id="$1"
+  local name="$2"
+  local signature_base64="$3"
+  local transaction=""
+  local scratch=""
+  local envelope=""
+  local signature=""
+  local encoded=""
+  local candidate=""
+  local expected_tool=""
+  local tool=""
+  local version=""
+  local platform=""
+  local expected_sha256=""
+  local expected_size=""
+  local actual_sha256=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  validate_token "${name}" || die "Invalid sensor name"
+  reject_committed_sensor_transaction_id "${transaction_id}"
+  expected_tool="$(managed_tool_for_sensor "${name}")"
+  [[ -n "${expected_tool}" ]] ||
+    die "Sensor ${name} has no approved managed tool"
+  [[ "${signature_base64}" =~ ^[A-Za-z0-9+/=]+$ &&
+     ${#signature_base64} -le 255 ]] ||
+    die "sensor-tool-stage signature is not base64"
+  command -v openssl >/dev/null 2>&1 ||
+    die "openssl is required to verify a managed tool"
+  [[ -f "${HELPER_SIGNING_KEY}" ]] ||
+    die "No helper signing key on this probe; enrol it again before deploying managed tools"
+
+  install -d -o root -g root -m 0700 "${STATE_DIR}"
+  scratch="$(mktemp -d "${STATE_DIR}/.sensor-tool-stage.XXXXXXXX")"
+  # Invalid or forged input must not consume persistent transaction space.
+  # The helper serves one request per process, so this EXIT trap is scoped to
+  # this request and also covers every die() below.
+  trap 'rm -rf -- "${scratch}"' EXIT
+  envelope="${scratch}/envelope"
+  signature="${scratch}/envelope.sig"
+  encoded="${scratch}/payload.b64"
+  candidate="${scratch}/binary"
+  read_limited_input "${envelope}" "${MAXIMUM_TOOL_ENVELOPE_BYTES}"
+  printf '%s' "${signature_base64}" |
+    openssl base64 -d -A -out "${signature}" ||
+    die "sensor-tool-stage signature could not be decoded"
+  openssl dgst -sha256 \
+    -verify "${HELPER_SIGNING_KEY}" \
+    -signature "${signature}" \
+    "${envelope}" >/dev/null 2>&1 ||
+    die "sensor-tool-stage signature does not match this probe's signing key"
+
+  [[ "$(sed -n '1p' "${envelope}")" == 'PRTG-NATS-MANAGED-TOOL-V1' &&
+     "$(sed -n '7p' "${envelope}")" == '' &&
+     "$(wc -l < "${envelope}")" -eq 8 ]] ||
+    die "The managed tool envelope has an invalid structure"
+  tool="$(sed -n '2s/^tool=//p' "${envelope}")"
+  version="$(sed -n '3s/^version=//p' "${envelope}")"
+  platform="$(sed -n '4s/^platform=//p' "${envelope}")"
+  expected_sha256="$(sed -n '5s/^sha256=//p' "${envelope}")"
+  expected_size="$(sed -n '6s/^size=//p' "${envelope}")"
+  [[ "${tool}" == "${expected_tool}" ]] ||
+    die "The managed tool does not belong to sensor ${name}"
+  validate_token "${version}" || die "Invalid managed tool version"
+  [[ "${platform}" == "$(probe_platform)" ]] ||
+    die "The managed tool platform ${platform} does not match $(probe_platform)"
+  [[ "${expected_sha256}" =~ ^[0-9a-f]{64}$ ]] ||
+    die "Invalid managed tool SHA-256"
+  [[ "${expected_size}" =~ ^[0-9]+$ &&
+     "${expected_size}" -gt 0 &&
+     "${expected_size}" -le "${MAXIMUM_TOOL_BYTES}" ]] ||
+    die "Invalid managed tool size"
+
+  sed -n '8p' "${envelope}" > "${encoded}"
+  grep -E -x '[A-Za-z0-9+/]+={0,2}' "${encoded}" >/dev/null ||
+    die "The managed tool payload is not base64"
+  base64 -d "${encoded}" > "${candidate}" 2>/dev/null ||
+    die "The managed tool payload could not be decoded"
+  [[ "$(wc -c < "${candidate}")" -eq "${expected_size}" ]] ||
+    die "The managed tool size does not match its signed metadata"
+  actual_sha256="$(sha256sum "${candidate}" | awk '{print $1}')"
+  [[ "${actual_sha256}" == "${expected_sha256}" ]] ||
+    die "The managed tool checksum does not match its signed metadata"
+  chmod 0700 "${candidate}"
+  validate_managed_tool_binary "${tool}" "${version}" "${candidate}"
+
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+  install -d -o root -g root -m 0700 "${TRANSACTION_DIR}" "${transaction}"
+  if [[ -f "${transaction}/sensor-name" ]]; then
+    [[ "$(<"${transaction}/sensor-name")" == "${name}" ]] ||
+      die "The transaction belongs to a different sensor"
+  else
+    printf '%s\n' "${name}" > "${transaction}/sensor-name"
+    chmod 0600 "${transaction}/sensor-name"
+  fi
+  [[ ! -f "${transaction}/tool-binary" ]] ||
+    die "A managed tool is already staged in this transaction"
+  mv -- "${candidate}" "${transaction}/tool-binary"
+  printf '%s\n' "${tool}" > "${transaction}/tool-name"
+  printf '%s\n' "${version}" > "${transaction}/tool-version"
+  printf '%s\n' "${platform}" > "${transaction}/tool-platform"
+  printf '%s\n' "${expected_sha256}" > "${transaction}/tool-sha256"
+  printf 'managed\n' > "${transaction}/tool-source"
+  chmod 0600 "${transaction}"/tool-{name,version,platform,sha256,source}
+  rm -rf -- "${scratch}"
+  trap - EXIT
+  printf 'OK sensor-tool-staged %s %s version=%s platform=%s sha256=%s\n' \
+    "${name}" "${tool}" "${version}" "${platform}" "${expected_sha256}"
 }
 
 # The privileged part of a sensor runs as its own service behind a Unix
@@ -808,27 +1393,20 @@ ensure_venv_support() {
   python3 -c 'import ensurepip, venv' >/dev/null 2>&1
 }
 
-# Some sensors need a system program rather than a PyPI package -
-# iperf-throughput measures with iperf3. The mapping is fixed in the script,
-# for the same reason as the package name for python3-venv: the management
-# channel cannot be used to pull in arbitrary packages through it. A new
-# sensor with such a dependency belongs here, not in its manifest.
+# Some sensors need a distribution program rather than a PyPI package. The
+# mapping is fixed in the script, for the same reason as python3-venv: the
+# management channel cannot be used to pull arbitrary packages through it.
+# Release-owned executables such as iperf3 do not belong here; they travel as
+# signed managed tools and never fall back to the distribution.
 #
 # What a sensor needs from the system, as "PROGRAM PACKAGE...". The program
 # is what the check looks for, the packages are the ways to get it - tried in
 # order, first one that provides the program wins.
 #
-# For iperf3 the two are the same word. Where they differ, or where a release
-# moved a program between packages, the list is what keeps a sensor
-# deployable without the operator having to know which name applies.
-#
 # wlan-auth asks for busybox, whose udhcpc carries out the DHCP stage. It is
 # already on every Raspberry Pi OS, so this normally installs nothing.
 sensor_system_package() {
   case "$1" in
-    iperf-throughput)
-      printf 'iperf3 iperf3\n'
-      ;;
     wlan-auth)
       printf 'busybox busybox\n'
       ;;
@@ -944,6 +1522,255 @@ create_sensor_venv() {
   printf '%s\n' "${venv}"
 }
 
+prepare_sensor_tool_transaction() {
+  local transaction="$1"
+  local name="$2"
+  local tool=""
+  local platform=""
+
+  tool="$(managed_tool_for_sensor "${name}")"
+  [[ -n "${tool}" ]] || return 0
+  if [[ -f "${transaction}/tool-source" ]]; then
+    case "$(<"${transaction}/tool-source")" in
+      managed)
+        [[ -f "${transaction}/tool-binary" ]] ||
+          die "The staged managed tool is incomplete"
+        return 0
+        ;;
+      system)
+        [[ -f "${transaction}/tool-name" &&
+           -f "${transaction}/tool-platform" &&
+           -f "${transaction}/tool-minimum-version" ]] ||
+          die "The staged system tool fallback is incomplete"
+        return 0
+        ;;
+      *)
+        die "The staged sensor tool source is invalid"
+        ;;
+    esac
+  fi
+
+  platform="$(probe_platform)"
+  [[ "${platform}" != *unknown* ]] ||
+    die "The probe userspace platform could not be determined"
+  if managed_tool_has_release_artifact "${tool}" "${platform}"; then
+    die "Sensor ${name} requires its signed ${tool} release artifact"
+  fi
+
+  # A system executable is accepted only outside the release matrix. The
+  # helper fixes both package and path; the management caller cannot turn the
+  # fallback into an arbitrary root executable.
+  printf '%s\n' "${tool}" > "${transaction}/tool-name"
+  printf 'system\n' > "${transaction}/tool-source"
+  printf '%s\n' "${platform}" > "${transaction}/tool-platform"
+  printf '%s\n' "${SYSTEM_IPERF_MIN_VERSION}" \
+    > "${transaction}/tool-minimum-version"
+  chmod 0600 "${transaction}"/tool-{name,source,platform,minimum-version}
+}
+
+record_managed_tool_original() {
+  local transaction="$1"
+  local name="$2"
+  local tool=""
+  local current=""
+  local metadata=""
+
+  [[ -f "${transaction}/tool-name" ]] || return 0
+  tool="$(<"${transaction}/tool-name")"
+  current="$(managed_tool_current_link "${tool}")"
+  metadata="$(managed_tool_metadata_path "${name}")"
+  if [[ -L "${current}" ]]; then
+    readlink "${current}" > "${transaction}/original-tool-current"
+  elif [[ -e "${current}" ]]; then
+    die "Managed tool current path is not a symbolic link: ${current}"
+  else
+    : > "${transaction}/original-tool-current-absent"
+  fi
+  if [[ -f "${metadata}" ]]; then
+    cp -p "${metadata}" "${transaction}/original-tool-metadata"
+  else
+    : > "${transaction}/original-tool-metadata-absent"
+  fi
+  chmod 0600 "${transaction}"/original-tool-*
+}
+
+install_managed_tool() {
+  local transaction="$1"
+  local name="$2"
+  local tool=""
+  local version=""
+  local platform=""
+  local expected_sha256=""
+  local binary_name=""
+  local tool_root=""
+  local release=""
+  local target=""
+  local incoming=""
+  local current=""
+  local next_link=""
+  local metadata=""
+  local actual_sha256=""
+
+  [[ -f "${transaction}/tool-binary" ]] || return 0
+  tool="$(<"${transaction}/tool-name")"
+  version="$(<"${transaction}/tool-version")"
+  platform="$(<"${transaction}/tool-platform")"
+  expected_sha256="$(<"${transaction}/tool-sha256")"
+  binary_name="$(managed_tool_binary_name "${tool}")"
+  tool_root="${SENSOR_TOOL_ROOT}/${tool}"
+  release="${tool_root}/${version}/${platform}"
+  target="${release}/${binary_name}"
+  incoming="${release}/.${binary_name}.incoming"
+  current="$(managed_tool_current_link "${tool}")"
+  next_link="${tool_root}/.current-${BASHPID}"
+  metadata="$(managed_tool_metadata_path "${name}")"
+
+  install -d -o root -g root -m 0755 \
+    "${SENSOR_TOOL_ROOT}" "${tool_root}" "${tool_root}/${version}" "${release}"
+  if managed_tool_path_is_trusted "${target}"; then
+    actual_sha256="$(sha256sum "${target}" | awk '{print $1}')"
+  fi
+  if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
+    # Never inspect or execute an untrusted cache entry. Replace a changed
+    # owner, mode, symlink or digest atomically from the already verified
+    # transaction payload, then validate the installed root-owned bytes.
+    rm -f -- "${incoming}"
+    install -o root -g root -m 0755 "${transaction}/tool-binary" "${incoming}"
+    actual_sha256="$(sha256sum "${incoming}" | awk '{print $1}')"
+    [[ "${actual_sha256}" == "${expected_sha256}" ]] || {
+      rm -f -- "${incoming}"
+      die "The staged managed tool differs from the approved artifact"
+    }
+    mv -Tf -- "${incoming}" "${target}"
+  fi
+  chown root:root "${target}"
+  chmod 0755 "${target}"
+  managed_tool_path_is_trusted "${target}" ||
+    die "The managed tool cache is not a trusted root-owned executable"
+  validate_managed_tool_binary "${tool}" "${version}" "${target}"
+
+  rm -f -- "${next_link}"
+  ln -s "${version}/${platform}" "${next_link}"
+  mv -Tf -- "${next_link}" "${current}"
+  install -d -o root -g root -m 0755 "$(dirname -- "${metadata}")"
+  {
+    printf 'TOOL=%s\n' "${tool}"
+    printf 'SOURCE=managed\n'
+    printf 'VERSION=%s\n' "${version}"
+    printf 'PLATFORM=%s\n' "${platform}"
+    printf 'SHA256=%s\n' "${expected_sha256}"
+    printf 'PATH=%s\n' "${target}"
+  } > "${metadata}.candidate"
+  chmod 0644 "${metadata}.candidate"
+  mv -f -- "${metadata}.candidate" "${metadata}"
+}
+
+install_system_tool() {
+  local transaction="$1"
+  local name="$2"
+  local tool=""
+  local platform=""
+  local minimum_version=""
+  local system_path=""
+  local version=""
+  local digest=""
+  local tool_root=""
+  local current=""
+  local next_link=""
+  local metadata=""
+
+  tool="$(<"${transaction}/tool-name")"
+  platform="$(<"${transaction}/tool-platform")"
+  minimum_version="$(<"${transaction}/tool-minimum-version")"
+  [[ "${minimum_version}" == "${SYSTEM_IPERF_MIN_VERSION}" ]] ||
+    die "The system tool fallback policy does not match this helper"
+  managed_tool_has_release_artifact "${tool}" "${platform}" &&
+    die "A system tool cannot replace an available managed release artifact"
+
+  case "${tool}" in
+    iperf3)
+      system_path="${SYSTEM_IPERF_PATH}"
+      [[ -x "${system_path}" ]] ||
+        die "No system iperf3 exists at ${SYSTEM_IPERF_PATH}; install version ${SYSTEM_IPERF_MIN_VERSION} or newer with the operating system package manager"
+      ;;
+    *)
+      die "Unsupported managed tool: ${tool}"
+      ;;
+  esac
+
+  validate_system_tool_binary "${tool}" "${system_path}"
+  version="$(iperf_binary_version "${system_path}")"
+  digest="$(sha256sum "${system_path}" | awk '{print $1}')"
+
+  tool_root="${SENSOR_TOOL_ROOT}/${tool}"
+  current="$(managed_tool_current_link "${tool}")"
+  next_link="${tool_root}/.current-system-${BASHPID}"
+  metadata="$(managed_tool_metadata_path "${name}")"
+  install -d -o root -g root -m 0755 \
+    "${SENSOR_TOOL_ROOT}" "${tool_root}" "$(dirname -- "${metadata}")"
+  rm -f -- "${next_link}"
+  ln -s "$(dirname -- "${SYSTEM_IPERF_PATH}")" "${next_link}"
+  mv -Tf -- "${next_link}" "${current}"
+  {
+    printf 'TOOL=%s\n' "${tool}"
+    printf 'SOURCE=system\n'
+    printf 'VERSION=%s\n' "${version}"
+    printf 'MINIMUM_VERSION=%s\n' "${minimum_version}"
+    printf 'PLATFORM=%s\n' "${platform}"
+    printf 'SHA256=%s\n' "${digest}"
+    printf 'PATH=%s\n' "${system_path}"
+  } > "${metadata}.candidate"
+  chmod 0644 "${metadata}.candidate"
+  mv -f -- "${metadata}.candidate" "${metadata}"
+}
+
+install_sensor_tool() {
+  local transaction="$1"
+  local name="$2"
+  local source=""
+
+  source="$(<"${transaction}/tool-source")"
+  case "${source}" in
+    managed)
+      install_managed_tool "${transaction}" "${name}"
+      ;;
+    system)
+      install_system_tool "${transaction}" "${name}"
+      ;;
+    *)
+      die "The sensor tool source is invalid"
+      ;;
+  esac
+}
+
+restore_managed_tool() {
+  local transaction="$1"
+  local name="$2"
+  local tool=""
+  local current=""
+  local next_link=""
+  local metadata=""
+
+  [[ -f "${transaction}/tool-name" ]] || return 0
+  tool="$(<"${transaction}/tool-name")"
+  current="$(managed_tool_current_link "${tool}")"
+  next_link="${SENSOR_TOOL_ROOT}/${tool}/.current-restore-${BASHPID}"
+  metadata="$(managed_tool_metadata_path "${name}")"
+  if [[ -f "${transaction}/original-tool-current" ]]; then
+    rm -f -- "${next_link}"
+    ln -s "$(<"${transaction}/original-tool-current")" "${next_link}"
+    mv -Tf -- "${next_link}" "${current}"
+  elif [[ -f "${transaction}/original-tool-current-absent" ]]; then
+    rm -f -- "${current}"
+  fi
+  if [[ -f "${transaction}/original-tool-metadata" ]]; then
+    cp -p "${transaction}/original-tool-metadata" "${metadata}.restore"
+    mv -f -- "${metadata}.restore" "${metadata}"
+  elif [[ -f "${transaction}/original-tool-metadata-absent" ]]; then
+    rm -f -- "${metadata}"
+  fi
+}
+
 install_sensor_files() {
   local transaction="$1"
   local name="$2"
@@ -954,6 +1781,11 @@ install_sensor_files() {
 
   install -d -o root -g root -m 0755 \
     "${SENSOR_CONFIG_ROOT}" "${SENSOR_CONFIG_ROOT}/${name}"
+  if [[ -n "$(managed_tool_for_sensor "${name}")" ]]; then
+    [[ -f "${transaction}/tool-source" ]] ||
+      die "Sensor ${name} has no selected tool source"
+    install_sensor_tool "${transaction}" "${name}"
+  fi
   ensure_sensor_package "$(sensor_system_package "${name}")" || true
   if [[ -f "${transaction}/slot-requirements" ]]; then
     venv="$(create_sensor_venv \
@@ -1019,6 +1851,7 @@ restore_sensor_files() {
       rm -f -- "${target}"
     fi
   done
+  restore_managed_tool "${transaction}" "${name}"
   if [[ -f "$(sensor_slot_target "${name}" wrapper)" ]]; then
     write_sensor_units "${name}" "${service_user}"
   else
@@ -1106,6 +1939,56 @@ sys.exit(0 if document.get("status") == "ok" else 1)
 '
 }
 
+SENSOR_ACTIVATION_TRANSACTION=""
+SENSOR_ACTIVATION_NAME=""
+SENSOR_ACTIVATION_SERVICE_USER=""
+
+# The activation owns the per-sensor flock while these traps are installed.
+# Keep the active marker after restoring so no newer deployment can start
+# before the caller explicitly acknowledges the failure with rollback.
+restore_failed_sensor_activation() {
+  local restore_status=0
+
+  [[ -n "${SENSOR_ACTIVATION_TRANSACTION}" &&
+     -n "${SENSOR_ACTIVATION_NAME}" &&
+     -f "${SENSOR_ACTIVATION_TRANSACTION}/activated" &&
+     ! -f "${SENSOR_ACTIVATION_TRANSACTION}/activation-complete" &&
+     ! -f "${SENSOR_ACTIVATION_TRANSACTION}/activation-restored" ]] ||
+    return 0
+
+  set +e
+  restore_sensor_files \
+    "${SENSOR_ACTIVATION_TRANSACTION}" \
+    "${SENSOR_ACTIVATION_NAME}" \
+    "${SENSOR_ACTIVATION_SERVICE_USER}"
+  restore_status="$?"
+  if [[ "${restore_status}" -eq 0 ]]; then
+    : > "${SENSOR_ACTIVATION_TRANSACTION}/activation-restored"
+    chmod 0600 "${SENSOR_ACTIVATION_TRANSACTION}/activation-restored"
+  else
+    printf 'ERROR: Could not restore sensor %s after activation failure\n' \
+      "${SENSOR_ACTIVATION_NAME}" >&2
+  fi
+  set -e
+  return 0
+}
+
+sensor_activation_failure_exit() {
+  local exit_status="$1"
+
+  trap - ERR EXIT TERM INT
+  restore_failed_sensor_activation
+  exit "${exit_status}"
+}
+
+sensor_activation_signal_exit() {
+  local exit_status="$1"
+
+  trap - ERR EXIT TERM INT
+  restore_failed_sensor_activation
+  exit "${exit_status}"
+}
+
 activate_sensor() {
   local transaction_id="$1"
   local transaction=""
@@ -1113,6 +1996,7 @@ activate_sensor() {
   local service_user=""
   local slot=""
   local target=""
+  local activation_state=""
 
   validate_token "${transaction_id}" || die "Invalid transaction ID"
   transaction="${TRANSACTION_DIR}/${transaction_id}"
@@ -1126,6 +2010,27 @@ activate_sensor() {
     die "The Script v2 directory is missing: ${SENSOR_SCRIPT_DIR}"
   service_user="$(sensor_service_user)"
 
+  acquire_sensor_transaction_lock "${name}"
+  activation_state="$(claim_sensor_activation \
+    "${transaction_id}" "${transaction}" "${name}")"
+  if [[ "${activation_state}" == "complete" ]]; then
+    release_sensor_transaction_lock
+    printf 'OK sensor-activated %s\n' "${name}"
+    return 0
+  fi
+  [[ "${activation_state}" == "pending" ]] ||
+    die "The sensor activation state is invalid"
+
+  SENSOR_ACTIVATION_TRANSACTION="${transaction}"
+  SENSOR_ACTIVATION_NAME="${name}"
+  SENSOR_ACTIVATION_SERVICE_USER="${service_user}"
+  trap 'sensor_activation_failure_exit "$?"' ERR EXIT
+  trap 'sensor_activation_signal_exit 143' TERM
+  trap 'sensor_activation_signal_exit 130' INT
+
+  clear_incomplete_sensor_snapshot "${transaction}"
+  prepare_sensor_tool_transaction "${transaction}" "${name}"
+
   for slot in "${SENSOR_SLOTS[@]}"; do
     [[ -f "${transaction}/slot-${slot}" ]] || continue
     target="$(sensor_slot_target "${name}" "${slot}")"
@@ -1136,6 +2041,7 @@ activate_sensor() {
       chmod 0600 "${transaction}/original-${slot}-absent"
     fi
   done
+  record_managed_tool_original "${transaction}" "${name}"
 
   # From here on the installed state is ours to undo, and the "before" of every
   # slot above is on disk. A rollback that arrives without this marker belongs
@@ -1146,9 +2052,15 @@ activate_sensor() {
 
   install_sensor_files "${transaction}" "${name}" "${service_user}"
   if ! sensor_self_check "${name}" "${service_user}"; then
-    restore_sensor_files "${transaction}" "${name}" "${service_user}"
     die "Sensor ${name} failed its self-check; the previous state was restored"
   fi
+  : > "${transaction}/activation-complete"
+  chmod 0600 "${transaction}/activation-complete"
+  trap - ERR EXIT TERM INT
+  SENSOR_ACTIVATION_TRANSACTION=""
+  SENSOR_ACTIVATION_NAME=""
+  SENSOR_ACTIVATION_SERVICE_USER=""
+  release_sensor_transaction_lock
   printf 'OK sensor-activated %s\n' "${name}"
 }
 
@@ -1156,6 +2068,7 @@ rollback_sensor() {
   local transaction_id="$1"
   local transaction=""
   local name=""
+  local active_transaction=""
 
   validate_token "${transaction_id}" || die "Invalid transaction ID"
   transaction="${TRANSACTION_DIR}/${transaction_id}"
@@ -1163,17 +2076,276 @@ rollback_sensor() {
     die "Unknown or incomplete sensor transaction"
   name="$(<"${transaction}/sensor-name")"
   validate_token "${name}" || die "Invalid sensor name"
+  acquire_sensor_transaction_lock "${name}"
   # A transaction that never reached activation left the installed sensor
   # untouched. Restoring it would mean removing files this transaction never
   # wrote - the rollout that failed while staging must not take the working
   # sensor down with it.
   if [[ ! -f "${transaction}/activated" ]]; then
+    active_transaction="$(read_active_sensor_transaction "${name}")"
+    if [[ "${active_transaction}" == "${transaction_id}" ]]; then
+      clear_active_sensor_transaction "${transaction_id}" "${name}"
+    fi
     rm -rf -- "${transaction}"
+    release_sensor_transaction_lock
     printf 'OK sensor-rolled-back %s nothing-to-restore\n' "${name}"
     return 0
   fi
-  restore_sensor_files "${transaction}" "${name}" "$(sensor_service_user)"
+  require_active_sensor_transaction "${transaction_id}" "${name}"
+  if [[ ! -f "${transaction}/activation-restored" ]]; then
+    restore_sensor_files "${transaction}" "${name}" "$(sensor_service_user)"
+  fi
+  clear_active_sensor_transaction "${transaction_id}" "${name}"
+  rm -rf -- "${transaction}"
+  release_sensor_transaction_lock
   printf 'OK sensor-rolled-back %s\n' "${name}"
+}
+
+recover_sensor_transaction() {
+  local name="$1"
+  local expected_transaction_id="$2"
+  local active_transaction_id=""
+  local transaction=""
+  local transaction_name=""
+  local committed_name=""
+
+  validate_token "${name}" || die "Invalid sensor name"
+  validate_token "${expected_transaction_id}" || die "Invalid transaction ID"
+  acquire_sensor_transaction_lock "${name}"
+  active_transaction_id="$(read_active_sensor_transaction "${name}")"
+  if [[ -z "${active_transaction_id}" ]]; then
+    if committed_name="$(committed_sensor_transaction_name \
+      "${expected_transaction_id}")"; then
+      [[ "${committed_name}" == "${name}" ]] ||
+        die "The committed transaction belongs to a different sensor"
+      release_sensor_transaction_lock
+      printf 'OK sensor-recovered %s transaction=%s already-committed\n' \
+        "${name}" "${expected_transaction_id}"
+      return 0
+    fi
+    release_sensor_transaction_lock
+    printf 'OK sensor-recovered %s transaction=%s no-active\n' \
+      "${name}" "${expected_transaction_id}"
+    return 0
+  fi
+  [[ "${active_transaction_id}" == "${expected_transaction_id}" ]] ||
+    die_active_sensor_transaction "${active_transaction_id}" \
+      "Sensor ${name} has another active transaction; recovery requested ${expected_transaction_id}"
+
+  transaction="${TRANSACTION_DIR}/${expected_transaction_id}"
+  # A commit tombstone is authoritative even if its final marker cleanup was
+  # interrupted. Finish that cleanup; restoring its snapshot would undo a
+  # deployment that already committed.
+  if committed_name="$(committed_sensor_transaction_name \
+    "${expected_transaction_id}")"; then
+    [[ "${committed_name}" == "${name}" ]] ||
+      die "The committed transaction belongs to a different sensor"
+    clear_active_sensor_transaction "${expected_transaction_id}" "${name}"
+    rm -rf -- "${transaction}"
+    release_sensor_transaction_lock
+    printf 'OK sensor-recovered %s transaction=%s already-committed\n' \
+      "${name}" "${expected_transaction_id}"
+    return 0
+  fi
+
+  [[ -d "${transaction}" && ! -L "${transaction}" &&
+     -f "${transaction}/sensor-name" ]] ||
+    die "The active sensor transaction is missing or incomplete"
+  transaction_name="$(<"${transaction}/sensor-name")"
+  validate_token "${transaction_name}" ||
+    die "The active sensor transaction has an invalid sensor name"
+  [[ "${transaction_name}" == "${name}" ]] ||
+    die "The active transaction belongs to a different sensor"
+
+  if [[ -f "${transaction}/activated" &&
+        ! -f "${transaction}/activation-restored" ]]; then
+    restore_sensor_files "${transaction}" "${name}" "$(sensor_service_user)"
+  fi
+  clear_active_sensor_transaction "${expected_transaction_id}" "${name}"
+  rm -rf -- "${transaction}"
+  release_sensor_transaction_lock
+  printf 'OK sensor-recovered %s transaction=%s rolled-back\n' \
+    "${name}" "${expected_transaction_id}"
+}
+
+commit_sensor() {
+  local transaction_id="$1"
+  local transaction=""
+  local name=""
+  local transaction_name=""
+  local committed_name=""
+  local active_transaction=""
+
+  validate_token "${transaction_id}" || die "Invalid transaction ID"
+  transaction="${TRANSACTION_DIR}/${transaction_id}"
+
+  # A successful commit may have reached the probe even when its SSH response
+  # did not reach the caller. The tombstone makes that exact retry successful
+  # without consulting or modifying whichever deployment is active now.
+  if committed_name="$(committed_sensor_transaction_name \
+    "${transaction_id}")"; then
+    # Recovery after interruption between writing the tombstone and deleting
+    # the transaction. Inspecting the transaction only after taking the lock
+    # also closes the response-loss race where the first commit deletes it
+    # while this retry is waiting. A newer marker is deliberately untouched.
+    acquire_sensor_transaction_lock "${committed_name}"
+    if [[ -e "${transaction}" ]]; then
+      [[ -d "${transaction}" && ! -L "${transaction}" &&
+         -f "${transaction}/sensor-name" ]] ||
+        die "The committed sensor transaction path is invalid"
+      transaction_name="$(<"${transaction}/sensor-name")"
+      [[ "${transaction_name}" == "${committed_name}" ]] ||
+        die "The committed transaction belongs to a different sensor"
+    fi
+    active_transaction="$(read_active_sensor_transaction "${committed_name}")"
+    if [[ "${active_transaction}" == "${transaction_id}" ]]; then
+      clear_active_sensor_transaction \
+        "${transaction_id}" "${committed_name}"
+    fi
+    rm -rf -- "${transaction}"
+    release_sensor_transaction_lock
+    printf 'OK sensor-committed %s\n' "${committed_name}"
+    return 0
+  fi
+
+  [[ -f "${transaction}/sensor-name" ]] ||
+    die "Unknown or incomplete sensor transaction"
+  name="$(<"${transaction}/sensor-name")"
+  validate_token "${name}" || die "Invalid sensor name"
+
+  acquire_sensor_transaction_lock "${name}"
+  # A duplicate request can have waited here while the first request wrote
+  # its tombstone and finished. Re-check after taking the lock so that
+  # overlapping retries are idempotent as well as sequential ones.
+  if committed_name="$(committed_sensor_transaction_name \
+    "${transaction_id}")"; then
+    [[ "${committed_name}" == "${name}" ]] ||
+      die "The committed transaction belongs to a different sensor"
+    active_transaction="$(read_active_sensor_transaction "${name}")"
+    if [[ "${active_transaction}" == "${transaction_id}" ]]; then
+      clear_active_sensor_transaction "${transaction_id}" "${name}"
+    fi
+    rm -rf -- "${transaction}"
+    release_sensor_transaction_lock
+    printf 'OK sensor-committed %s\n' "${name}"
+    return 0
+  fi
+  require_active_sensor_transaction "${transaction_id}" "${name}"
+  [[ -f "${transaction}/activation-complete" ]] ||
+    die "Sensor transaction ${transaction_id} has not completed activation"
+
+  # The tombstone is authoritative before either live marker is removed. A
+  # retry can therefore finish cleanup safely after an interruption at any
+  # later instruction.
+  record_sensor_commit_tombstone "${transaction_id}" "${name}"
+  clear_active_sensor_transaction "${transaction_id}" "${name}"
+  rm -rf -- "${transaction}"
+  release_sensor_transaction_lock
+  printf 'OK sensor-committed %s\n' "${name}"
+}
+
+managed_tool_metadata_value() {
+  local path="$1"
+  local key="$2"
+
+  [[ -f "${path}" ]] || return 0
+  sed -n "s/^${key}=//p" "${path}" | head -n 1
+}
+
+sensor_tool_fields() {
+  local name="$1"
+  local tool=""
+  local binary_name=""
+  local current=""
+  local metadata=""
+  local version="none"
+  local platform="none"
+  local digest="none"
+  local source="none"
+  local path="none"
+  local configured_version=""
+  local configured_digest=""
+  local candidate=""
+  local expected_path=""
+  local current_target=""
+  local compatible="no"
+
+  tool="$(managed_tool_for_sensor "${name}")"
+  if [[ -z "${tool}" ]]; then
+    printf 'tool=none\ttool_version=none\ttool_platform=none\ttool_sha256=none\ttool_source=none\ttool_path=none\ttool_compatible=none'
+    return 0
+  fi
+  binary_name="$(managed_tool_binary_name "${tool}")"
+  current="$(managed_tool_current_link "${tool}")"
+  metadata="$(managed_tool_metadata_path "${name}")"
+  configured_version="$(managed_tool_metadata_value "${metadata}" VERSION)"
+  configured_digest="$(managed_tool_metadata_value "${metadata}" SHA256)"
+  platform="$(managed_tool_metadata_value "${metadata}" PLATFORM)"
+  source="$(managed_tool_metadata_value "${metadata}" SOURCE)"
+  [[ -n "${source}" ]] || source="none"
+  [[ -n "${platform}" ]] || platform="none"
+  candidate="${current}/${binary_name}"
+  if [[ -e "${candidate}" || -L "${candidate}" ]]; then
+    path="$(readlink -f "${candidate}" 2>/dev/null || true)"
+    [[ -n "${path}" ]] || path="none"
+    case "${tool}" in
+      iperf3)
+        case "${source}" in
+          managed)
+            expected_path="${SENSOR_TOOL_ROOT}/${tool}/${configured_version}/${platform}/${binary_name}"
+            current_target="$(readlink "${current}" 2>/dev/null || true)"
+            # Trust and exact release path come before reading or executing the
+            # binary. A writable, foreign-owned or symlinked target is status
+            # drift, never root code that sensor-list should start.
+            if [[ -L "${current}" &&
+                  "${current_target}" == "${configured_version}/${platform}" &&
+                  "${path}" == "${expected_path}" ]] &&
+              managed_tool_path_is_trusted "${candidate}"; then
+              digest="$(sha256sum "${candidate}" | awk '{print $1}')"
+              # The signed digest is part of the trust boundary too. A
+              # root-owned file with different bytes is drift to replace, not
+              # a program sensor-list may start as root to identify it.
+              if [[ "${digest}" == "${configured_digest}" ]]; then
+                if ! version="$(iperf_binary_version \
+                  "${candidate}" 2>/dev/null)"; then
+                  version="none"
+                fi
+                [[ -n "${version}" ]] || version="none"
+                if iperf_binary_has_authentication "${candidate}" &&
+                  [[ "${version}" == "${configured_version}" ]] &&
+                  managed_tool_has_release_artifact \
+                    "${tool}" "${platform}"; then
+                  compatible="yes"
+                fi
+              fi
+            fi
+            ;;
+          system)
+            # Do not execute a system path after its ownership or mode has
+            # drifted. The same trust check guards install and observation.
+            if system_tool_path_is_trusted "${path}"; then
+              digest="$(sha256sum "${path}" | awk '{print $1}')"
+              if ! version="$(iperf_binary_version \
+                "${candidate}" 2>/dev/null)"; then
+                version="none"
+              fi
+              [[ -n "${version}" ]] || version="none"
+              if iperf_binary_has_authentication "${candidate}" &&
+                version_at_least \
+                  "${version}" "${SYSTEM_IPERF_MIN_VERSION}" &&
+                ! managed_tool_has_release_artifact \
+                  "${tool}" "${platform}"; then
+                compatible="yes"
+              fi
+            fi
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  printf 'tool=%s\ttool_version=%s\ttool_platform=%s\ttool_sha256=%s\ttool_source=%s\ttool_path=%s\ttool_compatible=%s' \
+    "${tool}" "${version}" "${platform}" "${digest}" \
+    "${source}" "${path}" "${compatible}"
 }
 
 list_sensors() {
@@ -1191,13 +2363,14 @@ list_sensors() {
     [[ -f "${script}" ]] || continue
     version="none"
     [[ ! -f "${directory}version" ]] || version="$(<"${directory}version")"
-    printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\thelper_sha256=%s\n' \
+    printf '%s\tversion=%s\tsha256=%s\tinterfaces=%s\thelper=%s\thelper_sha256=%s\t%s\n' \
       "${name}" \
       "${version}" \
       "$(sensor_script_checksum "${name}" "${script}")" \
       "$(sensor_interface_list "${name}")" \
       "$(sensor_helper_state "${name}")" \
-      "$(sensor_helper_checksum "${name}")"
+      "$(sensor_helper_checksum "${name}")" \
+      "$(sensor_tool_fields "${name}")"
   done
   shopt -u nullglob
 }
@@ -1615,8 +2788,14 @@ remove_sensor_file() {
 
 remove_sensor() {
   local name="$1"
+  local active_transaction=""
 
   validate_token "${name}" || die "Invalid sensor name"
+  acquire_sensor_transaction_lock "${name}"
+  active_transaction="$(read_active_sensor_transaction "${name}")"
+  [[ -z "${active_transaction}" ]] ||
+    die_active_sensor_transaction "${active_transaction}" \
+      "Sensor ${name} has an active transaction; commit or roll it back before removal"
   release_sensor_interfaces "${name}"
   remove_sensor_units "${name}"
   rm -f -- \
@@ -1626,6 +2805,7 @@ remove_sensor() {
   rm -rf -- \
     "${SENSOR_CONFIG_ROOT:?}/${name}" \
     "${SENSOR_VENV_ROOT:?}/${name}"
+  release_sensor_transaction_lock
   printf 'OK sensor-removed %s\n' "${name}"
 }
 
@@ -1710,7 +2890,11 @@ uninstall_mpp() {
 }
 
 [[ "${EUID}" -eq 0 ]] || die "Helper must run as root through its sudo rule"
-install -d -o root -g root -m 0700 "${STATE_DIR}" "${TRANSACTION_DIR}"
+install -d -o root -g root -m 0700 \
+  "${STATE_DIR}" \
+  "${TRANSACTION_DIR}" \
+  "${SENSOR_TRANSACTION_STATE_DIR}" \
+  "${SENSOR_COMMIT_TOMBSTONE_DIR}"
 
 IFS=$'\t' read -r command_name argument_one argument_two argument_three ||
   die "Missing management request"
@@ -1761,6 +2945,12 @@ case "${command_name}" in
       die "sensor-stage requires transaction, sensor and slot"
     stage_sensor "${argument_one}" "${argument_two}" "${argument_three}"
     ;;
+  sensor-tool-stage)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -n "${argument_three:-}" ]] ||
+      die "sensor-tool-stage requires transaction, sensor and signature"
+    stage_sensor_tool "${argument_one}" "${argument_two}" "${argument_three}"
+    ;;
   sensor-activate)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
       die "sensor-activate requires one transaction"
@@ -1771,10 +2961,16 @@ case "${command_name}" in
       die "sensor-rollback requires one transaction"
     rollback_sensor "${argument_one}"
     ;;
+  sensor-recover)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-recover requires sensor and transaction"
+    recover_sensor_transaction "${argument_one}" "${argument_two}"
+    ;;
   sensor-commit)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
       die "sensor-commit requires one transaction"
-    commit_credentials "${argument_one}"
+    commit_sensor "${argument_one}"
     ;;
   sensor-list)
     [[ -z "${argument_one:-}" ]] || die "sensor-list takes no arguments"

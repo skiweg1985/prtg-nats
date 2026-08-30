@@ -35,7 +35,9 @@ import sys
 import time
 from typing import Any, NoReturn
 
-IPERF = "/usr/bin/iperf3"
+IPERF = "/opt/prtg-nats/tools/iperf3/current/iperf3"
+APPROVED_IPERF_VERSION = "3.21"
+SYSTEM_IPERF_MIN_VERSION = "3.18"
 
 # The sensor runs as the service user; prtg.mpprobe.service brings its own
 # /tmp via PrivateTmp. The id in the name keeps the file separate even if a
@@ -102,8 +104,10 @@ UNKNOWN_FAILURE = 99
 SENSOR_FAILURES = ("tool-missing", "credentials-unreadable")
 
 TOOL_MISSING_MESSAGE = (
-    "iperf3 is not installed on this probe (tool-missing). Install it with "
-    '"apt-get install iperf3" on the probe; the sensor needs no other package.'
+    "The selected iperf3 executable is not installed on this probe "
+    "(tool-missing). Redeploy this sensor from PRTG-NATS. On a system-fallback "
+    "platform, install /usr/bin/iperf3 3.18 or newer through the operating "
+    "system first."
 )
 
 # A lock file could not be created. Then the measurement runs without a
@@ -1113,6 +1117,34 @@ def failure_result(code: str, message: str,
     return present({"code": code, "message": message}, 0, args)
 
 
+def tool_source() -> str:
+    """Read the root-written source marker without evaluating the env file."""
+    path = "%s/tool.env" % CONFIG_ROOT
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            sources = [
+                line.split("=", 1)[1].strip()
+                for line in handle
+                if line.startswith("SOURCE=")
+            ]
+    except OSError:
+        return "managed"
+    return sources[0] if len(sources) == 1 else "managed"
+
+
+def version_at_least(actual: str, minimum: str) -> bool:
+    """Compare the numeric upstream part used by iperf's version output."""
+    try:
+        actual_parts = tuple(int(part) for part in actual.split("."))
+        minimum_parts = tuple(int(part) for part in minimum.split("."))
+    except ValueError:
+        return False
+    width = max(len(actual_parts), len(minimum_parts))
+    return actual_parts + (0,) * (width - len(actual_parts)) >= (
+        minimum_parts + (0,) * (width - len(minimum_parts))
+    )
+
+
 def self_check(args: dict[str, Any]) -> dict[str, Any]:
     """Check the ability to run - and the parameters, if any came along.
 
@@ -1139,13 +1171,43 @@ def self_check(args: dict[str, Any]) -> dict[str, Any]:
             fail(problem.message)
 
     try:
-        version = subprocess.run([IPERF, "--version"], capture_output=True,
-                                 timeout=10).stdout.decode("utf-8", "replace")
-        version = version.splitlines()[0] if version else "of unknown version"
-    except Exception:
-        version = "of unknown version"
+        completed = subprocess.run(
+            [IPERF, "--version"], capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail(
+            "The selected iperf3 executable cannot run as the PRTG probe "
+            "service user (tool-missing). Redeploy this sensor from PRTG-NATS."
+        )
+    output = (completed.stdout + completed.stderr).decode("utf-8", "replace")
+    first_line = output.splitlines()[0] if output else ""
+    words = first_line.split()
+    reported_version = words[1] if len(words) >= 2 and words[0] == "iperf" else ""
+    source = tool_source()
+    compatible_version = (
+        reported_version == APPROVED_IPERF_VERSION
+        if source == "managed"
+        else source == "system"
+        and version_at_least(reported_version, SYSTEM_IPERF_MIN_VERSION)
+    )
+    if completed.returncode != 0 or not compatible_version:
+        expected = (
+            APPROVED_IPERF_VERSION
+            if source == "managed"
+            else "%s or newer" % SYSTEM_IPERF_MIN_VERSION
+        )
+        fail(
+            "The %s iperf3 executable is not the required version %s "
+            "(tool-missing). Redeploy this sensor from PRTG-NATS."
+            % (source, expected)
+        )
+    if "authentication" not in output.lower():
+        fail(
+            "The selected iperf3 executable lacks authentication support "
+            "(tool-missing). Redeploy this sensor from PRTG-NATS."
+        )
 
-    message = "%s is ready." % version
+    message = "%s is ready." % first_line
     if configured:
         message += " The configured parameters are valid."
     # Where the password comes from belongs in the answer: it is the

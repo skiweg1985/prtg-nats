@@ -224,6 +224,9 @@ class SensorDefinition:
     # Set when the sensor measures against an endpoint managed by
     # "./prtg-nats iperf-server"; its credentials ship with the sensor.
     iperf_kind: str | None
+    managed_tool: str | None
+    managed_tool_version: str | None
+    managed_tool_fallback_min_version: str | None
     requires_privileged_helper: bool
     files: tuple[SensorFile, ...]
     schema: SensorSchema | None = None
@@ -280,6 +283,19 @@ class SensorCatalog:
     def _load(self, directory: Path) -> SensorDefinition:
         manifest = read_env_file(directory / "manifest.env")
         name = manifest.get("SENSOR_NAME", directory.name)
+        managed_tool = (manifest.get("SENSOR_TOOL") or "").strip() or None
+        managed_tool_version = (
+            manifest.get("SENSOR_TOOL_VERSION") or ""
+        ).strip() or None
+        managed_tool_fallback_min_version = (
+            manifest.get("SENSOR_TOOL_FALLBACK_MIN_VERSION") or ""
+        ).strip() or None
+        if bool(managed_tool) != bool(managed_tool_version):
+            raise ValueError(
+                "SENSOR_TOOL and SENSOR_TOOL_VERSION must be declared together"
+            )
+        if managed_tool_fallback_min_version and not managed_tool:
+            raise ValueError("SENSOR_TOOL_FALLBACK_MIN_VERSION requires SENSOR_TOOL")
 
         files: list[SensorFile] = []
         for slot, key in SLOT_MANIFEST_KEYS.items():
@@ -311,6 +327,9 @@ class SensorCatalog:
             directory=directory,
             needs_interface=_as_bool(manifest.get("SENSOR_NEEDS_INTERFACE")),
             iperf_kind=(manifest.get("SENSOR_IPERF") or "").strip() or None,
+            managed_tool=managed_tool,
+            managed_tool_version=managed_tool_version,
+            managed_tool_fallback_min_version=managed_tool_fallback_min_version,
             requires_privileged_helper=bool(
                 manifest.get("SENSOR_PRIVILEGED", "").strip()
             ),

@@ -22,6 +22,7 @@ from app.domain.models import (
     ObservedProbeState,
 )
 from app.domain.reconciliation import (
+    ToolExpectation,
     build_plan,
     compare_sensors,
     find_deviations,
@@ -95,6 +96,262 @@ def test_same_version_different_bytes_is_drift() -> None:
         catalogue_checksums={"internet-speed": "aaaa"},
     )
     assert comparisons[0].status is SensorInstallationStatus.DRIFTED
+
+
+def test_managed_tool_version_and_digest_are_part_of_sensor_state() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="2",
+                sha256="aaaa",
+                tool_name="iperf3",
+                tool_version="3.20",
+                tool_platform="linux-arm64-glibc",
+                tool_sha256="bbbb",
+                tool_source="managed",
+                tool_path=("/opt/prtg-nats/tools/iperf3/3.21/linux-arm64-glibc/iperf3"),
+                tool_compatible=True,
+            ),
+        )
+    )
+    comparisons = compare_sensors(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.21",
+                platform="linux-arm64-glibc",
+                source="managed",
+                path=("/opt/prtg-nats/tools/iperf3/3.21/linux-arm64-glibc/iperf3"),
+                sha256="cccc",
+                supported=True,
+            )
+        },
+    )
+
+    assert comparisons[0].status is SensorInstallationStatus.OUTDATED
+    assert comparisons[0].installed_tool_version == "3.20"
+    assert comparisons[0].expected_tool_version == "3.21"
+    assert comparisons[0].expected_tool_sha256 == "cccc"
+    assert comparisons[0].tool_supported is True
+    deviation = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.21",
+                platform="linux-arm64-glibc",
+                source="managed",
+                path=("/opt/prtg-nats/tools/iperf3/3.21/linux-arm64-glibc/iperf3"),
+                sha256="cccc",
+                supported=True,
+            )
+        },
+    )[0]
+    assert deviation.expected == "iperf3 3.21"
+    assert deviation.actual == "iperf3 3.20"
+
+
+def test_unknown_tool_platform_is_drift_not_current() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="2",
+                sha256=None,
+                tool_name="iperf3",
+                tool_version="3.21",
+                tool_platform="linux-unknown-glibc",
+                tool_sha256="bbbb",
+            ),
+        )
+    )
+    comparison = compare_sensors(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.18",
+                platform="linux-unknown-glibc",
+                source=None,
+                path=None,
+                sha256=None,
+                supported=False,
+            )
+        },
+    )[0]
+
+    assert comparison.status is SensorInstallationStatus.DRIFTED
+    assert comparison.tool_supported is False
+
+
+def test_compatible_system_tool_at_minimum_is_current_without_warning() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="2",
+                sha256=None,
+                tool_name="iperf3",
+                tool_version="3.18",
+                tool_platform="linux-armhf-v6-glibc",
+                tool_sha256="bbbb",
+                tool_source="system",
+                tool_path="/usr/bin/iperf3",
+                tool_compatible=True,
+            ),
+        )
+    )
+    comparison = compare_sensors(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.18",
+                platform="linux-armhf-v6-glibc",
+                source="system",
+                path="/usr/bin/iperf3",
+                sha256=None,
+                supported=True,
+            )
+        },
+    )[0]
+
+    assert comparison.status is SensorInstallationStatus.CURRENT
+    assert comparison.tool_source == "system"
+    assert comparison.tool_compatible is True
+
+
+def test_system_tool_below_minimum_is_outdated() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="2",
+                sha256=None,
+                tool_name="iperf3",
+                tool_version="3.17",
+                tool_platform="linux-armhf-v6-glibc",
+                tool_source="system",
+                tool_path="/usr/bin/iperf3",
+                tool_compatible=False,
+            ),
+        )
+    )
+    expectation = ToolExpectation(
+        name="iperf3",
+        version="3.18",
+        platform="linux-armhf-v6-glibc",
+        source="system",
+        path="/usr/bin/iperf3",
+        sha256=None,
+        supported=True,
+    )
+
+    comparison = compare_sensors(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={"iperf-throughput": expectation},
+    )[0]
+    assert comparison.status is SensorInstallationStatus.OUTDATED
+
+    deviation = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={"iperf-throughput": expectation},
+    )[0]
+    assert deviation.expected == "iperf3 >=3.18"
+    assert deviation.actual == "iperf3 3.17"
+
+
+def test_system_tool_without_authentication_is_drifted() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="2",
+                sha256=None,
+                tool_name="iperf3",
+                tool_version="3.18",
+                tool_platform="linux-armhf-v6-glibc",
+                tool_source="system",
+                tool_path="/usr/bin/iperf3",
+                tool_compatible=False,
+            ),
+        )
+    )
+    comparison = compare_sensors(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.18",
+                platform="linux-armhf-v6-glibc",
+                source="system",
+                path="/usr/bin/iperf3",
+                sha256=None,
+                supported=True,
+            )
+        },
+    )[0]
+
+    assert comparison.status is SensorInstallationStatus.DRIFTED
+
+
+def test_newer_system_tool_is_not_blamed_for_an_old_sensor_script() -> None:
+    desired = DesiredProbeState(sensors=(DesiredSensor(name="iperf-throughput"),))
+    state = observed(
+        sensors=(
+            InstalledSensor(
+                name="iperf-throughput",
+                version="1",
+                sha256=None,
+                tool_name="iperf3",
+                tool_version="3.19",
+                tool_platform="linux-armhf-v6-glibc",
+                tool_source="system",
+                tool_path="/usr/bin/iperf3",
+                tool_compatible=True,
+            ),
+        )
+    )
+    deviations = find_deviations(
+        desired,
+        state,
+        catalogue_versions={"iperf-throughput": "2"},
+        catalogue_tools={
+            "iperf-throughput": ToolExpectation(
+                name="iperf3",
+                version="3.18",
+                platform="linux-armhf-v6-glibc",
+                source="system",
+                path="/usr/bin/iperf3",
+                sha256=None,
+                supported=True,
+            )
+        },
+    )
+
+    assert deviations[0].expected == "2"
+    assert deviations[0].actual == "1"
 
 
 def test_a_pinned_version_wins_over_the_catalogue() -> None:
@@ -257,6 +514,13 @@ def test_observed_state_survives_a_round_trip_through_json() -> None:
                 sha256="bbbb",
                 interfaces=("wlan0",),
                 helper_state="active",
+                tool_name="iperf3",
+                tool_version="3.18",
+                tool_platform="linux-armhf-v6-glibc",
+                tool_sha256="cccc",
+                tool_source="system",
+                tool_path="/usr/bin/iperf3",
+                tool_compatible=True,
             ),
         )
     )

@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-29
+updated: 2026-08-30
 ---
 
 # Manage sensor scripts centrally
@@ -28,6 +28,7 @@ sensors page of the web interface, or from the shell.
 | prepare every probe | `./prtg-nats sensor prepare --all` |
 | state of one probe | `./prtg-nats sensor status USER` |
 | state of the whole fleet | `./prtg-nats sensor status --all` |
+| recover an interrupted transaction | `./prtg-nats sensor recover NAME USER --transaction TRANSACTION` |
 | reserve a test interface | `./prtg-nats sensor reserve NAME USER IFACE` - or the sensor tab of the probe in the web interface |
 | release a reservation | `./prtg-nats sensor release NAME USER IFACE` |
 | deploy a credential profile | `./prtg-nats sensor profile NAME USER PROFILE --from-file FILE` |
@@ -49,19 +50,53 @@ Sensors that measure against a self-operated endpoint additionally need
 Deployment is transactional and follows the same steps as rolling out the MPP
 configuration:
 
-1. Every file of the sensor is transferred individually and staged on the
-   probe. The helper there checks each file itself - shebang, Python syntax,
-   size and freedom from control characters.
-2. `sensor-activate` saves the previous state, installs the new files with
-   the right permissions and creates the sudo rule.
-3. The **self-test** runs: the probe calls the freshly installed script with
+1. The platform reads the probe state and renews an outdated helper before it
+   stages anything else. The probe verifies that update against the signing
+   key it received during bootstrap.
+2. Every file of the sensor is transferred individually and staged on the
+   probe. The helper there checks each text file itself - shebang, Python
+   syntax, size and freedom from control characters. A sensor-owned executable
+   is selected and verified as described under
+   [iperf3 tool selection](#iperf3-tool-selection).
+3. `sensor-activate` saves the previous sensor and tool state, installs the
+   new files with the right permissions and switches the selected tool through
+   its `current` link.
+4. The **self-test** runs: the probe calls the freshly installed script with
    `--self-check` - as the service user, through `systemd-run`, with the same
    hardening `prtg.mpprobe.service` uses. Only if that produces valid
    Script v2 JSON with `"status": "ok"` does the activation count as
    successful. The hardening values are read from the running unit, so the
    reproduction stays faithful even if Paessler changes them later.
-4. If the self-test fails, the helper restores the previous state. No
-   half-deployed sensor is left on the probe.
+5. If verification or the self-test fails, the helper restores both the
+   previous sensor and the previous `current` tool target. No half-matched
+   sensor and executable are left on the probe.
+
+### Recover an interrupted transaction
+
+A worker restart or a lost SSH answer can leave an activated transaction
+waiting for its final commit or rollback. The active marker deliberately
+blocks another deployment of the same sensor: starting over must not overwrite
+the snapshot needed to restore the earlier state.
+
+The failed job names the sensor, probe and exact transaction and prints the
+recovery command. Copy that command unchanged, for example:
+
+```bash
+sudo ./prtg-nats sensor recover internet-speed mpp-probe-01 \
+  --transaction 01JEXAMPLETRANSACTION
+```
+
+The transaction argument is required. Under the sensor lock, the probe checks
+that this exact transaction is still active. It then restores the previous
+sensor files and managed-tool link and removes the transaction. If the commit
+had already succeeded and only its answer was lost, recovery keeps the new
+installation and completes the central assignment instead. Repeating the same
+command is safe; a different active transaction is refused without touching
+it.
+
+After an `OK sensor-recovered` answer, run the deployment again. Do not delete
+files below `/var/lib/prtg-nats-probe-state` by hand: doing so discards the
+snapshot that makes the rollback safe.
 
 Once the job is green, the job page says what remains: the sensor object in
 PRTG. Its page in the interface names the script as PRTG's Script v2 dropdown
@@ -72,11 +107,11 @@ cannot reach its privileged helper through `sudo` does not get through.
 
 A rollout that fails earlier - a connection lost between two files, a probe
 that stops answering while staging - is rolled back too, and that rollback
-restores only what step 2 actually replaced. A sensor that was already
-running is therefore still running afterwards, in the version it had before
-anyone touched it. Helper versions below 3 removed it instead, so a failed
-update took the working sensor with it; update the helper before the next
-rollout if a probe still reports one of them.
+restores only what activation actually replaced. A sensor that was already
+running is therefore still running afterwards, with the sensor and tool
+versions it had before anyone touched it. Helper versions below 3 removed the
+sensor instead, so a failed update took the working sensor with it; the
+automatic helper update prevents such a helper from entering a new rollout.
 
 When the job ends it asks every probe it worked on how it looks now, so the
 sensor it just installed is not compared against a reading from before the
@@ -102,10 +137,12 @@ show as degraded, until its cached state expired - see
 The service user is determined on the probe (`paessler_mpprobe` on MPP 3.10),
 not dictated by the server.
 
-Only text travels over the channel. The systemd units are generated by the
-helper on the probe itself, from the validated sensor name. A faulty or
-malicious caller cannot smuggle in its own unit or its own target path that
-way.
+Sensor files and configuration travel as text. When the platform selects a
+managed tool, the only binary sensor payload is the signed, single-file iperf3
+ELF described below; it is neither an archive nor an installer. The systemd
+units are generated by the helper on the probe itself, from the validated
+sensor name. A faulty or malicious caller cannot smuggle in its own unit or
+its own target path that way.
 
 ## How a sensor gets root privileges
 
@@ -141,16 +178,20 @@ The sensor commands are executed on the probe by
 management existed do not know them yet and answer with
 `Unsupported management request`.
 
-The helper is renewed over the restricted channel, against a signature the
-probe checks first - the management key opens the channel, but it does not
-authorise new code on the far side
-([ADR 0006](../architecture/decisions/0006-signed-helper-updates.md)):
+Every sensor rollout renews an outdated helper first. The helper is sent over
+the restricted channel, against a signature the probe checks before replacing
+anything - the management key opens the channel, but it does not by itself
+authorise replacement of the helper
+([ADR 0006](../architecture/decisions/0006-signed-helper-updates.md)). To run
+that step on its own before a maintenance window:
 
 ```bash
 ./prtg-nats probe helper-update USER
 ```
 
-The interface does the same thing with "Update helper" on the probe page.
+The interface does the same thing with "Update helper" on the probe page. A
+rollout does not continue with tool or sensor staging if the helper update
+fails.
 
 A probe that reports no `helper_version` at all was enrolled before signed
 updates existed. It carries no key to check a signature against, so it needs
@@ -168,9 +209,11 @@ login on `ADMIN@HOST` asks for the password of that account once - see
 
 ## Where a new sensor version comes from
 
-The catalogue ships inside the API image, so a sensor version that was added
-to the repository reaches an installation when the stack is updated - from
-*Updates* in the interface, or with `./prtg-nats update` on the host.
+The catalogue and its sensor-tool artifacts ship inside the API image, so a
+sensor version that was added to the repository reaches an installation when
+the stack is updated - from *Updates* in the interface, or with
+`./prtg-nats update` on the host. The transfer is signed with the installation's
+existing helper-signing key.
 
 Nothing else is needed after that. The probes are compared against the
 catalogue on the next pass, the ones behind report `outdated`, and the fix is
@@ -212,18 +255,88 @@ drifted — somebody edited it on the probe, or a deployment stopped
 halfway. The helper digest needs helper version 6; an older probe omits it,
 and an absent digest is never a deviation.
 
-A sensor that needs a program from the system gets it during the rollout:
+A sensor that needs a program from the system can get it during the rollout:
 `sensor_system_package` in `libexec/prtg-nats-probe-helper` maps the sensor
-name to the program and the packages that can provide it, and the
-deployment installs the first one that works. The program is what the
-check looks for, not the package — the two differ often enough, and the
-package carrying a program changes between releases.
+name to the program and the packages that can provide it. `iperf-throughput`
+uses a narrower contract: a release-owned artifact where one exists, or an
+already installed `/usr/bin/iperf3` on another identified userspace platform.
+The helper does not run a package manager for that fallback and never accepts
+a program found through `PATH`.
 
 The self-check decides whether that succeeded. It runs as the last step of
 a deployment, and a sensor whose privileged helper reports a missing tool
 there fails the deployment and restores the previous state. That is the
 last moment a gap can be reported to whoever is deploying; after it, the
 same gap only shows up as a sensor error on the first scan.
+
+## iperf3 tool selection
+
+`iperf-throughput` prefers iperf3 3.21 supplied by this release. The platform
+selects that exact managed artifact for the supported userspace ABIs below.
+Another identified userspace platform may instead use a controlled system
+fallback: its literal `/usr/bin/iperf3`, version 3.18 or newer, with
+`authentication` listed by `iperf3 --version`. The minimum matches the package
+shipped by the current Raspberry Pi OS release when this contract was set.
+
+The fallback does not mean "any installed iperf3". The helper never searches
+`PATH`, never accepts another path and never installs or updates a package. If
+`/usr/bin/iperf3` is absent, older than 3.18 or lacks authentication support,
+the rollout stays drifted and tells the operator to install or update the
+operating-system package manually.
+
+The platform selects one artifact from the probe's **userspace ABI**, not
+from the kernel architecture alone:
+
+| Platform | Userspace executable |
+| --- | --- |
+| `linux-amd64-glibc` | 64-bit x86 ELF using glibc |
+| `linux-arm64-glibc` | 64-bit AArch64 ELF using glibc |
+| `linux-armhf-glibc` | 32-bit ARMv7-or-newer EABI ELF using glibc |
+
+That distinction matters on Raspberry Pi systems: a 32-bit `armhf` userspace
+can run under a kernel that reports `aarch64`. Selecting from `uname -m` would
+send the 64-bit executable to that probe. The helper reports and validates the
+userspace platform instead; operators do not choose it in the rollout dialog.
+
+Each managed platform artifact is one ELF file with an expected SHA-256
+digest. The platform puts it and its immutable metadata into one signed
+transfer envelope. The probe verifies the signature with the same public key
+that protects helper updates, then checks the digest, selected platform and
+reported iperf3 version. A signature, digest or version failure never falls
+back to the system tool.
+
+An identified platform without an exact artifact, including
+`linux-armhf-v6-glibc`, takes the system path instead. An unidentifiable
+platform fails before the active sensor is changed. The operator does not
+choose either source in the rollout dialog.
+[ADR 0008](../architecture/decisions/0008-ship-signed-sensor-tools-by-userspace-platform.md)
+records this boundary.
+
+Accepted versions are stored side by side. For example, an ARM64 probe uses:
+
+```text
+/opt/prtg-nats/tools/iperf3/
+|-- 3.21/
+|   `-- linux-arm64-glibc/
+|       `-- iperf3
+`-- current -> 3.21/linux-arm64-glibc
+```
+
+The sensor always invokes
+`/opt/prtg-nats/tools/iperf3/current/iperf3`. For a managed artifact,
+`current` points to the versioned platform directory. For a system fallback,
+it points to `/usr/bin`, so the same invocation resolves to
+`/usr/bin/iperf3`. Activation changes `current` with an atomic rename and
+commits that change together with the sensor files. A failed self-test
+restores the earlier link and sensor version as one rollback transaction. No
+system package operation is part of that transaction.
+
+The probe status and the probe's sensor tab show source (`managed` or
+`system`), absolute path, active version, platform, SHA-256 digest and
+compatibility. Managed tools are compared against their exact release version
+and digest. System tools are compared against the 3.18 minimum and
+authentication feature. A green deployment therefore confirms which
+executable will run without presenting the two trust models as equivalent.
 
 ## Rules for a sensor script
 
@@ -400,6 +513,14 @@ A sensor can measure against a **self-operated far end** instead of a third
 party service - `iperf-throughput` does that against an iperf3 measurement
 endpoint. Such a far end is more than a credential profile: it is a machine
 that wants setting up, and both sides have to know the same secret.
+
+An authenticated foreign endpoint must run iperf3 3.17 or newer and support
+the RSA-OAEP authentication used by both managed and compatible system
+clients. Releases before 3.17 use incompatible legacy padding. Do not make
+them appear compatible with `--use-pkcs1-padding`; upgrade the endpoint and
+run the preflight in
+[the foreign-endpoint guide](foreign-iperf-endpoint.md#preflight-the-iperf3-version)
+instead.
 
 There are several ways to set one up and they all write the same files, so
 whichever was used, the result is the same endpoint:

@@ -50,6 +50,7 @@ PROBE_INFO = (
     "OK probe-info\n"
     "package=2.1.0\n"
     "service=active\n"
+    "helper_version=8\n"
     "ca_sha256=aa\n"
     "id=11111111-2222-3333-4444-555555555555\n"
 )

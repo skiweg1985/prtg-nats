@@ -7,6 +7,8 @@ probe-helper transport that answers from a script instead of over SSH.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -198,9 +200,16 @@ class ScriptedTransport:
         self, connection: HelperTarget, request: HelperRequest, timeout: int
     ) -> str:
         self.calls.append((connection.label, request))
-        answer = self.responses.get(
-            request.command.value, f"OK {request.command.value}\n"
-        )
+        default = f"OK {request.command.value}\n"
+        if request.command.value == "probe-info":
+            default += "helper_version=8\n"
+        answer = self.responses.get(request.command.value, default)
+        if isinstance(answer, list):
+            if not answer:
+                raise AssertionError(
+                    f"no scripted response left for {request.command.value}"
+                )
+            answer = answer.pop(0)
         if isinstance(answer, Exception):
             raise answer
         return str(answer)
@@ -264,6 +273,9 @@ def write_sensor(
     description: str = "Example sensor",
     script: str = "#!/usr/bin/env python3\nprint('{}')\n",
     iperf_kind: str = "",
+    managed_tool: str = "",
+    managed_tool_version: str = "",
+    managed_tool_fallback_min_version: str = "",
 ) -> None:
     """A sensor in the catalogue.
 
@@ -272,6 +284,10 @@ def write_sensor(
     which sensors an endpoint's credentials are written to and taken from.
     """
     directory = project_dir / "sensors" / name / "script"
+    if managed_tool and not managed_tool_version:
+        managed_tool_version = "3.21"
+    if managed_tool and not managed_tool_fallback_min_version:
+        managed_tool_fallback_min_version = "3.18"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{name}.py").write_text(script, encoding="utf-8")
     (project_dir / "sensors" / name / "manifest.env").write_text(
@@ -282,6 +298,47 @@ def write_sensor(
         "SENSOR_PRIVILEGED=\n"
         "SENSOR_REQUIREMENTS=\n"
         "SENSOR_NEEDS_INTERFACE=false\n"
-        f"SENSOR_IPERF={iperf_kind}\n",
+        f"SENSOR_IPERF={iperf_kind}\n"
+        f"SENSOR_TOOL={managed_tool}\n"
+        f"SENSOR_TOOL_VERSION={managed_tool_version}\n"
+        "SENSOR_TOOL_FALLBACK_MIN_VERSION="
+        f"{managed_tool_fallback_min_version}\n",
         encoding="utf-8",
     )
+
+
+def write_tool_artifact(
+    project_dir: Path,
+    name: str,
+    platform: str,
+    payload: bytes,
+    *,
+    version: str = "3.21",
+) -> Path:
+    """One tiny release-owned artifact for catalogue and rollout tests."""
+    root = project_dir / "tools" / name / "artifacts"
+    path = root / platform / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "tools": {
+                    name: {
+                        "version": version,
+                        "artifacts": {
+                            platform: {
+                                "path": f"{platform}/{name}",
+                                "sha256": digest,
+                                "size": len(payload),
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path

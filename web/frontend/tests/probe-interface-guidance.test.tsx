@@ -86,6 +86,17 @@ function detail(sensorOverrides: Record<string, unknown> = {}) {
         expected_sha256: null,
         installed_helper_sha256: null,
         expected_helper_sha256: null,
+        tool_name: 'iperf3',
+        installed_tool_version: '3.21',
+        expected_tool_version: '3.21',
+        tool_platform: 'linux-arm64-glibc',
+        tool_source: 'managed',
+        tool_path: '/opt/prtg-nats/tools/iperf3/current/iperf3',
+        installed_tool_sha256:
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        expected_tool_sha256:
+          'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+        tool_compatible: true,
         interfaces: [],
         helper_state: 'inactive',
         ...sensorOverrides,
@@ -175,6 +186,78 @@ describe('the probe page and the wlan sensor', () => {
     wrap()
 
     expect(await screen.findByText('inactive')).toBeInTheDocument()
+  })
+
+  it('shows the managed tool source, path and compatibility', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    const tool = await screen.findByText('iperf3')
+    const cell = tool.closest('td')
+
+    expect(cell).toHaveTextContent('linux-arm64-glibc')
+    expect(cell).toHaveTextContent('Managed')
+    expect(cell).toHaveTextContent('Compatible')
+    expect(cell).toHaveTextContent(
+      '/opt/prtg-nats/tools/iperf3/current/iperf3',
+    )
+    expect(cell).toHaveTextContent('Installed 3.21 · expected 3.21')
+    expect(cell).toHaveTextContent('01234567…89abcdef')
+    expect(cell).toHaveTextContent('fedcba98…76543210')
+  })
+
+  it('shows a compatible system fallback and its exact path', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes/P1', () =>
+        HttpResponse.json(
+          detail({
+            tool_source: 'system',
+            tool_path: '/usr/bin/iperf3',
+            tool_platform: 'linux-armhf-v6-glibc',
+            installed_tool_version: '3.18',
+            expected_tool_version: '3.18',
+            expected_tool_sha256: null,
+          }),
+        ),
+      ),
+    )
+    wrap()
+
+    const tool = await screen.findByText('iperf3')
+    const cell = tool.closest('td')
+
+    expect(cell).toHaveTextContent('System')
+    expect(cell).toHaveTextContent('Compatible')
+    expect(cell).toHaveTextContent('linux-armhf-v6-glibc')
+    expect(cell).toHaveTextContent('/usr/bin/iperf3')
+    expect(cell).toHaveTextContent('Installed 3.18 · minimum 3.18')
+    expect(cell).toHaveTextContent('SHA-256 01234567…89abcdef')
+    expect(cell).not.toHaveTextContent('fedcba98…76543210')
+  })
+
+  it('keeps an incompatible fallback visibly drifted', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes/P1', () =>
+        HttpResponse.json(
+          detail({
+            status: 'drifted',
+            tool_source: 'system',
+            tool_path: '/usr/bin/iperf3',
+            tool_platform: 'linux-armhf-v6-glibc',
+            tool_compatible: false,
+          }),
+        ),
+      ),
+    )
+    wrap()
+
+    const tool = await screen.findByText('iperf3')
+    const row = tool.closest('tr')
+
+    expect(row).toHaveTextContent('Modified')
+    expect(row).toHaveTextContent('Incompatible')
   })
 
   it('refuses to reserve the interface that carries the default route', async () => {

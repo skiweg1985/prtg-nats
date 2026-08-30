@@ -1,7 +1,7 @@
 ---
 title: Architecture overview
 role: developer
-updated: 2026-08-27
+updated: 2026-08-30
 ---
 
 # Architecture overview
@@ -87,6 +87,13 @@ management key opens the channel; a separate key in `runtime/private/`
 authorises the code that goes through it, and the probe verifies before it
 replaces anything -
 [ADR 0006](decisions/0006-signed-helper-updates.md).
+
+**Sensor-owned native tools follow an explicit platform contract.** The
+platform selects a signed release artifact from the probe's userspace ABI. If
+that ABI has no artifact, it may use the distribution's exact
+`/usr/bin/iperf3` after checking the minimum version and authentication
+feature. It never accepts an arbitrary program from `PATH` -
+[ADR 0008](decisions/0008-ship-signed-sensor-tools-by-userspace-platform.md).
 
 **No broker and no second process.** The job runner is a handful of
 asyncio tasks inside the API process, claiming rows from the job table.

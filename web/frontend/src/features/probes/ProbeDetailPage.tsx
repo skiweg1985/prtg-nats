@@ -786,6 +786,63 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       cell: (row) => <Mono>{row.desired_version ?? '—'}</Mono>,
     },
     {
+      key: 'tool',
+      header: t('probes.sensorTool.column'),
+      searchValue: (row) =>
+        [row.tool_name, row.tool_platform, row.tool_source, row.tool_path]
+          .filter(Boolean)
+          .join(' '),
+      cell: (row) =>
+        row.tool_name === null ? (
+          '—'
+        ) : (
+          <div className="space-y-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-ink text-xs font-medium">{row.tool_name}</span>
+              <Badge tone={row.tool_source === 'managed' ? 'accent' : 'neutral'}>
+                {row.tool_source === null
+                  ? t('probes.sensorTool.sourceUnknown')
+                  : t(`probes.sensorTool.source.${row.tool_source}`)}
+              </Badge>
+              {row.tool_compatible === true && (
+                <Badge tone="ok">{t('probes.sensorTool.compatible')}</Badge>
+              )}
+              {row.tool_compatible === false && (
+                <Badge tone="danger">{t('probes.sensorTool.incompatible')}</Badge>
+              )}
+              {row.tool_compatible === null && (
+                <Badge tone="warn">{t('probes.sensorTool.notVerified')}</Badge>
+              )}
+              <Mono className="text-ink-3">{row.tool_platform ?? '—'}</Mono>
+            </div>
+            <Mono className="text-ink-3 block break-all">
+              {row.tool_path ?? '—'}
+            </Mono>
+            <div className="text-ink-3 text-xs">
+              {t(
+                row.tool_source === 'system'
+                  ? 'probes.sensorTool.systemVersions'
+                  : 'probes.sensorTool.managedVersions',
+                {
+                  installed: row.installed_tool_version ?? '—',
+                  expected: row.expected_tool_version ?? '—',
+                },
+              )}
+            </div>
+            <Mono className="text-ink-3 block">
+              {row.tool_source === 'system'
+                ? t('probes.sensorTool.systemSha256', {
+                    installed: shortFingerprint(row.installed_tool_sha256),
+                  })
+                : t('probes.sensorTool.managedSha256', {
+                    installed: shortFingerprint(row.installed_tool_sha256),
+                    expected: shortFingerprint(row.expected_tool_sha256),
+                  })}
+            </Mono>
+          </div>
+        ),
+    },
+    {
       key: 'interfaces',
       header: t('probes.interfaces.columns.name'),
       cell: (row) =>
