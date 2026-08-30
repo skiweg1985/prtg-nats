@@ -163,6 +163,10 @@ DEFAULT_TIMEOUT_SECONDS = 60
 # would hang on an endpoint that accepts the connection and then goes
 # silent.
 RUN_MARGIN_SECONDS = 15
+# Some endpoints handle one client and then let their service manager start a
+# fresh server process. Without a short gap, the next direction can reach the
+# port before that process is listening again.
+DIRECTION_PAUSE_SECONDS = 2
 
 DOCUMENTATION_HINT = (
     "All parameters are listed by putting \"--help\" in the sensor's parameter "
@@ -791,7 +795,8 @@ def measure(args: dict[str, Any]) -> dict[str, Any]:
         met = True
         graded = False
         measurement["hold_seconds"] = args["seconds"]
-        for direction, rate_bit_s in sorted(directions_of(args).items()):
+        directions = sorted(directions_of(args).items())
+        for index, (direction, rate_bit_s) in enumerate(directions):
             left = int(budget - (time.monotonic() - started))
             if left <= 0:
                 raise Failed("timeout",
@@ -811,6 +816,8 @@ def measure(args: dict[str, Any]) -> dict[str, Any]:
                     measurement["%s_%s" % (key, field)] = outcome[field]
             if "rtt_ms" in outcome:
                 measurement["rtt_ms"] = outcome["rtt_ms"]
+            if index < len(directions) - 1:
+                time.sleep(DIRECTION_PAUSE_SECONDS)
         # Without a target rate there is nothing to pass. The channel is
         # then omitted instead of reporting a "yes" that carries no
         # statement.

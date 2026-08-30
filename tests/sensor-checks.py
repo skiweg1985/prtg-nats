@@ -1294,6 +1294,58 @@ def check_iperf_throughput_validation(module):
           "--bitrate" in module.build_command(iperf_arguments(), "download",
                                               30000000, None), True)
 
+    # Public one-off endpoints briefly stop listening after a test while their
+    # service manager starts the next server process. The sensor runs download
+    # and upload as separate clients, so the second one needs to leave that
+    # restart window first.
+    original_iperf = module.IPERF
+    original_run_direction = module.run_direction
+    original_sleep = module.time.sleep
+    endpoint_ready = {"value": True}
+    events = []
+
+    def one_off_direction(_args, direction, _rate, _credentials, _seconds_left):
+        if not endpoint_ready["value"]:
+            raise module.Failed("server-unreachable", "Connection refused")
+        events.append(("direction", direction))
+        endpoint_ready["value"] = False
+        return {"bit_s": 10000000, "met": True}
+
+    def restart_endpoint(seconds):
+        events.append(("pause", seconds))
+        endpoint_ready["value"] = True
+
+    failure_code = None
+    single_direction_events = []
+    try:
+        module.IPERF = __file__
+        module.run_direction = one_off_direction
+        module.time.sleep = restart_endpoint
+        try:
+            module.measure(iperf_arguments(download_mbit=None,
+                                           upload_mbit=None))
+        except module.Failed as problem:
+            failure_code = problem.code
+        two_direction_events = list(events)
+
+        endpoint_ready["value"] = True
+        events.clear()
+        module.measure(iperf_arguments(upload_mbit=None))
+        single_direction_events = list(events)
+    finally:
+        module.IPERF = original_iperf
+        module.run_direction = original_run_direction
+        module.time.sleep = original_sleep
+
+    check("two directions survive a one-off endpoint restart",
+          failure_code, None)
+    check("the endpoint gets two seconds between directions",
+          two_direction_events,
+          [("direction", "download"), ("pause", 2),
+           ("direction", "upload")])
+    check("one direction does not wait", single_direction_events,
+          [("direction", "download")])
+
     # argparse quotes faulty input verbatim, and that is intended.
     # Password and endpoint name still must not appear in it.
     tokens = ["--server", "endpoint.internal", "--password", "very-secret"]

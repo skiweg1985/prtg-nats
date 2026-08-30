@@ -439,6 +439,11 @@ last result (**Result Age** shows the age) and measures on the next scan.
 Transfer runs **5 seconds per direction**. With a target rate the volume
 is thereby exactly predictable: target rate × 5 seconds ÷ 8.
 
+When both directions are selected, the sensor waits two seconds between
+them. Some one-off endpoints exit after every client and need that gap for
+their service manager to start the next listener. A one-direction assurance
+does not wait.
+
 | Target rate | per run | hourly |
 | --- | --- | --- |
 | 10 Mbit/s | 6 MB | 6 MB |
