@@ -280,4 +280,27 @@ describe('IperfPage', () => {
     // And what has to come back, next to the fields that take it.
     expect(screen.getByText(/only its hash is on disk/)).toBeInTheDocument()
   })
+
+  it('shows the shape the public key field takes, both ends of it', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.click(await screen.findByRole('button', { name: /register a foreign one/i }))
+    // The credential fields follow the user name: an endpoint measuring
+    // unauthenticated needs neither.
+    await user.type(screen.getByLabelText(/measurement user/i), 'prtg-probe')
+
+    const field = screen.getByLabelText(/public key/i)
+    // The END line is the half that goes missing when somebody copies a key
+    // out of a terminal, and the field used to show only the BEGIN one.
+    expect(field).toHaveAttribute(
+      'placeholder',
+      expect.stringContaining('-----BEGIN PUBLIC KEY-----'),
+    )
+    expect(field).toHaveAttribute(
+      'placeholder',
+      expect.stringContaining('-----END PUBLIC KEY-----'),
+    )
+  })
 })

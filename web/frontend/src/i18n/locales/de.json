@@ -698,7 +698,7 @@
       "privateKey": "Privater Schlüssel",
       "privateKeyHint": "Alternative zum Passwort. Wird nicht gespeichert.",
       "publicKey": "Öffentlicher Schlüssel",
-      "publicKeyHint": "Die public.pem des Messpunkts. iperf3 verschlüsselt die Zugangsdaten damit; ohne sie können die Probes sich nicht anmelden.",
+      "publicKeyHint": "Die public.pem des Messpunkts, komplett mit BEGIN- und END-Zeile eingefügt. Ohne sie können die Probes sich nicht anmelden; ein OpenSSH-Schlüssel (ssh-rsa AAAAB3…) ist ein anderes Format und funktioniert nicht.",
       "register": "Fremden registrieren",
       "registerIntro": "Für einen Host, den jemand anderes betreibt: Es wird nichts installiert und nichts kontaktiert. Nur der Eintrag hier entsteht, damit die Probes ihn nutzen können.",
       "registerTitle": "Fremden Messpunkt registrieren",
