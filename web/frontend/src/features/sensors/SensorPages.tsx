@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -24,6 +24,10 @@ import { formatBytes, shortFingerprint } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { SensorVariants } from './SensorVariants'
+
+const Markdown = lazy(async () => ({
+  default: (await import('@/components/ui/Markdown')).Markdown,
+}))
 
 export function SensorListPage() {
   const { t } = useTranslation()
@@ -243,6 +247,7 @@ export function SensorDetailPage() {
  */
 export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
   const { t } = useTranslation()
+  const [readmeOpen, setReadmeOpen] = useState(false)
 
   const script = sensor.files.find((file) => file.slot === 'script')
   const basename = script?.relative_path.split('/').pop() ?? null
@@ -267,18 +272,37 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         )}
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
         {sensor.readme && (
-          <details>
+          <details onToggle={(event) => setReadmeOpen(event.currentTarget.open)}>
             <summary className="text-ink-3 cursor-pointer text-xs">
               {t('sensors.prtg.readme')}
             </summary>
-            <pre className="bg-surface-2 rounded-inset text-ink-2 mt-2 max-h-96 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
-              {sensor.readme}
-            </pre>
+            {readmeOpen && (
+              <div className="border-rule bg-surface rounded-inset mt-2 max-h-96 overflow-auto border p-3">
+                <Suspense
+                  fallback={<div className="bg-surface h-20 animate-pulse rounded-inset" />}
+                >
+                  <Markdown resolveHref={(href) => sensorReadmeHref(sensor.name, href)}>
+                    {sensor.readme}
+                  </Markdown>
+                </Suspense>
+              </div>
+            )}
           </details>
         )}
       </div>
     </Card>
   )
+}
+
+/** Repository-relative README links become routes inside the sensor catalog. */
+export function sensorReadmeHref(sensorName: string, href: string) {
+  const ownReadme = href.match(/^\.?\/?README\.md(#[^\s]*)?$/)
+  if (ownReadme) return `/sensors/${encodeURIComponent(sensorName)}${ownReadme[1] ?? ''}`
+
+  const otherReadme = href.match(/^\.\.\/([^/]+)\/README\.md(#[^\s]*)?$/)
+  if (!otherReadme) return href
+
+  return `/sensors/${encodeURIComponent(otherReadme[1])}${otherReadme[2] ?? ''}`
 }
 
 /** The label of a field: its translation if there is one, else its own name. */

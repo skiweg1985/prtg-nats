@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 
@@ -110,7 +111,29 @@ describe('PrtgCard', () => {
       },
     ],
     parameter_schema: null,
-    readme: '# wlan-auth\n\nCreate the sensor in PRTG…',
+    readme: `# wlan-auth
+
+**Create the sensor in PRTG** and select \`wlan-auth.py\`.
+
+## Credentials
+
+| Setting | Value |
+| --- | --- |
+| User | probe |
+
+> Keep the credentials on the probe.
+
+- Copy the profile.
+- Create the sensor.
+
+\`\`\`shell
+iperf3 --version
+\`\`\`
+
+See [internet-speed](../internet-speed/README.md), the
+[credentials section](#credentials), or the
+[iperf documentation](https://software.es.net/iperf/).
+`,
     profile_template: null,
     installations: [],
   }
@@ -121,8 +144,75 @@ describe('PrtgCard', () => {
     expect(screen.queryByText('script/wlan-auth.py')).not.toBeInTheDocument()
   })
 
-  it("carries the sensor's own manual", () => {
+  it("renders the sensor's own manual as rich Markdown", async () => {
+    const user = userEvent.setup()
     wrap(<PrtgCard sensor={sensor} />)
-    expect(screen.getByText(/Create the sensor in PRTG/)).toBeInTheDocument()
+    await user.click(screen.getByText(/manual|README/i))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'wlan-auth' })).toHaveAttribute(
+      'id',
+      'wlan-auth',
+    )
+    expect(screen.getByText('Create the sensor in PRTG')).toHaveProperty(
+      'tagName',
+      'STRONG',
+    )
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('blockquote')).toHaveTextContent(
+      'Keep the credentials on the probe.',
+    )
+    expect(screen.getByRole('list')).toBeInTheDocument()
+    expect(screen.getByText('wlan-auth.py', { selector: 'p code' })).toBeInTheDocument()
+    expect(
+      screen.getByText('iperf3 --version', { selector: 'pre code' }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps manual links useful and safe', async () => {
+    const user = userEvent.setup()
+    wrap(<PrtgCard sensor={sensor} />)
+    await user.click(screen.getByText(/manual|README/i))
+
+    expect(await screen.findByRole('link', { name: 'internet-speed' })).toHaveAttribute(
+      'href',
+      '/sensors/internet-speed',
+    )
+    expect(screen.getByRole('link', { name: 'credentials section' })).toHaveAttribute(
+      'href',
+      '#credentials',
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'Credentials' })).toHaveAttribute(
+      'id',
+      'credentials',
+    )
+    expect(screen.getByRole('link', { name: 'iperf documentation' })).toHaveAttribute(
+      'target',
+      '_blank',
+    )
+    expect(screen.getByRole('link', { name: 'iperf documentation' })).toHaveAttribute(
+      'rel',
+      'noreferrer noopener',
+    )
+  })
+
+  it('does not insert HTML from a manual into the page', async () => {
+    const user = userEvent.setup()
+    const { container } = wrap(
+      <PrtgCard
+        sensor={{
+          ...sensor,
+          readme:
+            '<img src="missing" onerror="alert(1)">\n\nSafe text with an [unsafe link](javascript:alert(1)).',
+        }}
+      />,
+    )
+    await user.click(screen.getByText(/manual|README/i))
+    await screen.findByText(/Safe text with an/)
+
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+    expect(screen.getByText(/Safe text with an/)).toBeInTheDocument()
+    expect(
+      screen.getByText('unsafe link', { selector: 'a' }).getAttribute('href'),
+    ).not.toMatch(/^javascript:/)
   })
 })
