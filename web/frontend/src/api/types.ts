@@ -592,8 +592,8 @@ export interface IperfEndpoint {
   kind: string
   updated_at: string | null
   has_public_key: boolean
-  /** False for an endpoint somebody else operates: its password is not ours
-   *  to rotate, and removing it here takes nothing off that host. */
+  /** False for an endpoint somebody else operates: this platform may store a
+   *  replacement supplied by that operator, but never changes the far side. */
   managed: boolean
   holders: IperfHolder[]
 }

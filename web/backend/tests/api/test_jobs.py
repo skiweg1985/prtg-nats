@@ -31,6 +31,7 @@ from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import Deployment
 from app.persistence.models.jobs import Job, JobEvent, ResourceLock
+from app.services import job_secrets
 from app.services.events import StreamEvent, get_broadcaster, job_topic
 from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.workers.job_runner import JobRunner
@@ -922,10 +923,12 @@ async def test_cancelling_a_queued_job_stops_it_immediately(
         job = await jobs.create(JobRequest(type="probe.validate", steps=("a",)))
         await db.commit()
         job_id = job.id
+    job_secrets.hand(job_id, {"transient": "discard-on-cancel"})
 
     response = await client.post(f"/api/v1/jobs/{job_id}/cancel")
     assert response.status_code == 200
     assert response.json()["status"] == "cancelled"
+    assert job_secrets.take(job_id) == {}
 
 
 async def test_an_unknown_job_type_fails_the_job_rather_than_the_worker(

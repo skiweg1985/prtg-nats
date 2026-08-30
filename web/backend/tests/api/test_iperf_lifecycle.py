@@ -30,6 +30,7 @@ from app.infrastructure.known_hosts import HostKey
 from app.infrastructure.probe_helper import ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
+from app.services import job_secrets
 from app.services.events import get_broadcaster
 from app.services.provisioning import ProvisioningService
 from app.workers.job_runner import JobRunner
@@ -393,6 +394,41 @@ async def test_credentials_for_a_foreign_endpoint_are_all_or_nothing(
     assert without_key.status_code == 422, without_key.text
 
 
+@pytest.mark.parametrize(
+    "password",
+    [
+        " leading",
+        "trailing ",
+        "line\nbreak",
+        "nul\u0000byte",
+        "tab\tinside",
+        "unicode\u2028line",
+    ],
+)
+async def test_foreign_password_update_rejects_values_the_profile_cannot_preserve(
+    client: AsyncClient,
+    project_dir: Path,
+    password: str,
+) -> None:
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    record = project_dir / "runtime" / "iperf" / "provider.env"
+    before = record.read_bytes()
+
+    response = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": password},
+    )
+
+    assert response.status_code == 422, response.text
+    assert password not in response.text
+    assert record.read_bytes() == before
+    jobs = await client.get("/api/v1/jobs")
+    assert jobs.status_code == 200, jobs.text
+    assert jobs.json() == []
+
+
 async def test_a_foreign_endpoint_cannot_be_rotated_from_here(
     client: AsyncClient, project_dir: Path
 ) -> None:
@@ -403,6 +439,426 @@ async def test_a_foreign_endpoint_cannot_be_rotated_from_here(
     response = await client.post("/api/v1/iperf-endpoints/provider/rotate")
 
     assert response.status_code == 409, response.text
+
+
+async def test_foreign_credentials_are_updated_and_redeployed_without_contacting_host(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The password comes from its operator, so only our side is changed.
+
+    The job writes the protected runtime record and every profile that already
+    holds it. It never opens the endpoint management channel: a foreign host is
+    outside this platform's control, even when its operator gives us a new
+    measurement password.
+    """
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    _write_endpoint(project_dir, "secondary", managed=False)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(
+        project_dir,
+        "mpp-berlin",
+        sensors=("iperf-throughput",),
+        endpoints=("provider",),
+    )
+    write_probe_inventory(
+        project_dir,
+        "mpp-hamburg",
+        sensors=("iperf-throughput",),
+        endpoints=("provider", "secondary"),
+    )
+    original_key = (project_dir / "runtime" / "iperf" / "provider.pem").read_bytes()
+    new_password = "replacement-known-only-to-the-provider"
+
+    accepted = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": new_password},
+    )
+
+    assert accepted.status_code == 202, accepted.text
+    assert new_password not in accepted.text
+    job_id = accepted.json()["job_id"]
+    queued = await client.get(f"/api/v1/jobs/{job_id}")
+    assert queued.status_code == 200, queued.text
+    assert new_password not in queued.text
+    persisted = queued.json()["payload"]
+    assert {key: value for key, value in persisted.items() if key != "_resources"} == {
+        "name": "provider",
+        "probes": ["mpp-berlin", "mpp-hamburg"],
+        "sensors": ["iperf-throughput"],
+    }
+    resources = persisted["_resources"]
+    assert resources[0] == "iperf:provider"
+    assert len(resources) == 3
+    assert all(resource.startswith("probe:") for resource in resources[1:])
+    assert "probe:mpp-berlin" not in resources
+    assert "probe:mpp-hamburg" not in resources
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    record = (project_dir / "runtime" / "iperf" / "provider.env").read_text(
+        encoding="utf-8"
+    )
+    assert f"IPERF_PASSWORD={new_password}" in record
+    assert "IPERF_USERNAME=prtg-probe" in record
+    assert "IPERF_MANAGED=false" in record
+    assert (
+        project_dir / "runtime" / "iperf" / "provider.env"
+    ).stat().st_mode & 0o777 == 0o600
+    assert (
+        project_dir / "runtime" / "iperf" / "provider.pem"
+    ).read_bytes() == original_key
+
+    # Berlin holds one endpoint, so both names receive the new profile.
+    berlin = [
+        request
+        for label, request in transport.calls
+        if label == "mpp-berlin" and request.command.value == "sensor-write-profile"
+    ]
+    assert [request.arguments[1] for request in berlin] == ["provider", "default"]
+    assert berlin[0].payload == berlin[1].payload
+    assert all(new_password in (request.payload or "") for request in berlin)
+
+    # Hamburg holds two. Its named profile changes and the ambiguous alias is
+    # removed, not silently pointed at one of them.
+    hamburg = [
+        request
+        for label, request in transport.calls
+        if label == "mpp-hamburg"
+        and request.command.value in {"sensor-write-profile", "sensor-remove-profile"}
+    ]
+    assert [request.command.value for request in hamburg] == [
+        "sensor-write-profile",
+        "sensor-remove-profile",
+    ]
+    assert hamburg[0].arguments[1] == "provider"
+    assert hamburg[1].arguments[1] == "default"
+
+    # The only destinations are holders. No endpoint-* request is made.
+    assert {label for label, _ in transport.calls} == {"mpp-berlin", "mpp-hamburg"}
+    assert not any(
+        request.command.value.startswith("endpoint-") for _, request in transport.calls
+    )
+
+    finished = await client.get(f"/api/v1/jobs/{job_id}")
+    log = await client.get(f"/api/v1/jobs/{job_id}/log")
+    events = await client.get(f"/api/v1/jobs/{job_id}/events")
+    audit = await client.get(
+        "/api/v1/audit-events",
+        params={"action": "iperf.foreign_credentials_update", "object_id": "provider"},
+    )
+    assert finished.json()["status"] == "successful"
+    assert finished.json()["result"] == {
+        "endpoint": "provider",
+        "succeeded": ["mpp-berlin", "mpp-hamburg"],
+        "failed": [],
+    }
+    assert len(audit.json()) == 1
+    assert new_password not in finished.text
+    assert new_password not in log.text
+    assert new_password not in events.text
+    assert new_password not in audit.text
+
+
+async def test_foreign_credential_update_reports_each_probe_failure(
+    client: AsyncClient,
+    project_dir: Path,
+) -> None:
+    """One stale probe must not hide what happened to the rest of the fleet."""
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    for probe in ("mpp-berlin", "mpp-hamburg"):
+        write_probe_inventory(
+            project_dir,
+            probe,
+            sensors=("iperf-throughput",),
+            endpoints=("provider",),
+        )
+    new_password = "another-provider-password"
+
+    class RefusesHamburg(ScriptedTransport):
+        async def run(self, connection, request, timeout):  # type: ignore[no-untyped-def]
+            if connection.label == "mpp-hamburg":
+                raise ProbeRejectedError(
+                    params={"probe": "mpp-hamburg", "command": request.command.value},
+                    details=f"profile rejected after reading {new_password}",
+                )
+            return await super().run(connection, request, timeout)
+
+    accepted = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": new_password},
+    )
+    assert accepted.status_code == 202, accepted.text
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, RefusesHamburg())
+    await _drain(runner, endpoints)
+
+    job = (await client.get(f"/api/v1/jobs/{accepted.json()['job_id']}")).json()
+    assert job["status"] == "partially_successful"
+    assert job["result"]["succeeded"] == ["mpp-berlin"]
+    assert job["result"]["failed"] == [
+        {
+            "probe": "mpp-hamburg",
+            "details": "profile rejected after reading ••••••••",
+        }
+    ]
+    log = await client.get(f"/api/v1/jobs/{accepted.json()['job_id']}/log")
+    events = await client.get(f"/api/v1/jobs/{accepted.json()['job_id']}/events")
+    profile_events = [
+        event
+        for event in log.json()
+        if event["code"]
+        in {"jobs.iperf.profile_deployed", "jobs.iperf.probe_locked_out"}
+    ]
+    assert [(event["code"], event["target"]) for event in profile_events] == [
+        ("jobs.iperf.profile_deployed", "mpp-berlin"),
+        ("jobs.iperf.probe_locked_out", "mpp-hamburg"),
+    ]
+    assert profile_events[1]["raw"] == "profile rejected after reading ••••••••"
+    assert new_password not in str(job)
+    assert new_password not in log.text
+    assert new_password not in events.text
+    retry = await client.post(f"/api/v1/jobs/{accepted.json()['job_id']}/retry")
+    assert retry.status_code == 409, retry.text
+    assert new_password not in retry.text
+
+
+async def test_foreign_credential_update_refreshes_a_holder_added_while_queued(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The holder set is authoritative only after the endpoint lock is held."""
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(
+        project_dir,
+        "mpp-berlin",
+        sensors=("iperf-throughput",),
+        endpoints=(),
+    )
+
+    deploy = await client.post(
+        "/api/v1/iperf-endpoints/provider/deploy",
+        json={"probes": ["mpp-berlin"]},
+    )
+    update = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": "new-after-deploy"},
+    )
+    assert [deploy.status_code, update.status_code] == [202, 202]
+
+    queued = await client.get(f"/api/v1/jobs/{update.json()['job_id']}")
+    assert queued.json()["payload"]["probes"] == []
+    assert any(
+        resource.startswith("probe:")
+        for resource in queued.json()["payload"]["_resources"]
+    )
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    profiles = [
+        request.payload
+        for _, request in transport.calls
+        if request.command.value == "sensor-write-profile"
+    ]
+    assert len(profiles) == 4
+    assert "IPERF3_PASSWORD=oldpassword" in (profiles[0] or "")
+    assert "IPERF3_PASSWORD=new-after-deploy" in (profiles[-1] or "")
+    finished = await client.get(f"/api/v1/jobs/{update.json()['job_id']}")
+    assert finished.json()["result"]["succeeded"] == ["mpp-berlin"]
+
+
+async def test_foreign_credential_update_does_not_restore_a_revoked_profile(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(
+        project_dir,
+        "mpp-berlin",
+        sensors=("iperf-throughput",),
+        endpoints=("provider",),
+    )
+
+    revoke = await client.post(
+        "/api/v1/iperf-endpoints/provider/revoke",
+        json={"probes": ["mpp-berlin"]},
+    )
+    update = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": "new-after-revoke"},
+    )
+    assert [revoke.status_code, update.status_code] == [202, 202]
+
+    settings = get_settings()
+    runner, endpoints = _build_runner(settings, transport)
+    await _drain(runner, endpoints)
+
+    assert not any(
+        request.command.value == "sensor-write-profile"
+        for _, request in transport.calls
+    )
+    finished = await client.get(f"/api/v1/jobs/{update.json()['job_id']}")
+    assert finished.json()["result"] == {
+        "endpoint": "provider",
+        "succeeded": [],
+        "failed": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [("managed", 409), ("unauthenticated", 409), ("missing", 404)],
+)
+async def test_foreign_credential_update_rejects_other_endpoint_kinds(
+    client: AsyncClient,
+    project_dir: Path,
+    endpoint: str,
+    expected: int,
+) -> None:
+    await _sign_in(client)
+    _initialise()
+    if endpoint == "managed":
+        _write_endpoint(project_dir, endpoint, managed=True)
+    elif endpoint == "unauthenticated":
+        _write_endpoint(project_dir, endpoint, managed=False)
+        record = project_dir / "runtime" / "iperf" / f"{endpoint}.env"
+        record.write_text(
+            record.read_text(encoding="utf-8").replace(
+                "IPERF_USERNAME=prtg-probe", "IPERF_USERNAME="
+            ),
+            encoding="utf-8",
+        )
+        (project_dir / "runtime" / "iperf" / f"{endpoint}.pem").unlink()
+
+    response = await client.put(
+        f"/api/v1/iperf-endpoints/{endpoint}/credentials",
+        json={"password": "not-written"},
+    )
+
+    assert response.status_code == expected, response.text
+
+
+async def test_foreign_credential_update_requires_endpoint_management_permission(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    await _sign_in(client, RoleName.VIEWER)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+
+    response = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": "not-authorised"},
+    )
+
+    assert response.status_code == 403, response.text
+
+
+async def test_iperf_profile_jobs_share_the_same_stable_probe_lock(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """Update, deploy and revoke must serialize on one lock vocabulary."""
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(
+        project_dir,
+        "mpp-berlin",
+        sensors=("iperf-throughput",),
+        endpoints=("provider",),
+    )
+
+    update = await client.put(
+        "/api/v1/iperf-endpoints/provider/credentials",
+        json={"password": "transient-lock-test-value"},
+    )
+    deploy = await client.post(
+        "/api/v1/iperf-endpoints/provider/deploy",
+        json={"probes": ["mpp-berlin"]},
+    )
+    revoke = await client.post(
+        "/api/v1/iperf-endpoints/provider/revoke",
+        json={"probes": ["mpp-berlin"]},
+    )
+    assert [update.status_code, deploy.status_code, revoke.status_code] == [
+        202,
+        202,
+        202,
+    ]
+
+    async def resources(job_id: str) -> list[str]:
+        job = await client.get(f"/api/v1/jobs/{job_id}")
+        return job.json()["payload"]["_resources"]
+
+    declared = [
+        await resources(response.json()["job_id"])
+        for response in (update, deploy, revoke)
+    ]
+    assert all("iperf:provider" in resources for resources in declared)
+    probe_locks = [
+        next(resource for resource in resources if resource.startswith("probe:"))
+        for resources in declared
+    ]
+    assert probe_locks[0] == probe_locks[1] == probe_locks[2]
+    assert probe_locks[0] != "probe:mpp-berlin"
+    job_secrets.discard(update.json()["job_id"])
+
+
+async def test_sensor_rollouts_lock_endpoints_while_they_seed_credentials(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """A first sensor rollout can create holders, so it joins the same lock."""
+    await _sign_in(client)
+    _initialise()
+    _write_endpoint(project_dir, "provider", managed=False)
+    _write_endpoint(project_dir, "other-kind", managed=False)
+    other_record = project_dir / "runtime" / "iperf" / "other-kind.env"
+    other_record.write_text(
+        f"IPERF_KIND=vendor\n{other_record.read_text(encoding='utf-8')}",
+        encoding="utf-8",
+    )
+    write_sensor(project_dir, "iperf-throughput", iperf_kind="iperf3")
+    write_probe_inventory(project_dir, "mpp-berlin", endpoints=())
+    probe_id = (await client.get("/api/v1/probes")).json()[0]["id"]
+
+    deployment = await client.post(
+        "/api/v1/deployments",
+        json={"sensor": "iperf-throughput", "probe_ids": [probe_id]},
+    )
+    assert deployment.status_code == 202, deployment.text
+    job_id = deployment.json()["job_id"]
+    original = await client.get(f"/api/v1/jobs/{job_id}")
+    assert {"iperf:provider", "iperf:other-kind"}.issubset(
+        original.json()["payload"]["_resources"]
+    )
+
+    cancelled = await client.post(f"/api/v1/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    retried = await client.post(f"/api/v1/jobs/{job_id}/retry")
+    assert retried.status_code == 202, retried.text
+    retry_job = await client.get(f"/api/v1/jobs/{retried.json()['job_id']}")
+    assert {"iperf:provider", "iperf:other-kind"}.issubset(
+        retry_job.json()["payload"]["_resources"]
+    )
 
 
 # --- Rotation ----------------------------------------------------------------

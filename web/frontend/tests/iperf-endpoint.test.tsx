@@ -139,9 +139,12 @@ describe('IperfPage', () => {
 
     expect(await screen.findByText('berlin')).toBeInTheDocument()
     expect(screen.getByText('provider')).toBeInTheDocument()
-    // Its password is not ours to rotate, so the button is not offered.
+    // Managed rotation and a password supplied by a foreign operator are
+    // different actions, so each row offers only the one that applies.
     const rotate = screen.getAllByRole('button', { name: /change password/i })
     expect(rotate).toHaveLength(1)
+    const update = screen.getAllByRole('button', { name: /update stored password/i })
+    expect(update).toHaveLength(1)
   })
 
   it('leads to the endpoint, and says which one nothing measures against', async () => {

@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-29
+updated: 2026-08-30
 ---
 
 # REST API
@@ -300,6 +300,7 @@ write the same record, so everything downstream treats the result identically.
 | `POST /iperf-endpoints` | → job: sign in once and install the access |
 | `POST /iperf-endpoints/register` | record one somebody else operates |
 | `POST /iperf-endpoints/{name}/rotate` | → job: new password, carried to the probes |
+| `PUT /iperf-endpoints/{name}/credentials` | → job: store a foreign password and refresh its current holders |
 | `POST /iperf-endpoints/{name}/deploy` | → job: hand the credentials to named probes |
 | `POST /iperf-endpoints/{name}/revoke` | → job: take them off named probes |
 | `DELETE /iperf-endpoints/{name}` | → job: take it off the probes and its host |
@@ -336,8 +337,30 @@ A password or a private key is required - one of the two, not both.
 installed, nothing reached: the record is the whole of what this platform has.
 Credentials are all or nothing - a user name needs both its password and the
 endpoint's public key, or every sensor run would fail on credentials it cannot
-use. Such an endpoint reports `managed: false`, cannot be rotated from here,
-and `DELETE` only forgets it.
+use. Such an endpoint reports `managed: false`; `DELETE` only forgets it.
+
+The operator of a foreign endpoint changes its password on that host first.
+The authenticated action below then replaces only the protected copy held by
+this platform and refreshes every probe already assigned to the endpoint:
+
+```http
+PUT /api/v1/iperf-endpoints/provider/credentials
+Content-Type: application/json
+
+{"password": "…"}
+```
+
+The password must not be empty. Because runtime records and probe profiles are
+line-based, leading or trailing whitespace and line, paragraph or control
+characters are refused rather than stored in a changed form.
+
+It needs `iperf.manage`, refuses a managed endpoint with `409`, and does not
+contact the foreign host. The existing user name and public key are preserved.
+The password is write-only: it is handed to the worker outside the persisted
+job payload and appears in neither the response, audit record nor job log. The
+job updates the endpoint profile and reconciles the `default` alias on every
+current holder. Its result names `succeeded` and `failed` probes, so one
+unreachable probe produces a partial success rather than hiding the rest.
 
 **Rotation** sets a new password and carries it to every probe holding this
 endpoint, in one job. The second half is not a follow-up somebody might skip:

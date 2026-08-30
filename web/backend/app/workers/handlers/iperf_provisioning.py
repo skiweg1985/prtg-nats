@@ -22,6 +22,7 @@ import secrets
 from typing import Any
 
 from app.core.errors import RuntimeStateError, technical_details
+from app.core.redaction import MASK, is_secret_key, redact_text
 from app.domain.enums import LogLevel
 from app.infrastructure import known_hosts
 from app.infrastructure.iperf_helper import EndpointConnection
@@ -56,6 +57,9 @@ REMOVE_JOB_TYPE = "iperf.remove"
 
 ROTATE_STEPS: tuple[str, ...] = ("set_password", "update_record", "refresh_probes")
 ROTATE_JOB_TYPE = "iperf.rotate"
+
+FOREIGN_CREDENTIALS_STEPS: tuple[str, ...] = ("update_record", "refresh_probes")
+FOREIGN_CREDENTIALS_JOB_TYPE = "iperf.update_foreign_credentials"
 
 DEPLOY_STEPS: tuple[str, ...] = ("resolve_targets", "deploy_profiles")
 DEPLOY_JOB_TYPE = "iperf.deploy"
@@ -319,12 +323,88 @@ async def rotate(context: JobContext) -> dict[str, Any]:
     # until it has the new password. That makes this not a convenience but the
     # repair of the state the rotation just created.
     await context.step("refresh_probes")
-    refreshed = await _redeploy_profiles(context, name, payload)
+    refreshed, _ = await _redeploy_profiles(context, name, payload)
     await context.log(
         "jobs.iperf.rotated",
         params={"endpoint": name, "probes": str(len(refreshed))},
     )
     return {"endpoint": name, "refreshed": refreshed}
+
+
+async def update_foreign_credentials(context: JobContext) -> dict[str, Any]:
+    """Store a foreign operator's new password and refresh current holders.
+
+    There is deliberately no call through ``context.endpoints`` here. The far
+    side is operated elsewhere and has already changed; this platform owns only
+    its protected runtime copy and the profiles derived from it.
+    """
+    name: str = context.payload["name"]
+    password = context.secrets.get("iperf_password")
+    if not password:
+        raise RuntimeStateError(
+            params={"endpoint": name},
+            details="the replacement password is no longer available; submit it again",
+        )
+
+    endpoint = next(
+        (
+            candidate
+            for candidate in context.runtime.list_iperf_endpoints()
+            if candidate.name == name
+        ),
+        None,
+    )
+    if endpoint is None:
+        raise RuntimeStateError(
+            params={"endpoint": name},
+            details="the foreign endpoint record no longer exists",
+        )
+    if endpoint.managed:
+        raise RuntimeStateError(
+            params={"endpoint": name},
+            details="the endpoint is now managed here; rotate its password instead",
+        )
+    if not endpoint.username or not endpoint.has_public_key:
+        raise RuntimeStateError(
+            params={"endpoint": name},
+            details="the endpoint no longer has an authenticated credential set",
+        )
+
+    # The API snapshot is useful in the queued job description, but not for
+    # execution. A deploy or revoke queued before this job can change the set
+    # before the endpoint lock is acquired.
+    holders = sorted(
+        probe.nats_username
+        for probe in context.runtime.read_all_probes()
+        if name in probe.known_iperf_endpoints
+    )
+    refresh_payload = {**context.payload, "probes": holders}
+
+    await context.step("update_record")
+    context.runtime.write_iperf_record(
+        name=name,
+        host=endpoint.host,
+        port=endpoint.port,
+        username=endpoint.username,
+        password=password,
+        # None means preserve the existing PEM file. It is the endpoint's
+        # encryption key and does not change with its measurement password.
+        public_key_pem=None,
+        managed=False,
+        ssh_port=endpoint.ssh_port,
+        kind=endpoint.kind,
+    )
+    await context.log(
+        "jobs.iperf.foreign_credentials_stored",
+        params={
+            "endpoint": name,
+            "probes": str(len(holders)),
+        },
+    )
+
+    await context.step("refresh_probes")
+    succeeded, failed = await _redeploy_profiles(context, name, refresh_payload)
+    return {"endpoint": name, "succeeded": succeeded, "failed": failed}
 
 
 async def deploy(context: JobContext) -> dict[str, Any]:
@@ -475,7 +555,7 @@ def _probe_connection(probe: str, inventory: ProbeInventory) -> ProbeConnection:
 
 async def _redeploy_profiles(
     context: JobContext, name: str, payload: dict[str, Any]
-) -> list[str]:
+) -> tuple[list[str], list[dict[str, str]]]:
     """Write the new credentials to every probe that holds this endpoint.
 
     "default" is refreshed along with the profile under the endpoint's own
@@ -488,6 +568,7 @@ async def _redeploy_profiles(
     sensors: list[str] = list(payload.get("sensors") or [])
     content = endpoint_profile_content(context.runtime, name)
     refreshed: list[str] = []
+    failed: list[dict[str, str]] = []
 
     for probe in probes:
         try:
@@ -506,11 +587,22 @@ async def _redeploy_profiles(
             # Named rather than raised: one unreachable probe must not undo a
             # rotation the endpoint has already accepted, and the probe that
             # missed it is exactly what an operator has to be told.
+            details = _redact_profile_secrets(technical_details(exc), content)
+            failed.append({"probe": probe, "details": details})
             await context.log(
                 "jobs.iperf.probe_locked_out",
                 level=LogLevel.WARNING,
                 params={"probe": probe, "endpoint": name},
                 target=probe,
-                raw=technical_details(exc),
+                raw=details,
             )
-    return refreshed
+    return refreshed, failed
+
+
+def _redact_profile_secrets(details: str, content: str) -> str:
+    """Remove values a helper could have echoed from the profile it received."""
+    for line in content.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and value and is_secret_key(key):
+            details = details.replace(value, MASK)
+    return redact_text(details)

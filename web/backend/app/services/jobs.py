@@ -22,6 +22,7 @@ from app.core.logging import get_correlation_id, get_logger
 from app.core.redaction import redact, redact_text
 from app.domain.enums import JobStatus, JobStepStatus, LogLevel
 from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
+from app.services import job_secrets
 from app.services.auth import Principal
 from app.services.events import (
     EventBroadcaster,
@@ -197,6 +198,10 @@ class JobService:
             )
         if job.status is JobStatus.QUEUED:
             # Nothing has started, so it can go straight to cancelled.
+            # A queued job has not taken its transient values yet. Leaving
+            # them behind would retain a credential for a run that can never
+            # consume it.
+            job_secrets.discard(job.id)
             await self.finish(job, JobStatus.CANCELLED)
             return job
         job.cancel_requested = True

@@ -163,11 +163,34 @@ neither does the private key.
 
 Afterwards the endpoint is a record like any other: it is assigned to
 probes on its own page, and the sensor is deployed to them - only then is
-anything measured. What stays different is what nobody here can do:
-rotating the password and removing the endpoint both need the operator on
-the far side, because this platform has no access to that host. Removing
-it here takes the credentials off the probes and forgets the record; the
-service over there keeps running.
+anything measured. Removing it here takes the credentials off the probes and
+forgets the record; the service over there keeps running.
+
+## Replace the password later
+
+The platform cannot change a foreign host. Its operator therefore creates the
+new password there first, writes the matching `{user}password` hash to
+`/etc/iperf3/credentials.csv`, restarts the service and repeats the
+authenticated counter-check above. The user name and key pair stay unchanged.
+
+Then open the endpoint under *Infrastructure → iperf*, choose *Update stored
+password*, enter the same clear-text password and choose *Update and deploy*.
+The resulting job does two things in order:
+
+1. it replaces the password in the protected runtime record while preserving
+   the user name and public key;
+2. it updates the named profile on every probe that already holds the endpoint
+   and reconciles the `default` alias there.
+
+Nothing in this action connects to the foreign host. The password is not
+stored in the job, its log or the audit record. It exists in the protected
+runtime record and in the profiles of the probes that need it.
+
+The job reports success or failure per probe. If one probe was unreachable,
+submit the same password again after the probe is reachable; that creates a
+new rollout from the already-correct server record. Changing the measurement
+user or the public key is a different operation: remove and register the
+foreign endpoint again after coordinating the change with its operator.
 
 ## Related
 
