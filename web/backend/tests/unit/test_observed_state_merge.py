@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 from app.domain.enums import ServiceState
 from app.domain.models import InstalledSensor, ObservedProbeState
+from app.infrastructure.probe_helper import CURRENT_HELPER_VERSION
 from app.services.probes import _with_sensors
 
 
@@ -34,7 +35,7 @@ def _fully_populated() -> ObservedProbeState:
         probe_id="292bedf4-4a16-4aa5-bd69-430097b50f23",
         probe_name="Berlin",
         has_access_key=True,
-        helper_version=1,
+        helper_version=CURRENT_HELPER_VERSION,
         helper_sha256="db5ba8ca",
         sensors=(),
         error_code="probe.unreachable",
@@ -67,6 +68,6 @@ def test_a_probe_reporting_its_helper_version_is_not_called_outdated() -> None:
     """
     observed = _with_sensors(_fully_populated(), ())
 
-    assert observed.helper_version == 1
+    assert observed.helper_version == CURRENT_HELPER_VERSION
     assert observed.helper_sha256 == "db5ba8ca"
     assert observed.helper_outdated is False

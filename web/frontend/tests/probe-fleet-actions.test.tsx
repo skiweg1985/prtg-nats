@@ -38,7 +38,7 @@ function probe(overrides: Record<string, unknown>) {
     stale: false,
     running_job_id: null,
     error_code: null,
-    helper_version: 3,
+    helper_version: 8,
     helper_outdated: false,
     ...overrides,
   }
@@ -50,7 +50,7 @@ const PROBES = [
     id: 'P1',
     nats_username: 'mpp-berlin-01',
     probe_name: 'berlin-01',
-    helper_version: 3,
+    helper_version: 7,
     helper_outdated: true,
   }),
   // Behind, but reports no helper version at all - enrolled before updates

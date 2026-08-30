@@ -20,7 +20,7 @@ from app.domain.enums import (
     ServiceState,
 )
 from app.infrastructure.probe_helper import (
-    MINIMUM_HELPER_VERSION,
+    CURRENT_HELPER_VERSION,
     HelperResponse,
     normalise_optional,
 )
@@ -105,7 +105,7 @@ class ObservedProbeState:
             return False
         if self.helper_version is None:
             return True
-        return self.helper_version < MINIMUM_HELPER_VERSION
+        return self.helper_version < CURRENT_HELPER_VERSION
 
     def ca_state(self, expected_sha256: str | None) -> CaState:
         if not self.reachable:

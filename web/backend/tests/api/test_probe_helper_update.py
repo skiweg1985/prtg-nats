@@ -20,11 +20,12 @@ from app.core.config import Settings
 from app.core.errors import ProbeHelperOutdatedError
 from app.domain.enums import JobStatus
 from app.infrastructure.docker import DockerAdapter
-from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.probe_helper import CURRENT_HELPER_VERSION, ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.jobs import Job
 from app.services.events import get_broadcaster
+from app.services.probes import ProbeService
 from app.workers.job_runner import JobRunner
 from tests.conftest import ScriptedTransport, write_probe_inventory
 
@@ -70,6 +71,39 @@ async def probe_id_of(client: AsyncClient) -> str:
     listing = await client.get("/api/v1/probes")
     assert listing.status_code == 200, listing.text
     return str(listing.json()[0]["id"])
+
+
+async def test_probe_list_marks_the_previous_helper_version_as_outdated(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The fleet filter consumes this API flag rather than comparing versions."""
+    write_probe_inventory(project_dir, PROBE)
+    previous_version = CURRENT_HELPER_VERSION - 1
+    transport.responses["probe-info"] = PROBE_INFO.replace(
+        "helper_version=1", f"helper_version={previous_version}"
+    )
+    await sign_in(client)
+
+    async with session_factory() as db:
+        service = ProbeService(
+            db,
+            settings,
+            RuntimeFileStore(settings),
+            ProbeHelperClient(transport),
+            SensorCatalog(settings.sensor_source_dir),
+        )
+        await service.refresh_observed_state(PROBE)
+        await db.commit()
+
+    listing = await client.get("/api/v1/probes")
+    assert listing.status_code == 200, listing.text
+    row = listing.json()[0]
+    assert row["helper_version"] == previous_version
+    assert row["helper_outdated"] is True
 
 
 async def test_the_helper_is_sent_with_a_signature_over_its_own_bytes(

@@ -18,6 +18,7 @@ from app.domain.enums import ServiceState
 from app.domain.models import ObservedProbeState, parse_probe_info, parse_sensor_list
 from app.infrastructure.probe_helper import (
     CURRENT_HELPER_VERSION,
+    MINIMUM_HELPER_VERSION,
     HelperCommand,
     HelperRequest,
     normalise_optional,
@@ -140,9 +141,11 @@ def test_observed_state_from_probe_info() -> None:
     assert observed.probe_name == "Berlin Probe 01"
     # Presence is recorded; the value is not carried into observed state.
     assert observed.has_access_key
-    assert observed.helper_version == 1
+    assert observed.helper_version == MINIMUM_HELPER_VERSION
     assert observed.platform == "linux-arm64-glibc"
-    assert not observed.helper_outdated
+    # Supported is not the same as current: this helper can still answer the
+    # original management protocol, but the fleet filter must offer its update.
+    assert observed.helper_outdated
 
 
 def test_a_probe_without_a_helper_version_counts_as_outdated() -> None:

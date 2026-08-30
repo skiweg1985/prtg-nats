@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-29
+updated: 2026-08-30
 ---
 
 # REST API
@@ -191,9 +191,11 @@ and takes `credential.read`. It is the only endpoint that returns the value:
 mask it like any other secret. Every call is recorded as `credential.reveal`,
 so the trail says who looked and when - never at what.
 
-Every probe reports `helper_version` and `helper_outdated`. `POST
-/probes/{id}/helper-update` sends the helper the platform ships, signed with
-the key in `runtime/private/`; the probe verifies it before it replaces
+Every probe reports `helper_version` and `helper_outdated`. The latter is true
+when the reported version is below `CURRENT_HELPER_VERSION`;
+`MINIMUM_HELPER_VERSION` separately marks the protocol compatibility boundary.
+`POST /probes/{id}/helper-update` sends the helper the platform ships, signed
+with the key in `runtime/private/`; the probe verifies it before it replaces
 anything. A probe that reports no version at all predates signed updates,
 carries no key to verify against and answers this endpoint with
 `probe.helper_outdated` - it has to be enrolled once more over the bootstrap
