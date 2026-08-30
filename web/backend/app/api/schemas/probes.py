@@ -57,6 +57,16 @@ class SensorStateOut(ApiModel):
     # the helper's digests travel alongside the script's.
     installed_helper_sha256: str | None = None
     expected_helper_sha256: str | None = None
+    tool_name: str | None = None
+    installed_tool_version: str | None = None
+    expected_tool_version: str | None = None
+    tool_platform: str | None = None
+    installed_tool_sha256: str | None = None
+    expected_tool_sha256: str | None = None
+    tool_supported: bool | None = None
+    tool_source: str | None = None
+    tool_path: str | None = None
+    tool_compatible: bool | None = None
 
 
 class DeviationOut(ApiModel):
@@ -105,6 +115,7 @@ class ObservedStateOut(ApiModel):
     probe_name: str | None
     helper_version: int | None = None
     helper_sha256: str | None = None
+    platform: str | None = None
     helper_outdated: bool = False
     error_code: str | None = None
     error_details: str | None = None

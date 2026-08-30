@@ -40,12 +40,11 @@ The details, the manual path and the password change are described in
 
 ## Prerequisites
 
-- **`iperf3` on the probe.** A Debian package, no virtual environment, no
-  package index required — deployment pulls it in itself:
-
-  ```bash
-  apt-get install iperf3
-  ```
+- **An identified probe userspace.** Deployment selects the managed iperf3
+  3.21 executable for Linux `amd64`, `arm64` or ARMv7-and-newer `armhf` with
+  glibc. Another identified platform, including ARMv6, may use an already
+  installed `/usr/bin/iperf3` when it is version 3.18 or newer and reports
+  `authentication`. The rollout does not install that system package itself.
 
 - **A reachable iperf3 endpoint**, see below.
 - **Credentials**, if the endpoint authenticates — recommended. Where the
@@ -62,7 +61,8 @@ terminate. From the NATS server it is **one command**:
 sudo ./prtg-nats iperf-server install root@iperf.example.com
 ```
 
-It signs in over SSH, installs `iperf3`, creates key pair and credentials,
+It signs in over SSH, verifies iPerf3 3.17 or newer with authentication
+support, creates key pair and credentials,
 switches the service to authentication, verifies the result — and keeps
 password and public key here. That is exactly the point:
 
@@ -264,12 +264,14 @@ it assigned itself.
 ./prtg-nats sensor deploy iperf-throughput mpp-probe-01
 ```
 
-**Deployment pulls in `iperf3` itself** when it is missing — the same way
-it takes care of `python3-venv`. The package name is fixed in the probe
-helper, not in the sensor manifest: the management channel must not be
-usable to pull in arbitrary packages. If the installation fails, the
-sensor fails the self-test with `tool-missing` and the probe restores the
-previous state.
+**Deployment chooses an explicit iperf3 source.** On `amd64`, `arm64` and
+ARMv7-or-newer `armhf` glibc userspaces it installs the signed, managed 3.21
+artifact. On another identified platform it may use only an existing
+`/usr/bin/iperf3`, version 3.18 or newer with authentication support. The
+helper does not run a package manager for that fallback. If the file is absent
+or incompatible, install or update the operating-system package manually and
+deploy again. Until then the sensor stays drifted; it does not accept another
+program from `PATH`.
 
 **The credentials of all configured endpoints come along.** A sensor
 without them would only report `credentials-unreadable`; they therefore
@@ -552,7 +554,7 @@ retransmissions long before the throughput falls below the target rate.
 | Code | Channel 18 | Meaning |
 | --- | --- | --- |
 | `ok` | 0 | measurement ran |
-| `tool-missing` | 1 | iperf3 is missing on the probe |
+| `tool-missing` | 1 | selected iperf3 path is absent or incompatible |
 | `credentials-unreadable` | 2 | password file or key missing, or permissions too wide |
 | `server-unreachable` | 3 | the endpoint does not answer |
 | `auth-failed` | 4 | user name, password or clock do not match |
@@ -561,7 +563,8 @@ retransmissions long before the throughput falls below the target rate.
 | `test-failed` | 7 | iperf3 aborted for another reason |
 
 `tool-missing` and `credentials-unreadable` are reported as **sensor
-errors**, not measurements: a missing tool says nothing about the line.
+errors**, not measurements: a missing or incompatible tool says nothing about
+the line.
 Everything else remains a successful output with a negative finding, so
 the channel history stays readable across an outage.
 

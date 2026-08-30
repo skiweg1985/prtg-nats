@@ -204,6 +204,11 @@ class Settings(BaseSettings):
         return self.asset_dir / "sensors"
 
     @property
+    def tool_source_dir(self) -> Path:
+        """Pinned executables built into this release, grouped by tool."""
+        return self.asset_dir / "tools"
+
+    @property
     def libexec_dir(self) -> Path:
         return self.asset_dir / "libexec"
 

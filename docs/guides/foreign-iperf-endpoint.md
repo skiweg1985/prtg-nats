@@ -39,17 +39,37 @@ and the endpoint's public key produces a sensor that reports
 the combination. An endpoint that measures unauthenticated is registered
 with the user name left empty.
 
+## Preflight the iperf3 version
+
+Run this on the endpoint before creating credentials or registering it:
+
+```bash
+iperf3 --version
+```
+
+The first line must report version 3.17 or newer, and the optional features
+must include `authentication`. Version 3.17 changed authenticated sessions to
+RSA-OAEP. Older releases use incompatible legacy padding and cannot
+authenticate either the managed or compatible system client used by probes.
+
+Stop if either check fails. Upgrade the endpoint from a source its operator
+trusts, then repeat the command. Do not work around an older release with
+`--use-pkcs1-padding`: that re-enables the legacy padding the version boundary
+is meant to remove. Registration stores credentials; it does not install or
+upgrade software on a foreign host.
+
 ## On the endpoint, as root
 
-iperf3 3.x built against OpenSSL is required - `iperf3 --version` names
-the library. The `iperf3` group comes from the package and the service
-runs under it; without the group the service cannot read its own private
-key.
+iperf3 3.17 or newer built against OpenSSL is required - the preflight names
+the version and authentication feature. The `iperf3` group comes from the
+package and the service runs under it; without the group the service cannot
+read its own private key.
 
 ```bash
 DIR=/etc/iperf3; IPERF_USER=prtg-probe; PORT=5201
 
 apt-get install -y iperf3 openssl
+iperf3 --version
 install -d -o root -g iperf3 -m 0750 "$DIR"
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -outform PEM -out "$DIR/private.pem"
@@ -62,6 +82,11 @@ chown root:iperf3 "$DIR"/private.pem "$DIR"/public.pem "$DIR"/credentials.csv
 chmod 0640 "$DIR/private.pem" "$DIR/credentials.csv"
 chmod 0644 "$DIR/public.pem"
 ```
+
+The package name does not guarantee the version. Check the output immediately:
+if the first line is older than 3.17, stop before creating or copying any
+credentials and install a current build. Distribution releases can carry an
+older iperf3 under the same package name.
 
 **The password is never on disk**, only the SHA-256 over
 `{user}password` - iperf3 demands the credentials file in exactly that
@@ -81,11 +106,12 @@ a drop-in. Deleting the file and running `daemon-reload` takes the whole
 change back.
 
 ```bash
+IPERF3_BIN=$(command -v iperf3)
 install -d -m 0755 /etc/systemd/system/iperf3.service.d
 cat > /etc/systemd/system/iperf3.service.d/auth.conf <<UNIT
 [Service]
 ExecStart=
-ExecStart=/usr/bin/iperf3 --server --interval 0 --port $PORT --rsa-private-key-path $DIR/private.pem --authorized-users-path $DIR/credentials.csv
+ExecStart=$IPERF3_BIN --server --interval 0 --port $PORT --rsa-private-key-path $DIR/private.pem --authorized-users-path $DIR/credentials.csv
 UNIT
 
 systemctl daemon-reload
@@ -109,6 +135,10 @@ IPERF3_PASSWORD='THE-PASSWORD' iperf3 --client 127.0.0.1 --port 5201 \
 The first command has to fail and the second one has to succeed. An
 endpoint that still answers without credentials looks exactly like a
 working one from every side - until somebody else finds it.
+
+Because the executable passed the 3.17 preflight, the second command also
+checks the RSA-OAEP authentication path that the probes use. A successful
+test with `--use-pkcs1-padding` would not be an acceptable substitute.
 
 If the second command fails with credentials that were just created,
 check the clock. iperf3 puts a timestamp into what it encrypts and

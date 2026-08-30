@@ -31,6 +31,7 @@ package=2.1.0
 service=active
 helper_version=1
 helper_sha256=c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00
+platform=linux-arm64-glibc
 hostname=berlin-probe-01.example.test
 ca_sha256=3b2f1a0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a
 config=/etc/paessler/mpprobe/config.yaml
@@ -55,7 +56,11 @@ name=Berlin Probe 01
 
 SENSOR_LIST = (
     "OK sensor-list\n"
-    "internet-speed\tversion=2\tsha256=aaaa\tinterfaces=\thelper=none\n"
+    "internet-speed\tversion=2\tsha256=aaaa\tinterfaces=\thelper=none\t"
+    "tool=iperf3\ttool_version=3.21\ttool_platform=linux-arm64-glibc\t"
+    "tool_sha256=cccc\ttool_source=managed\t"
+    "tool_path=/opt/prtg-nats/tools/iperf3/3.21/linux-arm64-glibc/iperf3\t"
+    "tool_compatible=yes\n"
     "wlan-auth\tversion=1\tsha256=bbbb\tinterfaces=wlan0,wlan1\thelper=active\n"
 )
 
@@ -136,6 +141,7 @@ def test_observed_state_from_probe_info() -> None:
     # Presence is recorded; the value is not carried into observed state.
     assert observed.has_access_key
     assert observed.helper_version == 1
+    assert observed.platform == "linux-arm64-glibc"
     assert not observed.helper_outdated
 
 
@@ -174,6 +180,13 @@ def test_sensor_list_records_are_parsed() -> None:
     assert [sensor.name for sensor in sensors] == ["internet-speed", "wlan-auth"]
     assert sensors[0].version == "2"
     assert sensors[0].interfaces == ()
+    assert sensors[0].tool_name == "iperf3"
+    assert sensors[0].tool_version == "3.21"
+    assert sensors[0].tool_platform == "linux-arm64-glibc"
+    assert sensors[0].tool_sha256 == "cccc"
+    assert sensors[0].tool_source == "managed"
+    assert sensors[0].tool_path.endswith("/3.21/linux-arm64-glibc/iperf3")
+    assert sensors[0].tool_compatible is True
     assert sensors[1].interfaces == ("wlan0", "wlan1")
     assert sensors[1].helper_state == "active"
 
@@ -272,6 +285,28 @@ def test_any_other_refusal_stays_a_rejection() -> None:
 
     assert isinstance(error, ProbeRejectedError)
     assert error.details == "ERROR: CA certificate has expired"
+
+
+def test_a_blocking_sensor_transaction_is_a_structured_refusal_parameter() -> None:
+    error = refusal_error(
+        "mpp-berlin-01",
+        HelperCommand.SENSOR_ACTIVATE,
+        "ERROR: Sensor dns-check has an active transaction\n"
+        "active_transaction=tx-old\n",
+    )
+
+    assert isinstance(error, ProbeRejectedError)
+    assert error.params["active_transaction"] == "tx-old"
+
+
+def test_an_invalid_active_transaction_field_is_not_trusted() -> None:
+    error = refusal_error(
+        "mpp-berlin-01",
+        HelperCommand.SENSOR_ACTIVATE,
+        "ERROR: blocked\nactive_transaction=../../foreign\n",
+    )
+
+    assert "active_transaction" not in error.params
 
 
 def test_the_helper_declares_the_version_this_side_ships() -> None:

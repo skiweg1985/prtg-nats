@@ -44,6 +44,9 @@ MANAGEMENT_USER = "prtg-nats-admin"
 
 # Same shape libexec/common.sh validates before it dials.
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
+_ACTIVE_TRANSACTION_PATTERN = re.compile(
+    r"^active_transaction=([A-Za-z0-9][A-Za-z0-9._-]{0,63})$", re.MULTILINE
+)
 
 
 def refusal_error(
@@ -58,6 +61,9 @@ def refusal_error(
     """
     reason = output.strip()[:2000]
     params = {"probe": probe, "command": command.value}
+    active_transaction = _ACTIVE_TRANSACTION_PATTERN.search(reason)
+    if active_transaction is not None:
+        params["active_transaction"] = active_transaction.group(1)
     if UNSUPPORTED_REQUEST_MESSAGE in reason:
         return ProbeHelperOutdatedError(params=params, details=reason)
     return ProbeRejectedError(params=params, details=reason)
@@ -267,8 +273,8 @@ class ProbeHelperClient:
 
         The signature travels as the argument and the script as the payload,
         because the probe checks the one against the other before it writes
-        anything - the management key opens this channel, but it does not
-        authorise new root code on the far side.
+        anything. The management key opens this channel, but replacing this
+        root helper additionally requires the release signature.
         """
         return await self._call(
             connection,
@@ -336,6 +342,25 @@ class ProbeHelperClient:
             sensor,
             slot,
             payload=content,
+        )
+
+    async def sensor_tool_stage(
+        self,
+        connection: ProbeConnection,
+        transaction: str,
+        sensor: str,
+        envelope: str,
+        signature: str,
+    ) -> HelperResponse:
+        """Stage one release-signed executable inside the sensor transaction."""
+        return await self._call(
+            connection,
+            HelperCommand.SENSOR_TOOL_STAGE,
+            transaction,
+            sensor,
+            signature,
+            payload=envelope,
+            timeout=180,
         )
 
     async def sensor_activate(

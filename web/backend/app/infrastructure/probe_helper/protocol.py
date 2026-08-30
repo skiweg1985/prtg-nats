@@ -70,7 +70,15 @@ FIELD_SEPARATOR = "\t"
 # on the probe becomes visible. Before it, only the sensor script carried a
 # digest, and a helper edited in place read as current. The minimum stays at
 # 1: a probe below 6 omits the field, and an absent digest is not a deviation.
-CURRENT_HELPER_VERSION = 6
+# Version 7 adds the exact userspace platform to probe-info and the signed
+# sensor-tool-stage request. sensor-list reports the active managed tool. A
+# rollout that needs one updates the helper before it stages any sensor state.
+# Version 8 makes sensor activation, commit, rollback, explicit recovery and
+# removal mutually exclusive per sensor. Active transaction markers make
+# retries idempotent and prevent an old rollback from replacing a newer
+# deployment. sensor-list also reports an unstartable tool as incompatible
+# instead of failing the request.
+CURRENT_HELPER_VERSION = 8
 MINIMUM_HELPER_VERSION = 1
 
 # Where a variant's files land on the probe. The helper builds the same path
@@ -114,8 +122,10 @@ class HelperCommand(StrEnum):
     COMMIT = "commit"
 
     SENSOR_STAGE = "sensor-stage"
+    SENSOR_TOOL_STAGE = "sensor-tool-stage"
     SENSOR_ACTIVATE = "sensor-activate"
     SENSOR_ROLLBACK = "sensor-rollback"
+    SENSOR_RECOVER = "sensor-recover"
     SENSOR_COMMIT = "sensor-commit"
     SENSOR_LIST = "sensor-list"
     SENSOR_PREPARE = "sensor-prepare"

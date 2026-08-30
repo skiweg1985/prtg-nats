@@ -23,7 +23,7 @@ self sensor setup ssh-key start status stop update user verify'
 _prtg_nats_probe_commands='adopt apply configure enroll helper-update info
 install-ca list show status unenroll'
 _prtg_nats_user_commands='add delete list rotate show'
-_prtg_nats_sensor_commands='deploy list prepare profile release remove reserve
+_prtg_nats_sensor_commands='deploy list prepare profile recover release remove reserve
 show status'
 _prtg_nats_iperf_server_commands='deploy forget install list revoke show'
 
@@ -177,7 +177,7 @@ _prtg_nats() {
               deploy)
                 candidates="--all $(_prtg_nats_probes "${project_dir}")"
                 ;;
-              profile|remove|reserve|release)
+              profile|recover|remove|reserve|release)
                 candidates="$(_prtg_nats_probes "${project_dir}")"
                 ;;
             esac
@@ -189,6 +189,9 @@ _prtg_nats() {
                 ;;
               profile)
                 candidates="--from-file --remove"
+                ;;
+              recover)
+                candidates="--transaction"
                 ;;
             esac
             ;;

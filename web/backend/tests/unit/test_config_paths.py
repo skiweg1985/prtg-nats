@@ -17,7 +17,13 @@ import pytest
 
 from app.core.config import Settings, get_settings
 
-ASSET_PATHS = ("sensor_source_dir", "libexec_dir", "template_dir", "http_asset_dir")
+ASSET_PATHS = (
+    "sensor_source_dir",
+    "tool_source_dir",
+    "libexec_dir",
+    "template_dir",
+    "http_asset_dir",
+)
 RUNTIME_PATHS = (
     "cert_dir",
     "private_dir",
@@ -62,6 +68,7 @@ def test_one_root_by_default(tmp_path: Path) -> None:
     assert settings.asset_dir == tmp_path
     assert settings.runtime_dir == tmp_path / "runtime"
     assert settings.sensor_source_dir == tmp_path / "sensors"
+    assert settings.tool_source_dir == tmp_path / "tools"
     assert settings.cert_dir == tmp_path / "runtime" / "certs"
 
 

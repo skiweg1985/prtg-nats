@@ -110,6 +110,15 @@ export interface SensorState {
   expected_sha256: string | null
   installed_helper_sha256: string | null
   expected_helper_sha256: string | null
+  tool_name: string | null
+  installed_tool_version: string | null
+  expected_tool_version: string | null
+  tool_platform: string | null
+  tool_source: 'managed' | 'system' | null
+  tool_path: string | null
+  installed_tool_sha256: string | null
+  expected_tool_sha256: string | null
+  tool_compatible: boolean | null
   interfaces: string[]
   helper_state: string | null
 }
@@ -137,6 +146,7 @@ export interface ObservedState {
   probe_name: string | null
   helper_version: number | null
   helper_sha256: string | null
+  platform: string | null
   helper_outdated: boolean
   error_code: string | null
   error_details: string | null
