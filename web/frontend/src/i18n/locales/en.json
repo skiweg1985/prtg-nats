@@ -698,7 +698,7 @@
       "privateKey": "Private key",
       "privateKeyHint": "Instead of a password. Not stored.",
       "publicKey": "Public key",
-      "publicKeyHint": "The endpoint's public.pem. iperf3 encrypts the credentials with it; without it the probes cannot authenticate.",
+      "publicKeyHint": "The endpoint's public.pem, pasted whole with its BEGIN and END lines. Without it the probes cannot authenticate; an OpenSSH key (ssh-rsa AAAAB3…) is a different format and does not work.",
       "register": "Register a foreign one",
       "registerIntro": "For a host somebody else operates: nothing is installed and nothing is reached. Only the record here, so the probes can use it.",
       "registerTitle": "Register a foreign endpoint",

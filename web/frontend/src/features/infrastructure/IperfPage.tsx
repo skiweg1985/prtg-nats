@@ -545,6 +545,17 @@ systemctl restart iperf3
 printf 'password: %s\\n' "$PASSWORD"
 cat "$DIR/public.pem"`
 
+// What the field takes, as its own shape. The first line of a 2048 bit RSA
+// key is fixed by the encoding and the last group ends on the exponent, so
+// both are worth showing: somebody holding an OpenSSH key sees at a glance
+// that it is not this.
+const PUBLIC_KEY_EXAMPLE = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+… 5 more lines …
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxQIDAQAB
+-----END PUBLIC KEY-----`
+
 const ENDPOINT_CHECK = `iperf3 --client 127.0.0.1 --port 5201 --time 1
 
 IPERF3_PASSWORD='THE-PASSWORD' iperf3 --client 127.0.0.1 --port 5201 \\
@@ -671,10 +682,10 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
               <textarea
                 value={publicKey}
                 onChange={(event) => setPublicKey(event.target.value)}
-                rows={4}
+                rows={6}
                 spellCheck={false}
                 className="rounded-control border-rule-2 bg-surface text-ink w-full border px-2.5 py-1.5 font-mono text-xs"
-                placeholder="-----BEGIN PUBLIC KEY-----"
+                placeholder={PUBLIC_KEY_EXAMPLE}
               />
             </Field>
           </>
