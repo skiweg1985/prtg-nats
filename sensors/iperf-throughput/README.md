@@ -241,22 +241,43 @@ endpoint somebody else set up.
 
 ### 2. As a profile onto the probes
 
-Password and public key become a profile file. The key is base64-encoded
-in it, because a PEM with its line breaks does not fit into a `KEY=VALUE`
-file:
+Address, port, measurement user, password and public key become a profile
+file. This command creates the complete format used for `default.env`:
 
 ```bash
+install -m 0600 /dev/null default.env
 {
+  printf 'IPERF3_HOST=%s\n' 'iperf-north.example.com'
+  printf 'IPERF3_PORT=%s\n' '5201'
+  printf 'IPERF3_USERNAME=%s\n' 'prtg-probe'
   printf 'IPERF3_PASSWORD=%s\n' 'THE-PASSWORD'
   printf 'IPERF3_PUBLIC_KEY_B64=%s\n' "$(base64 -w0 < public.pem)"
-} > iperf-north.env
+} > default.env
 ./prtg-nats sensor profile iperf-throughput mpp-probe-01 default \
-  --from-file iperf-north.env
-shred -u iperf-north.env
+  --from-file default.env
+shred -u default.env
 ```
 
-`iperf-server deploy` generates exactly this file — just from the password
-it assigned itself.
+On the probe, this command writes
+`/etc/prtg-nats/sensors/iperf-throughput/profiles/default.env`.
+`iperf-server deploy` and the web platform always write the same five fields
+to a profile named after the endpoint and add two comments above them. If the
+probe has only one endpoint, they also write the same content as `default.env`
+so the PRTG sensor needs no `--profile` parameter. They remove only this alias
+when a second endpoint is assigned; the endpoint-named profiles remain.
+
+The user name and password in this profile are the original values, not
+hashes. The client needs them in that form before it encrypts the
+authentication exchange with the endpoint's public key. The profile therefore
+relies on its `root:paessler_mpprobe` ownership and mode `0640` for protection
+at rest.
+
+This differs from the endpoint's `/etc/iperf3/credentials.csv`: that file
+contains the user name and the SHA-256 over `{user}password`, so its password
+cannot be recovered from that file. `IPERF3_PUBLIC_KEY_B64` is the complete
+PEM public key encoded as one base64 line. Decoding it yields the same public
+key that is on the endpoint. Base64 is only an encoding for the `KEY=VALUE`
+format; it is neither encryption nor a hash.
 
 ## Deploy the sensor
 
