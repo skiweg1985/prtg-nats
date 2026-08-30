@@ -15,6 +15,7 @@ from app.core.errors import (
     ProbePackageMissingError,
     ProbeRejectedError,
     RuntimeStateError,
+    technical_details,
 )
 from app.domain import probe_config
 from app.domain.enums import CertificateKind, LogLevel
@@ -452,7 +453,7 @@ async def unenroll(context: JobContext) -> dict[str, Any]:
             "jobs.probe.access_revoke_failed",
             level=LogLevel.WARNING,
             params={"probe": username},
-            raw=str(exc)[:500],
+            raw=technical_details(exc)[:500],
         )
 
     await context.step("remove_inventory")
