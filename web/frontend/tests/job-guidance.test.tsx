@@ -61,7 +61,7 @@ const server = setupServer(
         username: 'admin',
         display_name: 'admin',
         roles: ['administrator'],
-        permissions: ['job.read', 'probe.read', 'job.retry'],
+        permissions: ['job.read', 'probe.read', 'job.retry', 'iperf.manage'],
         locale: 'en',
         is_development: false,
         must_change_password: false,
@@ -160,5 +160,43 @@ describe('the job page names the next step', () => {
     )
 
     expect(await screen.findByText('Raw result')).toBeInTheDocument()
+  })
+
+  it('asks for the foreign password again instead of retrying without it', async () => {
+    await changeLanguage('en')
+    wrap(
+      job({
+        type: 'iperf.update_foreign_credentials',
+        status: 'partially_successful',
+        target_type: 'iperf_endpoint',
+        target_id: 'provider',
+        target_label: 'provider → 2 probe(s)',
+        error_code: 'job.partial_failure',
+        error_params: { failed: 1 },
+      }),
+    )
+
+    expect(
+      await screen.findByRole('link', { name: 'Enter password again' }),
+    ).toHaveAttribute('href', '/infrastructure/iperf/provider')
+    expect(screen.queryByRole('button', { name: 'Run again' })).not.toBeInTheDocument()
+  })
+
+  it('does not ask for the foreign password again after a successful update', async () => {
+    await changeLanguage('en')
+    wrap(
+      job({
+        type: 'iperf.update_foreign_credentials',
+        target_type: 'iperf_endpoint',
+        target_id: 'provider',
+        target_label: 'provider → 2 probe(s)',
+      }),
+    )
+
+    expect(await screen.findByText('iperf.update_foreign_credentials')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Enter password again' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Run again' })).not.toBeInTheDocument()
   })
 })

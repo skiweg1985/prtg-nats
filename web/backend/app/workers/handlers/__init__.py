@@ -196,6 +196,17 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=iperf_provisioning.rotate,
         permission="iperf.manage",
     ),
+    iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE: JobDefinition(
+        type=iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE,
+        steps=iperf_provisioning.FOREIGN_CREDENTIALS_STEPS,
+        handler=iperf_provisioning.update_foreign_credentials,
+        permission="iperf.manage",
+        # Probe resources include the whole known fleet to cover holders a
+        # previously queued deploy adds. The handler already reports the
+        # actual holders and changes no inventory state, so refreshing every
+        # locked non-holder afterwards would only create avoidable traffic.
+        refreshes_probes=False,
+    ),
     # Deploying and revoking are what the fleet actually notices about an
     # endpoint, so they carry the permission that decides who may change what a
     # probe holds - not the one for setting an endpoint up.

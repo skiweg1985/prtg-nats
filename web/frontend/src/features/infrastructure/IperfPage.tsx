@@ -27,7 +27,12 @@ import {
   Mono,
 } from '@/components/ui/primitives'
 
-import { InviteDialog, RemoveDialog, RotateDialog } from './IperfEndpointDialogs'
+import {
+  ForeignCredentialsDialog,
+  InviteDialog,
+  RemoveDialog,
+  RotateDialog,
+} from './IperfEndpointDialogs'
 import { IperfProbesDialog } from './IperfProbesDialog'
 import { endpointsHeldByProbe } from './iperfProfiles'
 import { PermissionGate, useAuth } from '@/app/providers'
@@ -49,6 +54,8 @@ export function IperfPage() {
   )
   const [removing, setRemoving] = useState<IperfEndpoint | null>(null)
   const [rotating, setRotating] = useState<IperfEndpoint | null>(null)
+  const [updatingCredentials, setUpdatingCredentials] =
+    useState<IperfEndpoint | null>(null)
   const [assigning, setAssigning] = useState<IperfEndpoint | null>(null)
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -125,7 +132,11 @@ export function IperfPage() {
             className="flex justify-end gap-2"
             onClick={(event) => event.stopPropagation()}
           >
-            <RotateButton endpoint={row} onStart={() => setRotating(row)} />
+            <PasswordButton
+              endpoint={row}
+              onRotate={() => setRotating(row)}
+              onUpdateForeign={() => setUpdatingCredentials(row)}
+            />
             <Button size="sm" variant="ghost" onClick={() => setRemoving(row)}>
               {t('common.remove')}
             </Button>
@@ -175,6 +186,12 @@ export function IperfPage() {
       {dialog === 'invite' && <InviteDialog onClose={() => setDialog(null)} />}
       {rotating && (
         <RotateDialog endpoint={rotating} onClose={() => setRotating(null)} />
+      )}
+      {updatingCredentials && (
+        <ForeignCredentialsDialog
+          endpoint={updatingCredentials}
+          onClose={() => setUpdatingCredentials(null)}
+        />
       )}
       {assigning && (
         <IperfProbesDialog
@@ -731,23 +748,27 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
 
 // --- Rotating and removing ---------------------------------------------------
 
-function RotateButton({
+function PasswordButton({
   endpoint,
-  onStart,
+  onRotate,
+  onUpdateForeign,
 }: {
   endpoint: IperfEndpoint
-  onStart: () => void
+  onRotate: () => void
+  onUpdateForeign: () => void
 }) {
   const { t } = useTranslation()
 
-  if (!endpoint.managed) return null
+  if (!endpoint.managed && (!endpoint.username || !endpoint.has_public_key)) {
+    return null
+  }
   return (
-    <Button size="sm" onClick={onStart}>
-      {t('infrastructure.iperf.rotate')}
+    <Button size="sm" onClick={endpoint.managed ? onRotate : onUpdateForeign}>
+      {endpoint.managed
+        ? t('infrastructure.iperf.rotate')
+        : t('infrastructure.iperf.updateForeign')}
     </Button>
   )
 }
 
 // --- Bits --------------------------------------------------------------------
-
-

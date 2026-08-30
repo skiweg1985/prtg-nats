@@ -15,13 +15,16 @@ from sqlalchemy import select
 from app.api.deps.common import (
     AuditDep,
     BroadcasterDep,
+    CatalogDep,
     DbSession,
     JobServiceDep,
     PrincipalDep,
+    RuntimeDep,
     require_permission,
 )
 from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
+from app.core.errors import ConflictError
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
 from app.persistence.models.inventory import (
@@ -31,7 +34,7 @@ from app.persistence.models.inventory import (
 )
 from app.services.events import StreamEvent, job_topic
 from app.services.jobs import JobService, ResourceRef
-from app.workers.handlers import deploy_sensor
+from app.workers.handlers import deploy_sensor, iperf_provisioning
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -210,6 +213,8 @@ async def retry_job(
     job_id: str,
     jobs: JobServiceDep,
     db: DbSession,
+    catalog: CatalogDep,
+    runtime: RuntimeDep,
     audit: AuditDep,
     principal: Annotated[
         PrincipalDep, Depends(require_permission(Permission.JOB_RETRY))
@@ -224,6 +229,12 @@ async def retry_job(
     finished half of the history while its link kept pointing at the old job.
     """
     original = await jobs.get(job_id)
+    if original.type == iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE:
+        raise ConflictError(
+            params={"resource": "job", "id": job_id},
+            details="this job needs the replacement password again; submit it "
+            "from the foreign endpoint page",
+        )
     overrides: dict[str, Any] = {}
     if (
         original.type == deploy_sensor.JOB_TYPE
@@ -242,6 +253,15 @@ async def retry_job(
                 select(ProbeRecord).where(ProbeRecord.nats_username.in_(probes))
             )
         ).all()
+        definition = catalog.get(str(original.payload.get("sensor")))
+        endpoint_resources = (
+            tuple(
+                ResourceRef("iperf", endpoint.name)
+                for endpoint in runtime.list_iperf_endpoints()
+            )
+            if definition.iperf_kind
+            else ()
+        )
         deployment = Deployment(
             sensor_name=str(original.payload.get("sensor")),
             sensor_version=str(result.get("version") or ""),
@@ -264,8 +284,9 @@ async def retry_job(
                 "probes": [record.nats_username for record in rows],
                 "deployment_id": deployment.id,
             },
-            "resources_override": tuple(
-                ResourceRef("probe", record.id) for record in rows
+            "resources_override": (
+                *endpoint_resources,
+                *(ResourceRef("probe", record.id) for record in rows),
             ),
             "target_id": deployment.id,
             "target_label": (

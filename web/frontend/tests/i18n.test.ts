@@ -95,4 +95,11 @@ describe('translations', () => {
       }
     }
   })
+
+  it('labels every step in an iperf password job', () => {
+    for (const step of ['set_password', 'update_record', 'refresh_probes']) {
+      expect(english.has(`jobs.steps.${step}`), `en jobs.steps.${step}`).toBe(true)
+      expect(german.has(`jobs.steps.${step}`), `de jobs.steps.${step}`).toBe(true)
+    }
+  })
 })

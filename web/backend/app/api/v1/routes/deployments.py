@@ -14,6 +14,7 @@ from app.api.deps.common import (
     JobServiceDep,
     PrincipalDep,
     ProbeServiceDep,
+    RuntimeDep,
     require_permission,
 )
 from app.api.schemas.system import (
@@ -76,6 +77,7 @@ async def create_deployment(
     payload: DeploymentCreateIn,
     db: DbSession,
     catalog: CatalogDep,
+    runtime: RuntimeDep,
     probes: ProbeServiceDep,
     jobs: JobServiceDep,
     audit: AuditDep,
@@ -90,6 +92,14 @@ async def create_deployment(
     same sensor directory is exactly the situation the lock exists for.
     """
     definition = catalog.get(payload.sensor)
+    endpoint_resources = (
+        tuple(
+            ResourceRef("iperf", endpoint.name)
+            for endpoint in runtime.list_iperf_endpoints()
+        )
+        if definition.iperf_kind
+        else ()
+    )
 
     records = []
     for probe_id in payload.probe_ids:
@@ -119,7 +129,10 @@ async def create_deployment(
         JobRequest(
             type=deploy_sensor.JOB_TYPE,
             steps=deploy_sensor.STEPS,
-            resources=tuple(ResourceRef("probe", record.id) for record in records),
+            resources=(
+                *endpoint_resources,
+                *(ResourceRef("probe", record.id) for record in records),
+            ),
             target_type="deployment",
             target_id=deployment.id,
             target_label=f"{definition.name} → {len(records)} probe(s)",

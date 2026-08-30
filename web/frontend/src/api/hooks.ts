@@ -506,6 +506,18 @@ export function useRotateEndpoint() {
   })
 }
 
+export function useUpdateForeignEndpointCredentials() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, password }: { name: string; password: string }) =>
+      api.put<JobAccepted>(`/iperf-endpoints/${name}/credentials`, { password }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
 /**
  * Which probes hold one endpoint's credentials.
  *

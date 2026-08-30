@@ -10,6 +10,7 @@ import {
   useRemoveEndpoint,
   useRevokeIperfInvitation,
   useRotateEndpoint,
+  useUpdateForeignEndpointCredentials,
 } from '@/api/hooks'
 import type { IperfEndpoint, IssuedIperfInvitation } from '@/api/types'
 import { CopyBlock, useCountdown } from '@/components/ui/CopyBlock'
@@ -76,6 +77,80 @@ export function RotateDialog({
             {rotate.isPending
               ? t('infrastructure.iperf.rotating')
               : t('infrastructure.iperf.rotate')}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * Store what the foreign operator already changed and repair all holders.
+ *
+ * Unlike rotation, this never reaches the endpoint. The password lives only
+ * in this field until the API hands it to the worker; success goes straight to
+ * the job because every probe has its own outcome.
+ */
+export function ForeignCredentialsDialog({
+  endpoint,
+  onClose,
+}: {
+  endpoint: IperfEndpoint
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const update = useUpdateForeignEndpointCredentials()
+  const [password, setPassword] = useState('')
+
+  return (
+    <Dialog title={t('infrastructure.iperf.updateForeignTitle')} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.updateForeignBody', {
+            name: endpoint.name,
+            count: endpoint.holders.length,
+          })}
+        </p>
+
+        <Field
+          label={t('infrastructure.iperf.newPassword')}
+          hint={t('infrastructure.iperf.updateForeignHint')}
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            autoFocus
+          />
+        </Field>
+
+        {update.error != null && <ErrorDetails error={update.error} />}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={password.length === 0 || update.isPending}
+            onClick={() =>
+              update.mutate(
+                { name: endpoint.name, password },
+                {
+                  onSuccess: (accepted) => {
+                    setPassword('')
+                    onClose()
+                    navigate(`/jobs/${accepted.job_id}`)
+                  },
+                },
+              )
+            }
+          >
+            {update.isPending
+              ? t('infrastructure.iperf.updatingForeign')
+              : t('infrastructure.iperf.updateForeignSubmit')}
           </Button>
         </div>
       </div>

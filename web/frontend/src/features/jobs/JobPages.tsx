@@ -199,6 +199,7 @@ export function JobDetailPage() {
       : null
 
   const running = !isTerminal(job.status)
+  const needsForeignPassword = job.type === 'iperf.update_foreign_credentials'
 
   return (
     <div className="space-y-4">
@@ -246,7 +247,7 @@ export function JobDetailPage() {
               </Button>
             </PermissionGate>
           )}
-          {!running && (
+          {!running && !needsForeignPassword && (
             <PermissionGate permission="job.retry">
               <Button
                 size="sm"
@@ -262,6 +263,18 @@ export function JobDetailPage() {
               </Button>
             </PermissionGate>
           )}
+          {!running &&
+            needsForeignPassword &&
+            job.status !== 'successful' &&
+            job.target_id && (
+              <PermissionGate permission="iperf.manage">
+                <Link to={`/infrastructure/iperf/${job.target_id}`}>
+                  <Button size="sm" variant="primary">
+                    {t('jobs.reenterPassword')}
+                  </Button>
+                </Link>
+              </PermissionGate>
+            )}
         </div>
       </header>
 
@@ -301,17 +314,20 @@ export function JobDetailPage() {
                 fields: [],
                 details: job.error_details,
                 correlation_id: null,
-                retryable: true,
+                retryable: !needsForeignPassword,
               },
               500,
             )
           }
           step={job.current_step}
           target={job.target_label}
-          onRetry={() =>
-            retry.mutate(jobId, {
-              onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-            })
+          onRetry={
+            needsForeignPassword
+              ? undefined
+              : () =>
+                  retry.mutate(jobId, {
+                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                  })
           }
         />
       )}

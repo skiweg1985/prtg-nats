@@ -22,6 +22,7 @@ and revoke without knowing where it came from.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -32,6 +33,7 @@ from app.api.deps.common import (
     CatalogDep,
     JobServiceDep,
     PrincipalDep,
+    ProbeServiceDep,
     RuntimeDep,
     SettingsDep,
     require_permission,
@@ -52,6 +54,19 @@ from app.workers.handlers.deploy_sensor import default_endpoint
 router = APIRouter(prefix="/iperf-endpoints", tags=["infrastructure"])
 
 _USER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _valid_profile_password(value: str) -> str:
+    """Accept only values the line-based runtime/profile format preserves."""
+    if not value:
+        return value
+    if value.strip() != value:
+        raise ValueError("an iperf password cannot have surrounding whitespace")
+    if any(
+        unicodedata.category(character) in {"Cc", "Zl", "Zp"} for character in value
+    ):
+        raise ValueError("an iperf password cannot contain line or control characters")
+    return value
 
 
 class JobAccepted(ApiModel):
@@ -165,6 +180,26 @@ class RegisterIn(ApiModel):
                 "and hyphen, and has to start with a letter or digit"
             )
         return value
+
+    @field_validator("password")
+    @classmethod
+    def _valid_password(cls, value: str) -> str:
+        return _valid_profile_password(value)
+
+
+class ForeignCredentialsIn(ApiModel):
+    """A replacement supplied by the operator of a foreign endpoint.
+
+    Write-only by API shape: no response model has this field, and the job
+    receives it out of band rather than through its persisted payload.
+    """
+
+    password: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("password")
+    @classmethod
+    def _valid_password(cls, value: str) -> str:
+        return _valid_profile_password(value)
 
 
 def _endpoint_out(endpoint: Any, holders: list[IperfHolderOut]) -> IperfEndpointOut:
@@ -479,6 +514,87 @@ async def register_endpoint(
     return _endpoint_out(written, [])
 
 
+@router.put(
+    "/{name}/credentials",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def update_foreign_credentials(
+    name: str,
+    payload: ForeignCredentialsIn,
+    runtime: RuntimeDep,
+    catalog: CatalogDep,
+    probe_service: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.IPERF_MANAGE))
+    ],
+) -> JobAccepted:
+    """Replace our copy of a foreign endpoint password and redeploy it.
+
+    The endpoint's operator has already changed the far side. This action
+    therefore touches only the protected runtime record and probes that already
+    hold it. The password is handed to the worker in memory: the job row,
+    response and audit record describe the rollout without retaining it.
+    """
+    endpoint = _require_endpoint(runtime, name)
+    if endpoint.managed:
+        raise ConflictError(
+            params={"resource": "iperf_endpoint", "name": name},
+            details=f"{name} is managed here; rotate its password instead",
+        )
+    if not endpoint.username or not endpoint.has_public_key:
+        raise ConflictError(
+            params={"resource": "iperf_endpoint", "name": name},
+            details=f"{name} has no authenticated credential set to update",
+        )
+
+    probes = runtime.read_all_probes()
+    holders = sorted(
+        probe.nats_username for probe in probes if name in probe.known_iperf_endpoints
+    )
+    # A deploy that was queued first may turn a known probe into a holder
+    # before this job acquires the endpoint lock. Lock every probe that can
+    # enter that set, then derive the authoritative holders inside the worker.
+    records = [
+        await probe_service.ensure_record(probe.nats_username) for probe in probes
+    ]
+    job = await jobs.create(
+        JobRequest(
+            type=iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE,
+            steps=iperf_provisioning.FOREIGN_CREDENTIALS_STEPS,
+            resources=(
+                ResourceRef("iperf", name),
+                *(ResourceRef("probe", record.id) for record in records),
+            ),
+            target_type="iperf_endpoint",
+            target_id=name,
+            target_label=f"{name} → {len(holders)} probe(s)",
+            payload={
+                "name": name,
+                "probes": holders,
+                "sensors": _endpoint_sensors(catalog),
+            },
+        ),
+        principal,
+    )
+    job_secrets.hand(job.id, {"iperf_password": payload.password})
+    audit.record(
+        action="iperf.foreign_credentials_update",
+        object_type="iperf_endpoint",
+        object_id=name,
+        object_label=name,
+        job_id=job.id,
+        after={"probes": holders},
+    )
+    return JobAccepted(
+        job_id=job.id,
+        status=job.status.value,
+        events_url=f"/api/v1/jobs/{job.id}/events",
+    )
+
+
 @router.post(
     "/{name}/rotate", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED
 )
@@ -554,6 +670,7 @@ async def deploy_to_probes(
     payload: ProbeSelection,
     runtime: RuntimeDep,
     catalog: CatalogDep,
+    probe_service: ProbeServiceDep,
     jobs: JobServiceDep,
     audit: AuditDep,
     principal: Annotated[
@@ -568,12 +685,16 @@ async def deploy_to_probes(
     """
     _require_endpoint(runtime, name)
     probes = _known_probes(runtime, payload.probes)
+    records = [await probe_service.ensure_record(probe) for probe in probes]
 
     job = await jobs.create(
         JobRequest(
             type=iperf_provisioning.DEPLOY_JOB_TYPE,
             steps=iperf_provisioning.DEPLOY_STEPS,
-            resources=tuple(ResourceRef("probe", probe) for probe in probes),
+            resources=(
+                ResourceRef("iperf", name),
+                *(ResourceRef("probe", record.id) for record in records),
+            ),
             target_type="iperf_endpoint",
             target_id=name,
             target_label=f"{name} → {len(probes)} probe(s)",
@@ -608,6 +729,7 @@ async def revoke_from_probes(
     payload: ProbeSelection,
     runtime: RuntimeDep,
     catalog: CatalogDep,
+    probe_service: ProbeServiceDep,
     jobs: JobServiceDep,
     audit: AuditDep,
     principal: Annotated[
@@ -622,12 +744,16 @@ async def revoke_from_probes(
     """
     _require_endpoint(runtime, name)
     probes = _known_probes(runtime, payload.probes)
+    records = [await probe_service.ensure_record(probe) for probe in probes]
 
     job = await jobs.create(
         JobRequest(
             type=iperf_provisioning.REVOKE_JOB_TYPE,
             steps=iperf_provisioning.REVOKE_STEPS,
-            resources=tuple(ResourceRef("probe", probe) for probe in probes),
+            resources=(
+                ResourceRef("iperf", name),
+                *(ResourceRef("probe", record.id) for record in records),
+            ),
             target_type="iperf_endpoint",
             target_id=name,
             target_label=f"{name} ← {len(probes)} probe(s)",

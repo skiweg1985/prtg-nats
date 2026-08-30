@@ -19,7 +19,11 @@ import {
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { formatDateTime } from '@/utils/format'
 
-import { RemoveDialog, RotateDialog } from './IperfEndpointDialogs'
+import {
+  ForeignCredentialsDialog,
+  RemoveDialog,
+  RotateDialog,
+} from './IperfEndpointDialogs'
 import { IperfProbesDialog } from './IperfProbesDialog'
 
 /**
@@ -37,7 +41,7 @@ export function IperfEndpointPage() {
   const { name } = useParams<{ name: string }>()
   const { data, isLoading, error, refetch } = useIperfEndpoint(name)
   const [dialog, setDialog] = useState<
-    'assign' | 'rotate' | 'remove' | 'deploy' | null
+    'assign' | 'rotate' | 'foreignCredentials' | 'remove' | 'deploy' | null
   >(null)
 
   if (isLoading) return <Skeleton className="h-64" />
@@ -75,11 +79,15 @@ export function IperfEndpointPage() {
             </Button>
           </PermissionGate>
           <PermissionGate permission="iperf.manage">
-            {data.managed && (
+            {data.managed ? (
               <Button size="sm" onClick={() => setDialog('rotate')}>
                 {t('infrastructure.iperf.rotate')}
               </Button>
-            )}
+            ) : data.username && data.has_public_key ? (
+              <Button size="sm" onClick={() => setDialog('foreignCredentials')}>
+                {t('infrastructure.iperf.updateForeign')}
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => setDialog('remove')}>
               {t('common.remove')}
             </Button>
@@ -168,6 +176,9 @@ export function IperfEndpointPage() {
       )}
       {dialog === 'rotate' && (
         <RotateDialog endpoint={data} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'foreignCredentials' && (
+        <ForeignCredentialsDialog endpoint={data} onClose={() => setDialog(null)} />
       )}
       {dialog === 'remove' && (
         <RemoveDialog endpoint={data} onClose={() => setDialog(null)} />

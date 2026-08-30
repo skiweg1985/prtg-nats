@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -37,16 +38,16 @@ const PROBES = [
   { id: 'P2', nats_username: 'mpp-hamburg', display_name: 'Hamburg', host: 'b.example' },
 ]
 
-function endpoint(holders: unknown[]) {
+function endpoint(holders: unknown[], managed = true, authenticated = true) {
   return {
     name: 'berlin',
     host: 'iperf.example.test',
     port: 5201,
-    username: 'prtg-probe',
+    username: authenticated ? 'prtg-probe' : '',
     kind: 'iperf3',
     updated_at: '2026-08-01T10:00:00Z',
-    has_public_key: true,
-    managed: true,
+    has_public_key: authenticated,
+    managed,
     holders,
   }
 }
@@ -63,6 +64,8 @@ const SHARING = {
   uses_default_alias: false,
   parameter_line: '--profile berlin',
 }
+
+let credentialUpdate: unknown = null
 
 const server = setupServer(
   http.get('/api/v1/auth/state', () =>
@@ -101,18 +104,30 @@ const server = setupServer(
       installations: [{ probe: 'mpp-berlin', version: '1.0.0', current: true }],
     }),
   ),
+  http.put('/api/v1/iperf-endpoints/berlin/credentials', async ({ request }) => {
+    credentialUpdate = await request.json()
+    return HttpResponse.json(
+      { job_id: 'J-CREDENTIALS', status: 'queued', events_url: '/jobs/events' },
+      { status: 202 },
+    )
+  }),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  credentialUpdate = null
+})
 afterAll(() => server.close())
 
-function wrap(holders: unknown[]) {
+function wrap(holders: unknown[], managed = true, authenticated = true) {
   server.use(
     http.get('/api/v1/iperf-endpoints/berlin', () =>
-      HttpResponse.json(endpoint(holders)),
+      HttpResponse.json(endpoint(holders, managed, authenticated)),
     ),
-    http.get('/api/v1/iperf-endpoints', () => HttpResponse.json([endpoint(holders)])),
+    http.get('/api/v1/iperf-endpoints', () =>
+      HttpResponse.json([endpoint(holders, managed, authenticated)]),
+    ),
   )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -120,6 +135,7 @@ function wrap(holders: unknown[]) {
       <MemoryRouter initialEntries={['/infrastructure/iperf/berlin']}>
         <Routes>
           <Route path="/infrastructure/iperf/:name" element={<IperfEndpointPage />} />
+          <Route path="/jobs/:id" element={<div>job progress</div>} />
         </Routes>
       </MemoryRouter>
     </AppProviders>,
@@ -164,5 +180,46 @@ describe('IperfEndpointPage', () => {
     // what is still open, not of who holds the endpoint.
     expect(banner.parentElement).toHaveTextContent('mpp-hamburg')
     expect(banner.parentElement).not.toHaveTextContent('mpp-berlin')
+  })
+
+  it('updates a foreign password and follows the rollout job', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap([ALONE], false)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Update stored password' }),
+    )
+    expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/^New password/), 'provider-replacement')
+    await user.click(screen.getByRole('button', { name: 'Update and deploy' }))
+
+    await waitFor(() =>
+      expect(credentialUpdate).toEqual({ password: 'provider-replacement' }),
+    )
+    expect(await screen.findByText('job progress')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('provider-replacement')).not.toBeInTheDocument()
+  })
+
+  it('keeps managed rotation separate from the foreign update', async () => {
+    await changeLanguage('en')
+    wrap([ALONE], true)
+
+    expect(await screen.findByRole('button', { name: 'Change password' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Update stored password' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers no password action for an unauthenticated foreign endpoint', async () => {
+    await changeLanguage('en')
+    wrap([ALONE], false, false)
+
+    expect(await screen.findByText('without a sign-in')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Update stored password' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
   })
 })
