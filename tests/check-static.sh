@@ -671,6 +671,31 @@ check "and the install asks it to" \
 check "and reads the copy, not the closed directory" \
   "$(grep -c 'cat .\${REMOTE_STAGE}/public.pem' \
     libexec/manage-iperf-server.sh)" "1"
+# The register dialog hands the same steps to somebody we never reach, so
+# the two describe one endpoint or the record here describes a host the
+# probes cannot authenticate against. Compared by the parts that decide
+# that: where the material lives, and what the service is started with.
+iperf_help=web/frontend/src/features/infrastructure/IperfPage.tsx
+for expected in \
+  '/etc/iperf3' \
+  'private.pem' \
+  'credentials.csv' \
+  '/etc/systemd/system/iperf3.service.d' \
+  '--rsa-private-key-path' \
+  '--authorized-users-path'; do
+  check "the register dialog names ${expected}" \
+    "$(grep -c -- "${expected}" "${iperf_help}" | awk '$1 > 0 {print "yes"}')" \
+    "yes"
+done
+# iperf3 hashes "{user}password" and nothing else. A dialog handing out a
+# different recipe produces an endpoint that rejects every probe, and the
+# refusal names neither the password nor the hash.
+check "the register dialog hashes the way iperf3 reads it" \
+  "$(grep -c '{$IPERF_USER}$PASSWORD' "${iperf_help}")" "1"
+# A drop-in that only appends leaves the packaged start command in place,
+# and systemd refuses a service with two of them.
+check "the register dialog clears ExecStart before setting it" \
+  "$(grep -c '^ExecStart=$' "${iperf_help}")" "1"
 # Unconditionally: the install records the password it generated, so the
 # endpoint has to take it over even on the first run against a host that
 # was set up by hand. Anything else records a password nobody can use.

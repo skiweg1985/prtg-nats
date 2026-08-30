@@ -13,6 +13,7 @@ import {
 import type { HostKeyScan, IperfEndpoint } from '@/api/types'
 import { DataTable } from '@/components/ui/DataTable'
 import type { Column } from '@/components/ui/DataTable'
+import { CopyBlock } from '@/components/ui/CopyBlock'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
@@ -507,6 +508,82 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
 
 // --- Registering one somebody else operates ----------------------------------
 
+// What setup-iperf3-endpoint.sh does, as the commands somebody else can run on
+// a host we never reach. Kept in step with that script deliberately: the two
+// have to produce the same endpoint, or a record registered here describes
+// something the probes cannot authenticate against.
+//
+// The service unit is written on one line. A drop-in with a continuation reads
+// better and is one backslash away from an ExecStart systemd silently accepts
+// as something else.
+const ENDPOINT_SETUP = `DIR=/etc/iperf3; IPERF_USER=prtg-probe; PORT=5201
+
+apt-get install -y iperf3 openssl
+install -d -o root -g iperf3 -m 0750 "$DIR"
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -outform PEM -out "$DIR/private.pem"
+openssl rsa -in "$DIR/private.pem" -pubout -out "$DIR/public.pem"
+
+PASSWORD="$(openssl rand -hex 24)"
+printf '%s,%s\\n' "$IPERF_USER" "$(printf '%s' "{$IPERF_USER}$PASSWORD" | sha256sum | cut -d' ' -f1)" > "$DIR/credentials.csv"
+
+chown root:iperf3 "$DIR"/private.pem "$DIR"/public.pem "$DIR"/credentials.csv
+chmod 0640 "$DIR/private.pem" "$DIR/credentials.csv"
+chmod 0644 "$DIR/public.pem"
+
+install -d -m 0755 /etc/systemd/system/iperf3.service.d
+cat > /etc/systemd/system/iperf3.service.d/auth.conf <<UNIT
+[Service]
+ExecStart=
+ExecStart=/usr/bin/iperf3 --server --interval 0 --port $PORT --rsa-private-key-path $DIR/private.pem --authorized-users-path $DIR/credentials.csv
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now iperf3
+systemctl restart iperf3
+
+printf 'password: %s\\n' "$PASSWORD"
+cat "$DIR/public.pem"`
+
+const ENDPOINT_CHECK = `iperf3 --client 127.0.0.1 --port 5201 --time 1
+
+IPERF3_PASSWORD='THE-PASSWORD' iperf3 --client 127.0.0.1 --port 5201 \\
+  --time 1 --username prtg-probe --rsa-public-key-path /etc/iperf3/public.pem`
+
+/** The part an operator on the far side has to do, for whoever tells them.
+ *
+ * It sits in this dialog because this is where the two things it produces are
+ * asked for. Nothing here reaches that host - the fields are the whole of the
+ * exchange - so the alternative was an operator guessing what to ask for.
+ */
+function EndpointSetupHelp() {
+  const { t } = useTranslation()
+
+  return (
+    <details className="border-rule-2 rounded-card border p-3">
+      <summary className="text-ink cursor-pointer text-sm font-medium">
+        {t('infrastructure.iperf.setupHelp')}
+      </summary>
+      <div className="mt-3 space-y-3">
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.setupHelpIntro')}
+        </p>
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.setupHelpService')}
+        </p>
+        <CopyBlock value={ENDPOINT_SETUP} label={t('common.copy')} />
+        <p className="text-ink-2 text-sm">
+          {t('infrastructure.iperf.setupHelpCheck')}
+        </p>
+        <CopyBlock value={ENDPOINT_CHECK} label={t('common.copy')} />
+        <Banner tone="warn" title={t('infrastructure.iperf.setupHelpBackTitle')}>
+          {t('infrastructure.iperf.setupHelpBackBody')}
+        </Banner>
+      </div>
+    </details>
+  )
+}
+
 function RegisterDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -527,9 +604,17 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
   const canSubmit = nameOk && host !== '' && credentialsComplete && !register.isPending
 
   return (
-    <Dialog title={t('infrastructure.iperf.registerTitle')} onClose={onClose}>
+    <Dialog
+      title={t('infrastructure.iperf.registerTitle')}
+      onClose={onClose}
+      // The dialog carries a shell block now, and it is meant to be read
+      // there rather than only copied out of it.
+      size="lg"
+    >
       <div className="space-y-4">
         <p className="text-ink-2 text-sm">{t('infrastructure.iperf.registerIntro')}</p>
+
+        <EndpointSetupHelp />
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('infrastructure.iperf.columns.name')}>

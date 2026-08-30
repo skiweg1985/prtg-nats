@@ -408,11 +408,13 @@ whichever was used, the result is the same endpoint:
 | --- | --- |
 | the interface signs in once over SSH | the usual case, and the only one that works when the endpoint cannot reach this installation |
 | the endpoint fetches an invitation | when it *can* reach it - then no administrator password passes through the platform |
-| registering it | a host somebody else operates, where nothing may be installed |
+| [registering it](foreign-iperf-endpoint.md) | a host somebody else operates, where nothing may be installed |
 | `./prtg-nats iperf-server install` | from the command line, unchanged |
 
 The first three are in
-[Setting up an iperf measurement endpoint](../reference/api.md#setting-up-an-iperf-measurement-endpoint).
+[Setting up an iperf measurement endpoint](../reference/api.md#setting-up-an-iperf-measurement-endpoint);
+what to ask for when nothing may be installed on the far side is in
+[An iperf endpoint somebody else operates](foreign-iperf-endpoint.md).
 From the command line it works like `install-mpp`: one SSH sign-in, and the
 machine is operational.
 
