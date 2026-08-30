@@ -253,4 +253,31 @@ describe('IperfPage', () => {
       body: { probes: ['mpp-berlin'] },
     })
   })
+
+  it('hands out what the far side has to run, in the dialog that asks for the result', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.click(await screen.findByRole('button', { name: /register a foreign one/i }))
+
+    // Collapsed to start with: whoever already has the password and the key
+    // should not have to scroll past a shell script to enter them.
+    const help = screen.getByText(/how the operator sets this endpoint up/i)
+    const box = help.closest('details')
+    expect(box).not.toBeNull()
+    expect(box).not.toHaveAttribute('open')
+
+    await user.click(help)
+    expect(box).toHaveAttribute('open')
+
+    // The two lines that decide whether the endpoint the record describes can
+    // authenticate a probe at all: the hash iperf3 reads, and the service
+    // actually started with the credentials.
+    expect(screen.getByText(/\{\$IPERF_USER\}\$PASSWORD/)).toBeInTheDocument()
+    expect(screen.getByText(/--authorized-users-path/)).toBeInTheDocument()
+    expect(screen.getByText(/--rsa-private-key-path/)).toBeInTheDocument()
+    // And what has to come back, next to the fields that take it.
+    expect(screen.getByText(/only its hash is on disk/)).toBeInTheDocument()
+  })
 })
