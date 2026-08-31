@@ -67,6 +67,16 @@ SSH_KNOWN_HOSTS="${SSH_PRIVATE_DIR}/known_hosts"
 HELPER_SIGNING_KEY_PATH="${PRIVATE_DIR}/helper-signing-key.pem"
 HELPER_SIGNING_PUBLIC_PATH="${PRIVATE_DIR}/helper-signing.pub"
 
+# The overlay hub keeps its key and its rendered configuration here, and not
+# in private/ - the hub runs in a container of its own, and that container has
+# no business being able to read the CA key. The same reason web-certs/ is not
+# certs/.
+OVERLAY_DIR="${RUNTIME_DIR}/overlay"
+OVERLAY_INTERFACE="prtgnats0"
+OVERLAY_HUB_KEY_PATH="${OVERLAY_DIR}/hub-key"
+OVERLAY_HUB_PUBLIC_PATH="${OVERLAY_DIR}/hub.pub"
+OVERLAY_CONFIG_PATH="${OVERLAY_DIR}/${OVERLAY_INTERFACE}.conf"
+
 # State left behind by an installation from before the volume. Worth saying
 # once: the keys are still there, they are simply not the installation any
 # more, and a CA key nobody accounts for is its own problem.

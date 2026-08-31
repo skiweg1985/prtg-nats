@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=8
+HELPER_VERSION=9
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -52,6 +52,29 @@ SENSOR_NM_CONFIG="/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf"
 SENSOR_TOOL_ROOT="/opt/prtg-nats/tools"
 SYSTEM_IPERF_MIN_VERSION="3.18"
 SYSTEM_IPERF_PATH="/usr/bin/iperf3"
+
+# --- Overlay ---------------------------------------------------------------
+# The WireGuard tunnel to the platform. The private key is kept beside the
+# rendered configuration rather than only inside it, so the configuration can
+# be rewritten - a mode change, a new endpoint - without the probe losing the
+# identity the hub knows it by.
+OVERLAY_INTERFACE="prtgnats0"
+OVERLAY_CONFIG="/etc/wireguard/${OVERLAY_INTERFACE}.conf"
+OVERLAY_CONFIG_ENV="/etc/prtg-nats/overlay.env"
+OVERLAY_PRIVATE_KEY="/etc/prtg-nats/overlay.key"
+OVERLAY_WATCH_PATH="/usr/local/sbin/prtg-nats-overlay-watch"
+OVERLAY_UNIT="prtg-nats-overlay"
+# The NATS route lives in a table of its own and a policy rule decides whether
+# it applies. That is what lets the watcher test the direct path without
+# taking the tunnel route out of the way first - pulling a route to find out
+# whether it is needed interrupts exactly what it is measuring.
+OVERLAY_ROUTING_TABLE="prtgnats"
+OVERLAY_ROUTING_TABLE_ID=51820
+OVERLAY_RULE_PRIORITY=100
+OVERLAY_RT_TABLES="/etc/iproute2/rt_tables.d/prtg-nats.conf"
+# Where enroll-probe.sh wrote the management key. The overlay adds the hub
+# address to its from= list; it never replaces what is there.
+MANAGEMENT_AUTHORIZED_KEYS="/var/lib/prtg-nats-admin/.ssh/authorized_keys"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -596,6 +619,7 @@ probe_info() {
   else
     printf 'ca_sha256=none\n'
   fi
+  print_overlay_fields
   if [[ -f "${TOML_CONFIG}" ]]; then
     printf 'config=%s\n' "${TOML_CONFIG}"
     return 0
@@ -2889,6 +2913,526 @@ uninstall_mpp() {
     "$(installed_sensor_count)"
 }
 
+# ---------------------------------------------------------------------------
+# The overlay
+#
+# A WireGuard tunnel to the platform, for the two directions that break when
+# the site's own path does: the platform reaching a probe behind NAT, and the
+# probe reaching NATS when the site-to-site tunnel is down.
+#
+# Three modes, and only one of them is about the tunnel itself:
+#
+#   off    no tunnel at all
+#   auto   tunnel up; NATS traffic takes it only while the direct path is down
+#   on     tunnel up; NATS traffic always takes it
+#
+# What makes "auto" honest is where the route lives. wg-quick installs none
+# (Table = off); the overlay subnet goes into the main table once, and the
+# route to the NATS server goes into a table of its own that a single policy
+# rule switches on and off. So the direct path can be measured at any time
+# without moving the route that is carrying traffic.
+# ---------------------------------------------------------------------------
+
+overlay_mode() {
+  [[ -f "${OVERLAY_CONFIG_ENV}" ]] || {
+    printf 'off'
+    return 0
+  }
+  sed -n 's/^MODE=//p' "${OVERLAY_CONFIG_ENV}" | head -n 1
+}
+
+overlay_config_value() {
+  local key="$1"
+
+  [[ -f "${OVERLAY_CONFIG_ENV}" ]] || return 0
+  sed -n "s/^${key}=//p" "${OVERLAY_CONFIG_ENV}" | head -n 1
+}
+
+ensure_overlay_package() {
+  command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1 &&
+    return 0
+
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      --no-install-recommends wireguard-tools >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y wireguard-tools >/dev/null 2>&1 || true
+  fi
+
+  command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1 ||
+    die "wireguard-tools is not available on this system.
+Debian and Ubuntu carry it in the main archive. On RHEL 9 it comes from EPEL,
+which this probe does not have enabled - enable it, or leave this probe off
+the overlay."
+}
+
+ensure_overlay_key() {
+  local key=""
+
+  if [[ -s "${OVERLAY_PRIVATE_KEY}" ]]; then
+    return 0
+  fi
+  install -d -o root -g root -m 0755 /etc/prtg-nats
+  # Generated here and nowhere else: the private half of a probe's identity
+  # has no reason to exist on the platform, so it never travels.
+  key="$(wg genkey)" || die "Could not generate an overlay key"
+  printf '%s\n' "${key}" > "${OVERLAY_PRIVATE_KEY}.new"
+  chmod 0600 "${OVERLAY_PRIVATE_KEY}.new"
+  mv -f "${OVERLAY_PRIVATE_KEY}.new" "${OVERLAY_PRIVATE_KEY}"
+}
+
+overlay_public_key() {
+  [[ -s "${OVERLAY_PRIVATE_KEY}" ]] || return 1
+  wg pubkey < "${OVERLAY_PRIVATE_KEY}"
+}
+
+write_overlay_routing_table() {
+  install -d -o root -g root -m 0755 /etc/iproute2/rt_tables.d
+  printf '# Written by prtg-nats. The overlay route to the NATS server.\n%s %s\n' \
+    "${OVERLAY_ROUTING_TABLE_ID}" "${OVERLAY_ROUTING_TABLE}" \
+    > "${OVERLAY_RT_TABLES}.new"
+  chmod 0644 "${OVERLAY_RT_TABLES}.new"
+  mv -f "${OVERLAY_RT_TABLES}.new" "${OVERLAY_RT_TABLES}"
+}
+
+# The watcher, written here rather than shipped as a second file: it runs as
+# root, and anything that installs root code has to arrive under the helper's
+# signature. Generating it keeps it inside the one file that is already
+# verified before it is replaced (ADR 0006).
+write_overlay_watch() {
+  cat > "${OVERLAY_WATCH_PATH}.new" <<'WATCHEOF'
+#!/usr/bin/env bash
+#
+# Written by prtg-nats. Do not edit: replaced whenever the overlay is
+# configured.
+#
+# Decides whether the NATS route through the tunnel applies. The route itself
+# never moves - it sits in its own table, and this only adds or removes the
+# policy rule that points at it.
+
+set -Eeuo pipefail
+
+CONFIG="/etc/prtg-nats/overlay.env"
+STATE="/var/lib/prtg-nats-probe-state/overlay-state"
+[[ -f "${CONFIG}" ]] || exit 0
+# shellcheck source=/dev/null
+source "${CONFIG}"
+
+MODE="${MODE:-off}"
+INTERFACE="${INTERFACE:-prtgnats0}"
+TABLE="${TABLE:-prtgnats}"
+PRIORITY="${PRIORITY:-100}"
+HANDSHAKE_MAX_AGE="${HANDSHAKE_MAX_AGE:-180}"
+FAILURES_REQUIRED="${FAILURES_REQUIRED:-3}"
+# Without these there is nothing to decide about, and guessing an address to
+# add a routing rule for is the last thing this should do.
+[[ -n "${NATS_HOST_IP:-}" && -n "${NATS_PORT:-}" ]] || exit 0
+
+state_value() {
+  [[ -f "${STATE}" ]] || return 0
+  sed -n "s/^$1=//p" "${STATE}" | head -n 1
+}
+
+write_state() {
+  printf 'DIRECT_OK=%s\nSTREAK=%s\nDIRECT_DEVICE=%s\nROUTE_ACTIVE=%s\nCHECKED=%s\n' \
+    "$1" "$2" "$3" "$4" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${STATE}.new"
+  chmod 0644 "${STATE}.new"
+  mv -f "${STATE}.new" "${STATE}"
+}
+
+rule_present() {
+  ip rule show 2>/dev/null |
+    grep -q "^${PRIORITY}:.*to ${NATS_HOST_IP} lookup ${TABLE}"
+}
+
+add_rule() {
+  rule_present && return 0
+  ip rule add to "${NATS_HOST_IP}/32" lookup "${TABLE}" \
+    priority "${PRIORITY}" 2>/dev/null || true
+}
+
+remove_rule() {
+  while rule_present; do
+    ip rule del to "${NATS_HOST_IP}/32" lookup "${TABLE}" \
+      priority "${PRIORITY}" 2>/dev/null || break
+  done
+}
+
+# Seconds since the last handshake, or a number large enough to count as
+# never. A tunnel without a fresh handshake is not a path to fall back to.
+handshake_age() {
+  local last=""
+
+  last="$(wg show "${INTERFACE}" latest-handshakes 2>/dev/null |
+    awk '{ print $2; exit }')" || last=""
+  [[ -n "${last}" && "${last}" != "0" ]] || {
+    printf '999999'
+    return 0
+  }
+  printf '%s' "$(($(date +%s) - last))"
+}
+
+# The interface the direct path leaves through. While the rule is absent the
+# kernel answers with it directly; while the rule is present the answer would
+# be the tunnel, so the last known direct device is used instead. Falling back
+# to the device that reaches the hub covers the first run after a reboot.
+direct_device() {
+  local device=""
+
+  if ! rule_present; then
+    device="$(ip route get "${NATS_HOST_IP}" 2>/dev/null |
+      sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)"
+  fi
+  [[ -n "${device}" ]] || device="$(state_value DIRECT_DEVICE)"
+  if [[ -z "${device}" && -n "${ENDPOINT_ADDRESS:-}" ]]; then
+    device="$(ip route get "${ENDPOINT_ADDRESS}" 2>/dev/null |
+      sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)"
+  fi
+  [[ "${device}" != "${INTERFACE}" ]] || device=""
+  printf '%s' "${device}"
+}
+
+# A TCP connection bound to that interface, which is what makes the test
+# independent of the rule: the packet leaves the way it would if the tunnel
+# were not there at all.
+direct_reachable() {
+  local device="$1"
+
+  python3 - "${NATS_HOST_IP}" "${NATS_PORT}" "${device}" <<'PYEOF'
+import socket
+import sys
+
+host, port, device = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+connection.settimeout(5)
+try:
+    if device:
+        option = getattr(socket, "SO_BINDTODEVICE", 25)
+        connection.setsockopt(socket.SOL_SOCKET, option, device.encode() + b"\0")
+    connection.connect((host, port))
+except OSError:
+    sys.exit(1)
+finally:
+    connection.close()
+PYEOF
+}
+
+ip route replace "${NATS_HOST_IP}/32" dev "${INTERFACE}" table "${TABLE}" \
+  2>/dev/null || true
+
+case "${MODE}" in
+  off)
+    remove_rule
+    write_state "" 0 "$(state_value DIRECT_DEVICE)" "false"
+    exit 0
+    ;;
+  on)
+    # Deliberately not conditional. "on" that quietly falls back would be
+    # "auto" under another name; a tunnel that is up but not handshaking is
+    # reported instead, and the platform raises it.
+    add_rule
+    write_state "" 0 "$(state_value DIRECT_DEVICE)" "true"
+    exit 0
+    ;;
+esac
+
+device="$(direct_device)"
+streak="$(state_value STREAK)"
+previous="$(state_value DIRECT_OK)"
+[[ "${streak}" =~ ^[0-9]+$ ]] || streak=0
+
+if direct_reachable "${device}"; then
+  current="true"
+else
+  current="false"
+fi
+if [[ "${current}" == "${previous}" ]]; then
+  streak=$((streak + 1))
+else
+  streak=1
+fi
+
+if [[ "${current}" == "true" ]]; then
+  ((streak >= FAILURES_REQUIRED)) && remove_rule
+elif (($(handshake_age) <= HANDSHAKE_MAX_AGE)); then
+  ((streak >= FAILURES_REQUIRED)) && add_rule
+else
+  # Both paths are down. Keeping the rule would only mean the traffic is lost
+  # somewhere else; the direct path is the one that recovers on its own.
+  remove_rule
+fi
+
+if rule_present; then
+  active="true"
+else
+  active="false"
+  [[ -n "${device}" ]] || device="$(state_value DIRECT_DEVICE)"
+fi
+write_state "${current}" "${streak}" "${device}" "${active}"
+WATCHEOF
+  chmod 0755 "${OVERLAY_WATCH_PATH}.new"
+  mv -f "${OVERLAY_WATCH_PATH}.new" "${OVERLAY_WATCH_PATH}"
+}
+
+write_overlay_units() {
+  cat > "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.service" <<EOF
+# Written by prtg-nats. Do not edit.
+[Unit]
+Description=Decide whether PRTG NATS traffic takes the overlay
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${OVERLAY_WATCH_PATH}
+EOF
+  cat > "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.timer" <<EOF
+# Written by prtg-nats. Do not edit.
+[Unit]
+Description=Check the overlay path for PRTG NATS
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+EOF
+  chmod 0644 "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.service" \
+    "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.timer"
+  systemctl daemon-reload
+}
+
+write_overlay_config() {
+  local mode="$1"
+  local hub_key="$2"
+  local endpoint="$3"
+  local address="$4"
+  local allowed="$5"
+  local keepalive="$6"
+
+  install -d -o root -g root -m 0755 /etc/wireguard
+  {
+    printf '# Written by prtg-nats. Do not edit: replaced on every change.\n'
+    printf '[Interface]\n'
+    printf 'PrivateKey = %s\n' "$(<"${OVERLAY_PRIVATE_KEY}")"
+    printf 'Address = %s/32\n' "${address}"
+    # No routes from wg-quick: the overlay subnet goes into the main table
+    # below, and the route to the NATS server into its own table, so a policy
+    # rule can switch it without the interface noticing.
+    printf 'Table = off\n'
+    printf 'PostUp = ip route replace %s dev %%i\n' "${OVERLAY_SUBNET_VALUE}"
+    printf 'PostUp = %s || true\n' "${OVERLAY_WATCH_PATH}"
+    printf 'PostDown = ip rule del to %s/32 lookup %s priority %s 2>/dev/null || true\n' \
+      "${OVERLAY_NATS_HOST_VALUE}" "${OVERLAY_ROUTING_TABLE}" \
+      "${OVERLAY_RULE_PRIORITY}"
+    printf '\n[Peer]\n'
+    printf 'PublicKey = %s\n' "${hub_key}"
+    printf 'Endpoint = %s\n' "${endpoint}"
+    printf 'AllowedIPs = %s\n' "${allowed}"
+    printf 'PersistentKeepalive = %s\n' "${keepalive}"
+  } > "${OVERLAY_CONFIG}.new"
+  chmod 0600 "${OVERLAY_CONFIG}.new"
+  mv -f "${OVERLAY_CONFIG}.new" "${OVERLAY_CONFIG}"
+
+  {
+    printf '# Written by prtg-nats. Read by the overlay watcher.\n'
+    printf 'MODE=%s\n' "${mode}"
+    printf 'INTERFACE=%s\n' "${OVERLAY_INTERFACE}"
+    printf 'TABLE=%s\n' "${OVERLAY_ROUTING_TABLE}"
+    printf 'PRIORITY=%s\n' "${OVERLAY_RULE_PRIORITY}"
+    printf 'NATS_HOST_IP=%s\n' "${OVERLAY_NATS_HOST_VALUE}"
+    printf 'NATS_PORT=%s\n' "${OVERLAY_NATS_PORT_VALUE}"
+    printf 'ENDPOINT_ADDRESS=%s\n' "${endpoint%:*}"
+    printf 'HANDSHAKE_MAX_AGE=180\n'
+    printf 'FAILURES_REQUIRED=3\n'
+  } > "${OVERLAY_CONFIG_ENV}.new"
+  chmod 0600 "${OVERLAY_CONFIG_ENV}.new"
+  mv -f "${OVERLAY_CONFIG_ENV}.new" "${OVERLAY_CONFIG_ENV}"
+}
+
+configure_overlay() {
+  local mode="$1"
+  local staged="${STATE_DIR}/overlay-request"
+  local hub_key="" endpoint="" address="" subnet="" nats_host="" nats_port=""
+  local keepalive="" allowed=""
+
+  case "${mode}" in
+    off | auto | on) ;;
+    *) die "Unknown overlay mode: ${mode}" ;;
+  esac
+
+  read_limited_input "${staged}" "${MAXIMUM_INPUT_BYTES}"
+  hub_key="$(sed -n 's/^HUB_PUBLIC_KEY=//p' "${staged}" | head -n 1)"
+  endpoint="$(sed -n 's/^ENDPOINT=//p' "${staged}" | head -n 1)"
+  address="$(sed -n 's/^ADDRESS=//p' "${staged}" | head -n 1)"
+  subnet="$(sed -n 's/^SUBNET=//p' "${staged}" | head -n 1)"
+  nats_host="$(sed -n 's/^NATS_HOST_IP=//p' "${staged}" | head -n 1)"
+  nats_port="$(sed -n 's/^NATS_PORT=//p' "${staged}" | head -n 1)"
+  keepalive="$(sed -n 's/^KEEPALIVE=//p' "${staged}" | head -n 1)"
+  rm -f -- "${staged}"
+
+  [[ "${hub_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    die "Overlay request carries no usable hub public key"
+  [[ "${endpoint}" =~ ^[A-Za-z0-9._-]+:[0-9]{1,5}$ ]] ||
+    die "Overlay request carries no usable endpoint"
+  [[ "${address}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
+    die "Overlay request carries no usable address"
+  [[ "${subnet}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] ||
+    die "Overlay request carries no usable subnet"
+  [[ "${nats_host}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
+    die "Overlay request carries no usable NATS address"
+  [[ "${nats_port}" =~ ^[0-9]{1,5}$ ]] ||
+    die "Overlay request carries no usable NATS port"
+  [[ "${keepalive}" =~ ^[0-9]{1,3}$ ]] || keepalive=25
+
+  ensure_overlay_package
+  ensure_overlay_key
+  write_overlay_routing_table
+  write_overlay_watch
+  write_overlay_units
+
+  # The subnet and the NATS address both have to reach the interface: the
+  # first carries the management channel, the second is what a fallback moves.
+  # AllowedIPs is also the inbound filter, so leaving the NATS address out
+  # would drop the answers rather than merely fail to route the question.
+  allowed="${subnet}, ${nats_host}/32"
+  OVERLAY_SUBNET_VALUE="${subnet}"
+  OVERLAY_NATS_HOST_VALUE="${nats_host}"
+  OVERLAY_NATS_PORT_VALUE="${nats_port}"
+  write_overlay_config "${mode}" "${hub_key}" "${endpoint}" "${address}" \
+    "${allowed}" "${keepalive}"
+
+  if [[ "${mode}" == "off" ]]; then
+    systemctl disable --now "wg-quick@${OVERLAY_INTERFACE}" >/dev/null 2>&1 ||
+      true
+    systemctl disable --now "${OVERLAY_UNIT}.timer" >/dev/null 2>&1 || true
+    "${OVERLAY_WATCH_PATH}" || true
+  else
+    systemctl enable "wg-quick@${OVERLAY_INTERFACE}" >/dev/null 2>&1 ||
+      die "Could not enable the overlay interface"
+    # Restart rather than start: a configuration change has to take effect,
+    # and the interface may already be up from a previous mode.
+    systemctl restart "wg-quick@${OVERLAY_INTERFACE}" >/dev/null 2>&1 ||
+      die "The overlay interface did not come up"
+    systemctl enable --now "${OVERLAY_UNIT}.timer" >/dev/null 2>&1 || true
+    "${OVERLAY_WATCH_PATH}" || true
+  fi
+
+  printf 'OK overlay-configured\n'
+  printf 'overlay_mode=%s\n' "${mode}"
+  printf 'overlay_public_key=%s\n' "$(overlay_public_key)"
+  printf 'overlay_address=%s\n' "${address}"
+}
+
+overlay_state_value() {
+  local key="$1"
+  local state="${STATE_DIR}/overlay-state"
+
+  [[ -f "${state}" ]] || return 0
+  sed -n "s/^${key}=//p" "${state}" | head -n 1
+}
+
+overlay_handshake_age() {
+  local last=""
+
+  command -v wg >/dev/null 2>&1 || {
+    printf 'none'
+    return 0
+  }
+  last="$(wg show "${OVERLAY_INTERFACE}" latest-handshakes 2>/dev/null |
+    awk '{ print $2; exit }')" || last=""
+  if [[ -z "${last}" || "${last}" == "0" ]]; then
+    printf 'none'
+    return 0
+  fi
+  printf '%s' "$(($(date +%s) - last))"
+}
+
+# Reported as part of probe-info as well, so a platform that only asks for the
+# probe's state learns the overlay's without a second request. A helper from
+# before the overlay omits every one of these lines, which is how it is
+# recognised as one.
+print_overlay_fields() {
+  local public_key=""
+
+  printf 'overlay_mode=%s\n' "$(overlay_mode)"
+  public_key="$(overlay_public_key 2>/dev/null || printf 'none')"
+  printf 'overlay_public_key=%s\n' "${public_key:-none}"
+  printf 'overlay_address=%s\n' \
+    "$(sed -n 's|^Address = \(.*\)/32$|\1|p' "${OVERLAY_CONFIG}" 2>/dev/null |
+      head -n 1)"
+  printf 'overlay_endpoint=%s\n' \
+    "$(sed -n 's/^Endpoint = //p' "${OVERLAY_CONFIG}" 2>/dev/null | head -n 1)"
+  printf 'overlay_interface_up=%s\n' \
+    "$(ip link show "${OVERLAY_INTERFACE}" >/dev/null 2>&1 &&
+      printf 'true' || printf 'false')"
+  printf 'overlay_handshake_age=%s\n' "$(overlay_handshake_age)"
+  printf 'overlay_route_active=%s\n' \
+    "$(overlay_state_value ROUTE_ACTIVE || printf 'false')"
+  printf 'overlay_direct_ok=%s\n' \
+    "$(overlay_state_value DIRECT_OK || printf 'unknown')"
+}
+
+overlay_info() {
+  printf 'OK overlay-info\n'
+  print_overlay_fields
+}
+
+remove_overlay() {
+  systemctl disable --now "wg-quick@${OVERLAY_INTERFACE}" >/dev/null 2>&1 || true
+  systemctl disable --now "${OVERLAY_UNIT}.timer" >/dev/null 2>&1 || true
+  if [[ -f "${OVERLAY_CONFIG_ENV}" ]]; then
+    # Before the configuration goes: the watcher reads the address it has to
+    # clean the rule for from there.
+    "${OVERLAY_WATCH_PATH}" >/dev/null 2>&1 || true
+  fi
+  rm -f -- "${OVERLAY_CONFIG}" "${OVERLAY_CONFIG_ENV}" \
+    "${OVERLAY_PRIVATE_KEY}" "${OVERLAY_WATCH_PATH}" \
+    "${OVERLAY_RT_TABLES}" "${STATE_DIR}/overlay-state" \
+    "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.service" \
+    "${SENSOR_UNIT_DIR}/${OVERLAY_UNIT}.timer"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  printf 'OK overlay-removed\n'
+}
+
+# The from= clause on the management key, rewritten in place.
+#
+# The platform reaches a probe from a new address once the overlay exists, and
+# a key that is only valid from the old one would lock it out. This adds to
+# the list rather than replacing it: a probe whose tunnel is broken has to
+# stay reachable the way it always was, which is the whole reason the clause
+# takes a list.
+set_access_source() {
+  local source_cidr="$1"
+  local line=""
+  local rest=""
+
+  [[ -n "${source_cidr}" ]] || die "access-source requires a source list"
+  [[ "${source_cidr}" =~ ^[A-Fa-f0-9:.,/]+$ ]] ||
+    die "Invalid characters in the source list"
+  [[ "${source_cidr}" != *,,* && "${source_cidr}" != ,* &&
+     "${source_cidr}" != *, ]] ||
+    die "The source list has an empty element"
+  [[ -f "${MANAGEMENT_AUTHORIZED_KEYS}" ]] ||
+    die "This probe has no management key to change"
+
+  line="$(head -n 1 "${MANAGEMENT_AUTHORIZED_KEYS}")"
+  [[ "${line}" == from=\"*\",* ]] ||
+    die "The management key does not carry a from= clause"
+  # Everything after the closing quote of the old from= clause: the restrict
+  # options, the forced command and the key itself, all kept verbatim.
+  rest="${line#*\",}"
+  printf 'from="%s",%s\n' "${source_cidr}" "${rest}" \
+    > "${MANAGEMENT_AUTHORIZED_KEYS}.new"
+  chown --reference="${MANAGEMENT_AUTHORIZED_KEYS}" \
+    "${MANAGEMENT_AUTHORIZED_KEYS}.new"
+  chmod 0600 "${MANAGEMENT_AUTHORIZED_KEYS}.new"
+  mv -f "${MANAGEMENT_AUTHORIZED_KEYS}.new" "${MANAGEMENT_AUTHORIZED_KEYS}"
+  printf 'OK access-source %s\n' "${source_cidr}"
+}
+
 [[ "${EUID}" -eq 0 ]] || die "Helper must run as root through its sudo rule"
 install -d -o root -g root -m 0700 \
   "${STATE_DIR}" \
@@ -2923,6 +3467,24 @@ case "${command_name}" in
   install-ca)
     [[ -z "${argument_one:-}" ]] || die "install-ca takes no arguments"
     install_ca
+    ;;
+  overlay-configure)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "overlay-configure requires one mode"
+    configure_overlay "${argument_one}"
+    ;;
+  overlay-info)
+    [[ -z "${argument_one:-}" ]] || die "overlay-info takes no arguments"
+    overlay_info
+    ;;
+  overlay-remove)
+    [[ -z "${argument_one:-}" ]] || die "overlay-remove takes no arguments"
+    remove_overlay
+    ;;
+  access-source)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "access-source requires one source list"
+    set_access_source "${argument_one}"
     ;;
   activate)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||

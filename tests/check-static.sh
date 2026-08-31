@@ -476,6 +476,13 @@ check "sensor deployment requires the helper version that is shipped" \
     libexec/manage-sensors.sh)" \
   "$(sed -n 's/^HELPER_VERSION=//p' libexec/prtg-nats-probe-helper)"
 
+# The version the shipped helper declares. The fixtures below derive their
+# "before" and "after" from it, so a version bump changes one line in the
+# helper and nothing here.
+SHIPPED_HELPER_VERSION="$(
+  sed -n 's/^HELPER_VERSION=//p' libexec/prtg-nats-probe-helper
+)"
+
 regular_sensor_helper_update_scenario() (
   local mode="$1"
   local fixture=""
@@ -522,10 +529,13 @@ command_name="${request%%$'\t'*}"
 printf '%s\n' "${command_name}" >> "${FAKE_HELPER_LOG}"
 case "${command_name}" in
   probe-info)
+    # Derived from the helper that is actually shipped, not written down: a
+    # version bump used to break this fixture rather than the thing it tests.
     if [[ -f "${FAKE_HELPER_UPDATED}" ]]; then
-      printf 'OK probe-info\nhelper_version=8\n'
+      printf 'OK probe-info\nhelper_version=%s\n' "${FAKE_HELPER_VERSION}"
     else
-      printf 'OK probe-info\nhelper_version=7\n'
+      printf 'OK probe-info\nhelper_version=%s\n' \
+        "$((FAKE_HELPER_VERSION - 1))"
     fi
     ;;
   sensor-activate)
@@ -574,6 +584,7 @@ EOF
     if PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
       FAKE_HELPER_LOG="${fixture}/helper.log" \
       FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+      FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
       PATH="${fixture}/bin:${PATH}" \
       bash "${fixture}/libexec/manage-sensors.sh" \
       "${sensor_args[@]}" >/dev/null 2>&1; then
@@ -592,6 +603,7 @@ EOF
       PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
         FAKE_HELPER_LOG="${fixture}/helper.log" \
         FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+        FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
         FAKE_BLOCK_ACTIVE=yes \
         PATH="${fixture}/bin:${PATH}" \
         bash "${fixture}/libexec/manage-sensors.sh" \
@@ -609,6 +621,7 @@ EOF
   PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
     FAKE_HELPER_LOG="${fixture}/helper.log" \
     FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+    FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
     PATH="${fixture}/bin:${PATH}" \
     bash "${fixture}/libexec/manage-sensors.sh" \
     "${sensor_args[@]}" >/dev/null

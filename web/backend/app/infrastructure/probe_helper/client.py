@@ -264,6 +264,67 @@ class ProbeHelperClient:
             connection, HelperCommand.INSTALL_CA, payload=ca_pem, timeout=60
         )
 
+    # --- Overlay ------------------------------------------------------------
+
+    async def overlay_configure(
+        self,
+        connection: ProbeConnection,
+        *,
+        mode: str,
+        hub_public_key: str,
+        endpoint: str,
+        address: str,
+        subnet: str,
+        nats_host_ip: str,
+        nats_port: int,
+        keepalive: int = 25,
+    ) -> HelperResponse:
+        """Write the tunnel configuration and put the probe in that mode.
+
+        The probe answers with the public half of a key it generated itself,
+        which is the only way the platform ever learns it - the private half
+        has no reason to exist here.
+        """
+        payload = "".join(
+            f"{key}={value}\n"
+            for key, value in (
+                ("HUB_PUBLIC_KEY", hub_public_key),
+                ("ENDPOINT", endpoint),
+                ("ADDRESS", address),
+                ("SUBNET", subnet),
+                ("NATS_HOST_IP", nats_host_ip),
+                ("NATS_PORT", str(nats_port)),
+                ("KEEPALIVE", str(keepalive)),
+            )
+        )
+        return await self._call(
+            connection,
+            HelperCommand.OVERLAY_CONFIGURE,
+            mode,
+            payload=payload,
+            timeout=180,
+        )
+
+    async def overlay_info(self, connection: ProbeConnection) -> HelperResponse:
+        """Mode, address, handshake age, and which path traffic takes now."""
+        return await self._call(connection, HelperCommand.OVERLAY_INFO, timeout=30)
+
+    async def overlay_remove(self, connection: ProbeConnection) -> HelperResponse:
+        return await self._call(connection, HelperCommand.OVERLAY_REMOVE, timeout=60)
+
+    async def access_source(
+        self, connection: ProbeConnection, source_cidr: str
+    ) -> HelperResponse:
+        """Replace the from= list on the management key.
+
+        Callers pass the whole list, never a single address: the clause is
+        rewritten, and dropping the address the platform currently reaches
+        this probe from would lock it out.
+        """
+        return await self._call(
+            connection, HelperCommand.ACCESS_SOURCE, source_cidr, timeout=30
+        )
+
     # --- The helper itself --------------------------------------------------
 
     async def helper_update(

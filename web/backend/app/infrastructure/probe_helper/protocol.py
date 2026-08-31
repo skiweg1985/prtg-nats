@@ -78,8 +78,19 @@ FIELD_SEPARATOR = "\t"
 # retries idempotent and prevent an old rollback from replacing a newer
 # deployment. sensor-list also reports an unstartable tool as incompatible
 # instead of failing the request.
-CURRENT_HELPER_VERSION = 8
+#
+# Version 9 adds the overlay: overlay-configure, overlay-info, overlay-remove
+# and access-source, and probe-info reports the overlay fields alongside the
+# rest. The minimum stays at 1 - a probe below 9 refuses the four requests as
+# unknown and omits the fields, which reads as the helper being behind. It is
+# also the version that makes putting a probe on the overlay possible at all,
+# so the platform offers the update before it tries.
+CURRENT_HELPER_VERSION = 9
 MINIMUM_HELPER_VERSION = 1
+# The overlay requests arrived with version 9. Asked for separately from the
+# current version so a probe that is merely a version or two behind is not
+# told it cannot be put on the overlay when it can.
+OVERLAY_HELPER_VERSION = 9
 
 # Where a variant's files land on the probe. The helper builds the same path
 # from its own validated tokens - this side only needs to know it, because the
@@ -137,6 +148,15 @@ class HelperCommand(StrEnum):
     SENSOR_REMOVE_PROFILE = "sensor-remove-profile"
     SENSOR_WRITE_FILE = "sensor-write-file"
     SENSOR_REMOVE_FILE = "sensor-remove-file"
+
+    OVERLAY_CONFIGURE = "overlay-configure"
+    OVERLAY_INFO = "overlay-info"
+    OVERLAY_REMOVE = "overlay-remove"
+    # Rewrites the from= clause of the management key. Its own request rather
+    # than part of overlay-configure: a probe that leaves the overlay has to
+    # keep the address the platform reaches it from today, and that is the
+    # same operation in the other direction.
+    ACCESS_SOURCE = "access-source"
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"

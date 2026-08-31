@@ -29,6 +29,7 @@ from app.infrastructure.probe_helper import (
     ProbeConnection,
     ProbeHelperClient,
 )
+from app.infrastructure.probe_helper.protocol import CURRENT_HELPER_VERSION
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import ProbeObservedState
@@ -50,7 +51,7 @@ PROBE_INFO = (
     "OK probe-info\n"
     "package=2.1.0\n"
     "service=active\n"
-    "helper_version=8\n"
+    f"helper_version={CURRENT_HELPER_VERSION}\n"
     "ca_sha256=aa\n"
     "id=11111111-2222-3333-4444-555555555555\n"
 )
