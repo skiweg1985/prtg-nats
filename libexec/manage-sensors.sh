@@ -46,7 +46,7 @@ require_command ssh
 SENSOR_SOURCE_DIR="${PROJECT_DIR}/sensors"
 SENSOR_PROFILE_DIR="${RUNTIME_DIR}/sensor-profiles"
 DRY_RUN="false"
-SENSOR_DEPLOYMENT_HELPER_VERSION=8
+SENSOR_DEPLOYMENT_HELPER_VERSION=9
 
 require_username() {
   local username="${1:-}"

@@ -44,6 +44,7 @@ MPP rollout (needs an interactive shell, stays here):
   probe ...             Enroll, configure, and centrally manage MPP systems
   sensor ...            Manage the monitoring scripts of the probes
   iperf-server ...      Set up and manage iperf3 measurement endpoints
+  overlay ...           The WireGuard tunnel between this host and the probes
   ssh-key info|show     The management SSH public key
   ca-info | ca-show | ca-path
                         The public CA certificate
@@ -165,79 +166,10 @@ warn_about_foreign_containers() {
   printf 'remove them with "docker rm -f NAME".\n\n' >&2
 }
 
-API_CONTAINER="prtg-nats-web-api"
-
-api_container_running() {
-  [[ "$(
-    docker inspect --format '{{.State.Running}}' "${API_CONTAINER}" 2>/dev/null ||
-      true
-  )" == "true" ]]
-}
-
-# --- Recovery commands delegate to the Python operations module -------------
-#
-# One implementation for certificates, accounts and verification: the same
-# services the web platform runs.
-#
-# The API container is the first choice, because it is the one place the
-# backend is guaranteed to be installed and already mounts the runtime volume.
-# Nothing has to be installed on the host for "setup" to work - and it has to
-# work there, because the interface that would otherwise finish the setup sits
-# behind a proxy that cannot start until the runtime exists.
-#
-# A local interpreter is the fallback for a checkout that has the backend in a
-# venv, which is what the end-to-end test uses.
-ops_python() {
-  local candidate=""
-
-  for candidate in \
-    "${PROJECT_DIR}/web/backend/.venv/bin/python" \
-    python3; do
-    # Importing app.ops proves nothing: its heavy imports are deferred into
-    # the subcommands, so an interpreter without the dependencies passes and
-    # then fails inside the command with a bare "No module named httpx".
-    # Importing what a subcommand actually reaches for is the honest check.
-    if PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
-      PYTHONPATH="${PROJECT_DIR}/web/backend" \
-      "${candidate}" -c 'import app.ops, app.infrastructure.docker' \
-      >/dev/null 2>&1; then
-      printf '%s\n' "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-run_ops() {
-  local interpreter=""
-
-  if api_container_running; then
-    docker exec "${API_CONTAINER}" python -m app.ops "$@"
-    return
-  fi
-
-  interpreter="$(ops_python)" ||
-    {
-      printf 'The management API is not running and this machine has no backend.\n' >&2
-      printf 'Start the stack, which is where these commands run:\n' >&2
-      printf '  sudo ./prtg-nats start\n' >&2
-      printf 'For a checkout without the stack, install the backend once:\n' >&2
-      printf '  python3 -m venv web/backend/.venv\n' >&2
-      printf '  web/backend/.venv/bin/pip install -e web/backend\n' >&2
-      return 1
-    }
-  # The runtime path has to travel along. Without it the backend falls back to
-  # PROJECT_DIR/runtime and writes the CA, the credentials and the database
-  # beside the checkout, while this script keeps reading the volume - two
-  # installations, one of which nothing serves. The API container carries the
-  # same value in its image; here it is whatever runtime-dir.sh resolved.
-  # shellcheck source=libexec/runtime-dir.sh
-  source "${LIBEXEC_DIR}/runtime-dir.sh"
-  PRTG_NATS_WEB_PROJECT_DIR="${PROJECT_DIR}" \
-    PRTG_NATS_WEB_RUNTIME_DIR="${RUNTIME_DIR}" \
-    PYTHONPATH="${PROJECT_DIR}/web/backend" \
-    "${interpreter}" -m app.ops "$@"
-}
+# Reaching the Python operations module. In its own file so the subcommand
+# groups under libexec/ delegate the same way - see the header there.
+# shellcheck source=libexec/ops.sh
+source "${LIBEXEC_DIR}/ops.sh"
 
 wait_until_healthy() {
   local container_name="$1"
@@ -536,7 +468,8 @@ show_site_settings() {
   printf 'Site settings (%s)\n\n' "${ENVIRONMENT_FILE}"
   for variable in NATS_FQDN NATS_PORT NATS_HOST_IP CA_HTTP_PORT \
     CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR WEB_FQDN \
-    WEB_HTTPS_PORT; do
+    WEB_HTTPS_PORT OVERLAY_ENDPOINT_HOST OVERLAY_PORT OVERLAY_SUBNET \
+    OVERLAY_DEFAULT_MODE; do
     from_file="$(environment_value "${variable}")"
     printf '  %-20s %-28s %s\n' \
       "${variable}" "${!variable:-—}" \
@@ -547,6 +480,13 @@ show_site_settings() {
     "${NATS_FQDN}" "${CA_HTTP_PORT}"
   printf '  Web interface      %s\n' \
     "$(web_interface_address "${WEB_FQDN}" "${WEB_HTTPS_PORT}")"
+  if [[ "${OVERLAY_ENABLED}" == "true" ]]; then
+    printf '  Overlay hub        %s on %s:%s/udp\n' \
+      "$(overlay_hub_address)" \
+      "${OVERLAY_ENDPOINT_HOST:-—}" "${OVERLAY_PORT}"
+  else
+    printf '  Overlay            disabled ("./prtg-nats overlay enable")\n'
+  fi
   printf '\nChange them with "./prtg-nats config --edit".\n'
 }
 
@@ -1897,6 +1837,9 @@ EOF
     ;;
   iperf-server)
     run_internal manage-iperf-server.sh "$@"
+    ;;
+  overlay)
+    run_internal manage-overlay.sh "$@"
     ;;
   ssh-key)
     manage_ssh_key "$@"

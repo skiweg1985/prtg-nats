@@ -67,6 +67,7 @@ Unchanged, and staying: these need an interactive terminal.
 | `probe helper-update USER\|--all` | renew the management helper on the probe |
 | `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
+| `overlay status/enable/disable/add/remove/mode/show` | the WireGuard overlay |
 | `mpp-info [USER]` | the values of the generated configuration |
 | `ssh-key info/show` | the management public key |
 | `ca-info` / `ca-show` / `ca-path` | the public CA |
@@ -89,6 +90,41 @@ the helper answers `already-committed`, the command keeps the committed sensor
 and records the central assignment that the interrupted deployment did not
 reach. The operational procedure is in
 [Deploy sensors](../guides/deploy-sensors.md#recover-an-interrupted-transaction).
+
+### The overlay
+
+The tunnel between this host and the probes, off until it is enabled here.
+Enabling writes `.env` and starts the hub container, which is why it is a
+command and not a button: the API container has the runtime volume and the
+Docker socket, but no checkout to write `.env` into.
+
+```bash
+sudo ./prtg-nats overlay enable --endpoint nats.example.com
+sudo ./prtg-nats overlay add mpp-berlin-01
+sudo ./prtg-nats overlay status
+```
+
+`enable` asks for the endpoint when it is not given one. It refuses an
+endpoint that is `NATS_HOST_IP`: the tunnel would have to carry its own
+endpoint, and a probe switching over would lose both paths at once.
+
+`mode USER off|auto|on` changes when that probe's NATS traffic takes the
+tunnel, at any time and without re-enrolling anything:
+
+| Mode | Tunnel | NATS traffic |
+| --- | --- | --- |
+| `off` | not built | always direct |
+| `auto` | up | through the tunnel only while the direct path is down |
+| `on` | up | always through the tunnel |
+
+A switch to `off` deliberately goes over the probe's ordinary address, since
+the request takes down the tunnel that would otherwise carry it. A probe that
+does not answer there is refused rather than left unreachable; `--force`
+overrides that for an operator who means it.
+
+`disable` stops the hub and leaves every peer as it is - re-enabling does not
+mean visiting each probe again. Probes left in mode `on` reach NATS only
+through a tunnel that is no longer there, so put them back to `auto` first.
 
 ### The bootstrap login
 

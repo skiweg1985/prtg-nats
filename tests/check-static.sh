@@ -443,6 +443,9 @@ check "sensor subcommands match" \
 check "iperf-server subcommands match" \
   "$(completion_list _prtg_nats_iperf_server_commands)" \
   "$(dispatch_commands ./libexec/manage-iperf-server.sh)"
+check "overlay subcommands match" \
+  "$(completion_list _prtg_nats_overlay_commands)" \
+  "$(dispatch_commands ./libexec/manage-overlay.sh)"
 
 check "the completion command delivers the file" \
   "$(./prtg-nats completion bash | cmp -s - completions/prtg-nats.bash &&
@@ -464,6 +467,14 @@ check "user --help shows the help" \
   "$(./prtg-nats user --help | grep -c '^Usage:')" "1"
 check "sensor without an argument shows the help" \
   "$(./prtg-nats sensor | grep -c '^Usage:')" "1"
+check "overlay without an argument shows the help" \
+  "$(./prtg-nats overlay | grep -c '^Usage:')" "1"
+# The three modes are the feature. A help text that stops naming one of them
+# is a mode nobody finds, and the enable path validates against the same set.
+check "the overlay help names every mode" \
+  "$(./prtg-nats overlay | grep -cE '^  (off|auto|on) ')" "3"
+check "the entry point offers the overlay" \
+  "$(./prtg-nats help | grep -c '^  overlay \.\.\.')" "1"
 
 # Every reservation has to be revocable without tearing down the whole
 # sensor - otherwise there is no way back from a wrong pick.
@@ -475,6 +486,13 @@ check "sensor deployment requires the helper version that is shipped" \
   "$(sed -n 's/^SENSOR_DEPLOYMENT_HELPER_VERSION=//p' \
     libexec/manage-sensors.sh)" \
   "$(sed -n 's/^HELPER_VERSION=//p' libexec/prtg-nats-probe-helper)"
+
+# The version the shipped helper declares. The fixtures below derive their
+# "before" and "after" from it, so a version bump changes one line in the
+# helper and nothing here.
+SHIPPED_HELPER_VERSION="$(
+  sed -n 's/^HELPER_VERSION=//p' libexec/prtg-nats-probe-helper
+)"
 
 regular_sensor_helper_update_scenario() (
   local mode="$1"
@@ -522,10 +540,13 @@ command_name="${request%%$'\t'*}"
 printf '%s\n' "${command_name}" >> "${FAKE_HELPER_LOG}"
 case "${command_name}" in
   probe-info)
+    # Derived from the helper that is actually shipped, not written down: a
+    # version bump used to break this fixture rather than the thing it tests.
     if [[ -f "${FAKE_HELPER_UPDATED}" ]]; then
-      printf 'OK probe-info\nhelper_version=8\n'
+      printf 'OK probe-info\nhelper_version=%s\n' "${FAKE_HELPER_VERSION}"
     else
-      printf 'OK probe-info\nhelper_version=7\n'
+      printf 'OK probe-info\nhelper_version=%s\n' \
+        "$((FAKE_HELPER_VERSION - 1))"
     fi
     ;;
   sensor-activate)
@@ -574,6 +595,7 @@ EOF
     if PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
       FAKE_HELPER_LOG="${fixture}/helper.log" \
       FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+      FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
       PATH="${fixture}/bin:${PATH}" \
       bash "${fixture}/libexec/manage-sensors.sh" \
       "${sensor_args[@]}" >/dev/null 2>&1; then
@@ -592,6 +614,7 @@ EOF
       PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
         FAKE_HELPER_LOG="${fixture}/helper.log" \
         FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+        FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
         FAKE_BLOCK_ACTIVE=yes \
         PATH="${fixture}/bin:${PATH}" \
         bash "${fixture}/libexec/manage-sensors.sh" \
@@ -609,6 +632,7 @@ EOF
   PRTG_NATS_RUNTIME_DIR="${fixture}/runtime" \
     FAKE_HELPER_LOG="${fixture}/helper.log" \
     FAKE_HELPER_UPDATED="${fixture}/helper.updated" \
+    FAKE_HELPER_VERSION="${SHIPPED_HELPER_VERSION}" \
     PATH="${fixture}/bin:${PATH}" \
     bash "${fixture}/libexec/manage-sensors.sh" \
     "${sensor_args[@]}" >/dev/null
@@ -2360,6 +2384,13 @@ sed \
   -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
   -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
   -e 's|@@INSTALL_PACKAGE@@|true|' \
+  -e 's|@@OVERLAY_ENABLED@@|true|' \
+  -e 's|@@OVERLAY_MODE@@|auto|' \
+  -e 's|@@OVERLAY_ADDRESS@@|10.83.1.0|' \
+  -e 's|@@OVERLAY_SUBNET@@|10.83.0.0/16|' \
+  -e 's|@@OVERLAY_ENDPOINT@@|nats.example.test:51820|' \
+  -e 's|@@OVERLAY_HUB_KEY@@|AAAA|' \
+  -e 's|@@OVERLAY_NATS_HOST_IP@@|192.0.2.10|' \
   bootstrap/probe-bootstrap.sh.template > "${bootstrap_dir}/bootstrap.sh"
 if sh -n "${bootstrap_dir}/bootstrap.sh" 2>/dev/null; then
   printf '  ok    the rendered bootstrap is valid POSIX shell\n'
@@ -2402,6 +2433,18 @@ check "the installer gets the fingerprint, not the file hash" \
 # into a reported failure.
 check "the installer survives being handed the CA already in place" \
   "$(grep -c '"${CA_SOURCE}" -ef "${CA_DESTINATION}"' install-mpp.sh)" "1"
+# The overlay is configured through the helper the previous step installed,
+# not reimplemented in the bootstrap. Two implementations of "configure the
+# tunnel" would be two ways for a probe to end up different from what the hub
+# believes about it.
+check "the bootstrap configures the overlay through the helper" \
+  "$(grep -c "overlay-configure" "${bootstrap_dir}/bootstrap.sh")" "1"
+check "the bootstrap reports the key the probe generated" \
+  "$(grep -c 'overlay_public_key' "${bootstrap_dir}/bootstrap.sh")" "2"
+# It never carries a private key: the probe makes its own, and only the public
+# half travels back.
+check "the bootstrap has no placeholder for a private overlay key" \
+  "$(grep -c 'PRIVATE_KEY' ./bootstrap/probe-bootstrap.sh.template)" "0"
 check "the bootstrap hands it the destination path" \
   "$(printf '%s' "${bootstrap_install_call}" |
     grep -c -- '--ca-file "${CA_PATH}"')" "1"

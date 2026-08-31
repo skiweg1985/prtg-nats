@@ -27,7 +27,7 @@ from app.infrastructure.docker import JETSTREAM_VOLUME, DockerAdapter, StackCont
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.nats_runtime import NatsRuntime
 from app.infrastructure.pki import Pki
-from app.infrastructure.runtime_files import RuntimeFileStore
+from app.infrastructure.runtime_files import RuntimeFileStore, SiteSettings
 
 # How long a configuration reload has to show up in the monitoring endpoint
 # before it counts as refused. NATS applies it synchronously, but the signal
@@ -96,7 +96,10 @@ class ProvisioningService:
         self._create_directories()
         self._pki.create_ca(organization=site.ca_organization)
         self._pki.issue_server_certificate(
-            fqdn=site.nats_fqdn, host_ip=site.nats_host_ip, archive=False
+            fqdn=site.nats_fqdn,
+            host_ip=site.nats_host_ip,
+            archive=False,
+            overlay_address=_overlay_san(site),
         )
         # The reverse proxy serves the interface with a certificate from this
         # same CA, so trusting the CA once covers the browser, the NATS server
@@ -203,7 +206,10 @@ class ProvisioningService:
         if not site.nats_fqdn:
             raise RuntimeStateError(details="NATS_FQDN is not configured")
         self._pki.issue_server_certificate(
-            fqdn=site.nats_fqdn, host_ip=site.nats_host_ip, archive=True
+            fqdn=site.nats_fqdn,
+            host_ip=site.nats_host_ip,
+            archive=True,
+            overlay_address=_overlay_san(site),
         )
         self._pki.issue_web_certificate(
             fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=True
@@ -446,3 +452,12 @@ class ProvisioningService:
             self._settings.nats_monitoring_url
         ).fetch_state()
         return state.config_load_time if state.available else None
+
+
+def _overlay_san(site: SiteSettings) -> str | None:
+    """The hub address, but only where there is an overlay.
+
+    An installation that never turns it on has no reason to carry an address
+    it does not answer on in its server certificate.
+    """
+    return site.overlay_hub_address if site.overlay_enabled else None

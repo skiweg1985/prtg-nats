@@ -152,11 +152,7 @@ async def deploy_one(
 
     try:
         inventory = context.runtime.read_probe(username)
-        connection = ProbeConnection(
-            nats_username=username,
-            host=inventory.ssh_host,
-            port=inventory.ssh_port,
-        )
+        connection = ProbeConnection.for_probe(inventory)
         # Read before the commit step below records the sensor, because that is
         # what tells a first rollout from a repeat - and the two treat the
         # endpoint assignment differently.
@@ -451,9 +447,7 @@ async def _try_rollback(context: JobContext, username: str, transaction: str) ->
     covers the case where we failed before or after that point."""
     try:
         inventory = context.runtime.read_probe(username)
-        connection = ProbeConnection(
-            nats_username=username, host=inventory.ssh_host, port=inventory.ssh_port
-        )
+        connection = ProbeConnection.for_probe(inventory)
         await context.helper.sensor_rollback(connection, transaction)
         await context.log(
             "jobs.sensor.rolled_back", params={"probe": username}, target=username

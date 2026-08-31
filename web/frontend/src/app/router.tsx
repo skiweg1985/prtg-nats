@@ -6,6 +6,7 @@ import { JobDetailPage, JobListPage } from '@/features/jobs/JobPages'
 import { CredentialsPage } from '@/features/infrastructure/CredentialsPage'
 import { IperfEndpointPage } from '@/features/infrastructure/IperfEndpointPage'
 import { IperfPage } from '@/features/infrastructure/IperfPage'
+import { OverlayPage } from '@/features/infrastructure/OverlayPage'
 import { SystemPage } from '@/features/infrastructure/SystemPage'
 import {
   AuditPage,
@@ -53,12 +54,13 @@ export function AppRoutes() {
             <Route path="certificates" element={<CertificatesPage />} />
             <Route path="iperf" element={<IperfPage />} />
             <Route path="iperf/:name" element={<IperfEndpointPage />} />
+            <Route path="overlay" element={<OverlayPage />} />
             <Route path="credentials" element={<CredentialsPage />} />
             <Route path="system" element={<SystemPage />} />
           </Route>
 
           <Route path="audit" element={<AuditPage />} />
-        <Route path="updates" element={<UpdatesPage />} />
+          <Route path="updates" element={<UpdatesPage />} />
           <Route path="settings" element={<SettingsPage />} />
 
           <Route path="*" element={<NotFoundPage />} />

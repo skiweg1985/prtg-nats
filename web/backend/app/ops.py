@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.core.config import Settings
+    from app.infrastructure.probe_helper import ProbeHelperClient
 
 
 def _fail(message: str) -> None:
@@ -207,6 +208,77 @@ async def _cmd_user(args: argparse.Namespace) -> None:
         return
 
 
+async def _cmd_overlay(args: argparse.Namespace) -> None:
+    from app.services.overlay import OverlayService
+
+    settings = _settings()
+    service = OverlayService(settings, _helper_client(settings))
+
+    if args.action == "init":
+        public_key = service.initialise()
+        print(f"Overlay hub key: {public_key}")
+        print(f"Configuration:   {settings.runtime_dir / 'overlay' / 'prtgnats0.conf'}")
+        return
+
+    if args.action == "status":
+        hub = service.status()
+        print(f"Enabled:     {'yes' if hub.enabled else 'no'}")
+        print(f"Endpoint:    {hub.endpoint or '-'}")
+        print(f"Subnet:      {hub.subnet}")
+        print(f"Hub address: {hub.hub_address}")
+        print(f"Hub key:     {hub.hub_public_key or '-'}")
+        print(f"Interface:   {'up' if hub.interface_up else 'down'}")
+        print(f"Default:     {hub.default_mode}")
+        if not hub.peers:
+            print("\nNo probe is on the overlay yet.")
+            return
+        print(f"\n  {'PROBE':28} {'ADDRESS':16} MODE")
+        for peer in hub.peers:
+            print(f"  {peer.nats_username:28} {peer.address:16} {peer.mode}")
+        return
+
+    if args.action == "add":
+        added = await service.attach(args.username, args.mode)
+        print(f"{args.username} is on the overlay at {added.address} ({added.mode}).")
+        return
+
+    if args.action == "mode":
+        changed = await service.set_mode(args.username, args.mode, force=args.force)
+        print(f"{args.username} is now in mode {changed.mode} ({changed.summary}).")
+        return
+
+    if args.action == "remove":
+        await service.detach(args.username, force=args.force)
+        print(f"{args.username} is off the overlay.")
+        return
+
+    if args.action == "show":
+        state = await service.refresh(args.username)
+        print(f"Probe:      {state.nats_username}")
+        print(f"Mode:       {state.mode}")
+        print(f"Address:    {state.address or '-'}")
+        print(f"Endpoint:   {state.endpoint or '-'}")
+        print(f"Interface:  {'up' if state.interface_up else 'down'}")
+        age = "never" if state.handshake_age is None else f"{state.handshake_age}s ago"
+        print(f"Handshake:  {age}")
+        print(f"NATS path:  {'tunnel' if state.route_active else 'direct'}")
+        print(f"Direct was: {state.direct_ok}")
+        return
+
+
+def _helper_client(settings: Settings) -> ProbeHelperClient:
+    from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTransport
+
+    return ProbeHelperClient(
+        SshHelperTransport(
+            key_path=settings.ssh_key_path,
+            known_hosts_path=settings.ssh_known_hosts_path,
+            connect_timeout=settings.ssh_connect_timeout_seconds,
+        ),
+        default_timeout=settings.ssh_command_timeout_seconds,
+    )
+
+
 async def _rotate(username: str, *, server_only: bool) -> None:
     """Rotate server-side, then reconfigure the enrolled probe.
 
@@ -218,8 +290,6 @@ async def _rotate(username: str, *, server_only: bool) -> None:
     from app.infrastructure.nats_runtime import NatsRuntime
     from app.infrastructure.probe_helper import (
         ProbeConnection,
-        ProbeHelperClient,
-        SshHelperTransport,
     )
     from app.infrastructure.runtime_files import RuntimeFileStore
     from app.services.provisioning import ProvisioningService
@@ -258,17 +328,8 @@ async def _rotate(username: str, *, server_only: bool) -> None:
         settings.template_dir / "mpprobe-config.yaml.template", values
     )
 
-    helper = ProbeHelperClient(
-        SshHelperTransport(
-            key_path=settings.ssh_key_path,
-            known_hosts_path=settings.ssh_known_hosts_path,
-            connect_timeout=settings.ssh_connect_timeout_seconds,
-        ),
-        default_timeout=settings.ssh_command_timeout_seconds,
-    )
-    connection = ProbeConnection(
-        nats_username=username, host=inventory.ssh_host, port=inventory.ssh_port
-    )
+    helper = _helper_client(settings)
+    connection = ProbeConnection.for_probe(inventory)
     transaction = probe_config.new_transaction_id()
     try:
         # write_config opens the transaction; the rendered configuration
@@ -324,6 +385,34 @@ def main(argv: list[str] | None = None) -> None:
     check_tool.add_argument("platform")
     check_tool.add_argument("expected_version")
 
+    overlay = commands.add_parser("overlay", help="the WireGuard overlay")
+    overlay_actions = overlay.add_subparsers(dest="action", required=True)
+    overlay_actions.add_parser("init", help="create the hub key and render its config")
+    overlay_actions.add_parser("status", help="the hub and every peer")
+    overlay_add = overlay_actions.add_parser("add", help="put a probe on the overlay")
+    overlay_add.add_argument("username")
+    overlay_add.add_argument(
+        "--mode",
+        choices=("off", "auto", "on"),
+        default=None,
+        help="when NATS traffic takes the tunnel (default: OVERLAY_DEFAULT_MODE)",
+    )
+    overlay_mode = overlay_actions.add_parser("mode", help="change a probe's mode")
+    overlay_mode.add_argument("username")
+    overlay_mode.add_argument("mode", choices=("off", "auto", "on"))
+    overlay_mode.add_argument(
+        "--force",
+        action="store_true",
+        help="switch off even when the probe answers only through the tunnel",
+    )
+    overlay_remove = overlay_actions.add_parser(
+        "remove", help="take a probe off the overlay"
+    )
+    overlay_remove.add_argument("username")
+    overlay_remove.add_argument("--force", action="store_true")
+    overlay_show = overlay_actions.add_parser("show", help="one probe's overlay state")
+    overlay_show.add_argument("username")
+
     tool_policy = commands.add_parser(
         "tool-policy", help="resolve the approved source for one platform"
     )
@@ -363,6 +452,7 @@ def main(argv: list[str] | None = None) -> None:
         "check-tool": _cmd_check_tool,
         "tool-policy": _cmd_tool_policy,
         "user": _cmd_user,
+        "overlay": _cmd_overlay,
     }
     try:
         asyncio.run(handlers[args.command](args))

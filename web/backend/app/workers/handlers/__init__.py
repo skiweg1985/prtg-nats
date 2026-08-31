@@ -16,6 +16,7 @@ from app.workers.handlers import (
     deploy_sensor,
     iperf_enrollment,
     iperf_provisioning,
+    overlay,
     probe_actions,
     probe_enrollment,
     probe_lifecycle,
@@ -44,6 +45,33 @@ class JobDefinition:
 
 
 REGISTRY: dict[str, JobDefinition] = {
+    overlay.ATTACH_JOB_TYPE: JobDefinition(
+        type=overlay.ATTACH_JOB_TYPE,
+        steps=overlay.ATTACH_STEPS,
+        handler=overlay.attach,
+        permission="overlay.manage",
+    ),
+    overlay.MODE_JOB_TYPE: JobDefinition(
+        type=overlay.MODE_JOB_TYPE,
+        steps=overlay.MODE_STEPS,
+        handler=overlay.set_mode,
+        permission="overlay.manage",
+    ),
+    overlay.DETACH_JOB_TYPE: JobDefinition(
+        type=overlay.DETACH_JOB_TYPE,
+        steps=overlay.DETACH_STEPS,
+        handler=overlay.detach,
+        permission="overlay.manage",
+    ),
+    overlay.REFRESH_JOB_TYPE: JobDefinition(
+        type=overlay.REFRESH_JOB_TYPE,
+        steps=overlay.REFRESH_STEPS,
+        handler=overlay.refresh,
+        permission="overlay.read",
+        # Nothing changed on the probe, so there is nothing to ask it about
+        # afterwards - the job is the asking.
+        refreshes_probes=False,
+    ),
     deploy_sensor.JOB_TYPE: JobDefinition(
         type=deploy_sensor.JOB_TYPE,
         steps=deploy_sensor.STEPS,

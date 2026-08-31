@@ -548,9 +548,7 @@ def _asset_text(context: JobContext, name: str) -> str:
 
 
 def _probe_connection(probe: str, inventory: ProbeInventory) -> ProbeConnection:
-    return ProbeConnection(
-        nats_username=probe, host=inventory.ssh_host, port=inventory.ssh_port
-    )
+    return ProbeConnection.for_probe(inventory)
 
 
 async def _redeploy_profiles(

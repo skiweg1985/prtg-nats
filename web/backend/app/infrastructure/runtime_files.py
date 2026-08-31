@@ -12,14 +12,20 @@ either use the probe helper or the legacy adapter - never a stray open().
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.config import Settings
-from app.core.errors import NotFoundError, RuntimeStateError
+from app.core.errors import (
+    NotFoundError,
+    RuntimeStateError,
+    ValidationFailedError,
+)
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -59,6 +65,23 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def overlay_address_at(subnet: str, index: int) -> str:
+    """Index into the overlay range.
+
+    Here rather than beside the rest of the overlay code because SiteSettings
+    derives the hub address from the subnet, and a hub address configured
+    separately from the network it sits in would be one setting too many.
+    Index 0 is the network address and is never handed out.
+    """
+    network = ipaddress.IPv4Network(subnet, strict=False)
+    if index < 1 or index >= network.num_addresses - 1:
+        raise ValidationFailedError(
+            params={"subnet": subnet, "index": str(index)},
+            details="overlay address index is outside the subnet",
+        )
+    return str(network.network_address + index)
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeInventory:
     """One ``runtime/probes/USER.env`` plus its two sidecar files."""
@@ -72,10 +95,40 @@ class ProbeInventory:
     pending_transaction: str | None
     assigned_sensors: tuple[str, ...] = ()
     known_iperf_endpoints: tuple[str, ...] = ()
+    # The overlay, if this probe is on it. The address and the public key are
+    # the peer; the mode says when its NATS traffic uses the tunnel, and the
+    # last observed state is what the probe reported the last time it was
+    # asked - inventory, not truth, which is why it is named that way.
+    overlay_address: str | None = None
+    overlay_public_key: str | None = None
+    overlay_mode: str = "off"
+    overlay_last_state: str | None = None
 
     @property
     def has_credentials(self) -> bool:
         return self.probe_id is not None
+
+    @property
+    def on_overlay(self) -> bool:
+        """A peer exists. Says nothing about whether the tunnel is up."""
+        return bool(self.overlay_address and self.overlay_public_key)
+
+    @property
+    def management_hosts(self) -> tuple[str, ...]:
+        """Addresses to try for the management channel, best first.
+
+        The overlay address goes first when the tunnel is meant to be up: it
+        is the one that keeps working when the probe sits behind NAT. The
+        configured host stays as the fallback, because a probe whose tunnel is
+        broken has to remain reachable - that is the whole reason the
+        ``from=`` clause gains the hub address instead of losing the old one.
+        """
+        hosts: list[str] = []
+        if self.overlay_address and self.overlay_mode != "off":
+            hosts.append(self.overlay_address)
+        if self.ssh_host and self.ssh_host not in hosts:
+            hosts.append(self.ssh_host)
+        return tuple(hosts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +221,33 @@ class SiteSettings:
     # that splits them sets WEB_FQDN, exactly as the proxy already expects.
     web_fqdn_override: str | None = None
 
+    # --- Overlay ------------------------------------------------------------
+    # The compose profile is the on switch for the hub container, so it is
+    # also the answer to "does this installation have an overlay". Deriving
+    # the flag from the thing that starts the hub keeps a second setting from
+    # disagreeing with what is actually running.
+    overlay_enabled: bool = False
+    # Where a probe dials the hub. Its own setting rather than NATS_FQDN,
+    # because it has to be reachable exactly when NATS_FQDN is not: on a site
+    # whose NATS address is internal, this is the public one.
+    overlay_endpoint_host: str | None = None
+    overlay_port: int = 51820
+    overlay_subnet: str = "10.83.0.0/16"
+    overlay_default_mode: str = "auto"
+
+    @property
+    def overlay_hub_address(self) -> str:
+        """The first host address of the subnet. Derived, never configured -
+        a hub address that could disagree with the subnet would be one
+        setting too many."""
+        return overlay_address_at(self.overlay_subnet, 1)
+
+    @property
+    def overlay_endpoint(self) -> str | None:
+        if not self.overlay_endpoint_host:
+            return None
+        return f"{self.overlay_endpoint_host}:{self.overlay_port}"
+
     @property
     def is_configured(self) -> bool:
         return bool(self.nats_fqdn and self.nats_host_ip)
@@ -212,6 +292,11 @@ class RuntimeFileStore:
             "MPP_SSH_SOURCE_CIDR",
             "IPERF_SSH_SOURCE_CIDR",
             "WEB_FQDN",
+            "COMPOSE_PROFILES",
+            "OVERLAY_ENDPOINT_HOST",
+            "OVERLAY_PORT",
+            "OVERLAY_SUBNET",
+            "OVERLAY_DEFAULT_MODE",
         ):
             from_environment = os.environ.get(key)
             if from_environment:
@@ -231,6 +316,15 @@ class RuntimeFileStore:
             ),
             iperf_ssh_source_cidr=values.get("IPERF_SSH_SOURCE_CIDR") or None,
             web_fqdn_override=values.get("WEB_FQDN") or None,
+            overlay_enabled="overlay"
+            in {
+                profile.strip()
+                for profile in (values.get("COMPOSE_PROFILES") or "").split(",")
+            },
+            overlay_endpoint_host=values.get("OVERLAY_ENDPOINT_HOST") or None,
+            overlay_port=_as_int(values.get("OVERLAY_PORT"), 51820),
+            overlay_subnet=values.get("OVERLAY_SUBNET") or "10.83.0.0/16",
+            overlay_default_mode=values.get("OVERLAY_DEFAULT_MODE") or "auto",
         )
 
     # --- Runtime completeness ----------------------------------------------
@@ -294,6 +388,10 @@ class RuntimeFileStore:
             known_iperf_endpoints=self._read_lines(
                 self._settings.probe_dir / f"{username}.iperf"
             ),
+            overlay_address=values.get("OVERLAY_ADDRESS") or None,
+            overlay_public_key=values.get("OVERLAY_PUBLIC_KEY") or None,
+            overlay_mode=values.get("OVERLAY_MODE") or "off",
+            overlay_last_state=values.get("OVERLAY_LAST_STATE") or None,
         )
 
     def probe_username_for_host(
@@ -430,6 +528,10 @@ class RuntimeFileStore:
             raise NotFoundError.of("probe", nats_username)
         path = self._settings.probe_dir / f"{nats_username}.env"
         path.parent.mkdir(parents=True, exist_ok=True)
+        # This rewrites the whole file, so anything it does not know about
+        # would be dropped. The overlay peer is written by its own job and has
+        # to survive a reconfiguration that has no reason to care about it -
+        # losing the key here would strand the probe behind its own tunnel.
         content = (
             f"NATS_USERNAME={nats_username}\n"
             f"SSH_HOST={ssh_host}\n"
@@ -438,10 +540,87 @@ class RuntimeFileStore:
             f"PROBE_ID={probe_id}\n"
             f"ACCESS_KEY={access_key}\n"
             f"PROBE_NAME={probe_name}\n"
-        )
+        ) + self._overlay_lines(read_env_file(path) if path.is_file() else {})
         path.touch(mode=0o600, exist_ok=True)
         path.chmod(0o600)
         path.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _overlay_lines(values: Mapping[str, str]) -> str:
+        """The overlay keys of an inventory file, omitted when there are none.
+
+        A probe that has never been on the overlay keeps the file it always
+        had, which is what lets the shell tooling read both without knowing
+        which of the two it is looking at.
+        """
+        keys = (
+            "OVERLAY_ADDRESS",
+            "OVERLAY_PUBLIC_KEY",
+            "OVERLAY_MODE",
+            "OVERLAY_LAST_STATE",
+        )
+        present = {key: values.get(key, "") for key in keys}
+        if not any(present.values()):
+            return ""
+        return "".join(f"{key}={present[key]}\n" for key in keys)
+
+    def write_probe_overlay(
+        self,
+        nats_username: str,
+        *,
+        address: str,
+        public_key: str,
+        mode: str,
+        last_state: str = "",
+    ) -> None:
+        """Record the overlay peer, leaving the rest of the inventory alone.
+
+        A partial update rather than a full rewrite: the overlay job knows the
+        peer and nothing else, and reconstructing the access key just to write
+        an address next to it would be a way to lose it.
+        """
+        self._update_probe_values(
+            nats_username,
+            {
+                "OVERLAY_ADDRESS": address,
+                "OVERLAY_PUBLIC_KEY": public_key,
+                "OVERLAY_MODE": mode,
+                "OVERLAY_LAST_STATE": last_state,
+            },
+        )
+
+    def clear_probe_overlay(self, nats_username: str) -> None:
+        self._update_probe_values(
+            nats_username,
+            {
+                "OVERLAY_ADDRESS": "",
+                "OVERLAY_PUBLIC_KEY": "",
+                "OVERLAY_MODE": "off",
+                "OVERLAY_LAST_STATE": "",
+            },
+        )
+
+    def _update_probe_values(
+        self, nats_username: str, updates: Mapping[str, str]
+    ) -> None:
+        if not NATS_USERNAME_PATTERN.match(nats_username):
+            raise NotFoundError.of("probe", nats_username)
+        path = self._settings.probe_dir / f"{nats_username}.env"
+        if not path.is_file():
+            raise NotFoundError.of("probe", nats_username)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        remaining = dict(updates)
+        rewritten = []
+        for line in lines:
+            key, separator, _ = line.partition("=")
+            if separator and key in remaining:
+                rewritten.append(f"{key}={remaining.pop(key)}")
+            else:
+                rewritten.append(line)
+        rewritten.extend(f"{key}={value}" for key, value in remaining.items())
+        path.touch(mode=0o600, exist_ok=True)
+        path.chmod(0o600)
+        path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
 
     def write_iperf_record(
         self,

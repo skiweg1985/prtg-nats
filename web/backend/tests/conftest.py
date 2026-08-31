@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.infrastructure.probe_helper import HelperRequest, HelperTarget
+from app.infrastructure.probe_helper.protocol import CURRENT_HELPER_VERSION
 from app.persistence import session as session_module
 from app.persistence.models import Base
 
@@ -202,7 +203,9 @@ class ScriptedTransport:
         self.calls.append((connection.label, request))
         default = f"OK {request.command.value}\n"
         if request.command.value == "probe-info":
-            default += "helper_version=8\n"
+            # The shipped version, not a written-down one: a helper bump used
+            # to fail every test that never mentions a version.
+            default += f"helper_version={CURRENT_HELPER_VERSION}\n"
         answer = self.responses.get(request.command.value, default)
         if isinstance(answer, list):
             if not answer:

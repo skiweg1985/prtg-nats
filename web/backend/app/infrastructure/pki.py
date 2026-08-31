@@ -212,7 +212,12 @@ class Pki:
     # --- Server certificate -------------------------------------------------
 
     def issue_server_certificate(
-        self, *, fqdn: str, host_ip: str | None, archive: bool
+        self,
+        *,
+        fqdn: str,
+        host_ip: str | None,
+        archive: bool,
+        overlay_address: str | None = None,
     ) -> None:
         """Issue (or renew) the NATS server certificate.
 
@@ -225,10 +230,18 @@ class Pki:
         customer site, a branch office, a segment with its own resolver. With
         the name alone such a probe has no way in at all, because reaching the
         server by address then fails on the certificate rather than on DNS.
+
+        The overlay address is the same argument once more. Nothing needs it
+        while the tunnel carries traffic to the ordinary address - which is how
+        the fallback is built - but a probe pointed straight at the hub would
+        otherwise fail on the certificate, and that is the way out if the
+        routing approach does not survive a particular network.
         """
         sans: list[x509.GeneralName] = [_host_san(fqdn)]
         if host_ip and host_ip != fqdn:
             sans.append(_host_san(host_ip))
+        if overlay_address and overlay_address not in {fqdn, host_ip}:
+            sans.append(_host_san(overlay_address))
 
         self._issue_leaf(
             common_name=fqdn,

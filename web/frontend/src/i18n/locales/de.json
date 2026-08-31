@@ -18,7 +18,8 @@
     "audit": "Protokoll",
     "settings": "Einstellungen",
     "updates": "Updates",
-    "system": "Wartung"
+    "system": "Wartung",
+    "overlay": "Overlay"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -48,7 +49,8 @@
     "showTechnicalDetails": "Technische Details anzeigen",
     "stale": "Zwischenspeicher, zuletzt geprüft {{time}}",
     "unknown": "Unbekannt",
-    "updated": "Stand"
+    "updated": "Stand",
+    "apply": "Übernehmen"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -316,7 +318,8 @@
       "markedBy": "In PRTG eingetragen - abgehakt von {{by}} {{when}}.",
       "alreadyMarked": "Als in PRTG eingetragen markiert."
     },
-    "accessKeyMarkDone": "In PRTG eingetragen - abhaken"
+    "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
+    "overlay": "Overlay"
   },
   "sensors": {
     "title": "Sensoren",
@@ -512,7 +515,12 @@
       "checkout": "Checkout umstellen",
       "build": "Images bauen",
       "recreate": "Stack neu erstellen",
-      "settle": "Ergebnis festhalten"
+      "settle": "Ergebnis festhalten",
+      "check_helper": "Probe-Helper prüfen",
+      "configure_probe": "Tunnel konfigurieren",
+      "record_peer": "Peer eintragen",
+      "restore_access": "Management-Zugang zurücksetzen",
+      "remove_tunnel": "Tunnel entfernen"
     },
     "events": {
       "started": "Job gestartet: {{type}}",
@@ -644,6 +652,15 @@
         "update_failed": "Das Update ist fehlgeschlagen (Exit-Code {{code}})",
         "updated": "Der Stack läuft jetzt auf {{commit}}",
         "updater_output": "{{line}}"
+      },
+      "overlay": {
+        "attached": "{{probe}} ist im Overlay unter {{address}} (Modus {{mode}})",
+        "mode_changed": "{{probe}} steht jetzt auf Modus {{mode}}, aktuell {{path}}",
+        "detached": "{{probe}} wurde aus dem Overlay genommen",
+        "unreachable": "{{probe}} hat zum Overlay nicht geantwortet: {{reason}}",
+        "state": "{{probe}}: Modus {{mode}}, aktuell {{path}}",
+        "tunnel_only_without_tunnel": "{{probe}} soll ausschließlich den Tunnel nutzen, der Tunnel hat aber keinen aktuellen Handshake",
+        "on_the_fallback_path": "{{probe}} erreicht NATS über den Tunnel, der direkte Weg ist also gestört"
       }
     },
     "deploy": {
@@ -807,7 +824,72 @@
       "inviteOpenTitle": "Offene Einladungen"
     },
     "renewServer": "Erneuern",
-    "renewServerConfirm": "Das Serverzertifikat wird erneuert und aktiviert. Der NATS-Container startet dabei neu; alle Probes verbinden sich neu."
+    "renewServerConfirm": "Das Serverzertifikat wird erneuert und aktiviert. Der NATS-Container startet dabei neu; alle Probes verbinden sich neu.",
+    "overlay": {
+      "hub": "Hub",
+      "endpoint": "Endpunkt",
+      "hubAddress": "Hub-Adresse",
+      "subnet": "Adressbereich",
+      "defaultMode": "Vorgabe für neue Probes",
+      "search": "Probes und Adressen durchsuchen",
+      "modeLegend": "Wann der NATS-Verkehr den Tunnel nimmt",
+      "offWarning": "Das Abschalten läuft über die gewöhnliche Adresse der Probe. Antwortet sie dort nicht, wird der Wechsel abgelehnt, statt die Probe unerreichbar zu machen.",
+      "removeBody": "{{count}} Probe(s) aus dem Overlay nehmen. Sie erreichen diese Installation weiterhin auf dem gewöhnlichen Weg.",
+      "columns": {
+        "probe": "Probe",
+        "address": "Overlay-Adresse",
+        "mode": "Modus",
+        "path": "Aktueller Weg"
+      },
+      "modes": {
+        "off": {
+          "name": "Aus",
+          "hint": "Kein Tunnel. Die Probe erreicht NATS auf dem gewöhnlichen Weg."
+        },
+        "auto": {
+          "name": "Auto",
+          "hint": "Tunnel steht. NATS nimmt ihn nur, solange der direkte Weg gestört ist."
+        },
+        "on": {
+          "name": "An",
+          "hint": "Tunnel steht. NATS nimmt immer ihn."
+        }
+      },
+      "paths": {
+        "direct": "Direkt",
+        "tunnel": "Tunnel",
+        "down": "Interface unten",
+        "no_handshake": "Kein Handshake",
+        "off": "Aus",
+        "unknown": "Unbekannt"
+      },
+      "actions": {
+        "mode": "Modus ändern",
+        "refresh": "Aktualisieren",
+        "remove": "Aus dem Overlay nehmen"
+      },
+      "disabled": {
+        "title": "Das Overlay ist für diese Installation aus",
+        "body": "Eingeschaltet wird es auf dem Host, weil dabei .env geschrieben und ein Container mit Netzwerkrechten gestartet wird."
+      },
+      "hubDown": {
+        "title": "Das Hub-Interface ist nicht oben",
+        "body": "Das Overlay ist eingeschaltet, aber das Interface existiert nicht. Sieh nach dem Container prtg-nats-overlay; ohne ihn erreicht keine Probe diesen Host durch den Tunnel."
+      },
+      "empty": {
+        "title": "Keine Probe ist im Overlay",
+        "hint": "Unten eine hinzufügen. Ihre gewöhnliche Adresse bleibt in jedem Fall bestehen."
+      },
+      "add": {
+        "title": "Probes hinzufügen",
+        "body": "{{count}} eingebundene Probe(s) sind noch nicht im Overlay.",
+        "action": "Probes hinzufügen",
+        "dialog": "Die Probe erzeugt ihren eigenen Schlüssel und meldet die öffentliche Hälfte zurück. Ihre gewöhnliche Adresse bleibt unverändert.",
+        "confirm": "Ins Overlay aufnehmen",
+        "allOn": "Alle Probes sind im Overlay",
+        "allOnHint": "Es ist nichts mehr hinzuzufügen."
+      }
+    }
   },
   "settings": {
     "title": "Einstellungen",

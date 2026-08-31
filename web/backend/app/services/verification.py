@@ -21,6 +21,7 @@ from app.domain.enums import CertificateKind, CertificateStatus
 from app.infrastructure import helper_signing
 from app.infrastructure.certificates import read_certificate
 from app.infrastructure.nats_runtime import NatsRuntime
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.runtime_files import RuntimeFileStore
 
 
@@ -47,6 +48,7 @@ class StackVerification:
             self._check_certificates(),
             self._check_permissions(),
             self._check_server_config_renders(),
+            self._check_overlay(),
         ]
         if live:
             results.append(await self._check_health_endpoint())
@@ -109,6 +111,48 @@ class StackVerification:
             name="file_permissions",
             ok=not problems,
             detail="; ".join(problems) if problems else "private files are 0600",
+        )
+
+    def _check_overlay(self) -> CheckResult:
+        """Every peer in the inventory has to be in the hub configuration.
+
+        The configuration is a rendering of the inventory, so the two can only
+        disagree if a render was missed - and the symptom of that is one probe
+        that stops answering while the rest of the fleet is fine, which is the
+        hardest kind of failure to attribute.
+        """
+        site = self._runtime.site_settings()
+        overlay = OverlayRuntime(self._settings)
+        if not site.overlay_enabled:
+            return CheckResult(name="overlay", ok=True, detail="not enabled")
+
+        problems = []
+        if not overlay.has_hub_key():
+            problems.append("the hub has no key; run 'prtg-nats overlay enable'")
+        if not site.overlay_endpoint_host:
+            problems.append("OVERLAY_ENDPOINT_HOST is not set")
+        if site.overlay_endpoint_host == site.nats_host_ip:
+            problems.append(
+                "OVERLAY_ENDPOINT_HOST is NATS_HOST_IP; the tunnel would have "
+                "to carry its own endpoint"
+            )
+        peers = overlay.peers() if overlay.has_hub_key() else ()
+        if overlay.has_hub_key():
+            rendered = overlay.render_hub_config()
+            missing = [
+                peer.nats_username
+                for peer in peers
+                if f"{peer.address}/32" not in rendered
+            ]
+            if missing:
+                problems.append(f"not in the hub configuration: {', '.join(missing)}")
+        if not overlay.interface_up():
+            problems.append("the hub interface is not up")
+
+        return CheckResult(
+            name="overlay",
+            ok=not problems,
+            detail="; ".join(problems) or f"{len(peers)} peer(s)",
         )
 
     def _check_server_config_renders(self) -> CheckResult:

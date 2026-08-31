@@ -36,6 +36,7 @@ from app.infrastructure.probe_helper.protocol import (
     HelperResponse,
     parse_response,
 )
+from app.infrastructure.runtime_files import ProbeInventory
 
 logger = get_logger(__name__)
 
@@ -88,6 +89,17 @@ class HelperTarget(Protocol):
     @property
     def port(self) -> int: ...
 
+    @property
+    def fallback_host(self) -> str | None:
+        """The address to try when the first one does not answer.
+
+        The overlay gives a probe a second address, and the two fail
+        independently: a tunnel can be down while the ordinary route is fine,
+        and the other way round is the case the overlay exists for. Trying
+        both is what keeps either failure from being a lost probe.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ProbeConnection:
@@ -96,13 +108,37 @@ class ProbeConnection:
     nats_username: str
     host: str
     port: int = 22
+    fallback_host: str | None = None
 
     def __post_init__(self) -> None:
-        if not _HOST_PATTERN.match(self.host):
+        for candidate in (self.host, self.fallback_host):
+            if candidate is None:
+                continue
+            if not _HOST_PATTERN.match(candidate):
+                raise ProbeProtocolError(
+                    params={"probe": self.nats_username},
+                    details=f"invalid enrolled SSH host: {candidate!r}",
+                )
+
+    @classmethod
+    def for_probe(cls, inventory: ProbeInventory) -> ProbeConnection:
+        """The connection to a probe, overlay address first where there is one.
+
+        One place decides this, so a job cannot reach a probe by a different
+        route than the one the interface reports it under.
+        """
+        hosts = inventory.management_hosts
+        if not hosts:
             raise ProbeProtocolError(
-                params={"probe": self.nats_username},
-                details=f"invalid enrolled SSH host: {self.host!r}",
+                params={"probe": inventory.nats_username},
+                details="the probe inventory names no host to reach it at",
             )
+        return cls(
+            nats_username=inventory.nats_username,
+            host=hosts[0],
+            port=inventory.ssh_port,
+            fallback_host=hosts[1] if len(hosts) > 1 else None,
+        )
 
     @property
     def label(self) -> str:
@@ -140,12 +176,36 @@ class SshHelperTransport:
                 details="management SSH key not found; run the stack setup first",
             )
 
+        fallback = getattr(connection, "fallback_host", None)
+        try:
+            return await self._run_against(
+                connection, connection.host, request, timeout
+            )
+        except ProbeUnreachableError:
+            # Only a failure to reach the host is retried. A refusal from the
+            # helper is an answer, and sending the same request down a second
+            # route would run it twice.
+            if not fallback:
+                raise
+            logger.info(
+                "probe did not answer on its first address, trying the other",
+                extra={"probe": connection.label, "fallback": fallback},
+            )
+        return await self._run_against(connection, fallback, request, timeout)
+
+    async def _run_against(
+        self,
+        connection: HelperTarget,
+        host: str,
+        request: HelperRequest,
+        timeout: int,
+    ) -> str:
         # Host keys stay pinned in the file the shell tooling maintains.
         # Accepting an unknown host here would silently undo the fingerprint
         # confirmation that enrollment insists on.
         try:
             async with asyncssh.connect(
-                connection.host,
+                host,
                 port=connection.port,
                 username=self._username,
                 client_keys=[str(self._key_path)],
@@ -165,7 +225,7 @@ class SshHelperTransport:
                 )
         except asyncssh.HostKeyNotVerifiable as exc:
             raise ProbeUnreachableError(
-                params={"probe": connection.label, "host": connection.host},
+                params={"probe": connection.label, "host": host},
                 details=f"host key is not pinned in known_hosts: {exc}",
             ) from exc
         except (OSError, asyncssh.Error) as exc:
@@ -262,6 +322,67 @@ class ProbeHelperClient:
     ) -> HelperResponse:
         return await self._call(
             connection, HelperCommand.INSTALL_CA, payload=ca_pem, timeout=60
+        )
+
+    # --- Overlay ------------------------------------------------------------
+
+    async def overlay_configure(
+        self,
+        connection: ProbeConnection,
+        *,
+        mode: str,
+        hub_public_key: str,
+        endpoint: str,
+        address: str,
+        subnet: str,
+        nats_host_ip: str,
+        nats_port: int,
+        keepalive: int = 25,
+    ) -> HelperResponse:
+        """Write the tunnel configuration and put the probe in that mode.
+
+        The probe answers with the public half of a key it generated itself,
+        which is the only way the platform ever learns it - the private half
+        has no reason to exist here.
+        """
+        payload = "".join(
+            f"{key}={value}\n"
+            for key, value in (
+                ("HUB_PUBLIC_KEY", hub_public_key),
+                ("ENDPOINT", endpoint),
+                ("ADDRESS", address),
+                ("SUBNET", subnet),
+                ("NATS_HOST_IP", nats_host_ip),
+                ("NATS_PORT", str(nats_port)),
+                ("KEEPALIVE", str(keepalive)),
+            )
+        )
+        return await self._call(
+            connection,
+            HelperCommand.OVERLAY_CONFIGURE,
+            mode,
+            payload=payload,
+            timeout=180,
+        )
+
+    async def overlay_info(self, connection: ProbeConnection) -> HelperResponse:
+        """Mode, address, handshake age, and which path traffic takes now."""
+        return await self._call(connection, HelperCommand.OVERLAY_INFO, timeout=30)
+
+    async def overlay_remove(self, connection: ProbeConnection) -> HelperResponse:
+        return await self._call(connection, HelperCommand.OVERLAY_REMOVE, timeout=60)
+
+    async def access_source(
+        self, connection: ProbeConnection, source_cidr: str
+    ) -> HelperResponse:
+        """Replace the from= list on the management key.
+
+        Callers pass the whole list, never a single address: the clause is
+        rewritten, and dropping the address the platform currently reaches
+        this probe from would lock it out.
+        """
+        return await self._call(
+            connection, HelperCommand.ACCESS_SOURCE, source_cidr, timeout=30
         )
 
     # --- The helper itself --------------------------------------------------

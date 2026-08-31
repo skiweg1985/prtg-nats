@@ -27,6 +27,7 @@ from app.core.errors import (
 from app.domain.enums import JobStatus, JobStepStatus
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.probe_helper.protocol import CURRENT_HELPER_VERSION
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import Deployment
@@ -202,7 +203,7 @@ async def test_a_sensor_rollout_drives_the_helper_transaction(
     write_probe_inventory(project_dir, "mpp-berlin-01")
     write_sensor(project_dir, "internet-speed", version="2")
     transport.responses["probe-info"] = (
-        "OK probe-info\npackage=2.1.0\nservice=active\nca_sha256=aa\nhelper_version=8\n"
+        f"OK probe-info\npackage=2.1.0\nservice=active\nca_sha256=aa\nhelper_version={CURRENT_HELPER_VERSION}\n"
     )
     await sign_in(client)
 
@@ -261,7 +262,7 @@ async def test_a_managed_tool_is_selected_and_staged_before_sensor_files(
     write_tool_artifact(project_dir, "iperf3", platform, b"approved executable")
     transport.responses["probe-info"] = (
         "OK probe-info\npackage=2.1.0\nservice=active\n"
-        f"helper_version=8\nplatform={platform}\n"
+        f"helper_version={CURRENT_HELPER_VERSION}\nplatform={platform}\n"
     )
     await sign_in(client)
 
@@ -356,9 +357,9 @@ async def test_a_regular_sensor_updates_an_old_helper_before_commit_retry(
     write_probe_inventory(project_dir, "mpp-berlin-01")
     write_sensor(project_dir, "dns-check")
     transport.responses["probe-info"] = [
-        "OK probe-info\npackage=2.1.0\nhelper_version=7\n",
-        "OK probe-info\npackage=2.1.0\nhelper_version=8\n",
-        "OK probe-info\npackage=2.1.0\nhelper_version=8\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION - 1}\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\n",
     ]
     transport.responses["sensor-commit"] = [
         ProbeUnreachableError.of("mpp-berlin-01"),
@@ -406,8 +407,8 @@ async def test_a_managed_tool_rollout_updates_an_old_helper_first(
     write_tool_artifact(project_dir, "iperf3", platform, b"approved executable")
     transport.responses["probe-info"] = [
         "OK probe-info\npackage=2.1.0\nhelper_version=6\n",
-        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n",
-        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\nplatform={platform}\n",
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\nplatform={platform}\n",
     ]
     await sign_in(client)
 
@@ -447,7 +448,7 @@ async def test_a_missing_platform_artifact_fails_before_sensor_staging(
     )
     transport.responses["probe-info"] = (
         "OK probe-info\npackage=2.1.0\nservice=active\n"
-        "helper_version=8\nplatform=linux-amd64-glibc\n"
+        f"helper_version={CURRENT_HELPER_VERSION}\nplatform=linux-amd64-glibc\n"
     )
     await sign_in(client)
 
@@ -482,7 +483,7 @@ async def test_dry_run_accepts_system_fallback_on_an_unmanaged_platform(
         project_dir, "iperf3", "linux-arm64-glibc", b"approved executable"
     )
     transport.responses["probe-info"] = (
-        "OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform=linux-riscv64-glibc\n"
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\nplatform=linux-riscv64-glibc\n"
     )
     await sign_in(client)
 
@@ -523,7 +524,7 @@ async def test_system_fallback_activates_without_staging_managed_bytes(
     )
     transport.responses["probe-info"] = (
         "OK probe-info\npackage=2.1.0\nservice=active\n"
-        f"helper_version=8\nplatform={platform}\n"
+        f"helper_version={CURRENT_HELPER_VERSION}\nplatform={platform}\n"
     )
     await sign_in(client)
 
@@ -555,7 +556,7 @@ async def test_dry_run_rejects_a_tampered_managed_tool_artifact(
     )
     artifact.write_bytes(b"tampered")
     transport.responses["probe-info"] = (
-        f"OK probe-info\npackage=2.1.0\nhelper_version=8\nplatform={platform}\n"
+        f"OK probe-info\npackage=2.1.0\nhelper_version={CURRENT_HELPER_VERSION}\nplatform={platform}\n"
     )
     await sign_in(client)
 

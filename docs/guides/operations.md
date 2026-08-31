@@ -192,6 +192,17 @@ The former `test-persistence` command was retired without replacement: the
 container health check already proves JetStream is serving, and the backup
 verifies the stored data. `verify` covers the authenticated connection.
 
+## The overlay hub key
+
+`runtime/overlay/hub-key` is the one part of the overlay that cannot be
+regenerated. The peer list is rendered from the probe inventory and always
+comes back; the key does not, and a runtime restored without it means putting
+every probe on the overlay again. It lives in the runtime volume, so a runtime
+export carries it - see [Runtime export](#runtime-export) above.
+
+Setting it up and moving probes between the tunnel and the direct path is in
+[Connect probes over the overlay](overlay-network.md).
+
 ## Renew the server certificate
 
 Check at least monthly:

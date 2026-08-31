@@ -22,6 +22,11 @@ from app.domain.enums import LogLevel
 from app.domain.models import parse_probe_info
 from app.infrastructure import known_hosts
 from app.infrastructure.nats_runtime import NatsRuntime
+from app.infrastructure.overlay import (
+    OverlayRuntime,
+    validate_mode,
+    validate_public_key,
+)
 from app.infrastructure.probe_helper import ProbeConnection
 from app.infrastructure.probe_helper.protocol import normalise_optional
 from app.services.provisioning import ProvisioningService
@@ -37,6 +42,33 @@ ENROLL_STEPS: tuple[str, ...] = (
     "configure",
 )
 ENROLL_JOB_TYPE = "probe.enroll"
+
+
+async def _record_overlay_peer(context: JobContext, username: str) -> None:
+    """Write the peer the bootstrap already built on the probe.
+
+    The probe brought its own tunnel up from the script it was handed and
+    reported the public half of its key, so all that is left here is to write
+    it down and re-render the hub. A probe that could not join says so by
+    reporting no key, and is enrolled with one path instead of two.
+    """
+    address = context.payload.get("overlay_address")
+    public_key = context.payload.get("overlay_public_key")
+    if not address or not public_key:
+        return
+    mode = str(context.payload.get("overlay_mode") or "auto")
+    context.runtime.write_probe_overlay(
+        username,
+        address=str(address),
+        public_key=validate_public_key(str(public_key)),
+        mode=validate_mode(mode),
+    )
+    OverlayRuntime(context.settings).write_hub_config()
+    await context.log(
+        "jobs.overlay.attached",
+        params={"probe": username, "address": str(address), "mode": mode},
+        target=username,
+    )
 
 
 async def enroll(context: JobContext) -> dict[str, Any]:
@@ -172,6 +204,7 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
         "jobs.probe.inventory_written",
         params={"username": username, "probe_name": probe_name},
     )
+    await _record_overlay_peer(context, username)
 
     # --- 5. The CA ----------------------------------------------------------
     # The bootstrap script already installed it; this proves it over the

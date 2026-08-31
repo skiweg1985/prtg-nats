@@ -10,7 +10,7 @@
 # privileges the name completion therefore stays empty.
 
 _prtg_nats_commands='backup ca-info ca-path ca-show completion config help init
-install-mpp iperf-server logs mpp-info probe renew-certificate restart
+install-mpp iperf-server logs mpp-info overlay probe renew-certificate restart
 self sensor setup ssh-key start status stop update user verify'
 
 # Old names: still accepted, but no longer suggested. They stand here so the
@@ -26,6 +26,7 @@ _prtg_nats_user_commands='add delete list rotate show'
 _prtg_nats_sensor_commands='deploy list prepare profile recover release remove reserve
 show status'
 _prtg_nats_iperf_server_commands='deploy forget install list revoke show'
+_prtg_nats_overlay_commands='add disable enable mode remove show status'
 
 # Finds the repository for the invocation being completed. For
 # "prtg-nats" without a path the route goes over PATH and the symlink from
@@ -192,6 +193,46 @@ _prtg_nats() {
                 ;;
               recover)
                 candidates="--transaction"
+                ;;
+            esac
+            ;;
+        esac
+        ;;
+      overlay)
+        case "${COMP_CWORD}" in
+          2)
+            candidates="${_prtg_nats_overlay_commands}"
+            ;;
+          3)
+            case "${subcommand}" in
+              add | mode | remove | show)
+                candidates="$(_prtg_nats_probes "${project_dir}")"
+                ;;
+              enable)
+                candidates="--endpoint"
+                ;;
+            esac
+            ;;
+          4)
+            case "${subcommand}" in
+              mode)
+                candidates="off auto on"
+                ;;
+              remove)
+                candidates="--force"
+                ;;
+              add)
+                candidates="--mode"
+                ;;
+            esac
+            ;;
+          5)
+            case "${subcommand}" in
+              mode)
+                candidates="--force"
+                ;;
+              add)
+                candidates="off auto on"
                 ;;
             esac
             ;;

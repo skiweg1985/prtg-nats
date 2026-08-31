@@ -734,3 +734,29 @@ export interface WebUser {
   locked_until: string | null
   created_at: string
 }
+
+/** One probe on the overlay, as the hub and the probe last reported it. */
+export interface OverlayPeer {
+  nats_username: string
+  address: string
+  public_key: string
+  mode: OverlayMode
+  /**
+   * What the probe was last seen doing, which is not the mode: "auto" says
+   * when the tunnel may be used, this says whether it is being used.
+   */
+  last_state: string | null
+}
+
+export type OverlayMode = 'off' | 'auto' | 'on'
+
+export interface Overlay {
+  enabled: boolean
+  endpoint: string | null
+  subnet: string
+  hub_address: string
+  hub_public_key: string | null
+  default_mode: OverlayMode
+  interface_up: boolean
+  peers: OverlayPeer[]
+}
