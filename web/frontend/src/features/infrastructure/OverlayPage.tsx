@@ -5,6 +5,8 @@ import {
   useOverlay,
   useOverlayAttach,
   useOverlayDetach,
+  useOverlayDisable,
+  useOverlayEnable,
   useOverlayMode,
   useOverlayRefresh,
   useProbes,
@@ -23,6 +25,8 @@ import {
   DetailRow,
   Dialog,
   EmptyState,
+  Field,
+  Input,
   Mono,
 } from '@/components/ui/primitives'
 
@@ -44,9 +48,14 @@ export function OverlayPage() {
   const mode = useOverlayMode()
   const detach = useOverlayDetach()
   const refresh = useOverlayRefresh()
+  const enable = useOverlayEnable()
+  const disable = useOverlayDisable()
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [dialog, setDialog] = useState<'add' | 'mode' | 'remove' | null>(null)
+  const [dialog, setDialog] = useState<
+    'add' | 'mode' | 'remove' | 'enable' | 'disable' | null
+  >(null)
+  const [endpoint, setEndpoint] = useState('')
   const [chosenMode, setChosenMode] = useState<OverlayMode>('auto')
 
   const idFor = useMemo(() => {
@@ -70,6 +79,7 @@ export function OverlayPage() {
   const close = () => {
     setDialog(null)
     setSelected(new Set())
+    enable.reset()
   }
 
   const columns: Column<OverlayPeer>[] = [
@@ -116,9 +126,18 @@ export function OverlayPage() {
   return (
     <div className="space-y-4">
       {data && !data.enabled && (
-        <Banner tone="warn" title={t('infrastructure.overlay.disabled.title')}>
+        <Banner
+          tone="warn"
+          title={t('infrastructure.overlay.disabled.title')}
+          action={
+            <PermissionGate permission="overlay.enable">
+              <Button size="sm" onClick={() => setDialog('enable')}>
+                {t('infrastructure.overlay.enable.action')}
+              </Button>
+            </PermissionGate>
+          }
+        >
           {t('infrastructure.overlay.disabled.body')}
-          <Mono className="mt-2 block">sudo ./prtg-nats overlay enable</Mono>
         </Banner>
       )}
       {data?.enabled && !data.interface_up && (
@@ -127,7 +146,18 @@ export function OverlayPage() {
         </Banner>
       )}
 
-      <Card title={t('infrastructure.overlay.hub')}>
+      <Card
+        title={t('infrastructure.overlay.hub')}
+        action={
+          data?.enabled ? (
+            <PermissionGate permission="overlay.enable">
+              <Button size="sm" variant="ghost" onClick={() => setDialog('disable')}>
+                {t('infrastructure.overlay.disable.action')}
+              </Button>
+            </PermissionGate>
+          ) : undefined
+        }
+      >
         <dl className="grid gap-x-8 gap-y-1 sm:grid-cols-2">
           <DetailRow label={t('infrastructure.overlay.endpoint')}>
             {data?.endpoint ? <Mono>{data.endpoint}</Mono> : '—'}
@@ -280,6 +310,56 @@ export function OverlayPage() {
               }}
             >
               {t('infrastructure.overlay.actions.remove')}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+
+      {dialog === 'enable' && (
+        <Dialog onClose={close} title={t('infrastructure.overlay.enable.title')}>
+          <p className="text-muted mb-3 text-sm">
+            {t('infrastructure.overlay.enable.body')}
+          </p>
+          <Field
+            label={t('infrastructure.overlay.endpoint')}
+            hint={t('infrastructure.overlay.enable.endpointHint')}
+            error={enable.error ? String(enable.error.message) : undefined}
+          >
+            <Input
+              value={endpoint}
+              onChange={(event) => setEndpoint(event.target.value)}
+              placeholder="nats.example.com"
+            />
+          </Field>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={close}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              disabled={!endpoint.trim() || enable.isPending}
+              onClick={() =>
+                enable.mutate({ endpoint_host: endpoint.trim() }, { onSuccess: close })
+              }
+            >
+              {t('infrastructure.overlay.enable.confirm')}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+
+      {dialog === 'disable' && (
+        <Dialog onClose={close} title={t('infrastructure.overlay.disable.title')}>
+          <p className="text-sm">{t('infrastructure.overlay.disable.body')}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={close}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={disable.isPending}
+              onClick={() => disable.mutate(undefined, { onSuccess: close })}
+            >
+              {t('infrastructure.overlay.disable.action')}
             </Button>
           </div>
         </Dialog>

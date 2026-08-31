@@ -542,17 +542,20 @@ of leaving them queued forever.
 | `GET /iperf-endpoints` | measurement endpoints and who holds credentials |
 | `GET /iperf-endpoints/{name}` | one of them, same shape as a list entry |
 | `GET /overlay` | the hub, its peers and the path each one is on |
+| `POST /overlay/enable` | turn the overlay on and start the hub |
+| `POST /overlay/disable` | stop it; every peer keeps its address |
 | `POST /overlay/peers` | → job, put probes on the overlay |
 | `POST /overlay/peers/mode` | → job, change when their NATS traffic takes the tunnel |
 | `POST /overlay/peers/remove` | → job, take them off again |
 | `POST /overlay/peers/refresh` | → job, ask which path they are on now |
 | `GET /audit-events` | filter by actor, action, object, result, time |
 
-Enabling the overlay itself has no endpoint. It writes `.env` and starts a
-container with network privileges, so it happens on the host with
-`prtg-nats overlay enable`; `GET /overlay` reports `enabled: false` until it
-has, and the interface says so rather than offering a button that could not
-work.
+`enable` and `disable` are synchronous rather than jobs: they are a settings
+form, and the mistakes they can make - an endpoint that is the NATS address, a
+subnet probes already hold addresses from - are worth refusing in front of the
+person typing rather than in a job log. Both need `overlay.enable`, which only
+the administrator role carries; they create and remove a container with
+network-admin rights in this host's network namespace.
 
 Every peer carries both a `mode` and a `last_state`, and they answer
 different questions. The mode is what the probe was told: `off`, `auto` or

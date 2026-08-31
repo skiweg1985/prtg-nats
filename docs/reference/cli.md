@@ -93,20 +93,20 @@ reach. The operational procedure is in
 
 ### The overlay
 
-The tunnel between this host and the probes, off until it is enabled here.
-Enabling writes `.env` and starts the hub container, which is why it is a
-command and not a button: the API container has the runtime volume and the
-Docker socket, but no checkout to write `.env` into.
+The tunnel between this host and the probes, off until it is enabled. The same
+thing is **Infrastructure → Overlay** in the interface, and both write the same
+runtime settings - this is the automation and recovery path, not the only one.
 
 ```bash
-sudo ./prtg-nats overlay enable --endpoint nats.example.com
+sudo ./prtg-nats overlay enable nats.example.com
 sudo ./prtg-nats overlay add mpp-berlin-01
 sudo ./prtg-nats overlay status
 ```
 
-`enable` asks for the endpoint when it is not given one. It refuses an
-endpoint that is `NATS_HOST_IP`: the tunnel would have to carry its own
-endpoint, and a probe switching over would lose both paths at once.
+The argument to `enable` is the address probes dial. It refuses one that is
+`NATS_HOST_IP`: the tunnel would have to carry its own endpoint, and a probe
+switching over would lose both paths at once. `--port`, `--subnet` and
+`--default-mode` change the rest.
 
 `mode USER off|auto|on` changes when that probe's NATS traffic takes the
 tunnel, at any time and without re-enrolling anything:
@@ -125,6 +125,10 @@ overrides that for an operator who means it.
 `disable` stops the hub and leaves every peer as it is - re-enabling does not
 mean visiting each probe again. Probes left in mode `on` reach NATS only
 through a tunnel that is no longer there, so put them back to `auto` first.
+
+Both need the `overlay.enable` permission, which only the administrator role
+carries: they create and remove a container with network-admin rights in this
+host's network namespace.
 
 ### The bootstrap login
 

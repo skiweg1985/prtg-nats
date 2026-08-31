@@ -16,6 +16,12 @@
 
 set -Eeuo pipefail
 
+# Built by compose and started by the platform, so the build's own throwaway
+# run has nothing to do - the same shape the updater image has.
+if [[ "${1:-}" == "noop" ]]; then
+  exit 0
+fi
+
 INTERFACE="${OVERLAY_INTERFACE:-prtgnats0}"
 CONFIG="/etc/wireguard/${INTERFACE}.conf"
 POLL_SECONDS="${OVERLAY_POLL_SECONDS:-5}"

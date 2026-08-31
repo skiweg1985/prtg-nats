@@ -209,10 +209,34 @@ async def _cmd_user(args: argparse.Namespace) -> None:
 
 
 async def _cmd_overlay(args: argparse.Namespace) -> None:
+    from app.infrastructure.docker import DockerAdapter
     from app.services.overlay import OverlayService
 
     settings = _settings()
-    service = OverlayService(settings, _helper_client(settings))
+    service = OverlayService(
+        settings, _helper_client(settings), DockerAdapter(settings.docker_socket)
+    )
+
+    if args.action == "enable":
+        enabled = await service.enable(
+            endpoint_host=args.endpoint,
+            subnet=args.subnet,
+            default_mode=args.default_mode,
+            port=args.port,
+        )
+        print(f"The overlay is on. The hub answers on {enabled.endpoint}/udp.")
+        print(f"Hub address: {enabled.hub_address}")
+        print("Open that port, then put a probe on it:")
+        print("  sudo ./prtg-nats overlay add USER")
+        return
+
+    if args.action == "disable":
+        await service.disable()
+        print("The overlay hub is stopped.")
+        print("Every probe keeps its address and key, and still reaches this")
+        print('host the ordinary way. Probes left in mode "on" reach NATS only')
+        print('through the tunnel - put them back with "overlay mode USER auto".')
+        return
 
     if args.action == "init":
         public_key = service.initialise()
@@ -388,6 +412,16 @@ def main(argv: list[str] | None = None) -> None:
     overlay = commands.add_parser("overlay", help="the WireGuard overlay")
     overlay_actions = overlay.add_subparsers(dest="action", required=True)
     overlay_actions.add_parser("init", help="create the hub key and render its config")
+    overlay_enable = overlay_actions.add_parser(
+        "enable", help="turn the overlay on and start the hub"
+    )
+    overlay_enable.add_argument("endpoint", help="the address probes dial")
+    overlay_enable.add_argument("--port", type=int, default=None)
+    overlay_enable.add_argument("--subnet", default=None)
+    overlay_enable.add_argument(
+        "--default-mode", choices=("off", "auto", "on"), default=None
+    )
+    overlay_actions.add_parser("disable", help="stop the hub, keeping every peer")
     overlay_actions.add_parser("status", help="the hub and every peer")
     overlay_add = overlay_actions.add_parser("add", help="put a probe on the overlay")
     overlay_add.add_argument("username")

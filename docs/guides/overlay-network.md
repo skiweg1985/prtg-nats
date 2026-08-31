@@ -1,7 +1,7 @@
 ---
 title: Connect probes over the overlay
 role: operator
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # Connect probes over the overlay
@@ -29,6 +29,9 @@ depend on its site's WAN.
   is the only port the overlay needs open.
 - An address the probes can dial that is *not* the internal NATS address.
   On a site whose NATS address is internal, this is the public one.
+- An administrator account. Turning the overlay on creates a container with
+  network-admin rights on this host, so it needs the same kind of account a
+  stack update does.
 - WireGuard in the host kernel, and `wireguard-tools` available to the
   probes. Debian and Ubuntu carry it in the main archive. On RHEL 9 it comes
   from EPEL, and a probe without it is refused with that sentence rather than
@@ -36,18 +39,19 @@ depend on its site's WAN.
 
 ## 1. Turn it on
 
+**Infrastructure → Overlay → Turn the overlay on**, and give it the address
+probes will dial. That generates the hub key, renders its configuration and
+starts the hub. Nothing runs for the overlay before this - the container with
+network privileges is created when you ask for it and not a moment earlier,
+which is also why the button needs an administrator.
+
+It refuses an endpoint that is `NATS_HOST_IP`: the tunnel would have to carry
+its own endpoint, and a probe switching over would lose both paths at once.
+
+The same thing from the command line, for automation and recovery:
+
 ```bash
-sudo ./prtg-nats overlay enable --endpoint nats.example.com
-```
-
-This writes the settings to `.env`, generates the hub key and starts the hub
-container. It refuses an endpoint that is `NATS_HOST_IP`: the tunnel would
-have to carry its own endpoint, and a probe switching over would lose both
-paths at once.
-
-Check what it did:
-
-```bash
+sudo ./prtg-nats overlay enable nats.example.com
 sudo ./prtg-nats overlay status
 ```
 
@@ -122,10 +126,10 @@ the tunnel that would otherwise carry it. A probe that does not answer there
 is refused rather than left unreachable. `--force` overrides that when you
 know what you are doing.
 
-`./prtg-nats overlay disable` stops the hub without touching a single peer.
-Re-enabling does not mean visiting every probe again - but put any probe in
-mode `on` back to `auto` first, or it will be looking for a tunnel that is no
-longer there.
+**Turn off** on the same page - or `./prtg-nats overlay disable` - stops the
+hub without touching a single peer. Re-enabling does not mean visiting every
+probe again. Put any probe in mode `on` back to `auto` first, though, or it
+will be looking for a tunnel that is no longer there.
 
 ## What to keep
 

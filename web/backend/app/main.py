@@ -33,6 +33,7 @@ from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.schema import ensure_schema
 from app.persistence.session import dispose_engine, init_engine
 from app.services.events import get_broadcaster
+from app.services.overlay import OverlayService
 from app.services.provisioning import ProvisioningService
 from app.workers.inventory_sync import InventorySync
 from app.workers.job_runner import JobRunner
@@ -122,6 +123,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # opposite case, a process that died - so the outcome has to be recorded
     # before the runner ever looks. See workers/stack_recovery.py.
     await settle_interrupted_update(settings, docker, broadcaster)
+
+    # The overlay hub is created through the Docker socket rather than by
+    # compose, so nothing else brings it back after a host reboot or a stack
+    # update that collected it. Never fatal: an installation without an
+    # overlay has nothing to reconcile, and one whose hub will not start still
+    # has an interface to say so from.
+    try:
+        await OverlayService(settings, helper, docker).reconcile_hub()
+    except Exception:
+        logger.exception("could not reconcile the overlay hub")
 
     await runner.start()
     await sync.start()

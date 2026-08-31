@@ -5,9 +5,9 @@ the interface. Everything that touches a probe is a job, for the reason
 everything that touches a probe is: it can hang on a host that stopped
 answering, and it belongs in the audit trail.
 
-Turning the overlay on and off is not here. That writes ``.env`` and starts a
-container with NET_ADMIN, and it happens on the host with
-``prtg-nats overlay enable``.
+Turning it on and off is here as well, behind its own administrator-only
+permission: it creates a container with network-admin rights in the host's
+network namespace, which is the same decision ``system.update`` guards.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ from pydantic import Field
 
 from app.api.deps.common import (
     AuditDep,
+    DockerDep,
+    HelperDep,
     JobServiceDep,
     PrincipalDep,
     ProbeServiceDep,
@@ -28,8 +30,10 @@ from app.api.deps.common import (
 )
 from app.api.schemas.common import ApiModel, JobAccepted
 from app.core.permissions import Permission
-from app.infrastructure.overlay import OverlayRuntime
+from app.infrastructure.overlay import OverlayRuntime, OverlayStatus
+from app.infrastructure.runtime_files import RuntimeFileStore
 from app.services.jobs import JobRequest, ResourceRef
+from app.services.overlay import OverlayService
 from app.workers.handlers import overlay as overlay_jobs
 
 router = APIRouter(prefix="/overlay", tags=["infrastructure"])
@@ -50,12 +54,27 @@ class OverlayPeerOut(ApiModel):
 class OverlayOut(ApiModel):
     enabled: bool
     endpoint: str | None
+    # Split out as well, because the form that sets them edits these two and
+    # not the joined string.
+    endpoint_host: str | None
+    port: int
     subnet: str
     hub_address: str
     hub_public_key: str | None
     default_mode: str
     interface_up: bool
     peers: list[OverlayPeerOut]
+
+
+class OverlayEnableIn(ApiModel):
+    """What an administrator has to decide to turn the overlay on."""
+
+    # The address probes dial. Not NATS_FQDN by default: it has to be
+    # reachable exactly when NATS_FQDN is not.
+    endpoint_host: str = Field(min_length=1, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    subnet: str | None = Field(default=None, max_length=64)
+    default_mode: OverlayMode | None = None
 
 
 class OverlayActionIn(ApiModel):
@@ -84,7 +103,10 @@ async def read_overlay(
     runtime: RuntimeDep,
     _: Annotated[PrincipalDep, Depends(require_permission(Permission.OVERLAY_READ))],
 ) -> OverlayOut:
-    state = OverlayRuntime(settings).status()
+    return _overlay_out(OverlayRuntime(settings).status(), runtime)
+
+
+def _overlay_out(state: OverlayStatus, runtime: RuntimeFileStore) -> OverlayOut:
     modes = {
         probe.nats_username: probe.overlay_last_state
         for probe in runtime.read_all_probes()
@@ -92,6 +114,8 @@ async def read_overlay(
     return OverlayOut(
         enabled=state.enabled,
         endpoint=state.endpoint,
+        endpoint_host=state.settings.endpoint_host,
+        port=state.settings.port,
         subnet=state.subnet,
         hub_address=state.hub_address,
         hub_public_key=state.hub_public_key,
@@ -108,6 +132,64 @@ async def read_overlay(
             for peer in state.peers
         ],
     )
+
+
+@router.post("/enable", response_model=OverlayOut)
+async def enable_overlay(
+    payload: OverlayEnableIn,
+    settings: SettingsDep,
+    runtime: RuntimeDep,
+    helper: HelperDep,
+    docker: DockerDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.OVERLAY_ENABLE))
+    ],
+) -> OverlayOut:
+    """Turn the overlay on and start the hub.
+
+    Synchronous rather than a job: it is a settings form, and the mistakes it
+    can make - an endpoint that is the NATS address, a subnet that probes
+    already hold addresses from - are worth refusing in front of the person
+    typing rather than in a job log.
+    """
+    service = OverlayService(settings, helper, docker)
+    state = await service.enable(
+        endpoint_host=payload.endpoint_host,
+        port=payload.port,
+        subnet=payload.subnet,
+        default_mode=payload.default_mode,
+    )
+    audit.record(
+        action="overlay.enable",
+        object_type="overlay",
+        object_id="overlay",
+        object_label=payload.endpoint_host,
+    )
+    return _overlay_out(state, runtime)
+
+
+@router.post("/disable", response_model=OverlayOut)
+async def disable_overlay(
+    settings: SettingsDep,
+    runtime: RuntimeDep,
+    helper: HelperDep,
+    docker: DockerDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.OVERLAY_ENABLE))
+    ],
+) -> OverlayOut:
+    """Stop the hub. Every peer keeps its address and its key."""
+    service = OverlayService(settings, helper, docker)
+    state = await service.disable()
+    audit.record(
+        action="overlay.disable",
+        object_type="overlay",
+        object_id="overlay",
+        object_label="overlay",
+    )
+    return _overlay_out(state, runtime)
 
 
 async def _overlay_job(

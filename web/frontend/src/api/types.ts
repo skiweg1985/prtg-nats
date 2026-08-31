@@ -753,6 +753,9 @@ export type OverlayMode = 'off' | 'auto' | 'on'
 export interface Overlay {
   enabled: boolean
   endpoint: string | null
+  /** Split out as well: the form edits these two, not the joined string. */
+  endpoint_host: string | null
+  port: number
   subnet: string
   hub_address: string
   hub_public_key: string | null

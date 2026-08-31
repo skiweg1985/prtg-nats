@@ -1,7 +1,7 @@
 ---
 title: The probes reach the platform over a WireGuard overlay
 role: developer
-updated: 2026-08-31
+updated: 2026-09-01
 status: accepted
 ---
 
@@ -76,9 +76,25 @@ route decides which way the packets go. No second listener, no DNAT, and the
 existing server certificate stays valid because neither the name nor the
 destination address changes.
 
-**Off by default and opt-in per installation**, behind a Compose profile.
-Enabling it writes `.env` and starts the hub, so it happens on the host with
-`prtg-nats overlay enable` and not from the interface.
+**Off by default and opt-in per installation, from the interface.** The
+settings live in `runtime/overlay/settings` and the hub is created through the
+Docker socket the way the updater is - so an administrator turns the overlay
+on with a button, not by editing a file on the host. `compose.yaml` builds the
+image and starts nothing.
+
+That is deliberately not a Compose profile, which is where this started. A
+profile puts the switch in `.env`, `.env` sits beside the checkout, and the
+API container has the runtime volume and the Docker socket but no checkout -
+so the switch would have been out of reach of the only interface anybody
+uses. The runtime is the source of truth for this installation
+([ADR 0002](0002-runtime-stays-the-source-of-truth.md)), and this belongs in
+it like everything else.
+
+**Enabling is administrator-only**, its own `overlay.enable` permission and
+not part of `OPERATOR_PERMISSIONS`. Whoever presses it decides that a
+container with network-admin rights runs in this host's network namespace,
+which is the same decision `system.update` already guards. Moving a probe
+between the tunnel and the direct path stays an operator's job.
 
 ## Consequences
 
@@ -94,10 +110,16 @@ used to be invisible - the probe looked healthy, because it was.
 that never enables it runs no extra container, and a probe in `off` is
 exactly the probe it was.
 
-**Cost.** One container with `NET_ADMIN` in the host network namespace,
-which is a real privilege and the reason it is behind a profile. It
-manipulates host routes because it shares the namespace - that is the point,
+**Cost.** One container with `NET_ADMIN` in the host network namespace, which
+is a real privilege - and the reason nothing creates it until somebody asks.
+It manipulates host routes because it shares the namespace: that is the point,
 and it is why its entrypoint takes the interface down on the way out.
+
+**Cost.** The hub is not declared in `compose.yaml` beyond its build, so it is
+less visible than the rest of the stack and `compose up` does not bring it
+back. `restart: unless-stopped` carries it over a host reboot and the API
+reconciles it on startup, but that is two mechanisms where the other services
+have one.
 
 **Cost.** A second address per probe, and with it a second `known_hosts`
 entry and a longer `from=` list. Both are written from what is already

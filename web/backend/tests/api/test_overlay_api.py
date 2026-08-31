@@ -15,7 +15,11 @@ from httpx import AsyncClient
 
 from app.core.config import Settings
 from app.core.permissions import RoleName
-from app.infrastructure.overlay import OverlayRuntime, generate_keypair
+from app.infrastructure.overlay import (
+    OverlayRuntime,
+    OverlaySettings,
+    generate_keypair,
+)
 from app.infrastructure.runtime_files import RuntimeFileStore
 from tests.conftest import write_probe_inventory
 
@@ -47,16 +51,23 @@ async def sign_in(client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR) 
     assert signed_in.status_code == 200, signed_in.text
 
 
-def enable_overlay(project_dir: Path) -> None:
+def write_site(project_dir: Path) -> None:
     (project_dir / ".env").write_text(
-        "NATS_FQDN=nats.example.test\n"
-        "NATS_HOST_IP=192.0.2.10\n"
-        "NATS_PORT=23561\n"
-        "COMPOSE_PROFILES=overlay\n"
-        "OVERLAY_ENDPOINT_HOST=nats.example.test\n"
-        "OVERLAY_SUBNET=10.83.0.0/16\n"
-        "OVERLAY_DEFAULT_MODE=auto\n",
+        "NATS_FQDN=nats.example.test\nNATS_HOST_IP=192.0.2.10\nNATS_PORT=23561\n",
         encoding="utf-8",
+    )
+
+
+def enable_overlay(project_dir: Path, settings: Settings) -> None:
+    """Straight into the runtime, the way the enable endpoint writes it."""
+    write_site(project_dir)
+    OverlayRuntime(settings).write_settings(
+        OverlaySettings(
+            enabled=True,
+            endpoint_host="nats.example.test",
+            subnet="10.83.0.0/16",
+            default_mode="auto",
+        )
     )
 
 
@@ -89,7 +100,7 @@ async def test_an_installation_without_the_overlay_says_so(
 async def test_a_peer_reports_its_mode_and_the_path_it_is_on(
     client: AsyncClient, settings: Settings, project_dir: Path
 ) -> None:
-    enable_overlay(project_dir)
+    enable_overlay(project_dir, settings)
     write_probe_inventory(project_dir, PROBE)
     _, public = generate_keypair()
     RuntimeFileStore(settings).write_probe_overlay(
@@ -125,9 +136,9 @@ async def test_a_peer_reports_its_mode_and_the_path_it_is_on(
     ],
 )
 async def test_changing_the_overlay_needs_more_than_reading_it(
-    client: AsyncClient, project_dir: Path, path: str
+    client: AsyncClient, settings: Settings, project_dir: Path, path: str
 ) -> None:
-    enable_overlay(project_dir)
+    enable_overlay(project_dir, settings)
     write_probe_inventory(project_dir, PROBE)
     await sign_in(client, RoleName.VIEWER)
 
@@ -139,9 +150,9 @@ async def test_changing_the_overlay_needs_more_than_reading_it(
 
 
 async def test_an_action_on_an_unknown_probe_fails_before_a_job_exists(
-    client: AsyncClient, project_dir: Path
+    client: AsyncClient, settings: Settings, project_dir: Path
 ) -> None:
-    enable_overlay(project_dir)
+    enable_overlay(project_dir, settings)
     write_probe_inventory(project_dir, PROBE)
     await sign_in(client)
 
@@ -159,7 +170,7 @@ async def test_an_invitation_reserves_an_address_before_the_probe_exists(
 ) -> None:
     """A probe behind NAT reports in once and is never reachable the other
     way, so its address has to be in the script it is handed."""
-    enable_overlay(project_dir)
+    enable_overlay(project_dir, settings)
     await sign_in(client)
     await initialise_runtime()
 
@@ -206,6 +217,7 @@ async def test_an_invitation_reserves_an_address_before_the_probe_exists(
 async def test_without_an_overlay_the_script_says_so_rather_than_half_configuring(
     client: AsyncClient, project_dir: Path
 ) -> None:
+    write_site(project_dir)
     write_probe_inventory(project_dir, PROBE)
     await sign_in(client)
     await initialise_runtime()
@@ -221,3 +233,84 @@ async def test_without_an_overlay_the_script_says_so_rather_than_half_configurin
     assert 'OVERLAY_ENABLED="false"' in script.text
     # No leftover placeholder reaches a root shell.
     assert "@@" not in script.text
+
+
+async def test_enabling_is_a_request_and_not_a_shell_session(
+    client: AsyncClient, settings: Settings, project_dir: Path
+) -> None:
+    """The whole point of moving the switch out of .env: an administrator
+    turns the overlay on from the interface, and the runtime records it."""
+    write_site(project_dir)
+    await sign_in(client)
+    await initialise_runtime()
+
+    before = await client.get("/api/v1/overlay")
+    assert before.json()["enabled"] is False
+
+    answer = await client.post(
+        "/api/v1/overlay/enable", json={"endpoint_host": "nats.example.com"}
+    )
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert body["enabled"] is True
+    assert body["endpoint"] == "nats.example.com:51820"
+    assert body["hub_public_key"]
+
+    # In the runtime, not in .env - the file the API container cannot write.
+    assert "OVERLAY" not in (project_dir / ".env").read_text(encoding="utf-8")
+    recorded = OverlayRuntime(settings).settings()
+    assert recorded.enabled is True
+    assert recorded.endpoint_host == "nats.example.com"
+
+
+async def test_disabling_keeps_every_peer(
+    client: AsyncClient, settings: Settings, project_dir: Path
+) -> None:
+    """Turning the overlay off is not retiring every probe from it."""
+    enable_overlay(project_dir, settings)
+    write_probe_inventory(project_dir, PROBE)
+    _, public = generate_keypair()
+    RuntimeFileStore(settings).write_probe_overlay(
+        PROBE, address="10.83.1.0", public_key=public, mode="auto"
+    )
+    OverlayRuntime(settings).ensure_hub_key()
+    await sign_in(client)
+
+    answer = await client.post("/api/v1/overlay/disable")
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert body["enabled"] is False
+    assert [peer["address"] for peer in body["peers"]] == ["10.83.1.0"]
+
+
+async def test_an_endpoint_that_is_the_nats_address_is_refused_at_the_door(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """No recovering from this one on the far side, so it never gets written."""
+    write_site(project_dir)
+    await sign_in(client)
+    await initialise_runtime()
+
+    answer = await client.post(
+        "/api/v1/overlay/enable", json={"endpoint_host": "192.0.2.10"}
+    )
+    assert answer.status_code == 422, answer.text
+    assert (await client.get("/api/v1/overlay")).json()["enabled"] is False
+
+
+async def test_only_an_administrator_may_turn_the_overlay_on(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """Same decision system.update guards: whoever presses it decides that a
+    container with network-admin rights runs on this host."""
+    write_site(project_dir)
+    await sign_in(client, RoleName.OPERATOR)
+
+    refused = await client.post(
+        "/api/v1/overlay/enable", json={"endpoint_host": "nats.example.com"}
+    )
+    assert refused.status_code == 403, refused.text
+
+    # Moving a probe between the tunnel and the direct path stays an operator's
+    # job; only the switch itself is administrator-only.
+    assert (await client.get("/api/v1/overlay")).status_code == 200

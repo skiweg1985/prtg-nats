@@ -123,17 +123,18 @@ class StackVerification:
         """
         site = self._runtime.site_settings()
         overlay = OverlayRuntime(self._settings)
-        if not site.overlay_enabled:
+        settings = overlay.settings()
+        if not settings.enabled:
             return CheckResult(name="overlay", ok=True, detail="not enabled")
 
         problems = []
         if not overlay.has_hub_key():
             problems.append("the hub has no key; run 'prtg-nats overlay enable'")
-        if not site.overlay_endpoint_host:
-            problems.append("OVERLAY_ENDPOINT_HOST is not set")
-        if site.overlay_endpoint_host == site.nats_host_ip:
+        if not settings.endpoint_host:
+            problems.append("the overlay has no endpoint address")
+        if settings.endpoint_host == site.nats_host_ip:
             problems.append(
-                "OVERLAY_ENDPOINT_HOST is NATS_HOST_IP; the tunnel would have "
+                "the overlay endpoint is NATS_HOST_IP; the tunnel would have "
                 "to carry its own endpoint"
             )
         peers = overlay.peers() if overlay.has_hub_key() else ()

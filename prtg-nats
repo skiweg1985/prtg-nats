@@ -468,8 +468,7 @@ show_site_settings() {
   printf 'Site settings (%s)\n\n' "${ENVIRONMENT_FILE}"
   for variable in NATS_FQDN NATS_PORT NATS_HOST_IP CA_HTTP_PORT \
     CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR WEB_FQDN \
-    WEB_HTTPS_PORT OVERLAY_ENDPOINT_HOST OVERLAY_PORT OVERLAY_SUBNET \
-    OVERLAY_DEFAULT_MODE; do
+    WEB_HTTPS_PORT; do
     from_file="$(environment_value "${variable}")"
     printf '  %-20s %-28s %s\n' \
       "${variable}" "${!variable:-—}" \
@@ -480,13 +479,8 @@ show_site_settings() {
     "${NATS_FQDN}" "${CA_HTTP_PORT}"
   printf '  Web interface      %s\n' \
     "$(web_interface_address "${WEB_FQDN}" "${WEB_HTTPS_PORT}")"
-  if [[ "${OVERLAY_ENABLED}" == "true" ]]; then
-    printf '  Overlay hub        %s on %s:%s/udp\n' \
-      "$(overlay_hub_address)" \
-      "${OVERLAY_ENDPOINT_HOST:-—}" "${OVERLAY_PORT}"
-  else
-    printf '  Overlay            disabled ("./prtg-nats overlay enable")\n'
-  fi
+  # The overlay is not a site setting - it lives in the runtime and is
+  # configured through the interface. "./prtg-nats overlay status" shows it.
   printf '\nChange them with "./prtg-nats config --edit".\n'
 }
 
