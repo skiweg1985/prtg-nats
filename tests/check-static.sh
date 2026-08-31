@@ -443,6 +443,9 @@ check "sensor subcommands match" \
 check "iperf-server subcommands match" \
   "$(completion_list _prtg_nats_iperf_server_commands)" \
   "$(dispatch_commands ./libexec/manage-iperf-server.sh)"
+check "overlay subcommands match" \
+  "$(completion_list _prtg_nats_overlay_commands)" \
+  "$(dispatch_commands ./libexec/manage-overlay.sh)"
 
 check "the completion command delivers the file" \
   "$(./prtg-nats completion bash | cmp -s - completions/prtg-nats.bash &&
@@ -464,6 +467,14 @@ check "user --help shows the help" \
   "$(./prtg-nats user --help | grep -c '^Usage:')" "1"
 check "sensor without an argument shows the help" \
   "$(./prtg-nats sensor | grep -c '^Usage:')" "1"
+check "overlay without an argument shows the help" \
+  "$(./prtg-nats overlay | grep -c '^Usage:')" "1"
+# The three modes are the feature. A help text that stops naming one of them
+# is a mode nobody finds, and the enable path validates against the same set.
+check "the overlay help names every mode" \
+  "$(./prtg-nats overlay | grep -cE '^  (off|auto|on) ')" "3"
+check "the entry point offers the overlay" \
+  "$(./prtg-nats help | grep -c '^  overlay \.\.\.')" "1"
 
 # Every reservation has to be revocable without tearing down the whole
 # sensor - otherwise there is no way back from a wrong pick.

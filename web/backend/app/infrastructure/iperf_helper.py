@@ -61,6 +61,14 @@ class EndpointConnection:
     def label(self) -> str:
         return self.name
 
+    @property
+    def fallback_host(self) -> str | None:
+        """None: a measurement endpoint has one address.
+
+        Only probes are on the overlay, and only they gain a second way in.
+        """
+        return None
+
 
 class IperfHelperClient:
     """Typed access to the endpoint helper - one method per request."""

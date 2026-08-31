@@ -34,9 +34,7 @@ RELEASE_INTERFACE_JOB_TYPE = "sensor.release_interface"
 
 def _connection(context: JobContext, username: str) -> ProbeConnection:
     inventory = context.runtime.read_probe(username)
-    return ProbeConnection(
-        nats_username=username, host=inventory.ssh_host, port=inventory.ssh_port
-    )
+    return ProbeConnection.for_probe(inventory)
 
 
 def forget_sensor(context: JobContext, username: str, sensor: str) -> None:

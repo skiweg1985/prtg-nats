@@ -119,11 +119,7 @@ class ProbeService:
 
     @staticmethod
     def connection_for(inventory: ProbeInventory) -> ProbeConnection:
-        return ProbeConnection(
-            nats_username=inventory.nats_username,
-            host=inventory.ssh_host,
-            port=inventory.ssh_port,
-        )
+        return ProbeConnection.for_probe(inventory)
 
     # --- Listing ------------------------------------------------------------
 
