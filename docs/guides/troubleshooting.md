@@ -81,6 +81,30 @@ NATS port. If a deny rule with application `unknown-tcp` matches, allow the
 session or add an application definition for NATS. Certificates, credentials
 and configuration are fine in this case and need no change.
 
+### The overlay is up but nothing passes through it
+
+Look at the handshake age first: `./prtg-nats overlay show USER`. An
+interface that is up with no recent handshake means the probe's packets are
+not reaching the hub at all - almost always the UDP port, which is the one
+port the overlay needs and the one a firewall between the two is most likely
+to be dropping.
+
+In mode `auto` this is already handled: the probe will not move NATS traffic
+onto a tunnel without a fresh handshake, so it keeps using the direct path.
+In mode `on` it is not handled, deliberately - `on` means the tunnel and
+nothing else, and the platform reports the problem rather than quietly
+undoing the choice. Put the probe back to `auto` while you fix the port.
+
+### A probe has been on the fallback path for a while
+
+A probe in mode `auto` that reports `tunnel` is working. It also means its
+ordinary route to NATS is down and the overlay is the only reason
+measurements are still arriving - usually a site-to-site tunnel nobody has
+noticed, because everything downstream still looks green.
+
+The overlay page is the only place this shows. Fix the site's own path; the
+probe moves back on its own after three successful checks.
+
 ### TLS `unknown certificate authority`
 
 The client rejects the server certificate:

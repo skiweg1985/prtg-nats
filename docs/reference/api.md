@@ -541,7 +541,29 @@ of leaving them queued forever.
 | `POST /certificates/server/renew` | → job, restarts NATS |
 | `GET /iperf-endpoints` | measurement endpoints and who holds credentials |
 | `GET /iperf-endpoints/{name}` | one of them, same shape as a list entry |
+| `GET /overlay` | the hub, its peers and the path each one is on |
+| `POST /overlay/peers` | → job, put probes on the overlay |
+| `POST /overlay/peers/mode` | → job, change when their NATS traffic takes the tunnel |
+| `POST /overlay/peers/remove` | → job, take them off again |
+| `POST /overlay/peers/refresh` | → job, ask which path they are on now |
 | `GET /audit-events` | filter by actor, action, object, result, time |
+
+Enabling the overlay itself has no endpoint. It writes `.env` and starts a
+container with network privileges, so it happens on the host with
+`prtg-nats overlay enable`; `GET /overlay` reports `enabled: false` until it
+has, and the interface says so rather than offering a button that could not
+work.
+
+Every peer carries both a `mode` and a `last_state`, and they answer
+different questions. The mode is what the probe was told: `off`, `auto` or
+`on`. The state is what it last reported doing - `direct`, `tunnel`, `down`,
+`no_handshake`. A probe in `auto` reporting `tunnel` is working, and it also
+means its ordinary route is down.
+
+The four actions all take `probe_ids`, a list, because moving a site onto the
+tunnel is the realistic operation. `POST /overlay/peers/mode` additionally
+takes `force`: a switch to `off` goes over the probe's ordinary address, and
+without `force` it is refused when the probe does not answer there.
 
 An endpoint carries `managed`. It is false for one somebody else operates,
 registered here rather than set up from here: its password is not ours to

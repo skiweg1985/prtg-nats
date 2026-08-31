@@ -76,6 +76,7 @@ behind it are recorded in
 | add or recover a probe | [Add your first probe](docs/getting-started/add-your-first-probe.md) |
 | deploy or configure sensors | [Deploy sensors](docs/guides/deploy-sensors.md) |
 | add an iperf3 measurement endpoint | [Measurement endpoints](docs/guides/deploy-sensors.md#measurement-endpoints) |
+| reach probes behind NAT, or survive a broken site tunnel | [Connect probes over the overlay](docs/guides/overlay-network.md) |
 | update, back up, restore, or rotate credentials | [Operations and maintenance](docs/guides/operations.md) |
 | decide whether the installation is healthy | [Monitoring](docs/guides/monitoring.md) |
 | diagnose a known failure | [Troubleshooting](docs/guides/troubleshooting.md) |

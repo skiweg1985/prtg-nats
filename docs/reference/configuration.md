@@ -76,6 +76,54 @@ If port `80` cannot be used operationally, set `CA_HTTP_PORT` and install new
 probes with `--ca-url http://FQDN:PORT/nats-ca.pem`. The NATS TLS port is
 unaffected.
 
+## Overlay network
+
+The optional WireGuard tunnel between this host and the probes. Off unless
+`COMPOSE_PROFILES` names it, which is what `./prtg-nats overlay enable`
+writes - an installation that never enables it runs no extra container.
+
+| Name | Description | Type | Default | Required | Example |
+| --- | --- | --- | --- | --- | --- |
+| `COMPOSE_PROFILES` | Set to `overlay` to run the hub. The single on switch, so nothing can disagree with it about whether there is an overlay | string | – | no | `overlay` |
+| `OVERLAY_ENDPOINT_HOST` | The address probes dial to reach the hub | hostname | – | with the overlay | `nats.example.com` |
+| `OVERLAY_PORT` | UDP port the hub listens on, and the only port the overlay needs open | port | `51820` | no | `51820` |
+| `OVERLAY_SUBNET` | The overlay's own address range. The hub takes the first address, probes the rest | IPv4 network | `10.83.0.0/16` | no | `10.83.0.0/16` |
+| `OVERLAY_DEFAULT_MODE` | What a newly enrolled probe starts with | `off`, `auto` or `on` | `auto` | no | `auto` |
+
+`OVERLAY_ENDPOINT_HOST` is its own setting rather than `NATS_FQDN` because it
+has to be reachable exactly when `NATS_FQDN` is not: on a site whose NATS
+address is internal, this is the public one. Setting it to `NATS_HOST_IP` is
+refused - the tunnel would have to carry its own endpoint, and a probe
+switching over would lose both paths at once.
+
+The three modes decide when a probe's NATS traffic uses the tunnel. `off`
+builds none. `auto` keeps the tunnel up and routes NATS through it only while
+the direct path is down. `on` always routes it through, and a tunnel that
+stops handshaking in that mode is reported rather than worked around - `on`
+that quietly fell back would be `auto` under another name. The management
+channel uses the overlay address in `auto` and `on`, falling back to the
+probe's ordinary address.
+
+The address range must not collide with a network the probes already use, and
+`./prtg-nats overlay enable` refuses anything narrower than `/30` or wider
+than `/8`. Changing it after probes are on the overlay means taking each one
+off and back on: their addresses come from it.
+
+### Files under `runtime/overlay/`
+
+Its own directory rather than `runtime/private/`, because the hub container
+mounts it and has no business being able to read the CA key next door.
+
+| File | What it is |
+| --- | --- |
+| `hub-key` | the hub's private key, and the one thing here that cannot be regenerated |
+| `hub.pub` | its public half, which every probe is configured with |
+| `prtgnats0.conf` | the rendered interface and one peer block per probe |
+
+`prtgnats0.conf` is generated from the probe inventory, so it can always be
+rebuilt. `hub-key` cannot: a runtime restored without it means every probe
+has to be put on the overlay again.
+
 ## Management channel
 
 | Name | Description | Type | Default | Required | Example |

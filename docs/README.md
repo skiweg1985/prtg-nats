@@ -20,6 +20,7 @@ German.
 | deploy or configure sensors | Deployer | [Deploy sensors](guides/deploy-sensors.md) |
 | set up an iperf3 endpoint | Deployer | [Measurement endpoints](guides/deploy-sensors.md#measurement-endpoints) |
 | register one somebody else operates | Deployer | [An iperf endpoint somebody else operates](guides/foreign-iperf-endpoint.md) |
+| connect probes over a WireGuard overlay | Operator | [Connect probes over the overlay](guides/overlay-network.md) |
 | update, back up, restore, or rotate credentials | Operator | [Operations and maintenance](guides/operations.md) |
 | decide whether the installation is healthy | Operator | [Monitoring](guides/monitoring.md) |
 | diagnose a failure | Everyone | [Troubleshooting](guides/troubleshooting.md) |

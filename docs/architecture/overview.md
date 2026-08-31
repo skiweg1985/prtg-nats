@@ -31,6 +31,7 @@ flowchart LR
     MPP["MPP probes<br>prtgmpprobe"] -->|"TLS 23561"| NATS
     MPP -.->|"first install only"| CA
     Web -->|"SSH management channel"| MPP
+    MPP -.->|"WireGuard, optional"| Host
 ```
 
 One file describes the whole stack ([compose.yaml](../../compose.yaml)):
@@ -88,6 +89,15 @@ authorises the code that goes through it, and the probe verifies before it
 replaces anything -
 [ADR 0006](decisions/0006-signed-helper-updates.md).
 
+**A probe can be reached over an overlay, and reach NATS through it.**
+The optional WireGuard tunnel gives every probe a stable address the
+platform can dial regardless of NAT, and gives the probe a path to NATS
+that survives its site's own network. Three modes decide when its NATS
+traffic uses it - `off`, `auto`, `on` - and a policy rule rather than a
+route swap is what makes `auto` able to test the direct path without
+disturbing it. Off by default -
+[ADR 0009](decisions/0009-a-wireguard-overlay-to-the-probes.md).
+
 **Sensor-owned native tools follow an explicit platform contract.** The
 platform selects a signed release artifact from the probe's userspace ABI. If
 that ABI has no artifact, it may use the distribution's exact
@@ -124,6 +134,7 @@ second one exists in both tools:
 | Can do | anything root can do | the helper protocol, nothing else |
 | Used for | enrollment, package install | everything afterwards |
 | Host key | confirmed interactively, then pinned | must already be pinned |
+| Address | the one the operator names | the overlay first where there is one, otherwise the same |
 
 Once enrolment has happened, the web platform is complete: configuration,
 certificates, sensors, reconciliation, rotation and unenrolment all run
