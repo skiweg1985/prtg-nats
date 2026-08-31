@@ -258,6 +258,11 @@ class CallbackIn(ApiModel):
     # Generous rather than tight: a truncated cause is a cause nobody can act
     # on, and the bootstrap already caps what it sends.
     package_error: str | None = Field(default=None, max_length=8192)
+    # The public half of a key the probe generated for itself. Absent when the
+    # installation has no overlay, and also when it has one and the probe could
+    # not join it - which is not a failed enrolment, only a probe with one path
+    # instead of two.
+    overlay_public_key: str | None = Field(default=None, max_length=64)
 
 
 class CallbackOut(ApiModel):
@@ -643,6 +648,9 @@ async def bootstrap_callback(
                 "ssh_port": payload.ssh_port,
                 "host_keys": payload.host_keys,
                 "package_error": payload.package_error,
+                "overlay_address": record.payload.get("overlay_address"),
+                "overlay_mode": record.payload.get("overlay_mode"),
+                "overlay_public_key": payload.overlay_public_key,
             },
         ),
         # No principal: the host did this, not a person. The audit record

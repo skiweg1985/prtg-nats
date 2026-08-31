@@ -35,7 +35,8 @@ from app.core.errors import EnrollmentTokenInvalidError, RuntimeStateError
 from app.core.security import hash_session_token
 from app.infrastructure.certificates import fingerprint_of_pem
 from app.infrastructure.helper_signing import HelperSigner
-from app.infrastructure.runtime_files import RuntimeFileStore
+from app.infrastructure.overlay import OverlayRuntime
+from app.infrastructure.runtime_files import RuntimeFileStore, SiteSettings
 from app.persistence.models.inventory import EnrollmentToken
 from app.services.auth import Principal
 
@@ -99,10 +100,13 @@ class EnrollmentService:
         self, target: EnrolmentTarget, principal: Principal | None
     ) -> IssuedToken:
         token = secrets.token_urlsafe(TOKEN_BYTES)
+        payload = dict(target.payload)
+        if target.kind == PROBE:
+            payload.update(await self._reserve_overlay_address())
         record = EnrollmentToken(
             kind=target.kind,
             token_hash=hash_session_token(token),
-            payload=dict(target.payload),
+            payload=payload,
             expected_host=target.expected_host,
             expires_at=datetime.now(UTC) + timedelta(minutes=target.ttl_minutes),
             created_by_id=getattr(principal, "user_id", None),
@@ -111,6 +115,30 @@ class EnrollmentService:
         self._db.add(record)
         await self._db.flush()
         return IssuedToken(token=token, record=record)
+
+    async def _reserve_overlay_address(self) -> dict[str, str]:
+        """Promise this invitation an address, if there is an overlay at all.
+
+        Reserved when the invitation is issued rather than when it is redeemed,
+        because that is the only moment the platform is certain to be talking
+        to somebody: a probe behind NAT reports in once and is never reachable
+        the other way, so its tunnel has to be configurable from the script it
+        was handed.
+        """
+        site = self._runtime.site_settings()
+        if not site.overlay_enabled or not site.overlay_endpoint:
+            return {}
+        overlay = OverlayRuntime(self._settings)
+        overlay.check_endpoint_collision()
+        reserved = [
+            record.payload["overlay_address"]
+            for record in await self.list_open(PROBE)
+            if record.payload.get("overlay_address")
+        ]
+        return {
+            "overlay_address": overlay.allocate_address(reserved),
+            "overlay_mode": site.overlay_default_mode,
+        }
 
     async def list_open(self, kind: str) -> list[EnrollmentToken]:
         """Invitations that could still be used, newest first."""
@@ -288,7 +316,7 @@ class EnrollmentService:
             "@@CA_PEM@@": ca_pem,
             "@@CA_SHA256@@": ca_sha256,
             "@@CA_FINGERPRINT@@": ca_fingerprint,
-            "@@SSH_SOURCE_CIDR@@": source_cidr,
+            "@@SSH_SOURCE_CIDR@@": self._source_cidr_with_hub(source_cidr, site),
             "@@NATS_HOST@@": site.nats_fqdn,
             "@@NATS_PORT@@": str(site.nats_port),
             "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
@@ -299,8 +327,57 @@ class EnrollmentService:
                 "true" if record.payload.get("install_package", True) else "false"
             ),
         }
+        values.update(self._overlay_values(record, site))
 
         return self._fill(template, values)
+
+    def _overlay_values(
+        self, record: EnrollmentToken, site: SiteSettings
+    ) -> dict[str, str]:
+        """What the bootstrap needs to bring the tunnel up by itself.
+
+        Everything except the probe's own key, which the probe generates and
+        reports back - the private half has no reason to exist here.
+        """
+        address = record.payload.get("overlay_address")
+        endpoint = site.overlay_endpoint
+        if not site.overlay_enabled or not address or not endpoint:
+            return {
+                "@@OVERLAY_ENABLED@@": "false",
+                "@@OVERLAY_MODE@@": "off",
+                "@@OVERLAY_ADDRESS@@": "",
+                "@@OVERLAY_SUBNET@@": "",
+                "@@OVERLAY_ENDPOINT@@": "",
+                "@@OVERLAY_HUB_KEY@@": "",
+                "@@OVERLAY_NATS_HOST_IP@@": "",
+            }
+        overlay = OverlayRuntime(self._settings)
+        return {
+            "@@OVERLAY_ENABLED@@": "true",
+            "@@OVERLAY_MODE@@": str(
+                record.payload.get("overlay_mode") or site.overlay_default_mode
+            ),
+            "@@OVERLAY_ADDRESS@@": str(address),
+            "@@OVERLAY_SUBNET@@": site.overlay_subnet,
+            "@@OVERLAY_ENDPOINT@@": endpoint,
+            "@@OVERLAY_HUB_KEY@@": overlay.ensure_hub_key(),
+            "@@OVERLAY_NATS_HOST_IP@@": site.nats_host_ip or "",
+        }
+
+    @staticmethod
+    def _source_cidr_with_hub(source_cidr: str, site: SiteSettings) -> str:
+        """The from= list the probe's management key is written with.
+
+        The hub address is added, never substituted: a probe whose tunnel
+        breaks has to stay reachable the way it would have been without one.
+        """
+        if not site.overlay_enabled:
+            return source_cidr
+        hub = f"{site.overlay_hub_address}/32"
+        sources = [part.strip() for part in source_cidr.split(",") if part.strip()]
+        if hub not in sources:
+            sources.append(hub)
+        return ",".join(sources)
 
     def render_iperf_bootstrap(self, record: EnrollmentToken, token: str) -> str:
         """The same for an iperf measurement endpoint, and shorter.

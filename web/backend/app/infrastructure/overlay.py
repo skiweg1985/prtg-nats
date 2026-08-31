@@ -18,6 +18,7 @@ import ipaddress
 import re
 import subprocess
 from base64 import b64decode, b64encode
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -177,16 +178,20 @@ class OverlayRuntime:
             )
         return tuple(sorted(found, key=lambda peer: _address_key(peer.address)))
 
-    def allocate_address(self) -> str:
+    def allocate_address(self, reserved: Iterable[str] = ()) -> str:
         """The lowest free peer address in the subnet.
 
         Reuses a gap left by a retired probe rather than always growing: an
         installation that adds and removes probes for years should not run out
-        of a /16 because of it. Callers hold the overlay resource lock, so two
-        enrollments cannot arrive at the same answer.
+        of a /16 because of it.
+
+        ``reserved`` is for addresses that are spoken for but not yet a peer -
+        an invitation that has been issued and not redeemed. Without it two
+        invitations open at once would be promised the same address, and the
+        second probe to report in would take the first one's tunnel down.
         """
         site = self._runtime.site_settings()
-        taken = {peer.address for peer in self.peers()}
+        taken = {peer.address for peer in self.peers()} | set(reserved)
         network = ipaddress.IPv4Network(site.overlay_subnet, strict=False)
         for index in range(FIRST_PEER_INDEX, network.num_addresses - 1):
             candidate = overlay_address_at(site.overlay_subnet, index)

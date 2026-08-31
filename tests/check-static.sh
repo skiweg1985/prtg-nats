@@ -2384,6 +2384,13 @@ sed \
   -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
   -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
   -e 's|@@INSTALL_PACKAGE@@|true|' \
+  -e 's|@@OVERLAY_ENABLED@@|true|' \
+  -e 's|@@OVERLAY_MODE@@|auto|' \
+  -e 's|@@OVERLAY_ADDRESS@@|10.83.1.0|' \
+  -e 's|@@OVERLAY_SUBNET@@|10.83.0.0/16|' \
+  -e 's|@@OVERLAY_ENDPOINT@@|nats.example.test:51820|' \
+  -e 's|@@OVERLAY_HUB_KEY@@|AAAA|' \
+  -e 's|@@OVERLAY_NATS_HOST_IP@@|192.0.2.10|' \
   bootstrap/probe-bootstrap.sh.template > "${bootstrap_dir}/bootstrap.sh"
 if sh -n "${bootstrap_dir}/bootstrap.sh" 2>/dev/null; then
   printf '  ok    the rendered bootstrap is valid POSIX shell\n'
@@ -2426,6 +2433,18 @@ check "the installer gets the fingerprint, not the file hash" \
 # into a reported failure.
 check "the installer survives being handed the CA already in place" \
   "$(grep -c '"${CA_SOURCE}" -ef "${CA_DESTINATION}"' install-mpp.sh)" "1"
+# The overlay is configured through the helper the previous step installed,
+# not reimplemented in the bootstrap. Two implementations of "configure the
+# tunnel" would be two ways for a probe to end up different from what the hub
+# believes about it.
+check "the bootstrap configures the overlay through the helper" \
+  "$(grep -c "overlay-configure" "${bootstrap_dir}/bootstrap.sh")" "1"
+check "the bootstrap reports the key the probe generated" \
+  "$(grep -c 'overlay_public_key' "${bootstrap_dir}/bootstrap.sh")" "2"
+# It never carries a private key: the probe makes its own, and only the public
+# half travels back.
+check "the bootstrap has no placeholder for a private overlay key" \
+  "$(grep -c 'PRIVATE_KEY' ./bootstrap/probe-bootstrap.sh.template)" "0"
 check "the bootstrap hands it the destination path" \
   "$(printf '%s' "${bootstrap_install_call}" |
     grep -c -- '--ca-file "${CA_PATH}"')" "1"

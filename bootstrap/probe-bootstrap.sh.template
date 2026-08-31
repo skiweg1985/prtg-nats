@@ -35,12 +35,23 @@ INSTALL_PACKAGE="@@INSTALL_PACKAGE@@"
 # the installer refuses before it touches a package manager.
 NATS_HOST="@@NATS_HOST@@"
 NATS_PORT="@@NATS_PORT@@"
+# The overlay, if this installation has one. Everything here is public except
+# the probe's own key, which is generated on this host in step 4 and never
+# leaves it - only its public half travels back with the report.
+OVERLAY_ENABLED="@@OVERLAY_ENABLED@@"
+OVERLAY_MODE="@@OVERLAY_MODE@@"
+OVERLAY_ADDRESS="@@OVERLAY_ADDRESS@@"
+OVERLAY_SUBNET="@@OVERLAY_SUBNET@@"
+OVERLAY_ENDPOINT="@@OVERLAY_ENDPOINT@@"
+OVERLAY_HUB_KEY="@@OVERLAY_HUB_KEY@@"
+OVERLAY_NATS_HOST_IP="@@OVERLAY_NATS_HOST_IP@@"
 CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
 
 STAGE=""
 ACCESS_INSTALLED="false"
 PACKAGE_INSTALLED="false"
 PACKAGE_ERROR=""
+OVERLAY_PUBLIC_KEY=""
 
 say() { printf '  %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -122,7 +133,44 @@ bash "${STAGE}/enroll-probe.sh" \
 ACCESS_INSTALLED="true"
 say "Management user prtg-nats-admin is ready"
 
-# --- 3. The package --------------------------------------------------------
+# --- 3. The overlay --------------------------------------------------------
+# Through the helper that step 2 installed, not reimplemented here: the
+# platform configures the tunnel with the same request afterwards, and two
+# implementations of it would be two ways for a probe to end up configured
+# differently from what the hub believes.
+#
+# This is also the only moment that works for a probe behind NAT. It reports in
+# once and is never reachable the other way, so the tunnel that makes it
+# reachable has to be built from the script it was handed.
+if [ "${OVERLAY_ENABLED}" = "true" ]; then
+  say "Joining the overlay as ${OVERLAY_ADDRESS} (${OVERLAY_MODE})"
+  {
+    printf 'HUB_PUBLIC_KEY=%s\n' "${OVERLAY_HUB_KEY}"
+    printf 'ENDPOINT=%s\n' "${OVERLAY_ENDPOINT}"
+    printf 'ADDRESS=%s\n' "${OVERLAY_ADDRESS}"
+    printf 'SUBNET=%s\n' "${OVERLAY_SUBNET}"
+    printf 'NATS_HOST_IP=%s\n' "${OVERLAY_NATS_HOST_IP}"
+    printf 'NATS_PORT=%s\n' "${NATS_PORT}"
+  } > "${STAGE}/overlay.request"
+
+  if {
+    printf 'overlay-configure\t%s\n' "${OVERLAY_MODE}"
+    cat "${STAGE}/overlay.request"
+  } | /usr/local/sbin/prtg-nats-probe-helper > "${STAGE}/overlay.answer" 2>&1; then
+    OVERLAY_PUBLIC_KEY="$(sed -n 's/^overlay_public_key=//p' "${STAGE}/overlay.answer")"
+    say "Overlay key ${OVERLAY_PUBLIC_KEY}"
+  else
+    # Not fatal. The probe is enrolled and reachable the ordinary way; the
+    # overlay is the second path, and reporting why it failed is more use than
+    # abandoning an otherwise finished installation.
+    say "The overlay could not be set up - the probe is enrolled without it:"
+    sed -n '1,5p' "${STAGE}/overlay.answer" | while read -r line; do
+      say "  ${line}"
+    done
+  fi
+fi
+
+# --- 4. The package --------------------------------------------------------
 # --no-config on purpose: the configuration arrives over the management
 # channel, so the channel is exercised before anything depends on it.
 if [ "${INSTALL_PACKAGE}" = "true" ]; then
@@ -157,7 +205,7 @@ if [ "${INSTALL_PACKAGE}" = "true" ]; then
   fi
 fi
 
-# --- 4. Report back --------------------------------------------------------
+# --- 5. Report back --------------------------------------------------------
 # The host keys are read from disk rather than scanned over the network: this
 # is the host itself, so there is nothing to be in the middle of. They travel
 # over the token-authenticated channel, which is what makes pinning them
@@ -184,9 +232,16 @@ else
   package_error="null"
 fi
 
-payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"package_installed":%s,"package_error":%s}' \
+if [ -n "${OVERLAY_PUBLIC_KEY}" ]; then
+  overlay_key="\"${OVERLAY_PUBLIC_KEY}\""
+else
+  overlay_key="null"
+fi
+
+payload="$(printf '{"hostname":"%s","ssh_port":%s,"host_keys":[%s],"access_installed":%s,"package_installed":%s,"package_error":%s,"overlay_public_key":%s}' \
   "$(hostname -f 2>/dev/null || hostname)" "${ssh_port}" "${keys}" \
-  "${ACCESS_INSTALLED}" "${PACKAGE_INSTALLED}" "${package_error}")"
+  "${ACCESS_INSTALLED}" "${PACKAGE_INSTALLED}" "${package_error}" \
+  "${overlay_key}")"
 
 printf '%s' "${payload}" > "${STAGE}/callback.json"
 curl -fsS --cacert "${CA_PATH}" \
