@@ -18,7 +18,8 @@
     "audit": "Audit",
     "settings": "Settings",
     "updates": "Updates",
-    "system": "Maintenance"
+    "system": "Maintenance",
+    "overlay": "Overlay"
   },
   "common": {
     "cancel": "Cancel",
@@ -48,7 +49,8 @@
     "showTechnicalDetails": "Show technical details",
     "stale": "Cached, last checked {{time}}",
     "unknown": "Unknown",
-    "updated": "Updated"
+    "updated": "Updated",
+    "apply": "Apply"
   },
   "auth": {
     "signIn": "Sign in",
@@ -316,7 +318,8 @@
       "markedBy": "Registered in PRTG - ticked by {{by}} {{when}}.",
       "alreadyMarked": "Marked as registered in PRTG."
     },
-    "accessKeyMarkDone": "Registered in PRTG - tick it off"
+    "accessKeyMarkDone": "Registered in PRTG - tick it off",
+    "overlay": "Overlay"
   },
   "sensors": {
     "title": "Sensors",
@@ -512,7 +515,12 @@
       "checkout": "Moving the checkout",
       "build": "Building the images",
       "recreate": "Recreating the stack",
-      "settle": "Recording the outcome"
+      "settle": "Recording the outcome",
+      "check_helper": "Check the probe helper",
+      "configure_probe": "Configure the tunnel",
+      "record_peer": "Record the peer",
+      "restore_access": "Restore the management access",
+      "remove_tunnel": "Remove the tunnel"
     },
     "events": {
       "started": "Job started: {{type}}",
@@ -644,6 +652,15 @@
         "update_failed": "The update failed (exit code {{code}})",
         "updated": "The stack now runs {{commit}}",
         "updater_output": "{{line}}"
+      },
+      "overlay": {
+        "attached": "{{probe}} is on the overlay at {{address}} (mode {{mode}})",
+        "mode_changed": "{{probe}} is now in mode {{mode}}, currently {{path}}",
+        "detached": "{{probe}} was taken off the overlay",
+        "unreachable": "{{probe}} did not answer about the overlay: {{reason}}",
+        "state": "{{probe}}: mode {{mode}}, currently {{path}}",
+        "tunnel_only_without_tunnel": "{{probe}} is set to use the tunnel only, but the tunnel has no recent handshake",
+        "on_the_fallback_path": "{{probe}} is reaching NATS through the tunnel, so its direct path is down"
       }
     },
     "deploy": {
@@ -807,7 +824,72 @@
       "inviteOpenTitle": "Open invitations"
     },
     "renewServer": "Renew",
-    "renewServerConfirm": "The server certificate is renewed and activated. The NATS container restarts; every probe reconnects."
+    "renewServerConfirm": "The server certificate is renewed and activated. The NATS container restarts; every probe reconnects.",
+    "overlay": {
+      "hub": "Hub",
+      "endpoint": "Endpoint",
+      "hubAddress": "Hub address",
+      "subnet": "Address range",
+      "defaultMode": "Default for new probes",
+      "search": "Search probes and addresses",
+      "modeLegend": "When NATS traffic takes the tunnel",
+      "offWarning": "Switching a probe off goes over its ordinary address. A probe that does not answer there is refused rather than left unreachable.",
+      "removeBody": "Take {{count}} probe(s) off the overlay. They keep reaching this installation the ordinary way.",
+      "columns": {
+        "probe": "Probe",
+        "address": "Overlay address",
+        "mode": "Mode",
+        "path": "Current path"
+      },
+      "modes": {
+        "off": {
+          "name": "Off",
+          "hint": "No tunnel. The probe reaches NATS the ordinary way."
+        },
+        "auto": {
+          "name": "Auto",
+          "hint": "Tunnel up. NATS takes it only while the direct path is down."
+        },
+        "on": {
+          "name": "On",
+          "hint": "Tunnel up. NATS always takes it."
+        }
+      },
+      "paths": {
+        "direct": "Direct",
+        "tunnel": "Tunnel",
+        "down": "Interface down",
+        "no_handshake": "No handshake",
+        "off": "Off",
+        "unknown": "Unknown"
+      },
+      "actions": {
+        "mode": "Change mode",
+        "refresh": "Refresh",
+        "remove": "Remove from overlay"
+      },
+      "disabled": {
+        "title": "The overlay is off for this installation",
+        "body": "It is enabled on the host, because it writes .env and starts a container with network privileges."
+      },
+      "hubDown": {
+        "title": "The hub interface is not up",
+        "body": "The overlay is enabled but the interface does not exist. Check the prtg-nats-overlay container; without it no probe can reach this host through the tunnel."
+      },
+      "empty": {
+        "title": "No probe is on the overlay",
+        "hint": "Add one below. It keeps its ordinary address either way."
+      },
+      "add": {
+        "title": "Add probes",
+        "body": "{{count}} enrolled probe(s) are not on the overlay yet.",
+        "action": "Add probes",
+        "dialog": "The probe generates its own key and reports back the public half. Its ordinary address stays as it is.",
+        "confirm": "Add to the overlay",
+        "allOn": "Every probe is on the overlay",
+        "allOnHint": "Nothing left to add."
+      }
+    }
   },
   "settings": {
     "title": "Settings",

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
+  useOverlay,
   useConfigureProbe,
   useExecuteReconcile,
   useIperfEndpoints,
@@ -28,6 +29,7 @@ import type {
   SensorState,
   WirelessInterface,
 } from '@/api/types'
+import { pathTone } from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -422,6 +424,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 {inventory.ssh_host}:{inventory.ssh_port}
               </Mono>
             </DetailRow>
+            <OverlayRow username={summary.nats_username} />
             <DetailRow label={t('probes.accessKey')}>
               {/* Presence only. The value is behind an audited, explicit reveal. */}
               {inventory.access_key_present ? (
@@ -1259,5 +1262,42 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
         })}
       </ul>
     </Card>
+  )
+}
+
+/**
+ * The probe's overlay address and what it is doing with it.
+ *
+ * On the identity card rather than a card of its own: for a probe on the
+ * overlay this is a second address it answers on, which is what the rest of
+ * that list is about. A probe that is not on it says so in one line instead
+ * of taking up a panel to say nothing.
+ */
+function OverlayRow({ username }: { username: string }) {
+  const { t } = useTranslation()
+  const { data } = useOverlay()
+  const peer = data?.peers.find((entry) => entry.nats_username === username)
+
+  if (!data?.enabled) return null
+  if (!peer) {
+    return (
+      <DetailRow label={t('probes.overlay')}>
+        <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
+      </DetailRow>
+    )
+  }
+  const state = peer.last_state ?? 'unknown'
+  return (
+    <DetailRow label={t('probes.overlay')}>
+      <span className="flex flex-wrap items-center gap-2">
+        <Mono>{peer.address}</Mono>
+        <Badge tone="accent">
+          {t(`infrastructure.overlay.modes.${peer.mode}.name`)}
+        </Badge>
+        <Badge tone={pathTone(peer.mode, state)}>
+          {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
+        </Badge>
+      </span>
+    </DetailRow>
   )
 }

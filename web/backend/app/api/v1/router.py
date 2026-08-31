@@ -12,6 +12,7 @@ from app.api.v1.routes import (
     enrollment,
     iperf,
     jobs,
+    overlay,
     probes,
     sensors,
     system,
@@ -28,6 +29,7 @@ api_router.include_router(sensors.router)
 api_router.include_router(deployments.router)
 api_router.include_router(jobs.router)
 api_router.include_router(iperf.router)
+api_router.include_router(overlay.router)
 api_router.include_router(credentials.router)
 api_router.include_router(audit.router)
 api_router.include_router(users.router)

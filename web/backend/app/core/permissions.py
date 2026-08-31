@@ -37,6 +37,9 @@ class Permission(StrEnum):
     IPERF_READ = "iperf.read"
     IPERF_MANAGE = "iperf.manage"
 
+    OVERLAY_READ = "overlay.read"
+    OVERLAY_MANAGE = "overlay.manage"
+
     SYSTEM_READ = "system.read"
     SYSTEM_RESTART = "system.restart"
     SYSTEM_SETTINGS = "system.settings"
@@ -70,6 +73,11 @@ OPERATOR_PERMISSIONS: frozenset[Permission] = READ_PERMISSIONS | {
     Permission.JOB_RETRY,
     Permission.JOB_CANCEL,
     Permission.IPERF_MANAGE,
+    # Moving a probe between the tunnel and the direct path is operating the
+    # fleet, not changing what this installation is. Enabling the overlay in
+    # the first place is not here: that writes .env and starts a container
+    # with NET_ADMIN, and it happens on the host.
+    Permission.OVERLAY_MANAGE,
 }
 
 ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {

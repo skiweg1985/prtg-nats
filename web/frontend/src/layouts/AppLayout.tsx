@@ -38,6 +38,11 @@ const INFRASTRUCTURE: NavEntry[] = [
   },
   { to: '/infrastructure/iperf', labelKey: 'nav.iperf', permission: 'iperf.read' },
   {
+    to: '/infrastructure/overlay',
+    labelKey: 'nav.overlay',
+    permission: 'overlay.read',
+  },
+  {
     to: '/infrastructure/credentials',
     labelKey: 'nav.credentials',
     permission: 'credential.read',

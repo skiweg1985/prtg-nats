@@ -29,6 +29,8 @@ import type {
   JobSummary,
   NatsAccount,
   ObservedState,
+  Overlay,
+  OverlayMode,
   ProbeDetail,
   ProbeSummary,
   ProvisionEndpointRequest,
@@ -74,6 +76,7 @@ export const keys = {
   invitation: (id: string) => ['probes', 'invitations', id] as const,
   iperf: ['iperf'] as const,
   iperfInvitations: ['iperf-invitations'] as const,
+  overlay: ['overlay'] as const,
   users: ['users'] as const,
 }
 
@@ -443,6 +446,65 @@ export function useCertificates() {
     queryKey: keys.certificates,
     queryFn: () => api.get<Certificate[]>('/certificates'),
   })
+}
+
+export function useOverlay() {
+  return useQuery({
+    queryKey: keys.overlay,
+    queryFn: () => api.get<Overlay>('/overlay'),
+  })
+}
+
+/**
+ * The three probe-facing overlay actions.
+ *
+ * All of them take a selection rather than one probe: moving a site onto the
+ * tunnel is the realistic operation, and doing it one detail page at a time is
+ * how half a site ends up in a different mode than the rest of it.
+ */
+export function useOverlayAttach() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { probe_ids: string[]; mode?: OverlayMode }) =>
+      api.post<JobAccepted>('/overlay/peers', request),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
+export function useOverlayMode() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: {
+      probe_ids: string[]
+      mode: OverlayMode
+      force?: boolean
+    }) => api.post<JobAccepted>('/overlay/peers/mode', request),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
+export function useOverlayDetach() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { probe_ids: string[]; force?: boolean }) =>
+      api.post<JobAccepted>('/overlay/peers/remove', request),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
+export function useOverlayRefresh() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: { probe_ids: string[] }) =>
+      api.post<JobAccepted>('/overlay/peers/refresh', request),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
+function invalidateOverlay(client: ReturnType<typeof useQueryClient>) {
+  void client.invalidateQueries({ queryKey: keys.overlay })
+  void client.invalidateQueries({ queryKey: keys.probes })
+  void client.invalidateQueries({ queryKey: ['jobs'] })
 }
 
 export function useIperfEndpoints(enabled = true) {
