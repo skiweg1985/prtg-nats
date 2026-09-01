@@ -26,8 +26,9 @@ from app.core.errors import (
 from app.infrastructure.docker import JETSTREAM_VOLUME, DockerAdapter, StackContainer
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.nats_runtime import NatsRuntime
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.pki import Pki
-from app.infrastructure.runtime_files import RuntimeFileStore, SiteSettings
+from app.infrastructure.runtime_files import RuntimeFileStore
 
 # How long a configuration reload has to show up in the monitoring endpoint
 # before it counts as refused. NATS applies it synchronously, but the signal
@@ -99,7 +100,7 @@ class ProvisioningService:
             fqdn=site.nats_fqdn,
             host_ip=site.nats_host_ip,
             archive=False,
-            overlay_address=_overlay_san(site),
+            overlay_address=_overlay_san(OverlayRuntime(self._settings)),
         )
         # The reverse proxy serves the interface with a certificate from this
         # same CA, so trusting the CA once covers the browser, the NATS server
@@ -209,7 +210,7 @@ class ProvisioningService:
             fqdn=site.nats_fqdn,
             host_ip=site.nats_host_ip,
             archive=True,
-            overlay_address=_overlay_san(site),
+            overlay_address=_overlay_san(OverlayRuntime(self._settings)),
         )
         self._pki.issue_web_certificate(
             fqdn=site.web_fqdn, host_ip=site.nats_host_ip, archive=True
@@ -454,10 +455,11 @@ class ProvisioningService:
         return state.config_load_time if state.available else None
 
 
-def _overlay_san(site: SiteSettings) -> str | None:
+def _overlay_san(overlay: OverlayRuntime) -> str | None:
     """The hub address, but only where there is an overlay.
 
     An installation that never turns it on has no reason to carry an address
     it does not answer on in its server certificate.
     """
-    return site.overlay_hub_address if site.overlay_enabled else None
+    settings = overlay.settings()
+    return settings.hub_address if settings.enabled else None

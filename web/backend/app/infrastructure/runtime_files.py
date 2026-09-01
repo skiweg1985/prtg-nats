@@ -221,32 +221,9 @@ class SiteSettings:
     # that splits them sets WEB_FQDN, exactly as the proxy already expects.
     web_fqdn_override: str | None = None
 
-    # --- Overlay ------------------------------------------------------------
-    # The compose profile is the on switch for the hub container, so it is
-    # also the answer to "does this installation have an overlay". Deriving
-    # the flag from the thing that starts the hub keeps a second setting from
-    # disagreeing with what is actually running.
-    overlay_enabled: bool = False
-    # Where a probe dials the hub. Its own setting rather than NATS_FQDN,
-    # because it has to be reachable exactly when NATS_FQDN is not: on a site
-    # whose NATS address is internal, this is the public one.
-    overlay_endpoint_host: str | None = None
-    overlay_port: int = 51820
-    overlay_subnet: str = "10.83.0.0/16"
-    overlay_default_mode: str = "auto"
-
-    @property
-    def overlay_hub_address(self) -> str:
-        """The first host address of the subnet. Derived, never configured -
-        a hub address that could disagree with the subnet would be one
-        setting too many."""
-        return overlay_address_at(self.overlay_subnet, 1)
-
-    @property
-    def overlay_endpoint(self) -> str | None:
-        if not self.overlay_endpoint_host:
-            return None
-        return f"{self.overlay_endpoint_host}:{self.overlay_port}"
+    # The overlay is deliberately not here. It is configured through the
+    # interface, so its settings live in the runtime where the API can write
+    # them - see app/infrastructure/overlay.py.
 
     @property
     def is_configured(self) -> bool:
@@ -292,11 +269,6 @@ class RuntimeFileStore:
             "MPP_SSH_SOURCE_CIDR",
             "IPERF_SSH_SOURCE_CIDR",
             "WEB_FQDN",
-            "COMPOSE_PROFILES",
-            "OVERLAY_ENDPOINT_HOST",
-            "OVERLAY_PORT",
-            "OVERLAY_SUBNET",
-            "OVERLAY_DEFAULT_MODE",
         ):
             from_environment = os.environ.get(key)
             if from_environment:
@@ -316,15 +288,6 @@ class RuntimeFileStore:
             ),
             iperf_ssh_source_cidr=values.get("IPERF_SSH_SOURCE_CIDR") or None,
             web_fqdn_override=values.get("WEB_FQDN") or None,
-            overlay_enabled="overlay"
-            in {
-                profile.strip()
-                for profile in (values.get("COMPOSE_PROFILES") or "").split(",")
-            },
-            overlay_endpoint_host=values.get("OVERLAY_ENDPOINT_HOST") or None,
-            overlay_port=_as_int(values.get("OVERLAY_PORT"), 51820),
-            overlay_subnet=values.get("OVERLAY_SUBNET") or "10.83.0.0/16",
-            overlay_default_mode=values.get("OVERLAY_DEFAULT_MODE") or "auto",
         )
 
     # --- Runtime completeness ----------------------------------------------

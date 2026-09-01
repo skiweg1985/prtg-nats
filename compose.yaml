@@ -205,62 +205,22 @@ services:
     command: ["noop"]
     restart: "no"
 
-  # The overlay hub, and the only container that needs NET_ADMIN. Behind a
-  # profile so an installation that does not use the overlay never starts it:
-  # COMPOSE_PROFILES=overlay in .env is the switch, written by
-  # "prtg-nats overlay enable".
+  # The overlay hub image.
   #
-  # Host network like the API, for the same reason and one more: the interface
-  # has to exist where the API opens its SSH connections to the probes, and
-  # where the published NATS port lives. A bridge network would put it
-  # somewhere neither of them can see.
+  # Built here and started nowhere: like the updater above, the real container
+  # is created through the Docker API when an administrator turns the overlay
+  # on. It needs NET_ADMIN in the host network namespace, and nothing with
+  # that privilege should exist on an installation that never asked for an
+  # overlay - which a compose service, profile or not, could not promise.
   overlay:
     build:
       context: .
       dockerfile: web/overlay/Dockerfile
     image: prtg-nats-overlay:current
-    # Never pulled, always built - the same reason the updater carries this.
     pull_policy: build
-    container_name: prtg-nats-overlay
-    profiles:
-      - overlay
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    environment:
-      OVERLAY_INTERFACE: prtgnats0
-    volumes:
-      # Only the overlay subpath: the hub reads its own key and peer list and
-      # must not be able to reach the CA key next door in private/. Read-only
-      # because the rendering happens in the API, never here.
-      - type: volume
-        source: runtime
-        target: /etc/wireguard
-        read_only: true
-        volume:
-          subpath: overlay
-    depends_on:
-      runtime-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    tmpfs:
-      - /run:rw,nosuid,size=8m
-    security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 10s
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - wg show prtgnats0 >/dev/null 2>&1
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    logging:
-      driver: local
-      options:
-        max-size: 10m
-        max-file: "5"
+    container_name: prtg-nats-overlay-build
+    command: ["noop"]
+    restart: "no"
 
   web-proxy:
     image: caddy:2.9-alpine

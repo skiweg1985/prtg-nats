@@ -18,8 +18,7 @@ source "${SCRIPT_DIR}/mpp-config.sh"
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
   while IFS='=' read -r env_key env_value; do
     case "${env_key}" in
-      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION|WEB_FQDN|WEB_HTTPS_PORT|\
-      COMPOSE_PROFILES|OVERLAY_ENDPOINT_HOST|OVERLAY_PORT|OVERLAY_SUBNET|OVERLAY_DEFAULT_MODE)
+      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION|WEB_FQDN|WEB_HTTPS_PORT)
         if [[ -z "${!env_key+x}" ]]; then
           printf -v "${env_key}" '%s' "${env_value}"
         fi
@@ -60,17 +59,9 @@ MPP_SSH_SOURCE_CIDR="${MPP_SSH_SOURCE_CIDR:-${NATS_HOST_IP}/32}"
 WEB_FQDN="${WEB_FQDN:-${NATS_FQDN}}"
 NATS_USERNAME="${NATS_USERNAME:-prtg-nats}"
 
-OVERLAY_PORT="${OVERLAY_PORT:-51820}"
-OVERLAY_SUBNET="${OVERLAY_SUBNET:-10.83.0.0/16}"
-OVERLAY_DEFAULT_MODE="${OVERLAY_DEFAULT_MODE:-auto}"
-# The compose profile is the on switch, so it is also the answer to "is the
-# overlay enabled here". Deriving it from the one place that starts the hub
-# keeps a second flag from disagreeing with reality.
-# shellcheck disable=SC2034  # read by the scripts that source this file
-case ",${COMPOSE_PROFILES:-}," in
-  *,overlay,*) OVERLAY_ENABLED="true" ;;
-  *) OVERLAY_ENABLED="false" ;;
-esac
+# The overlay's own settings are not here. They live in the runtime, because
+# the interface configures them and the API container has no .env to write -
+# see libexec/runtime-dir.sh and app/infrastructure/overlay.py.
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
@@ -140,66 +131,6 @@ validate_ssh_source_cidr() {
     [[ "${address}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] &&
       ((prefix >= 0 && prefix <= 32))
   fi
-}
-
-# --- Overlay ---------------------------------------------------------------
-#
-# Addresses are derived from OVERLAY_SUBNET rather than configured one by one:
-# the hub is the first host address, a peer is an index into the same range.
-# Two settings that could disagree about the same network would be one too
-# many.
-
-ipv4_to_integer() {
-  local address="$1"
-  local -a octet=()
-
-  IFS='.' read -r -a octet <<< "${address}"
-  [[ "${#octet[@]}" -eq 4 ]] || return 1
-  printf '%s' "$((octet[0] << 24 | octet[1] << 16 | octet[2] << 8 | octet[3]))"
-}
-
-integer_to_ipv4() {
-  local value="$1"
-
-  printf '%s.%s.%s.%s' \
-    "$(((value >> 24) & 255))" "$(((value >> 16) & 255))" \
-    "$(((value >> 8) & 255))" "$((value & 255))"
-}
-
-# Index 1 is the hub. A probe never gets index 0 - that is the network
-# address, and handing it out would be a peer nothing can route to.
-overlay_address_at() {
-  local index="$1"
-  local base=""
-  local prefix="${OVERLAY_SUBNET##*/}"
-
-  ((index >= 1)) || return 1
-  base="$(ipv4_to_integer "${OVERLAY_SUBNET%/*}")" || return 1
-  ((index < (1 << (32 - prefix)) - 1)) || return 1
-  integer_to_ipv4 "$((base + index))"
-}
-
-overlay_hub_address() {
-  overlay_address_at 1
-}
-
-validate_overlay_subnet() {
-  local subnet="$1"
-  local address="${subnet%/*}"
-  local prefix="${subnet##*/}"
-
-  [[ "${subnet}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || return 1
-  # Narrower than /30 leaves no room for the hub and a single peer, wider than
-  # /8 is a range nobody meant to hand to one installation.
-  ((prefix >= 8 && prefix <= 30)) || return 1
-  ipv4_to_integer "${address}" >/dev/null || return 1
-}
-
-validate_overlay_mode() {
-  case "$1" in
-    off|auto|on) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 credential_path() {

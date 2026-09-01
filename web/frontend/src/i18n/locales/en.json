@@ -870,7 +870,7 @@
       },
       "disabled": {
         "title": "The overlay is off for this installation",
-        "body": "It is enabled on the host, because it writes .env and starts a container with network privileges."
+        "body": "Nothing runs for it until an administrator turns it on. Probes are unaffected either way."
       },
       "hubDown": {
         "title": "The hub interface is not up",
@@ -888,6 +888,18 @@
         "confirm": "Add to the overlay",
         "allOn": "Every probe is on the overlay",
         "allOnHint": "Nothing left to add."
+      },
+      "enable": {
+        "action": "Turn the overlay on",
+        "title": "Turn the overlay on",
+        "body": "This starts the hub on this host and generates its key. Probes stay where they are until you add them.",
+        "endpointHint": "The address probes dial. It has to be reachable when the ordinary path is not, so on a site whose NATS address is internal, this is the public one. It cannot be the NATS address itself.",
+        "confirm": "Turn on"
+      },
+      "disable": {
+        "action": "Turn off",
+        "title": "Turn the overlay off",
+        "body": "The hub stops. Every probe keeps its address and its key and still reaches this installation the ordinary way. Probes left in mode \"on\" reach NATS only through a tunnel that is no longer there - put them back to \"auto\" first."
       }
     }
   },

@@ -50,6 +50,14 @@ UPDATER_RUNTIME_TARGET = "/srv/prtg-nats/runtime"
 # that a floating tag moved underneath it.
 UPDATER_IMAGE = "prtg-nats-updater:current"
 
+# The overlay hub, built by compose.yaml the same way and for the same reason.
+# Its container is created here rather than by compose: it needs NET_ADMIN in
+# the host network namespace, and nothing with that privilege should exist on
+# an installation that has not asked for an overlay.
+OVERLAY_IMAGE = "prtg-nats-overlay:current"
+OVERLAY_CONTAINER = "prtg-nats-overlay"
+OVERLAY_INTERFACE = "prtgnats0"
+
 # Containers to ask for the Compose labels, in order. The first one that
 # answers decides; every service of a project carries the same project labels,
 # so this is about which one exists rather than which one is right.
@@ -330,6 +338,86 @@ class DockerAdapter:
             response.raise_for_status()
             container_id: str = response.json()["Id"]
             return container_id
+
+    async def runtime_mountpoint(self) -> str:
+        """Where the runtime volume lives on the host.
+
+        Asked of the daemon rather than assumed, exactly as runtime-dir.sh does
+        on the shell side - it keeps this correct under a relocated data-root.
+        """
+        async with self._client() as client:
+            response = await client.get(f"/volumes/{RUNTIME_VOLUME}")
+            response.raise_for_status()
+            mountpoint: str = response.json()["Mountpoint"]
+            return mountpoint
+
+    async def create_overlay_hub(self) -> str:
+        """Create the WireGuard hub, and return its id.
+
+        Three things here are deliberate.
+
+        **NET_ADMIN in the host network namespace.** The interface has to exist
+        where the API opens its SSH connections to the probes and where the
+        published NATS port is; anywhere else and neither could see it. It is
+        also why nothing creates this container until an administrator enables
+        the overlay.
+
+        **Only the overlay directory, and read-only.** A bind of the volume's
+        own path rather than the volume itself: the hub reads its key and its
+        peer list, and must not be able to reach the CA key next door in
+        private/ - the same reason the interface certificate is not in certs/.
+
+        **No Compose labels.** Like the updater, this container is not part of
+        the project as far as ``up --remove-orphans`` is concerned, so a stack
+        update does not collect it.
+        """
+        overlay_dir = f"{await self.runtime_mountpoint()}/overlay"
+        async with self._client() as client:
+            response = await client.post(
+                "/containers/create",
+                params={"name": OVERLAY_CONTAINER},
+                json={
+                    "Image": OVERLAY_IMAGE,
+                    "Env": [f"OVERLAY_INTERFACE={OVERLAY_INTERFACE}"],
+                    "HostConfig": {
+                        "Binds": [f"{overlay_dir}:/etc/wireguard:ro"],
+                        "NetworkMode": "host",
+                        "CapAdd": ["NET_ADMIN"],
+                        "SecurityOpt": ["no-new-privileges:true"],
+                        "Tmpfs": {"/run": "rw,nosuid,size=8m"},
+                        # Survives a host reboot without anything having to
+                        # notice; the API reconciles it on startup either way.
+                        "RestartPolicy": {"Name": "unless-stopped"},
+                        "LogConfig": {
+                            "Type": "json-file",
+                            "Config": {"max-size": "10m", "max-file": "3"},
+                        },
+                    },
+                },
+            )
+            response.raise_for_status()
+            container_id: str = response.json()["Id"]
+            return container_id
+
+    async def overlay_hub_running(self) -> bool:
+        async with self._client() as client:
+            response = await client.get(f"/containers/{OVERLAY_CONTAINER}/json")
+            if response.status_code == 404:
+                return False
+            response.raise_for_status()
+            running: bool = response.json()["State"]["Running"]
+            return running
+
+    async def remove_overlay_hub(self) -> None:
+        """Stop and remove the hub. Absent is success - this is how "off" is
+        reached from any state, including one nobody expected."""
+        async with self._client() as client:
+            await client.post(
+                f"/containers/{OVERLAY_CONTAINER}/stop", params={"t": "10"}
+            )
+            await client.delete(
+                f"/containers/{OVERLAY_CONTAINER}", params={"force": "true"}
+            )
 
     async def start_container(self, container_id: str) -> None:
         async with self._client() as client:

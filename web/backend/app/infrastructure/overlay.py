@@ -10,6 +10,12 @@ put a probe on the overlay without a second register to keep in step
 The hub key lives in ``runtime/overlay/`` rather than ``runtime/private/``
 because the hub runs in a container that must not be able to read the CA key -
 the same reason the interface certificate is not in ``certs/``.
+
+Its settings live there too, and not in ``.env``. That file sits beside the
+checkout on the host, which the API container does not have - so anything kept
+there is something an administrator has to reach a shell for. The runtime is
+the source of truth for everything else about this installation (ADR 0002),
+and the API owns it, so the overlay's own switch belongs there as well.
 """
 
 from __future__ import annotations
@@ -30,7 +36,11 @@ from app.core.errors import (
     RuntimeStateError,
     ValidationFailedError,
 )
-from app.infrastructure.runtime_files import RuntimeFileStore, overlay_address_at
+from app.infrastructure.runtime_files import (
+    RuntimeFileStore,
+    overlay_address_at,
+    read_env_file,
+)
 
 INTERFACE = "prtgnats0"
 # A WireGuard key is 32 raw bytes; base64 makes that 44 characters with one
@@ -77,6 +87,38 @@ def validate_public_key(value: str) -> str:
     return value
 
 
+# Hostname or IPv4 address, no scheme and no port - the port is its own
+# setting. The same shape mpp_validate_nats_host accepts in the shell, so an
+# endpoint that works here works there.
+ENDPOINT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
+
+
+def validate_endpoint_host(value: str) -> str:
+    if not ENDPOINT_PATTERN.match(value):
+        raise ValidationFailedError(
+            params={"endpoint": value},
+            details="not a usable endpoint address",
+        )
+    return value
+
+
+def validate_subnet(value: str) -> str:
+    """Narrower than /30 leaves no room for a hub and one peer; wider than /8
+    is a range nobody meant to hand to one installation."""
+    try:
+        network = ipaddress.IPv4Network(value, strict=False)
+    except ValueError as error:
+        raise ValidationFailedError(
+            params={"subnet": value}, details=f"invalid overlay subnet: {error}"
+        ) from error
+    if not 8 <= network.prefixlen <= 30:
+        raise ValidationFailedError(
+            params={"subnet": value},
+            details="an overlay subnet has to be between /8 and /30",
+        )
+    return str(network)
+
+
 def validate_mode(value: str) -> str:
     if value not in MODES:
         raise ValidationFailedError(
@@ -84,6 +126,38 @@ def validate_mode(value: str) -> str:
             details="unknown overlay mode",
         )
     return value
+
+
+DEFAULT_SUBNET = "10.83.0.0/16"
+DEFAULT_PORT = 51820
+DEFAULT_MODE = "auto"
+
+
+@dataclass(frozen=True, slots=True)
+class OverlaySettings:
+    """What this installation's overlay is, as the runtime records it."""
+
+    enabled: bool = False
+    # Where a probe dials the hub. Its own setting rather than NATS_FQDN,
+    # because it has to be reachable exactly when NATS_FQDN is not: on a site
+    # whose NATS address is internal, this is the public one.
+    endpoint_host: str | None = None
+    port: int = DEFAULT_PORT
+    subnet: str = DEFAULT_SUBNET
+    default_mode: str = DEFAULT_MODE
+
+    @property
+    def hub_address(self) -> str:
+        """The first host address of the subnet. Derived, never configured -
+        a hub address that could disagree with its subnet would be one
+        setting too many."""
+        return overlay_address_at(self.subnet, 1)
+
+    @property
+    def endpoint(self) -> str | None:
+        if not self.endpoint_host:
+            return None
+        return f"{self.endpoint_host}:{self.port}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,14 +170,30 @@ class OverlayPeer:
 
 @dataclass(frozen=True, slots=True)
 class OverlayStatus:
-    enabled: bool
-    endpoint: str | None
-    subnet: str
-    hub_address: str
+    settings: OverlaySettings
     hub_public_key: str | None
-    default_mode: str
     peers: tuple[OverlayPeer, ...]
     interface_up: bool
+
+    @property
+    def enabled(self) -> bool:
+        return self.settings.enabled
+
+    @property
+    def endpoint(self) -> str | None:
+        return self.settings.endpoint
+
+    @property
+    def subnet(self) -> str:
+        return self.settings.subnet
+
+    @property
+    def hub_address(self) -> str:
+        return self.settings.hub_address
+
+    @property
+    def default_mode(self) -> str:
+        return self.settings.default_mode
 
 
 class OverlayRuntime:
@@ -128,6 +218,39 @@ class OverlayRuntime:
     @property
     def config_path(self) -> Path:
         return self.directory / f"{INTERFACE}.conf"
+
+    @property
+    def settings_path(self) -> Path:
+        return self.directory / "settings"
+
+    # --- Settings -----------------------------------------------------------
+
+    def settings(self) -> OverlaySettings:
+        """What the runtime says the overlay is. Absent file means off."""
+        values = read_env_file(self.settings_path)
+        return OverlaySettings(
+            enabled=values.get("ENABLED") == "true",
+            endpoint_host=values.get("ENDPOINT_HOST") or None,
+            port=_port(values.get("PORT")),
+            subnet=values.get("SUBNET") or DEFAULT_SUBNET,
+            default_mode=values.get("DEFAULT_MODE") or DEFAULT_MODE,
+        )
+
+    def write_settings(self, settings: OverlaySettings) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.directory.chmod(0o700)
+        content = (
+            "# Written by prtg-nats. Change it through the interface or\n"
+            "# ./prtg-nats overlay enable.\n"
+            f"ENABLED={'true' if settings.enabled else 'false'}\n"
+            f"ENDPOINT_HOST={settings.endpoint_host or ''}\n"
+            f"PORT={settings.port}\n"
+            f"SUBNET={settings.subnet}\n"
+            f"DEFAULT_MODE={settings.default_mode}\n"
+        )
+        self.settings_path.touch(mode=0o600, exist_ok=True)
+        self.settings_path.chmod(0o600)
+        self.settings_path.write_text(content, encoding="utf-8")
 
     # --- Hub key ------------------------------------------------------------
 
@@ -190,15 +313,15 @@ class OverlayRuntime:
         invitations open at once would be promised the same address, and the
         second probe to report in would take the first one's tunnel down.
         """
-        site = self._runtime.site_settings()
+        settings = self.settings()
         taken = {peer.address for peer in self.peers()} | set(reserved)
-        network = ipaddress.IPv4Network(site.overlay_subnet, strict=False)
+        network = ipaddress.IPv4Network(settings.subnet, strict=False)
         for index in range(FIRST_PEER_INDEX, network.num_addresses - 1):
-            candidate = overlay_address_at(site.overlay_subnet, index)
+            candidate = overlay_address_at(settings.subnet, index)
             if candidate not in taken:
                 return candidate
         raise ConflictError(
-            params={"subnet": site.overlay_subnet},
+            params={"subnet": settings.subnet},
             details="no free address left in the overlay subnet",
         )
 
@@ -211,15 +334,15 @@ class OverlayRuntime:
         probe's side, and re-adding the peer when it comes back would mean the
         hub forgetting an address it has already handed out.
         """
-        site = self._runtime.site_settings()
+        settings = self.settings()
         private_key = self.hub_key_path.read_text(encoding="utf-8").strip()
-        prefix = ipaddress.IPv4Network(site.overlay_subnet, strict=False).prefixlen
+        prefix = ipaddress.IPv4Network(settings.subnet, strict=False).prefixlen
         lines = [
             "# Generated by prtg-nats from the probe inventory. Do not edit:",
             "# every change here is lost the next time a probe is added.",
             "[Interface]",
-            f"Address = {site.overlay_hub_address}/{prefix}",
-            f"ListenPort = {site.overlay_port}",
+            f"Address = {settings.hub_address}/{prefix}",
+            f"ListenPort = {settings.port}",
             f"PrivateKey = {private_key}",
         ]
         for peer in self.peers():
@@ -265,21 +388,16 @@ class OverlayRuntime:
         return result.returncode == 0
 
     def status(self) -> OverlayStatus:
-        site = self._runtime.site_settings()
         return OverlayStatus(
-            enabled=site.overlay_enabled,
-            endpoint=site.overlay_endpoint,
-            subnet=site.overlay_subnet,
-            hub_address=site.overlay_hub_address,
+            settings=self.settings(),
             hub_public_key=self.hub_public_key() if self.has_hub_key() else None,
-            default_mode=site.overlay_default_mode,
             peers=self.peers(),
             interface_up=self.interface_up(),
         )
 
     # --- Guards -------------------------------------------------------------
 
-    def check_endpoint_collision(self) -> None:
+    def check_endpoint_collision(self, endpoint_host: str | None = None) -> None:
         """Refuse an endpoint that is the NATS address itself.
 
         Routing NATS_HOST_IP through the tunnel would then route the tunnel's
@@ -288,12 +406,13 @@ class OverlayRuntime:
         when a site-to-site tunnel drops.
         """
         site = self._runtime.site_settings()
-        if not site.overlay_endpoint_host or not site.nats_host_ip:
+        endpoint_host = endpoint_host or self.settings().endpoint_host
+        if not endpoint_host or not site.nats_host_ip:
             return
-        if site.overlay_endpoint_host == site.nats_host_ip:
+        if endpoint_host == site.nats_host_ip:
             raise ValidationFailedError(
                 params={
-                    "endpoint": site.overlay_endpoint_host,
+                    "endpoint": endpoint_host,
                     "nats_host_ip": site.nats_host_ip,
                 },
                 details=(
@@ -305,3 +424,11 @@ class OverlayRuntime:
 
 def _address_key(address: str) -> int:
     return int(ipaddress.IPv4Address(address))
+
+
+def _port(value: str | None) -> int:
+    """A port, or the default. A settings file somebody edited by hand is not
+    a reason for the hub to refuse to start."""
+    if value and value.isdigit() and 1 <= int(value) <= 65535:
+        return int(value)
+    return DEFAULT_PORT

@@ -870,7 +870,7 @@
       },
       "disabled": {
         "title": "Das Overlay ist für diese Installation aus",
-        "body": "Eingeschaltet wird es auf dem Host, weil dabei .env geschrieben und ein Container mit Netzwerkrechten gestartet wird."
+        "body": "Bis ein Administrator es einschaltet, läuft dafür nichts. Die Probes sind in beiden Fällen unberührt."
       },
       "hubDown": {
         "title": "Das Hub-Interface ist nicht oben",
@@ -888,6 +888,18 @@
         "confirm": "Ins Overlay aufnehmen",
         "allOn": "Alle Probes sind im Overlay",
         "allOnHint": "Es ist nichts mehr hinzuzufügen."
+      },
+      "enable": {
+        "action": "Overlay einschalten",
+        "title": "Overlay einschalten",
+        "body": "Startet den Hub auf diesem Host und erzeugt seinen Schlüssel. Die Probes bleiben, wo sie sind, bis du sie hinzufügst.",
+        "endpointHint": "Die Adresse, die die Probes anwählen. Sie muss erreichbar sein, wenn der gewöhnliche Weg es nicht ist — auf einem Standort mit interner NATS-Adresse also die öffentliche. Die NATS-Adresse selbst ist nicht zulässig.",
+        "confirm": "Einschalten"
+      },
+      "disable": {
+        "action": "Ausschalten",
+        "title": "Overlay ausschalten",
+        "body": "Der Hub wird gestoppt. Jede Probe behält Adresse und Schlüssel und erreicht diese Installation weiterhin auf dem gewöhnlichen Weg. Probes im Modus „an“ erreichen NATS dann nur noch über einen Tunnel, den es nicht mehr gibt — stell sie vorher auf „auto“."
       }
     }
   },

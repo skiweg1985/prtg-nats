@@ -15,6 +15,7 @@ from app.core.errors import ConflictError, ValidationFailedError
 from app.infrastructure.overlay import (
     FIRST_PEER_INDEX,
     OverlayRuntime,
+    OverlaySettings,
     generate_keypair,
     public_key_for,
     validate_mode,
@@ -24,20 +25,27 @@ from app.infrastructure.runtime_files import RuntimeFileStore, overlay_address_a
 from tests.conftest import write_probe_inventory
 
 
-def _enable(project_dir, **overrides: str) -> None:
-    values = {
-        "NATS_FQDN": "nats.example.test",
-        "NATS_HOST_IP": "192.0.2.10",
-        "NATS_PORT": "23561",
-        "COMPOSE_PROFILES": "overlay",
-        "OVERLAY_ENDPOINT_HOST": "nats.example.test",
-        "OVERLAY_SUBNET": "10.83.0.0/16",
-        "OVERLAY_DEFAULT_MODE": "auto",
+def _enable(project_dir, settings=None, **overrides: object) -> None:
+    """The site's own settings in .env, the overlay's in the runtime.
+
+    They are separate on purpose: .env sits beside the checkout on the host,
+    which the API container does not have, so anything kept there is something
+    an administrator has to reach a shell for.
+    """
+    (project_dir / ".env").write_text(
+        "NATS_FQDN=nats.example.test\nNATS_HOST_IP=192.0.2.10\nNATS_PORT=23561\n",
+        encoding="utf-8",
+    )
+    if settings is None:
+        return
+    values: dict[str, object] = {
+        "enabled": True,
+        "endpoint_host": "nats.example.test",
+        "subnet": "10.83.0.0/16",
+        "default_mode": "auto",
     }
     values.update(overrides)
-    (project_dir / ".env").write_text(
-        "".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8"
-    )
+    OverlayRuntime(settings).write_settings(OverlaySettings(**values))  # type: ignore[arg-type]
 
 
 def test_the_hub_is_the_first_address_of_whatever_subnet_is_configured() -> None:
@@ -74,7 +82,7 @@ def test_only_the_three_modes_are_modes() -> None:
 def test_allocation_skips_addresses_already_handed_out(
     settings: Settings, project_dir
 ) -> None:
-    _enable(project_dir)
+    _enable(project_dir, settings)
     overlay = OverlayRuntime(settings)
     runtime = RuntimeFileStore(settings)
 
@@ -96,7 +104,7 @@ def test_a_freed_address_is_reused_rather_than_the_range_growing(
 ) -> None:
     """An installation that adds and retires probes for years should not run
     out of a /16 because of it."""
-    _enable(project_dir)
+    _enable(project_dir, settings)
     overlay = OverlayRuntime(settings)
     runtime = RuntimeFileStore(settings)
     _, public = generate_keypair()
@@ -119,7 +127,7 @@ def test_a_freed_address_is_reused_rather_than_the_range_growing(
 def test_the_rendered_hub_carries_one_peer_per_probe(
     settings: Settings, project_dir
 ) -> None:
-    _enable(project_dir)
+    _enable(project_dir, settings)
     overlay = OverlayRuntime(settings)
     runtime = RuntimeFileStore(settings)
     overlay.ensure_hub_key()
@@ -147,7 +155,7 @@ def test_a_probe_switched_off_keeps_its_peer_block(
 ) -> None:
     """Its tunnel is down on the probe's side. Dropping the peer here would
     mean the hub forgetting an address it has already handed out."""
-    _enable(project_dir)
+    _enable(project_dir, settings)
     overlay = OverlayRuntime(settings)
     runtime = RuntimeFileStore(settings)
     overlay.ensure_hub_key()
@@ -161,7 +169,7 @@ def test_a_probe_switched_off_keeps_its_peer_block(
 
 
 def test_the_hub_key_is_generated_once(settings: Settings, project_dir) -> None:
-    _enable(project_dir)
+    _enable(project_dir, settings)
     overlay = OverlayRuntime(settings)
     first = overlay.ensure_hub_key()
     assert overlay.ensure_hub_key() == first
@@ -173,7 +181,7 @@ def test_an_endpoint_that_is_the_nats_address_is_refused(
 ) -> None:
     """Routing NATS_HOST_IP through a tunnel whose endpoint is that address
     would put the tunnel inside itself, and the probe loses both paths."""
-    _enable(project_dir, OVERLAY_ENDPOINT_HOST="192.0.2.10")
+    _enable(project_dir, settings, endpoint_host="192.0.2.10")
     with pytest.raises(ValidationFailedError):
         OverlayRuntime(settings).check_endpoint_collision()
 
@@ -181,7 +189,7 @@ def test_an_endpoint_that_is_the_nats_address_is_refused(
 def test_a_full_subnet_is_a_conflict_not_a_crash(
     settings: Settings, project_dir
 ) -> None:
-    _enable(project_dir, OVERLAY_SUBNET="10.83.0.0/30")
+    _enable(project_dir, settings, subnet="10.83.0.0/30")
     overlay = OverlayRuntime(settings)
     with pytest.raises(ConflictError):
         overlay.allocate_address()
@@ -192,7 +200,7 @@ def test_the_inventory_keeps_the_peer_through_a_reconfiguration(
 ) -> None:
     """write_probe_inventory rewrites the whole file. Losing the key here
     would strand a probe behind its own tunnel."""
-    _enable(project_dir)
+    _enable(project_dir, settings)
     runtime = RuntimeFileStore(settings)
     _, public = generate_keypair()
 
@@ -218,7 +226,7 @@ def test_the_inventory_keeps_the_peer_through_a_reconfiguration(
 def test_the_overlay_address_is_dialled_first_but_never_alone(
     settings: Settings, project_dir
 ) -> None:
-    _enable(project_dir)
+    _enable(project_dir, settings)
     runtime = RuntimeFileStore(settings)
     _, public = generate_keypair()
     write_probe_inventory(project_dir, "mpp-berlin", host="berlin.example.test")

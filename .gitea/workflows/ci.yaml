@@ -115,17 +115,10 @@ jobs:
           docker compose --project-directory . config --quiet
           echo "The Compose configuration is valid."
 
-          # The overlay hub is behind a profile, so the default rendering does
-          # not contain it. Both have to be valid: the installations that use
-          # it and the ones that do not.
-          docker compose --project-directory . --profile overlay config --quiet
-          echo "The Compose configuration with the overlay profile is valid."
-
           # Who may see which part of the runtime volume. Parsed rather than
           # grepped: a pattern that silently stops matching is a check that
-          # passes while checking nothing. Rendered with the profile so the
-          # audit sees the overlay hub at all.
-          docker compose --project-directory . --profile overlay config --format json > /tmp/compose.json
+          # passes while checking nothing.
+          docker compose --project-directory . config --format json > /tmp/compose.json
           python3 - /tmp/compose.json <<'PY'
           import json, sys
 
@@ -172,21 +165,18 @@ jobs:
                   if subpath == "web-certs":
                       failures.append(f"{name} can read the interface private key")
 
-          # The overlay hub's private key is its own secret, and the hub is the
-          # only thing that needs it. It runs with NET_ADMIN, so the reverse
-          # matters just as much: it may see the overlay subpath and nothing
-          # else of the runtime.
+          # The overlay hub's key is its own secret, and no service defined
+          # here has any business reading it. The hub itself is not one: it
+          # needs NET_ADMIN in the host network namespace, so it is created
+          # through the Docker API when an administrator enables the overlay,
+          # and this file only builds its image. A service that grew a mount
+          # of that directory would be a privilege nobody asked for.
           for name in services:
               for source, subpath, _, _ in mounts(name):
-                  if subpath == "overlay" and name != "overlay":
+                  if subpath == "overlay":
                       failures.append(f"{name} can read the overlay hub key")
-          overlay_subpaths = {
-              sub for src, sub, _, _ in mounts("overlay") if src == "runtime"
-          }
-          if overlay_subpaths != {"overlay"}:
-              failures.append(
-                  f"overlay should mount exactly overlay/, got {overlay_subpaths}"
-              )
+          if services.get("overlay", {}).get("volumes"):
+              failures.append("the overlay build service should mount nothing")
 
           if failures:
               print("\n".join(failures))

@@ -4,10 +4,12 @@ One implementation for both surfaces: the job handlers wrap these calls with
 steps and a log, and ``python -m app.ops overlay`` calls them directly, so the
 command line and the interface cannot drift into doing it differently.
 
-Enabling the overlay itself is not here. That writes ``.env`` on the host, and
-this container has the runtime volume and the Docker socket but no checkout -
-``prtg-nats overlay enable`` does it and then calls in here to generate the
-key and render the configuration.
+Enabling it is here too. The settings live in the runtime, which this
+container owns, and the hub is created through the Docker socket the way the
+updater is - so turning the overlay on is a button rather than a shell
+session on the host. It stays administrator-only for the reason the stack
+update is: whoever presses it decides that a container with network-admin
+rights runs on this host.
 """
 
 from __future__ import annotations
@@ -24,11 +26,15 @@ from app.core.errors import (
 )
 from app.core.logging import get_logger
 from app.infrastructure import known_hosts
+from app.infrastructure.docker import OVERLAY_IMAGE, DockerAdapter
 from app.infrastructure.overlay import (
     OverlayRuntime,
+    OverlaySettings,
     OverlayStatus,
+    validate_endpoint_host,
     validate_mode,
     validate_public_key,
+    validate_subnet,
 )
 from app.infrastructure.probe_helper import ProbeConnection, ProbeHelperClient
 from app.infrastructure.probe_helper.protocol import OVERLAY_HELPER_VERSION
@@ -73,9 +79,11 @@ class OverlayService:
         self,
         settings: Settings,
         helper: ProbeHelperClient,
+        docker: DockerAdapter | None = None,
     ) -> None:
         self._settings = settings
         self._helper = helper
+        self._docker = docker
         self._runtime = RuntimeFileStore(settings)
         self._overlay = OverlayRuntime(settings)
 
@@ -87,6 +95,95 @@ class OverlayService:
         public_key = self._overlay.ensure_hub_key()
         self._overlay.write_hub_config()
         return public_key
+
+    async def enable(
+        self,
+        *,
+        endpoint_host: str,
+        subnet: str | None = None,
+        default_mode: str | None = None,
+        port: int | None = None,
+    ) -> OverlayStatus:
+        """Turn the overlay on: settings, key, configuration, hub.
+
+        Validated before anything is written. An endpoint that is the NATS
+        address is the one mistake with no way back from the far side, so it
+        is refused here rather than discovered when a site's tunnel drops.
+        """
+        current = self._overlay.settings()
+        self._overlay.check_endpoint_collision(endpoint_host)
+        wanted = OverlaySettings(
+            enabled=True,
+            endpoint_host=validate_endpoint_host(endpoint_host),
+            port=port or current.port,
+            subnet=validate_subnet(subnet or current.subnet),
+            default_mode=validate_mode(default_mode or current.default_mode),
+        )
+        if self._overlay.peers() and wanted.subnet != current.subnet:
+            raise ConflictError(
+                params={"subnet": wanted.subnet},
+                details=(
+                    "probes already hold addresses from the current range; "
+                    "take them off the overlay before changing it"
+                ),
+            )
+        self._overlay.write_settings(wanted)
+        self.initialise()
+        await self.reconcile_hub()
+        return self._overlay.status()
+
+    async def disable(self) -> OverlayStatus:
+        """Stop the hub and record that it is off.
+
+        The peers keep their addresses and their keys. Turning the overlay off
+        is not the same as retiring every probe from it, and turning it back on
+        should not mean visiting each one again.
+        """
+        settings = self._overlay.settings()
+        self._overlay.write_settings(
+            OverlaySettings(
+                enabled=False,
+                endpoint_host=settings.endpoint_host,
+                port=settings.port,
+                subnet=settings.subnet,
+                default_mode=settings.default_mode,
+            )
+        )
+        await self.reconcile_hub()
+        return self._overlay.status()
+
+    async def reconcile_hub(self) -> None:
+        """Make the running hub agree with the settings.
+
+        Called on every enable and disable, and once when the API starts - a
+        host that rebooted, or a stack update that took the container with it,
+        should not need anybody to notice.
+        """
+        if self._docker is None or not self._docker.available:
+            return
+        wanted = self._overlay.settings().enabled
+        running = await self._docker.overlay_hub_running()
+        if wanted == running:
+            return
+        if not wanted:
+            await self._docker.remove_overlay_hub()
+            logger.info("overlay hub stopped")
+            return
+        if not await self._docker.image_exists(OVERLAY_IMAGE):
+            raise RuntimeStateError(
+                params={"image": OVERLAY_IMAGE},
+                details=(
+                    "the overlay image has not been built; update the stack "
+                    "once so compose builds it"
+                ),
+            )
+        # Remove first: a container that exists but is not running carries the
+        # configuration it was created with, and the runtime path may have
+        # moved since.
+        await self._docker.remove_overlay_hub()
+        container_id = await self._docker.create_overlay_hub()
+        await self._docker.start_container(container_id)
+        logger.info("overlay hub started", extra={"container": container_id})
 
     def status(self) -> OverlayStatus:
         return self._overlay.status()
@@ -101,12 +198,13 @@ class OverlayService:
         its own key, so the platform cannot know it before it has asked.
         """
         site = self._runtime.site_settings()
-        mode = validate_mode(mode or site.overlay_default_mode)
-        if not site.overlay_enabled:
+        settings = self._overlay.settings()
+        mode = validate_mode(mode or settings.default_mode)
+        if not settings.enabled:
             raise RuntimeStateError(
-                details="the overlay is not enabled; run 'prtg-nats overlay enable'"
+                details="the overlay is not enabled for this installation"
             )
-        endpoint = site.overlay_endpoint
+        endpoint = settings.endpoint
         if not endpoint:
             raise RuntimeStateError(details="OVERLAY_ENDPOINT_HOST is not configured")
         if not site.nats_host_ip:
@@ -123,7 +221,7 @@ class OverlayService:
             hub_public_key=self.initialise(),
             endpoint=endpoint,
             address=address,
-            subnet=site.overlay_subnet,
+            subnet=settings.subnet,
             nats_host_ip=site.nats_host_ip,
             nats_port=site.nats_port,
         )
@@ -160,7 +258,8 @@ class OverlayService:
                 details="this probe is not on the overlay",
             )
         site = self._runtime.site_settings()
-        endpoint = site.overlay_endpoint
+        settings = self._overlay.settings()
+        endpoint = settings.endpoint
         if not endpoint or not site.nats_host_ip:
             raise RuntimeStateError(details="the overlay is not fully configured")
 
@@ -174,7 +273,7 @@ class OverlayService:
             hub_public_key=self._overlay.hub_public_key(),
             endpoint=endpoint,
             address=inventory.overlay_address or "",
-            subnet=site.overlay_subnet,
+            subnet=settings.subnet,
             nats_host_ip=site.nats_host_ip,
             nats_port=site.nats_port,
         )
@@ -302,7 +401,7 @@ class OverlayService:
             for source in (site.ssh_source_cidr or "").split(",")
             if source.strip()
         ]
-        hub = f"{site.overlay_hub_address}/32"
+        hub = f"{self._overlay.settings().hub_address}/32"
         if hub not in sources:
             sources.append(hub)
         inventory = self._runtime.read_probe(username)

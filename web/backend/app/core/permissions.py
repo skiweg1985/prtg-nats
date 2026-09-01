@@ -39,6 +39,11 @@ class Permission(StrEnum):
 
     OVERLAY_READ = "overlay.read"
     OVERLAY_MANAGE = "overlay.manage"
+    # Turning the overlay on for this installation. Administrator only, and
+    # not part of OPERATOR_PERMISSIONS, for the same reason system.update is
+    # not: whoever presses it decides that a container with network-admin
+    # rights runs in this host's network namespace.
+    OVERLAY_ENABLE = "overlay.enable"
 
     SYSTEM_READ = "system.read"
     SYSTEM_RESTART = "system.restart"

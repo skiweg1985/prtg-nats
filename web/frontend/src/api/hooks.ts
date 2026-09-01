@@ -462,6 +462,34 @@ export function useOverlay() {
  * tunnel is the realistic operation, and doing it one detail page at a time is
  * how half a site ends up in a different mode than the rest of it.
  */
+/**
+ * Turning the overlay on and off.
+ *
+ * Synchronous rather than a job: it is a settings form, and its mistakes - an
+ * endpoint that is the NATS address, a subnet probes already hold addresses
+ * from - are worth refusing in front of the person typing.
+ */
+export function useOverlayEnable() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: {
+      endpoint_host: string
+      port?: number
+      subnet?: string
+      default_mode?: OverlayMode
+    }) => api.post<Overlay>('/overlay/enable', request),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
+export function useOverlayDisable() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<Overlay>('/overlay/disable', {}),
+    onSuccess: () => invalidateOverlay(client),
+  })
+}
+
 export function useOverlayAttach() {
   const client = useQueryClient()
   return useMutation({

@@ -125,10 +125,10 @@ class EnrollmentService:
         the other way, so its tunnel has to be configurable from the script it
         was handed.
         """
-        site = self._runtime.site_settings()
-        if not site.overlay_enabled or not site.overlay_endpoint:
-            return {}
         overlay = OverlayRuntime(self._settings)
+        settings = overlay.settings()
+        if not settings.enabled or not settings.endpoint:
+            return {}
         overlay.check_endpoint_collision()
         reserved = [
             record.payload["overlay_address"]
@@ -137,7 +137,7 @@ class EnrollmentService:
         ]
         return {
             "overlay_address": overlay.allocate_address(reserved),
-            "overlay_mode": site.overlay_default_mode,
+            "overlay_mode": settings.default_mode,
         }
 
     async def list_open(self, kind: str) -> list[EnrollmentToken]:
@@ -339,9 +339,11 @@ class EnrollmentService:
         Everything except the probe's own key, which the probe generates and
         reports back - the private half has no reason to exist here.
         """
+        overlay = OverlayRuntime(self._settings)
+        settings = overlay.settings()
         address = record.payload.get("overlay_address")
-        endpoint = site.overlay_endpoint
-        if not site.overlay_enabled or not address or not endpoint:
+        endpoint = settings.endpoint
+        if not settings.enabled or not address or not endpoint:
             return {
                 "@@OVERLAY_ENABLED@@": "false",
                 "@@OVERLAY_MODE@@": "off",
@@ -351,29 +353,28 @@ class EnrollmentService:
                 "@@OVERLAY_HUB_KEY@@": "",
                 "@@OVERLAY_NATS_HOST_IP@@": "",
             }
-        overlay = OverlayRuntime(self._settings)
         return {
             "@@OVERLAY_ENABLED@@": "true",
             "@@OVERLAY_MODE@@": str(
-                record.payload.get("overlay_mode") or site.overlay_default_mode
+                record.payload.get("overlay_mode") or settings.default_mode
             ),
             "@@OVERLAY_ADDRESS@@": str(address),
-            "@@OVERLAY_SUBNET@@": site.overlay_subnet,
+            "@@OVERLAY_SUBNET@@": settings.subnet,
             "@@OVERLAY_ENDPOINT@@": endpoint,
             "@@OVERLAY_HUB_KEY@@": overlay.ensure_hub_key(),
             "@@OVERLAY_NATS_HOST_IP@@": site.nats_host_ip or "",
         }
 
-    @staticmethod
-    def _source_cidr_with_hub(source_cidr: str, site: SiteSettings) -> str:
+    def _source_cidr_with_hub(self, source_cidr: str, site: SiteSettings) -> str:
         """The from= list the probe's management key is written with.
 
         The hub address is added, never substituted: a probe whose tunnel
         breaks has to stay reachable the way it would have been without one.
         """
-        if not site.overlay_enabled:
+        settings = OverlayRuntime(self._settings).settings()
+        if not settings.enabled:
             return source_cidr
-        hub = f"{site.overlay_hub_address}/32"
+        hub = f"{settings.hub_address}/32"
         sources = [part.strip() for part in source_cidr.split(",") if part.strip()]
         if hub not in sources:
             sources.append(hub)

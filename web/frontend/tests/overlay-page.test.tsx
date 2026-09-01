@@ -20,6 +20,8 @@ import { changeLanguage } from '@/i18n'
 
 let enabled = true
 let modeRequests: unknown[] = []
+let enableRequests: unknown[] = []
+let permissions = ['overlay.read', 'overlay.manage', 'overlay.enable', 'probe.read']
 
 const PEERS = [
   {
@@ -56,7 +58,7 @@ const server = setupServer(
         username: 'admin',
         display_name: 'admin',
         roles: ['administrator'],
-        permissions: ['overlay.read', 'overlay.manage', 'probe.read'],
+        permissions,
         locale: 'en',
         is_development: false,
         must_change_password: false,
@@ -67,6 +69,8 @@ const server = setupServer(
     HttpResponse.json({
       enabled,
       endpoint: 'nats.example.test:51820',
+      endpoint_host: 'nats.example.test',
+      port: 51820,
       subnet: '10.83.0.0/16',
       hub_address: '10.83.0.1',
       hub_public_key: 'D'.repeat(43) + '=',
@@ -100,6 +104,10 @@ const server = setupServer(
       })),
     ),
   ),
+  http.post('/api/v1/overlay/enable', async ({ request }) => {
+    enableRequests.push(await request.json())
+    return HttpResponse.json({ enabled: true })
+  }),
   http.post('/api/v1/overlay/peers/mode', async ({ request }) => {
     modeRequests.push(await request.json())
     return HttpResponse.json(
@@ -114,6 +122,8 @@ afterEach(() => {
   server.resetHandlers()
   enabled = true
   modeRequests = []
+  enableRequests = []
+  permissions = ['overlay.read', 'overlay.manage', 'overlay.enable', 'probe.read']
 })
 afterAll(() => server.close())
 
@@ -143,15 +153,35 @@ describe('the overlay page', () => {
     expect(table.getByText('No handshake')).toBeInTheDocument()
   })
 
-  it('says the overlay is off rather than showing an empty hub', async () => {
+  it('offers to turn the overlay on rather than naming a shell command', async () => {
     await changeLanguage('en')
+    const user = userEvent.setup()
     enabled = false
     wrap()
 
     expect(
       await screen.findByText(/overlay is off for this installation/i),
     ).toBeInTheDocument()
-    expect(screen.getByText('sudo ./prtg-nats overlay enable')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Turn the overlay on' }))
+    await user.type(screen.getByPlaceholderText('nats.example.com'), 'vpn.example.com')
+    await user.click(screen.getByRole('button', { name: 'Turn on' }))
+
+    expect(enableRequests).toEqual([{ endpoint_host: 'vpn.example.com' }])
+  })
+
+  it('hides the switch from anyone who may not press it', async () => {
+    await changeLanguage('en')
+    enabled = false
+    permissions = ['overlay.read', 'overlay.manage', 'probe.read']
+    wrap()
+
+    expect(
+      await screen.findByText(/overlay is off for this installation/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Turn the overlay on' }),
+    ).not.toBeInTheDocument()
   })
 
   it('warns before switching a probe off, because that is the way back out', async () => {
