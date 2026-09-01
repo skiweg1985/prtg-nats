@@ -8,7 +8,6 @@
     "menu": "Menü",
     "probes": "Probes",
     "sensors": "Sensoren",
-    "deployments": "Rollouts",
     "jobs": "Jobs",
     "infrastructure": "Infrastruktur",
     "nats": "NATS",
@@ -337,7 +336,16 @@
       "alreadyMarked": "Als in PRTG eingetragen markiert."
     },
     "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "atAGlance": {
+      "title": "Konfiguration im Überblick",
+      "sensors": "Sensoren",
+      "sensorsValue_one": "{{count}} ausgerollt",
+      "sensorsValue_other": "{{count}} ausgerollt",
+      "endpoints": "Messpunkte",
+      "none": "keine",
+      "manage": "Verwalten →"
+    }
   },
   "sensors": {
     "title": "Sensoren",
@@ -409,7 +417,6 @@
     }
   },
   "deployments": {
-    "title": "Rollouts",
     "subtitle": "Sensor-Rollouts und ihr Ergebnis je Probe",
     "empty": "Es wurde noch nichts ausgerollt.",
     "noTargets": "Für diesen Rollout ist kein Ziel erfasst.",
@@ -445,7 +452,9 @@
     "empty": "Es wurde noch kein Job ausgeführt.",
     "filters": {
       "running": "Nur laufende",
-      "failed": "Nur gescheiterte"
+      "failed": "Nur gescheiterte",
+      "rollouts": "Rollouts",
+      "all": "Alle Jobs"
     },
     "emptyFiltered": "Kein Job passt zu diesem Filter.",
     "columns": {

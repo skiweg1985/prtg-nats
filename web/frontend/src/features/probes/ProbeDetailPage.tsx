@@ -400,7 +400,15 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
         <Card title={t('probes.identity')}>
           <dl>
             <DetailRow label={t('probes.natsUser')}>
-              <Mono>{summary.nats_username}</Mono>
+              <span className="flex items-center gap-3">
+                <Mono>{summary.nats_username}</Mono>
+                <Link
+                  to="/infrastructure/credentials"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
             </DetailRow>
             <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
             <DetailRow label={t('probes.probeId')}>
@@ -481,6 +489,46 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             <ErrorDetails error={reveal.error} />
           </div>
         )}
+
+        {/* Where everything about this probe is managed. The probe is an
+            aggregate of things owned by other pages - variants on the sensor
+            page, endpoints on the iperf pages, the overlay on its own page -
+            and until now nothing said so. One row per aspect: the current
+            value, and the way to the page that changes it. */}
+        <Card title={t('probes.atAGlance.title')} className="lg:col-span-2">
+          <dl>
+            <DetailRow label={t('probes.atAGlance.sensors')}>
+              <span className="flex items-center gap-3">
+                <span>
+                  {t('probes.atAGlance.sensorsValue', {
+                    count: inventory.assigned_sensors.length,
+                  })}
+                </span>
+                <Link
+                  to="?tab=sensors"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
+            </DetailRow>
+            <DetailRow label={t('probes.atAGlance.endpoints')}>
+              <span className="flex items-center gap-3">
+                <span>
+                  {inventory.known_iperf_endpoints.length > 0
+                    ? inventory.known_iperf_endpoints.join(', ')
+                    : t('probes.atAGlance.none')}
+                </span>
+                <Link
+                  to="/infrastructure/iperf"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
+            </DetailRow>
+          </dl>
+        </Card>
       </div>
 
       {accessKey !== null && (
@@ -1271,6 +1319,12 @@ function OverlayRow({ username }: { username: string }) {
         <Badge tone={pathTone(peer.mode, state)}>
           {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
         </Badge>
+        <Link
+          to="/infrastructure/overlay"
+          className="text-accent text-xs hover:underline"
+        >
+          {t('probes.atAGlance.manage')}
+        </Link>
       </span>
     </DetailRow>
   )

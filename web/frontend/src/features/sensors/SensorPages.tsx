@@ -19,6 +19,7 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
   Select,
   Skeleton,
 } from '@/components/ui/primitives'
@@ -108,10 +109,7 @@ export function SensorListPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('sensors.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('sensors.subtitle')}</p>
-      </header>
+      <PageHeader title={t('sensors.title')} subtitle={t('sensors.subtitle')} />
 
       <DataTable
         rows={data}

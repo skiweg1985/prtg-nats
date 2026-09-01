@@ -17,6 +17,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Mono,
+  PageHeader,
   Skeleton,
 } from '@/components/ui/primitives'
 import { formatBytes, formatRelative, shortFingerprint } from '@/utils/format'
@@ -43,10 +44,7 @@ export function SystemPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('system.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('system.subtitle')}</p>
-      </header>
+      <PageHeader title={t('system.title')} subtitle={t('system.subtitle')} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card

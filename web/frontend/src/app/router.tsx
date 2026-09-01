@@ -11,7 +11,6 @@ import { SystemPage } from '@/features/infrastructure/SystemPage'
 import {
   AuditPage,
   CertificatesPage,
-  DeploymentListPage,
   NatsPage,
   NotFoundPage,
   SettingsPage,
@@ -43,7 +42,12 @@ export function AppRoutes() {
           <Route path="sensors" element={<SensorListPage />} />
           <Route path="sensors/:name" element={<SensorDetailPage />} />
 
-          <Route path="deployments" element={<DeploymentListPage />} />
+          {/* The rollout history lives on the jobs page now; old links
+              keep working. */}
+          <Route
+            path="deployments"
+            element={<Navigate to="/jobs?view=rollouts" replace />}
+          />
 
           <Route path="jobs" element={<JobListPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />

@@ -23,9 +23,11 @@ import {
   Card,
   DetailRow,
   Mono,
+  PageHeader,
   Skeleton,
 } from '@/components/ui/primitives'
 import { ProbeLink } from '@/components/ui/ProbeLink'
+import { RolloutsView } from '@/features/deployments/RolloutsView'
 import { JobStatusBadge } from '@/components/ui/status'
 import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
 
@@ -47,6 +49,9 @@ export function JobListPage() {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
   const status = asJobFilter(params.get('status'))
+  // The rollout history is a view on this page, not a page of its own: it is
+  // the same job history, plus the per-target outcome the plain list lacks.
+  const showRollouts = params.get('view') === 'rollouts'
   // Filtered by the server, not in the browser: the list is the last fifty
   // jobs, so filtering what arrived would search a window rather than the
   // history - and "no failures" would mean "none among the last fifty".
@@ -58,7 +63,28 @@ export function JobListPage() {
     setParams(next ? { status: next } : {}, { replace: true })
   }
 
+  function setView(rollouts: boolean) {
+    setParams(rollouts ? { view: 'rollouts' } : {}, { replace: true })
+  }
+
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
+
+  if (showRollouts) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title={t('jobs.title')} subtitle={t('jobs.subtitle')} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setView(false)}>
+            {t('jobs.filters.all')}
+          </Button>
+          <Button size="sm" variant="primary" aria-pressed>
+            {t('jobs.filters.rollouts')}
+          </Button>
+        </div>
+        <RolloutsView />
+      </div>
+    )
+  }
 
   const columns: Column<JobSummary>[] = [
     {
@@ -126,10 +152,7 @@ export function JobListPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('jobs.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('jobs.subtitle')}</p>
-      </header>
+      <PageHeader title={t('jobs.title')} subtitle={t('jobs.subtitle')} />
 
       <DataTable
         rows={data}
@@ -158,6 +181,14 @@ export function JobListPage() {
                 {t(`jobs.filters.${entry}`)}
               </Button>
             ))}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-pressed={false}
+              onClick={() => setView(true)}
+            >
+              {t('jobs.filters.rollouts')}
+            </Button>
           </div>
         }
       />

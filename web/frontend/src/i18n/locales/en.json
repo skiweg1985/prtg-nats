@@ -8,7 +8,6 @@
     "menu": "Menu",
     "probes": "Probes",
     "sensors": "Sensors",
-    "deployments": "Deployments",
     "jobs": "Jobs",
     "infrastructure": "Infrastructure",
     "nats": "NATS",
@@ -337,7 +336,16 @@
       "alreadyMarked": "Marked as registered in PRTG."
     },
     "accessKeyMarkDone": "Registered in PRTG - tick it off",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "atAGlance": {
+      "title": "Configuration at a glance",
+      "sensors": "Sensors",
+      "sensorsValue_one": "{{count}} deployed",
+      "sensorsValue_other": "{{count}} deployed",
+      "endpoints": "iperf endpoints",
+      "none": "none",
+      "manage": "Manage →"
+    }
   },
   "sensors": {
     "title": "Sensors",
@@ -409,7 +417,6 @@
     }
   },
   "deployments": {
-    "title": "Deployments",
     "subtitle": "Sensor rollouts and their outcome per probe",
     "empty": "No deployment has run yet.",
     "noTargets": "No target was recorded for this rollout.",
@@ -445,7 +452,9 @@
     "empty": "No job has run yet.",
     "filters": {
       "running": "Running only",
-      "failed": "Failed only"
+      "failed": "Failed only",
+      "rollouts": "Rollouts",
+      "all": "All jobs"
     },
     "emptyFiltered": "No job matches this filter.",
     "columns": {

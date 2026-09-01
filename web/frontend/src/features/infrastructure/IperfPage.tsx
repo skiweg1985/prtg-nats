@@ -25,6 +25,7 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
   Textarea,
 } from '@/components/ui/primitives'
 
@@ -149,12 +150,11 @@ export function IperfPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-3">
-          <h1 className="text-lg">{t('infrastructure.iperfTitle')}</h1>
-          <p className="text-ink-3 text-sm">{t('infrastructure.iperfSubtitle')}</p>
-        </div>
-        <PermissionGate permission="iperf.manage">
+      <PageHeader
+        title={t('infrastructure.iperfTitle')}
+        subtitle={t('infrastructure.iperfSubtitle')}
+        action={
+          <PermissionGate permission="iperf.manage">
           <span className="flex gap-2">
             <Button size="sm" onClick={() => setDialog('register')}>
               {t('infrastructure.iperf.register')}
@@ -169,7 +169,8 @@ export function IperfPage() {
             </Button>
           </span>
         </PermissionGate>
-      </header>
+        }
+      />
 
       <DataTable
         rows={data ?? []}

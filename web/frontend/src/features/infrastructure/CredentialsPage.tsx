@@ -21,6 +21,7 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
 } from '@/components/ui/primitives'
 import { CopyButton } from '@/components/ui/CopyBlock'
 
@@ -125,10 +126,7 @@ export function CredentialsPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('credentials.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('credentials.subtitle')}</p>
-      </header>
+      <PageHeader title={t('credentials.title')} subtitle={t('credentials.subtitle')} />
       {/* Probe accounts are managed by enrolment and retirement; saying so
           here keeps people from deleting one by hand and stranding a probe. */}
       <p className="text-ink-3 text-xs">{t('credentials.autoHint')}</p>
