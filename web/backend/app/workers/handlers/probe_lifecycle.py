@@ -135,7 +135,10 @@ async def run_config_transaction(
         probe_id=probe_id,
         access_key=access_key,
         probe_name=resolved_name,
-        nats_host=site.nats_fqdn,
+        # The probe's own answer first. An outpost enrolled over the tunnel
+        # has no name server that knows NATS_FQDN, so its inventory carries
+        # the address instead - see ProbeInventory.nats_host_override.
+        nats_host=inventory.nats_host_override or site.nats_fqdn,
         nats_port=site.nats_port,
         nats_user=username,
         nats_password=nats.read_password(username),

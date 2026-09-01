@@ -22,8 +22,14 @@ probe that cannot reach that address fails at the first `curl`.
 
 The overlay would solve it, and the bootstrap already builds a tunnel. But it
 builds it in step 3, after fetching the helper that configures it - so the
-tunnel arrives after the requests that needed it. Reordering the script alone
-does not help, because of a second knot:
+tunnel arrives after the requests that needed it.
+
+Reordering the script is not enough, and it is worth being precise about why.
+The one-liner *downloads* the script, and that download is itself the first
+request. A script that builds the tunnel cannot be fetched over the tunnel it
+builds. So the script has to arrive by another route entirely.
+
+There is a second knot behind that one:
 
 `OverlayRuntime.peers()` renders the hub from the probe inventory, and a probe
 gets an inventory entry when it reports in. The public key comes with the
@@ -53,6 +59,22 @@ An invitation can be marked as a tunnel enrolment. When it is:
   writes the real configuration. `ensure_overlay_key()` keeps a key it finds,
   so the helper adopts it rather than generating a second one
 - the callback turns the reservation into an ordinary inventory peer
+
+**The script is handed over, not fetched.** The interface returns the rendered
+script as a block to paste into a console on the probe rather than a one-liner
+that downloads it. It carries a digest of itself and refuses to run if the
+paste arrived truncated - half a root script that stops mid-heredoc is a worse
+outcome than one that will not start. It writes itself through `mktemp` under
+`umask 077` and removes the file afterwards, because that file holds the
+private key.
+
+**Everything in it is addressed by IP.** A site with no route to this platform
+has no name server that knows it either, so `NATS_FQDN` is a dead end there -
+with the tunnel up or not. `BASE_URL`, the installer's `--nats-host` and the
+probe's own configuration all use `NATS_HOST_IP`, which the server certificate
+carries as a SAN (`infrastructure/pki.py`). The name is the only thing given
+up; the verification is unchanged. The inventory records it as
+`NATS_HOST_OVERRIDE`, so a later reconfiguration does not put the name back.
 
 **No rotation afterwards.** Replacing the key would mean the hub entering the
 new peer while the probe still holds the old one - and the management channel

@@ -505,7 +505,19 @@ function CommandStep({
         <div className="space-y-3">
           <p className="text-ink-2 text-sm">{t('probes.enroll.step2.intro')}</p>
 
-          <CopyBlock value={invitation.command} label={t('probes.enroll.step2.copy')} />
+          <CopyBlock
+            value={invitation.command}
+            label={
+              invitation.carries_secret
+                ? t('probes.enroll.step2.copyScript')
+                : t('probes.enroll.step2.copy')
+            }
+          />
+          {invitation.carries_secret ? (
+            <p className="text-ink-3 text-xs">
+              {t('probes.enroll.step2.scriptHint')}
+            </p>
+          ) : null}
 
           <div className="border-rule space-y-1 border-t pt-3">
             <DetailRow label={t('probes.enroll.step2.account')}>
@@ -524,9 +536,13 @@ function CommandStep({
           </div>
 
           {/* The command carries the invitation. Anyone who can read it can
-              enrol a host as this account until it is used or expires. */}
+              enrol a host as this account until it is used or expires - and
+              for a tunnel enrolment it carries the probe's private key too,
+              which does not expire with the invitation. */}
           <Banner tone="warn" title={t('probes.enroll.step2.secretTitle')}>
-            {t('probes.enroll.step2.secretBody')}
+            {invitation.carries_secret
+              ? t('probes.enroll.step2.secretBodyScript')
+              : t('probes.enroll.step2.secretBody')}
           </Banner>
         </div>
       </Card>

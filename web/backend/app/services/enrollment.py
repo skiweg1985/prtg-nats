@@ -313,20 +313,32 @@ class EnrollmentService:
 
     # --- The rendered script ------------------------------------------------
 
-    def base_url(self) -> str:
+    def base_url(self, *, by_address: bool = False) -> str:
         """Where the host reaches this platform, over TLS.
 
         The name, not the address: it is the name in the certificate the probe
         just learned to trust. The port is left out when it is the default
         one - this URL is pasted into a one-liner and read back from runbooks.
+
+        ``by_address`` is for a probe enrolling over the tunnel. Its site has
+        no name server that knows this one, so the name would be a dead end
+        even with the tunnel up. The certificate carries NATS_HOST_IP as a SAN
+        (see infrastructure/pki.py), so the address is verified just as fully -
+        it is only less readable.
         """
         site = self._runtime.site_settings()
-        if not site.web_fqdn:
-            raise RuntimeStateError(details="NATS_FQDN is not configured")
+        if by_address:
+            if not site.nats_host_ip:
+                raise RuntimeStateError(details="NATS_HOST_IP is not configured")
+            host = site.nats_host_ip
+        else:
+            if not site.web_fqdn:
+                raise RuntimeStateError(details="NATS_FQDN is not configured")
+            host = site.web_fqdn
         port = self._settings.web_https_port
         if port == 443:
-            return f"https://{site.web_fqdn}"
-        return f"https://{site.web_fqdn}:{port}"
+            return f"https://{host}"
+        return f"https://{host}:{port}"
 
     def ca_material(self) -> tuple[str, str]:
         """The CA and its fingerprint, as the probe will see them."""
@@ -387,14 +399,21 @@ class EnrollmentService:
             raise RuntimeStateError(
                 details="the CA in runtime/ is not a PEM certificate"
             )
+        # An outpost enrolling over the tunnel is addressed by IP throughout.
+        # Its site has no name server that knows this platform, so every name
+        # in this script would be a dead end - including after the tunnel is
+        # up. The certificate covers the address, so nothing is weakened.
+        by_address = bool(record.payload.get("overlay_bootstrap"))
         values = {
-            "@@BASE_URL@@": self.base_url(),
+            "@@BASE_URL@@": self.base_url(by_address=by_address),
             "@@TOKEN@@": token,
             "@@CA_PEM@@": ca_pem,
             "@@CA_SHA256@@": ca_sha256,
             "@@CA_FINGERPRINT@@": ca_fingerprint,
             "@@SSH_SOURCE_CIDR@@": self._source_cidr_with_hub(source_cidr, site),
-            "@@NATS_HOST@@": site.nats_fqdn,
+            "@@NATS_HOST@@": (
+                (site.nats_host_ip or site.nats_fqdn) if by_address else site.nats_fqdn
+            ),
             "@@NATS_PORT@@": str(site.nats_port),
             "@@MANAGEMENT_PUBLIC_KEY@@": self.management_public_key(),
             "@@HELPER_SIGNING_KEY@@": HelperSigner(self._settings)
@@ -564,6 +583,42 @@ class EnrollmentService:
             f'  && echo "{ca_sha256}  /tmp/prtg-nats-ca.pem" | sha256sum -c - \\\n'
             f"  && curl -fsSL --cacert /tmp/prtg-nats-ca.pem \\\n"
             f"       {self.base_url()}/enroll/{token}/{script} | sudo sh"
+        )
+
+    def paste_block(self, token: str, rendered: str) -> str:
+        """The whole script as one block to paste, for a probe that cannot
+        fetch it.
+
+        The one-liner downloads the script, which an outpost cannot do - that
+        download is the very first request, and the tunnel that would carry it
+        is built by the script being downloaded. So the script travels with the
+        operator instead: through the interface, into a console on the probe.
+
+        The digest is not ceremony. A paste into a browser console is the one
+        delivery here that can arrive truncated, and half a root script that
+        stops mid-heredoc is far worse than one that refuses to start. It also
+        removes the file afterwards, because that file carries a private key.
+        """
+        # The digest covers exactly what the heredoc writes, trailing newline
+        # included. Hashing the argument instead would differ from the file by
+        # whatever whitespace the rendering happened to end with, and the
+        # mismatch would only ever show up on the probe, as a script that
+        # refuses to run for no visible reason.
+        body = rendered.rstrip("\n") + "\n"
+        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        # mktemp and umask 077, because this file holds the probe's private
+        # key for as long as it exists. A fixed name under /tmp would be a
+        # path anyone on the host could have prepared in advance.
+        return "\n".join(
+            (
+                "umask 077",
+                'enrol="$(mktemp)"',
+                "cat > \"${enrol}\" <<'PRTG_NATS_ENROL_EOF'",
+                body.rstrip("\n"),
+                "PRTG_NATS_ENROL_EOF",
+                f'echo "{digest}  ${{enrol}}" | sha256sum -c - \\',
+                '  && sudo sh "${enrol}"; rm -f "${enrol}"',
+            )
         )
 
     def management_public_key(self) -> str:

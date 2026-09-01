@@ -350,7 +350,9 @@ async def _rotate(username: str, *, server_only: bool) -> None:
         ),
         probe_name=inventory.probe_name
         or probe_config.default_probe_name(inventory.ssh_host),
-        nats_host=site.nats_fqdn,
+        # As in probe_lifecycle: a probe whose site cannot resolve NATS_FQDN
+        # carries the address it should use instead.
+        nats_host=inventory.nats_host_override or site.nats_fqdn,
         nats_port=site.nats_port,
         nats_user=username,
         nats_password=NatsRuntime(settings).read_password(username),

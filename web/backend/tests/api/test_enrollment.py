@@ -1085,3 +1085,88 @@ async def test_a_probe_reporting_a_key_it_was_not_given_is_refused(
     assert job["status"] == "failed"
     assert "different overlay key" in (job["error_details"] or ""), job
     assert someone_elses not in OverlayRuntime(get_settings()).render_hub_config()
+
+
+async def test_the_tunnel_invitation_hands_over_the_script_itself(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """The download is the request the probe cannot make.
+
+    A one-liner fetches the script over HTTPS - and for this probe that fetch
+    is the first request, carried by the tunnel that the script it is fetching
+    would have built. So the script travels with the operator instead, as a
+    block to paste into a console.
+    """
+    import shutil
+    import subprocess
+
+    from app.core.config import get_settings
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+
+    issued = await _invite(client, overlay_bootstrap=True)
+    block = issued["command"]
+
+    assert issued["carries_secret"] is True
+    # No fetch of the script, because there is nothing to fetch it over.
+    assert "bootstrap.sh" not in block
+    assert "sha256sum -c -" in block
+    # Everything the tunnel needs is inside the block already.
+    assert 'OVERLAY_FIRST="true"' in block
+    assert "PRTG_NATS_ENROL_EOF" in block
+
+    # It runs as root on someone else's machine, so it has to at least parse.
+    # "sh -n" reads and does not execute, and the input is a script this test
+    # just rendered - there is nothing untrusted in either half of that.
+    script = tmp_path / "block.sh"
+    script.write_text(block, encoding="utf-8")
+    shell = shutil.which("sh")
+    assert shell is not None
+    checked = subprocess.run([shell, "-n", str(script)], check=False)  # noqa: S603
+    assert checked.returncode == 0
+
+    # And the digest has to match what the heredoc actually writes. Hashing
+    # the rendering instead of the file body differs by a trailing newline,
+    # which nothing here would notice and the probe would report as a script
+    # that refuses to run.
+    checkable = block.replace('sudo sh "${enrol}"', 'true "${enrol}"')
+    script.write_text(checkable, encoding="utf-8")
+    verified = subprocess.run(  # noqa: S603
+        [shell, str(script)], check=False, capture_output=True, text=True
+    )
+    assert verified.returncode == 0, verified.stderr
+    assert ": OK" in verified.stdout, verified.stdout
+
+
+async def test_a_tunnel_probe_is_addressed_by_ip_not_by_name(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """Its site has no name server that knows this platform.
+
+    The tunnel carries NATS_HOST_IP, and the certificate names it, so the
+    address works where the name never could - with the tunnel up or not.
+    """
+    from app.core.config import get_settings
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+
+    issued = await _invite(client, overlay_bootstrap=True)
+    script = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
+
+    assert script.status_code == 200
+    assert 'BASE_URL="https://192.0.2.10' in script.text
+    assert 'NATS_HOST="192.0.2.10"' in script.text
+    # And the ordinary path is untouched: it still uses the name it always did.
+    ordinary = await _invite(client, nats_username="mpp-hamburg")
+    plain = await client.get(f"/api/v1/enroll/{ordinary['token']}/bootstrap.sh")
+    assert 'BASE_URL="https://nats.example.test' in plain.text
+    assert 'NATS_HOST="nats.example.test"' in plain.text
