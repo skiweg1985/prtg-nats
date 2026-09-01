@@ -2,10 +2,16 @@
 
 The same relationship ``auth-users/*.auth`` has to ``nats-server.conf``: the
 probe inventory is the source of truth about who is a peer, and
-``runtime/overlay/prtgnats0.conf`` is a rendering of it. Nothing here holds
-state of its own, which is what lets the shell tooling and the interface both
-put a probe on the overlay without a second register to keep in step
-(ADR 0002).
+``runtime/overlay/prtgnats0.conf`` is a rendering of it. That is what lets the
+shell tooling and the interface both put a probe on the overlay without a
+second register to keep in step (ADR 0002).
+
+``runtime/overlay/pending/`` is the one exception, and it earns it. A probe
+enrolling over the tunnel has no inventory entry yet - it cannot reach the
+platform to create one - so its peer has to exist before it speaks. Those
+files hold the private key of a peer that is not a probe yet, they expire with
+the invitation that created them, and every one of them is gone the moment the
+probe reports in or the invitation is revoked (ADR 0010).
 
 The hub key lives in ``runtime/overlay/`` rather than ``runtime/private/``
 because the hub runs in a container that must not be able to read the CA key -
@@ -25,7 +31,7 @@ import re
 import shutil
 import subprocess
 from base64 import b64decode, b64encode
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +57,9 @@ INTERFACE = "prtgnats0"
 # padding character. Anything else is not a key, and a peer block built from
 # it would take the whole hub configuration down rather than just that peer.
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+# An invitation id names a file under pending/, so the shape it is allowed to
+# have is spelled out rather than assumed from where it happens to come from.
+TOKEN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MODES = ("off", "auto", "on")
 # The hub is the first host address, probes start after the first 256. That
 # leaves the low addresses for anything the installation itself might need
@@ -63,9 +72,12 @@ def generate_keypair() -> tuple[str, str]:
     """A private and a public key, in the base64 WireGuard speaks.
 
     Generated here rather than by shelling out to ``wg genkey``: the API
-    container has no wireguard-tools, and X25519 is X25519. The probe's own
-    key is a different matter - that one is generated on the probe, so the
-    private half never travels.
+    container has no wireguard-tools, and X25519 is X25519.
+
+    A probe normally generates its own key, so the private half never travels.
+    The exception is a probe enrolling over the tunnel: it cannot reach the
+    platform to report a key it generated, so this makes the pair for it and
+    the bootstrap script carries the private half once (ADR 0010).
     """
     private = X25519PrivateKey.generate()
     private_bytes = private.private_bytes_raw()
@@ -170,6 +182,53 @@ class OverlayPeer:
     address: str
     public_key: str
     mode: str
+    # A peer the platform created for an invitation that has not been redeemed.
+    # It belongs in the hub configuration - that is the whole point, the probe
+    # cannot report in without it - but not in a status list that claims to
+    # show probes.
+    pending: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PendingPeer:
+    """A peer the platform created before the probe could ask for one.
+
+    It carries the private key, which no other peer on this platform does.
+    That is the trade ADR 0010 makes: a probe that cannot reach the platform
+    cannot generate a key and report it, so the platform generates one and
+    hands it over in the bootstrap script.
+    """
+
+    token_id: str
+    nats_username: str
+    address: str
+    private_key: str
+    public_key: str
+    mode: str
+
+
+def _pending_from(token_id: str, values: Mapping[str, str]) -> PendingPeer | None:
+    """One reservation, or None where the file says nothing usable.
+
+    A half-written or hand-edited file is skipped rather than raised on: it
+    would otherwise take down every rendering of the hub configuration, which
+    is a far worse failure than one peer that has to be reissued.
+    """
+    address = values.get("ADDRESS") or ""
+    private_key = values.get("PRIVATE_KEY") or ""
+    public_key = values.get("PUBLIC_KEY") or ""
+    username = values.get("NATS_USERNAME") or ""
+    if not address or not username or not KEY_PATTERN.match(public_key):
+        logger.warning("overlay reservation unusable", extra={"token": token_id[:8]})
+        return None
+    return PendingPeer(
+        token_id=token_id,
+        nats_username=username,
+        address=address,
+        private_key=private_key,
+        public_key=public_key,
+        mode=values.get("MODE") or DEFAULT_MODE,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +286,10 @@ class OverlayRuntime:
     @property
     def settings_path(self) -> Path:
         return self.directory / "settings"
+
+    @property
+    def pending_dir(self) -> Path:
+        return self.directory / "pending"
 
     # --- Settings -----------------------------------------------------------
 
@@ -287,10 +350,102 @@ class OverlayRuntime:
     def has_hub_key(self) -> bool:
         return self.hub_key_path.is_file()
 
+    # --- Peers reserved for an invitation -----------------------------------
+
+    def _pending_path(self, token_id: str) -> Path:
+        # The id names a file, so it is checked rather than trusted. It comes
+        # from the database today; the check is what keeps that from being a
+        # load-bearing assumption.
+        if not TOKEN_ID_PATTERN.match(token_id):
+            raise ValidationFailedError(
+                params={"token": token_id[:8]},
+                details="not an invitation id",
+            )
+        return self.pending_dir / token_id
+
+    def write_pending_peer(self, peer: PendingPeer) -> None:
+        """Reserve a peer for an invitation that has not been redeemed.
+
+        The private key is written here rather than kept in the invitation
+        because the bootstrap script may be fetched more than once - a
+        half-finished run has to be retryable - and every fetch has to render
+        the same key. It is also the reason for 0700 and 0600 below.
+        """
+        path = self._pending_path(peer.token_id)
+        self.pending_dir.mkdir(parents=True, exist_ok=True)
+        self.pending_dir.chmod(0o700)
+        content = (
+            "# Written by prtg-nats for an invitation. Removed when the probe\n"
+            "# reports in, or when the invitation is revoked or expires.\n"
+            f"NATS_USERNAME={peer.nats_username}\n"
+            f"ADDRESS={peer.address}\n"
+            f"PRIVATE_KEY={peer.private_key}\n"
+            f"PUBLIC_KEY={peer.public_key}\n"
+            f"MODE={peer.mode}\n"
+        )
+        path.touch(mode=0o600, exist_ok=True)
+        path.chmod(0o600)
+        path.write_text(content, encoding="utf-8")
+
+    def read_pending_peer(self, token_id: str) -> PendingPeer | None:
+        path = self._pending_path(token_id)
+        if not path.is_file():
+            return None
+        return _pending_from(token_id, read_env_file(path))
+
+    def pending_peers(self) -> tuple[PendingPeer, ...]:
+        if not self.pending_dir.is_dir():
+            return ()
+        found = []
+        for path in sorted(self.pending_dir.iterdir()):
+            if not path.is_file() or not TOKEN_ID_PATTERN.match(path.name):
+                continue
+            peer = _pending_from(path.name, read_env_file(path))
+            if peer is not None:
+                found.append(peer)
+        return tuple(found)
+
+    def drop_pending_peer(self, token_id: str) -> bool:
+        """Forget a reservation. True when there was one to forget."""
+        path = self._pending_path(token_id)
+        if not path.is_file():
+            return False
+        path.unlink()
+        return True
+
+    def prune_pending_peers(self, keep: Iterable[str]) -> tuple[str, ...]:
+        """Drop every reservation whose invitation is no longer open.
+
+        Not housekeeping. A reservation is a working overlay key, and an
+        invitation expires while the key it handed out would not - so the key
+        has to go when the invitation does. Called wherever the set of open
+        invitations changes, and once at startup for the ones that expired
+        while nothing was running.
+        """
+        keeping = set(keep)
+        dropped = []
+        for peer in self.pending_peers():
+            if peer.token_id in keeping:
+                continue
+            self.drop_pending_peer(peer.token_id)
+            dropped.append(peer.token_id)
+        if dropped:
+            logger.info("overlay reservations dropped", extra={"count": len(dropped)})
+        return tuple(dropped)
+
     # --- Peers --------------------------------------------------------------
 
     def peers(self) -> tuple[OverlayPeer, ...]:
-        found = []
+        found = [
+            OverlayPeer(
+                nats_username=peer.nats_username,
+                address=peer.address,
+                public_key=peer.public_key,
+                mode=peer.mode,
+                pending=True,
+            )
+            for peer in self.pending_peers()
+        ]
         for probe in self._runtime.read_all_probes():
             address = probe.overlay_address
             public_key = probe.overlay_public_key
@@ -304,6 +459,14 @@ class OverlayRuntime:
                     mode=probe.overlay_mode,
                 )
             )
+        # An enrolled probe outranks a reservation on the same address. The two
+        # overlap for the moment between the callback writing the inventory and
+        # the reservation being dropped, and two peer blocks for one address
+        # would be a hub configuration wg refuses as a whole.
+        enrolled = {peer.address for peer in found if not peer.pending}
+        found = [
+            peer for peer in found if not peer.pending or peer.address not in enrolled
+        ]
         return tuple(sorted(found, key=lambda peer: _address_key(peer.address)))
 
     def allocate_address(self, reserved: Iterable[str] = ()) -> str:
@@ -338,6 +501,10 @@ class OverlayRuntime:
         A peer in mode ``off`` still appears here. Its tunnel is down on the
         probe's side, and re-adding the peer when it comes back would mean the
         hub forgetting an address it has already handed out.
+
+        A peer reserved for an invitation appears too, marked as such. It is
+        the only way a probe that cannot reach the platform can be let in: the
+        hub has to know it before it speaks, not after.
         """
         settings = self.settings()
         private_key = self.hub_key_path.read_text(encoding="utf-8").strip()
@@ -351,10 +518,11 @@ class OverlayRuntime:
             f"PrivateKey = {private_key}",
         ]
         for peer in self.peers():
+            note = "invitation, not yet redeemed" if peer.pending else peer.mode
             lines.extend(
                 [
                     "",
-                    f"# {peer.nats_username} ({peer.mode})",
+                    f"# {peer.nats_username} ({note})",
                     "[Peer]",
                     f"PublicKey = {validate_public_key(peer.public_key)}",
                     # A single address, not the subnet: this is also the
@@ -406,10 +574,14 @@ class OverlayRuntime:
         return result.returncode == 0
 
     def status(self) -> OverlayStatus:
+        # Reservations are left out: this list is read as "the probes on the
+        # overlay", and an address promised to an invitation is not a probe.
+        # The invitation itself is where an operator sees it, with an expiry
+        # beside it.
         return OverlayStatus(
             settings=self.settings(),
             hub_public_key=self.hub_public_key() if self.has_hub_key() else None,
-            peers=self.peers(),
+            peers=tuple(peer for peer in self.peers() if not peer.pending),
             interface_up=self.interface_up(),
         )
 

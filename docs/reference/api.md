@@ -250,6 +250,17 @@ and wrong behind NAT. Either way an address that another probe already claims
 is refused with `probe.host_already_enrolled`, because the management access
 belongs to the host and retiring one entry would revoke it for both.
 
+`overlay_bootstrap` is for a probe that cannot reach this platform at all - a
+site with no site-to-site tunnel. It needs the overlay to be on, and is
+refused otherwise. The rendered script then builds the tunnel before its first
+request, and carries the probe's private WireGuard key to do it, so the script
+is a credential rather than a command
+([ADR 0010](../architecture/decisions/0010-enrolling-a-probe-over-the-tunnel.md)).
+The peer is reserved when the invitation is minted and given back when it is
+revoked, redeemed or expires. The mode is `on` regardless of the site default:
+`auto` would leave NATS off the tunnel until three checks a minute apart have
+failed, and this probe has no direct path for those checks to find.
+
 Watch a pending enrolment on the single invitation, not on the listing. The
 callback below redeems the invitation and writes the `job_id` it started in
 one request, so the record leaves the listing at the same moment it names the

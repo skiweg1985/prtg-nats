@@ -826,3 +826,262 @@ async def test_a_probe_keeps_the_access_key_it_already_carries(
         runtime.read_access_key("mpp-berlin")
         == "berlin-99999999-8888-7777-6666-555555555555"
     )
+
+
+# --- Enrolling over the tunnel ----------------------------------------------
+#
+# For a probe whose only route to this platform is the overlay itself: an
+# outpost with no site-to-site VPN. The platform's web address is its NATS
+# address, so there is no order in which the ordinary script could fetch
+# anything first - the tunnel has to exist before the first request (ADR 0010).
+
+
+def _enable_overlay(settings: Settings) -> None:
+    from app.infrastructure.overlay import OverlayRuntime, OverlaySettings
+
+    overlay = OverlayRuntime(settings)
+    overlay.write_settings(
+        OverlaySettings(
+            enabled=True,
+            endpoint_host="vpn.example.test",
+            subnet="10.83.0.0/16",
+            default_mode="auto",
+        )
+    )
+    overlay.ensure_hub_key()
+
+
+def _probe_answers(transport: ScriptedTransport) -> None:
+    transport.responses["probe-info"] = (
+        "OK probe-info\npackage=3.10.0-1\nservice=active\n"
+    )
+
+
+async def test_a_tunnel_invitation_puts_its_peer_in_the_hub_first(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    settings = get_settings()
+    _enable_overlay(settings)
+
+    issued = await _invite(client, overlay_bootstrap=True)
+
+    overlay = OverlayRuntime(settings)
+    reserved = overlay.read_pending_peer(issued["id"])
+    assert reserved is not None
+    # The peer is in the hub before the probe has said a word - which is the
+    # only order that works when the probe cannot reach us any other way.
+    assert reserved.public_key in overlay.render_hub_config()
+
+
+async def test_the_tunnel_script_carries_the_key_it_reserved(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    settings = get_settings()
+    _enable_overlay(settings)
+    issued = await _invite(client, overlay_bootstrap=True)
+    reserved = OverlayRuntime(settings).read_pending_peer(issued["id"])
+    assert reserved is not None
+
+    first = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
+    assert first.status_code == 200, first.text
+    assert 'OVERLAY_FIRST="true"' in first.text
+    assert f'OVERLAY_PRIVATE_KEY="{reserved.private_key}"' in first.text
+
+    # Fetching does not spend the invitation, so a half-finished run can be
+    # retried - and the retry has to render the same key, or the tunnel the
+    # first run built stops matching the peer in the hub.
+    second = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
+    assert second.status_code == 200
+    assert second.text == first.text
+
+
+async def test_an_ordinary_invitation_carries_no_private_key(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    from app.core.config import get_settings
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+
+    issued = await _invite(client)
+    script = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
+
+    assert script.status_code == 200
+    assert 'OVERLAY_FIRST="false"' in script.text
+    assert 'OVERLAY_PRIVATE_KEY=""' in script.text
+
+
+async def test_a_tunnel_enrolment_is_always_mode_on(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    from app.core.config import get_settings
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    # The site default is "auto", and for this probe it would be wrong twice
+    # over.
+    _enable_overlay(get_settings())
+
+    issued = await _invite(client, overlay_bootstrap=True)
+    script = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
+
+    # "auto" moves NATS onto the tunnel only after three failed checks a minute
+    # apart. The callback at the end of the bootstrap would leave before that,
+    # over a route that is not there yet - and this probe has no direct path
+    # for "auto" to measure in the first place.
+    assert 'OVERLAY_MODE="on"' in script.text
+
+
+async def test_revoking_a_tunnel_invitation_takes_its_key_away(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    settings = get_settings()
+    _enable_overlay(settings)
+    issued = await _invite(client, overlay_bootstrap=True)
+    overlay = OverlayRuntime(settings)
+    reserved = overlay.read_pending_peer(issued["id"])
+    assert reserved is not None
+
+    revoked = await client.delete(f"/api/v1/probes/enrollment/tokens/{issued['id']}")
+    assert revoked.status_code == 204, revoked.text
+
+    # Withdrawing the invitation has to withdraw the way in it handed out.
+    # Otherwise the invitation is revoked while the tunnel still works.
+    assert overlay.read_pending_peer(issued["id"]) is None
+    assert reserved.public_key not in overlay.render_hub_config()
+
+
+async def test_a_tunnel_invitation_needs_an_overlay(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    await _sign_in(client)
+    await _initialise(project_dir)
+
+    # Refused while somebody is looking at it. The alternative is a script that
+    # cannot work, handed to a probe nobody can reach to find out why.
+    response = await client.post(
+        "/api/v1/probes/enrollment/tokens",
+        json={"nats_username": "mpp-aussenstelle", "overlay_bootstrap": True},
+    )
+    assert response.status_code >= 400
+
+
+async def test_the_reservation_becomes_an_ordinary_peer_when_the_probe_reports_in(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The handover, which is the only part of this that cannot be retried.
+
+    Until the callback the peer belongs to an invitation; afterwards it belongs
+    to a probe. Both at once would be two peer blocks for one address, which wg
+    refuses as a whole - and it would do so over the very tunnel the callback
+    just arrived on.
+    """
+    from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+    issued = await _invite(client, overlay_bootstrap=True)
+    overlay = OverlayRuntime(get_settings())
+    reserved = overlay.read_pending_peer(issued["id"])
+    assert reserved is not None
+    _probe_answers(transport)
+
+    callback = await client.post(
+        f"/api/v1/enroll/{issued['token']}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+            # The probe kept the key it was handed, which is what
+            # ensure_overlay_key() on the far side guarantees.
+            "overlay_public_key": reserved.public_key,
+        },
+    )
+    assert callback.status_code == 200, callback.text
+    job_id = callback.json()["job_id"]
+
+    await _drain(_build_runner(settings, transport))
+
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "successful", job.get("error_details")
+    assert overlay.read_pending_peer(issued["id"]) is None
+    rendered = overlay.render_hub_config()
+    assert rendered.count("[Peer]") == 1
+    assert reserved.public_key in rendered
+    assert "invitation, not yet redeemed" not in rendered
+
+
+async def test_a_probe_reporting_a_key_it_was_not_given_is_refused(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime, generate_keypair
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+    issued = await _invite(client, overlay_bootstrap=True)
+    _, someone_elses = generate_keypair()
+    _probe_answers(transport)
+
+    callback = await client.post(
+        f"/api/v1/enroll/{issued['token']}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+            "overlay_public_key": someone_elses,
+        },
+    )
+    assert callback.status_code == 200, callback.text
+    job_id = callback.json()["job_id"]
+
+    await _drain(_build_runner(settings, transport))
+
+    # Writing it down would leave the hub holding a peer the probe does not
+    # answer as - a tunnel that looks configured and carries nothing. The
+    # message has to name that, not some later symptom.
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["status"] == "failed"
+    assert "different overlay key" in (job["error_details"] or ""), job
+    assert someone_elses not in OverlayRuntime(get_settings()).render_hub_config()

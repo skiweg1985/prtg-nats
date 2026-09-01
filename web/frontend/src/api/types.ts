@@ -719,6 +719,12 @@ export interface InvitationRequest {
   probe_name?: string | null
   expected_host?: string | null
   install_package?: boolean
+  /**
+   * For a probe that cannot reach this platform at all - a site with no
+   * site-to-site tunnel. The script then builds the overlay before its first
+   * request, and carries a private key to do it.
+   */
+  overlay_bootstrap?: boolean
   ttl_minutes?: number
 }
 

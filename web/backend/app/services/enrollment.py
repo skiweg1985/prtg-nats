@@ -35,7 +35,11 @@ from app.core.errors import EnrollmentTokenInvalidError, RuntimeStateError
 from app.core.security import hash_session_token
 from app.infrastructure.certificates import fingerprint_of_pem
 from app.infrastructure.helper_signing import HelperSigner
-from app.infrastructure.overlay import OverlayRuntime
+from app.infrastructure.overlay import (
+    OverlayRuntime,
+    PendingPeer,
+    generate_keypair,
+)
 from app.infrastructure.runtime_files import RuntimeFileStore, SiteSettings
 from app.persistence.models.inventory import EnrollmentToken
 from app.services.auth import Principal
@@ -102,7 +106,18 @@ class EnrollmentService:
         token = secrets.token_urlsafe(TOKEN_BYTES)
         payload = dict(target.payload)
         if target.kind == PROBE:
+            # Before the new reservation, so an address freed by an invitation
+            # that expired unnoticed can be handed out again straight away.
+            await self.prune_overlay_reservations()
             payload.update(await self._reserve_overlay_address())
+            if payload.get("overlay_bootstrap") and payload.get("overlay_address"):
+                # "on", never the site default. This probe has no direct path
+                # by definition, and "auto" only moves NATS onto the tunnel
+                # after three failed checks a minute apart - so the callback at
+                # the end of the bootstrap would leave over a route that is not
+                # there yet. It is also the honest setting: "auto" here would
+                # measure a path that does not exist, once a minute, forever.
+                payload["overlay_mode"] = "on"
         record = EnrollmentToken(
             kind=target.kind,
             token_hash=hash_session_token(token),
@@ -113,8 +128,61 @@ class EnrollmentService:
             created_by_name=getattr(principal, "username", None),
         )
         self._db.add(record)
+        # The reservation is named after the invitation, so it cannot be
+        # written before the invitation has an id.
         await self._db.flush()
+        if payload.get("overlay_bootstrap"):
+            self._reserve_overlay_peer(record)
         return IssuedToken(token=token, record=record)
+
+    def _reserve_overlay_peer(self, record: EnrollmentToken) -> None:
+        """Put this invitation's peer into the hub before the probe speaks.
+
+        The whole point of the tunnel-first enrolment: a probe that cannot
+        reach the platform cannot report a public key first, so the platform
+        makes the pair, keeps the peer here and hands the private half over in
+        the bootstrap script (ADR 0010).
+        """
+        address = record.payload.get("overlay_address")
+        if not address:
+            raise RuntimeStateError(
+                details="the overlay reserved no address for this invitation"
+            )
+        overlay = OverlayRuntime(self._settings)
+        private_key, public_key = generate_keypair()
+        overlay.write_pending_peer(
+            PendingPeer(
+                token_id=record.id,
+                nats_username=str(record.payload.get("nats_username") or ""),
+                address=str(address),
+                private_key=private_key,
+                public_key=public_key,
+                mode=str(record.payload.get("overlay_mode") or "auto"),
+            )
+        )
+        # The hub picks this up on its own: the entrypoint polls the file and
+        # runs "wg syncconf", so no tunnel that is already up is disturbed.
+        overlay.write_hub_config()
+
+    async def prune_overlay_reservations(self) -> tuple[str, ...]:
+        """Drop every reserved peer whose invitation is no longer open.
+
+        A reservation is a working overlay key. An invitation expires; the key
+        it handed out would not, so it has to be taken away when the invitation
+        stops being usable - including the ones that expired while nothing was
+        running to notice.
+        """
+        overlay = OverlayRuntime(self._settings)
+        if not overlay.pending_peers():
+            return ()
+        open_ids = {record.id for record in await self.list_open(PROBE)}
+        dropped = overlay.prune_pending_peers(open_ids)
+        # Rendering needs the hub key. Without one there is no hub to render
+        # for, and the keys are gone either way - which is the part that
+        # matters here.
+        if dropped and overlay.has_hub_key():
+            overlay.write_hub_config()
+        return dropped
 
     async def _reserve_overlay_address(self) -> dict[str, str]:
         """Promise this invitation an address, if there is an overlay at all.
@@ -175,7 +243,16 @@ class EnrollmentService:
         record = await self.get(token_id)
         if record.revoked_at is None and record.redeemed_at is None:
             record.revoked_at = datetime.now(UTC)
+        # Revoking has to take the overlay key with it, or the invitation is
+        # withdrawn while the tunnel it handed out still works.
+        self.drop_overlay_reservation(record)
         return record
+
+    def drop_overlay_reservation(self, record: EnrollmentToken) -> None:
+        """Forget the peer reserved for this invitation, if there was one."""
+        overlay = OverlayRuntime(self._settings)
+        if overlay.drop_pending_peer(record.id) and overlay.has_hub_key():
+            overlay.write_hub_config()
 
     # --- Redeeming ----------------------------------------------------------
 
@@ -352,7 +429,27 @@ class EnrollmentService:
                 "@@OVERLAY_ENDPOINT@@": "",
                 "@@OVERLAY_HUB_KEY@@": "",
                 "@@OVERLAY_NATS_HOST_IP@@": "",
+                "@@OVERLAY_FIRST@@": "false",
+                "@@OVERLAY_PRIVATE_KEY@@": "",
             }
+        # The reserved key, never a fresh one: the peer built from its public
+        # half is already in the hub, and a second fetch of this script has to
+        # render the same key or the tunnel the first fetch built stops
+        # matching.
+        pending = None
+        if record.payload.get("overlay_bootstrap"):
+            pending = overlay.read_pending_peer(record.id)
+            if pending is None:
+                # Refused rather than quietly rendered as an ordinary
+                # enrolment: this invitation was issued for a probe that
+                # cannot reach the platform, and a script without the tunnel
+                # would fail on the far side with nobody there to read why.
+                raise RuntimeStateError(
+                    details=(
+                        "the overlay peer reserved for this invitation is gone;"
+                        " issue a new invitation"
+                    )
+                )
         return {
             "@@OVERLAY_ENABLED@@": "true",
             "@@OVERLAY_MODE@@": str(
@@ -363,6 +460,8 @@ class EnrollmentService:
             "@@OVERLAY_ENDPOINT@@": endpoint,
             "@@OVERLAY_HUB_KEY@@": overlay.ensure_hub_key(),
             "@@OVERLAY_NATS_HOST_IP@@": site.nats_host_ip or "",
+            "@@OVERLAY_FIRST@@": "true" if pending else "false",
+            "@@OVERLAY_PRIVATE_KEY@@": pending.private_key if pending else "",
         }
 
     def _source_cidr_with_hub(self, source_cidr: str, site: SiteSettings) -> str:

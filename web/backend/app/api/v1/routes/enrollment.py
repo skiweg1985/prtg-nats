@@ -34,9 +34,11 @@ from app.core.errors import (
     ConflictError,
     EnrollmentTokenInvalidError,
     HostAlreadyEnrolledError,
+    RuntimeStateError,
 )
 from app.core.permissions import Permission
 from app.domain.probe_config import PROBE_NAME_PATTERN
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.runtime_files import NAME_PATTERN, NATS_USERNAME_PATTERN
 from app.services.enrollment import (
     DEFAULT_TTL_MINUTES,
@@ -66,6 +68,12 @@ class ProbeInvitationIn(ApiModel):
     # network and wrong behind NAT, so the field exists.
     expected_host: str | None = Field(default=None, max_length=255)
     install_package: bool = True
+    # For a probe that cannot reach this platform at all - a site with no
+    # site-to-site tunnel. The bootstrap then builds the overlay before its
+    # first request instead of after the package, and the peer is reserved
+    # here rather than learned from the callback. It also means the script
+    # carries a private key, so it is asked for rather than assumed (ADR 0010).
+    overlay_bootstrap: bool = False
     ttl_minutes: int = Field(default=DEFAULT_TTL_MINUTES, ge=5, le=1440)
 
     @field_validator("nats_username")
@@ -297,6 +305,7 @@ def _invitation_out(record: Any) -> InvitationOut:
 async def create_probe_invitation(
     payload: ProbeInvitationIn,
     enrollment: EnrollmentDep,
+    settings: SettingsDep,
     runtime: RuntimeDep,
     audit: AuditDep,
     principal: Annotated[
@@ -338,6 +347,14 @@ async def create_probe_invitation(
                 ),
             )
 
+    # Refused here rather than producing a script that cannot work: without an
+    # overlay there is no tunnel to enrol over, and the probe this was asked
+    # for is one nobody can reach to find out.
+    if payload.overlay_bootstrap and not OverlayRuntime(settings).settings().enabled:
+        raise RuntimeStateError(
+            details=("enrolling over the tunnel needs the overlay; turn it on first")
+        )
+
     issued = await enrollment.issue(
         EnrolmentTarget(
             kind=PROBE,
@@ -345,6 +362,7 @@ async def create_probe_invitation(
                 "nats_username": payload.nats_username,
                 "probe_name": payload.probe_name,
                 "install_package": payload.install_package,
+                "overlay_bootstrap": payload.overlay_bootstrap,
             },
             expected_host=payload.expected_host,
             ttl_minutes=payload.ttl_minutes,
@@ -651,6 +669,13 @@ async def bootstrap_callback(
                 "overlay_address": record.payload.get("overlay_address"),
                 "overlay_mode": record.payload.get("overlay_mode"),
                 "overlay_public_key": payload.overlay_public_key,
+                # "invitation_id", not "..._token_id": redaction masks any
+                # key that reads like a secret, and this one is an id the
+                # handler has to be able to use. A masked value reached it as
+                # a validation failure two steps later, which is a puzzling
+                # way to learn about a naming rule.
+                "invitation_id": record.id,
+                "overlay_bootstrap": bool(record.payload.get("overlay_bootstrap")),
             },
         ),
         # No principal: the host did this, not a person. The audit record

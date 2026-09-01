@@ -10,6 +10,7 @@ import {
   useJob,
   useJobLog,
   useNatsAccounts,
+  useOverlay,
   useProbes,
   useRetryJob,
   useRevokeInvitation,
@@ -289,7 +290,15 @@ function InvitationForm({
   const [installPackage, setInstallPackage] = useState(
     initial?.install_package ?? true,
   )
+  const [overlayBootstrap, setOverlayBootstrap] = useState(
+    initial?.overlay_bootstrap ?? false,
+  )
   const [ttl, setTtl] = useState(initial?.ttl_minutes ?? 60)
+  // Only offered where there is a tunnel to enrol over. Without an overlay the
+  // server refuses the request anyway, and a checkbox that cannot be ticked
+  // usefully is a question nobody should be asked.
+  const overlay = useOverlay()
+  const overlayEnabled = overlay.data?.enabled ?? false
 
   const existing = accounts.find((account) => account.username === username)
   // An account that belongs to an enrolled probe can be enrolled again - the
@@ -327,6 +336,7 @@ function InvitationForm({
             probe_name: probeName || null,
             expected_host: host || null,
             install_package: installPackage,
+            overlay_bootstrap: overlayEnabled && overlayBootstrap,
             ttl_minutes: ttl,
           })
         }}
@@ -425,6 +435,30 @@ function InvitationForm({
             </span>
           </span>
         </label>
+
+        {overlayEnabled ? (
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={overlayBootstrap}
+              onChange={(event) => setOverlayBootstrap(event.target.checked)}
+            />
+            <span>
+              <span className="text-ink">
+                {t('probes.enroll.fields.overlayBootstrap')}
+              </span>
+              <span className="text-ink-3 block text-xs">
+                {t('probes.enroll.fields.overlayBootstrapHint')}
+              </span>
+            </span>
+          </label>
+        ) : null}
+        {overlayEnabled && overlayBootstrap ? (
+          <Banner tone="warn">
+            {t('probes.enroll.fields.overlayBootstrapWarning')}
+          </Banner>
+        ) : null}
 
         {error != null && <ErrorDetails error={error} />}
 

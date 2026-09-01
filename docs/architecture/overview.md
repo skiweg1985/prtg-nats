@@ -96,7 +96,10 @@ that survives its site's own network. Three modes decide when its NATS
 traffic uses it - `off`, `auto`, `on` - and a policy rule rather than a
 route swap is what makes `auto` able to test the direct path without
 disturbing it. Off by default -
-[ADR 0009](decisions/0009-a-wireguard-overlay-to-the-probes.md).
+[ADR 0009](decisions/0009-a-wireguard-overlay-to-the-probes.md). A site with
+no path to the platform at all enrols over the tunnel itself, which is the one
+case where the platform generates the probe's key instead of the probe -
+[ADR 0010](decisions/0010-enrolling-a-probe-over-the-tunnel.md).
 
 **Sensor-owned native tools follow an explicit platform contract.** The
 platform selects a signed release artifact from the probe's userspace ABI. If

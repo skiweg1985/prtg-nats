@@ -7,10 +7,13 @@
 #
 # What it does, in the order it matters:
 #   1. installs the CA, so everything after this is verified
-#   2. installs the restricted management access (libexec/enroll-probe.sh,
+#   2. brings up a throwaway tunnel, but only for a probe that has no other way
+#      to reach the platform - see OVERLAY_FIRST below
+#   3. installs the restricted management access (libexec/enroll-probe.sh,
 #      fetched and executed, never reimplemented here)
-#   3. installs the prtgmpprobe package
-#   4. reports back: this host's SSH host keys, so the platform can pin them
+#   4. hands the tunnel to the helper, which writes the real configuration
+#   5. installs the prtgmpprobe package
+#   6. reports back: this host's SSH host keys, so the platform can pin them
 #
 # It deliberately does not write the probe configuration. That arrives over the
 # management channel afterwards, which is the channel that has to work anyway -
@@ -35,9 +38,11 @@ INSTALL_PACKAGE="@@INSTALL_PACKAGE@@"
 # the installer refuses before it touches a package manager.
 NATS_HOST="@@NATS_HOST@@"
 NATS_PORT="@@NATS_PORT@@"
-# The overlay, if this installation has one. Everything here is public except
-# the probe's own key, which is generated on this host in step 4 and never
-# leaves it - only its public half travels back with the report.
+# The overlay, if this installation has one. Everything here is public. The
+# probe's own key is generated on this host in step 4 and never leaves it -
+# only its public half travels back with the report. The one exception is
+# OVERLAY_FIRST below, which is exactly the case where that order is
+# impossible.
 OVERLAY_ENABLED="@@OVERLAY_ENABLED@@"
 OVERLAY_MODE="@@OVERLAY_MODE@@"
 OVERLAY_ADDRESS="@@OVERLAY_ADDRESS@@"
@@ -45,7 +50,21 @@ OVERLAY_SUBNET="@@OVERLAY_SUBNET@@"
 OVERLAY_ENDPOINT="@@OVERLAY_ENDPOINT@@"
 OVERLAY_HUB_KEY="@@OVERLAY_HUB_KEY@@"
 OVERLAY_NATS_HOST_IP="@@OVERLAY_NATS_HOST_IP@@"
+# Set for a probe that cannot reach this platform without the tunnel - a site
+# with no site-to-site VPN. The platform's own address is the NATS address, so
+# there is no order in which this script could fetch anything first: the tunnel
+# has to exist before the first request, not after the package.
+#
+# It is also why the private key is here. A probe normally generates its own
+# and reports the public half, but reporting needs the very tunnel the key is
+# for. So the platform made the pair, put the peer in the hub already, and this
+# script carries the private half once (ADR 0010). That makes this script a
+# secret in a way an ordinary invitation is not.
+OVERLAY_FIRST="@@OVERLAY_FIRST@@"
+OVERLAY_PRIVATE_KEY="@@OVERLAY_PRIVATE_KEY@@"
 CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
+OVERLAY_INTERFACE="prtgnats0"
+OVERLAY_KEY_PATH="/etc/prtg-nats/overlay.key"
 
 STAGE=""
 ACCESS_INSTALLED="false"
@@ -108,7 +127,92 @@ fetch() {
     || die "Could not fetch $1 from ${BASE_URL}"
 }
 
-# --- 2. The management access ----------------------------------------------
+# --- 2. The throwaway tunnel -----------------------------------------------
+# Deliberately not the real configuration. The helper writes that in step 4,
+# with its policy rule, its routing table and its watcher; two implementations
+# of it would be two ways for a probe to end up configured differently from
+# what the hub believes. This one exists for the length of one download and is
+# then taken down again.
+#
+# So it sets no default route and touches nothing else: two routes, for the
+# overlay subnet and for the NATS address. The package still comes from the
+# internet the ordinary way.
+install_overlay_tools() {
+  command -v wg >/dev/null 2>&1 && command -v ip >/dev/null 2>&1 && return 0
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      --no-install-recommends wireguard-tools iproute2 >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    # No repository is added here. On RHEL 9 wireguard-tools comes from EPEL,
+    # and enabling somebody's repository behind their back is not a thing to
+    # do on a host we are about to leave alone.
+    dnf install -y wireguard-tools iproute >/dev/null 2>&1 || true
+  fi
+  command -v wg >/dev/null 2>&1 && command -v ip >/dev/null 2>&1
+}
+
+overlay_down() {
+  [ -n "${OVERLAY_INTERFACE}" ] || return 0
+  ip link show "${OVERLAY_INTERFACE}" >/dev/null 2>&1 || return 0
+  ip link delete "${OVERLAY_INTERFACE}" 2>/dev/null || true
+}
+
+overlay_up() {
+  install -d -o root -g root -m 0755 /etc/prtg-nats
+  # Written where the helper looks for it, so step 4 adopts this key instead of
+  # generating a second one. The hub already holds the matching peer; a new key
+  # there would be a tunnel that stops working the moment it is configured
+  # properly.
+  printf '%s\n' "${OVERLAY_PRIVATE_KEY}" > "${OVERLAY_KEY_PATH}.new"
+  chmod 0600 "${OVERLAY_KEY_PATH}.new"
+  mv -f "${OVERLAY_KEY_PATH}.new" "${OVERLAY_KEY_PATH}"
+
+  overlay_down
+  ip link add "${OVERLAY_INTERFACE}" type wireguard || return 1
+  wg set "${OVERLAY_INTERFACE}" \
+    private-key "${OVERLAY_KEY_PATH}" \
+    peer "${OVERLAY_HUB_KEY}" \
+    endpoint "${OVERLAY_ENDPOINT}" \
+    allowed-ips "${OVERLAY_SUBNET},${OVERLAY_NATS_HOST_IP}/32" \
+    persistent-keepalive 25 || return 1
+  ip address add "${OVERLAY_ADDRESS}/32" dev "${OVERLAY_INTERFACE}" || return 1
+  ip link set "${OVERLAY_INTERFACE}" up || return 1
+  ip route replace "${OVERLAY_SUBNET}" dev "${OVERLAY_INTERFACE}" || return 1
+  ip route replace "${OVERLAY_NATS_HOST_IP}/32" dev "${OVERLAY_INTERFACE}" || return 1
+}
+
+# A WireGuard handshake is not instant, and every request after one of these
+# would otherwise fail with a bare timeout on a console nobody returns to.
+# Used twice: after the throwaway tunnel, and again after the helper has
+# replaced it with the real one.
+wait_for_platform() {
+  attempt=1
+  while [ "${attempt}" -le 10 ]; do
+    curl -fsS --max-time 5 --cacert "${CA_PATH}" \
+      "${BASE_URL}/enroll/${TOKEN}/asset/enroll-probe.sh" -o /dev/null \
+      2>/dev/null && return 0
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  return 1
+}
+
+if [ "${OVERLAY_FIRST}" = "true" ]; then
+  say "Building the overlay tunnel before anything else"
+  install_overlay_tools ||
+    die "WireGuard is required for this enrolment but could not be installed.
+On RHEL 9 wireguard-tools comes from EPEL - enable it and run this again."
+  overlay_up ||
+    die "The overlay tunnel did not come up, so this probe cannot reach the
+platform. Check that ${OVERLAY_ENDPOINT} is reachable from here over UDP."
+
+  wait_for_platform ||
+    die "The tunnel is up but ${BASE_URL} does not answer through it."
+  say "The platform is reachable over the tunnel"
+fi
+
+# --- 3. The management access ----------------------------------------------
 # enroll-probe.sh is served by the platform and run unchanged. The from=,
 # restrict and forced-command rules that make this access safe are defined in
 # that one file and nowhere else.
@@ -133,8 +237,8 @@ bash "${STAGE}/enroll-probe.sh" \
 ACCESS_INSTALLED="true"
 say "Management user prtg-nats-admin is ready"
 
-# --- 3. The overlay --------------------------------------------------------
-# Through the helper that step 2 installed, not reimplemented here: the
+# --- 4. The overlay --------------------------------------------------------
+# Through the helper that step 3 installed, not reimplemented here: the
 # platform configures the tunnel with the same request afterwards, and two
 # implementations of it would be two ways for a probe to end up configured
 # differently from what the hub believes.
@@ -144,6 +248,11 @@ say "Management user prtg-nats-admin is ready"
 # reachable has to be built from the script it was handed.
 if [ "${OVERLAY_ENABLED}" = "true" ]; then
   say "Joining the overlay as ${OVERLAY_ADDRESS} (${OVERLAY_MODE})"
+  # The throwaway interface goes first: wg-quick refuses to bring up one that
+  # already exists. Nothing between here and the helper's own configuration
+  # needs the network - it is all local - and the helper puts the tunnel back
+  # before the report at the end.
+  [ "${OVERLAY_FIRST}" != "true" ] || overlay_down
   {
     printf 'HUB_PUBLIC_KEY=%s\n' "${OVERLAY_HUB_KEY}"
     printf 'ENDPOINT=%s\n' "${OVERLAY_ENDPOINT}"
@@ -159,6 +268,24 @@ if [ "${OVERLAY_ENABLED}" = "true" ]; then
   } | /usr/local/sbin/prtg-nats-probe-helper > "${STAGE}/overlay.answer" 2>&1; then
     OVERLAY_PUBLIC_KEY="$(sed -n 's/^overlay_public_key=//p' "${STAGE}/overlay.answer")"
     say "Overlay key ${OVERLAY_PUBLIC_KEY}"
+    # The helper took the interface down and brought it back up, so the
+    # handshake starts over. Everything left in this script - the package and
+    # the report - goes through it.
+    if [ "${OVERLAY_FIRST}" = "true" ]; then
+      wait_for_platform ||
+        die "The tunnel did not come back after it was configured properly.
+The management access is installed; retry with a fresh invitation."
+    fi
+  elif [ "${OVERLAY_FIRST}" = "true" ]; then
+    # Fatal here, unlike below. This probe has no second path: the report at
+    # the end of this script travels over the tunnel, and so does everything
+    # the platform would do afterwards.
+    sed -n '1,5p' "${STAGE}/overlay.answer" | while read -r line; do
+      say "  ${line}"
+    done
+    die "The overlay could not be configured, and this probe has no other way
+to reach the platform. The management access is installed; retry with a fresh
+invitation once the cause above is fixed."
   else
     # Not fatal. The probe is enrolled and reachable the ordinary way; the
     # overlay is the second path, and reporting why it failed is more use than
@@ -170,7 +297,7 @@ if [ "${OVERLAY_ENABLED}" = "true" ]; then
   fi
 fi
 
-# --- 4. The package --------------------------------------------------------
+# --- 5. The package --------------------------------------------------------
 # --no-config on purpose: the configuration arrives over the management
 # channel, so the channel is exercised before anything depends on it.
 if [ "${INSTALL_PACKAGE}" = "true" ]; then
@@ -205,7 +332,7 @@ if [ "${INSTALL_PACKAGE}" = "true" ]; then
   fi
 fi
 
-# --- 5. Report back --------------------------------------------------------
+# --- 6. Report back --------------------------------------------------------
 # The host keys are read from disk rather than scanned over the network: this
 # is the host itself, so there is nothing to be in the middle of. They travel
 # over the token-authenticated channel, which is what makes pinning them

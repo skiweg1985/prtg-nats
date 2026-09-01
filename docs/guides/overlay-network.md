@@ -74,6 +74,10 @@ hub key and an address reserved for that probe, and the bootstrap brings the
 tunnel up before it reports in. That is the only order that works for a probe
 behind NAT - it reports in once and is never reachable the other way.
 
+A site with no site-to-site tunnel at all needs one step more, because the
+probe cannot reach this platform to fetch the script in the first place. See
+[A site with no way in](#a-site-with-no-way-in) below.
+
 ## 3. Choose what the tunnel carries
 
 Each probe has a mode, changeable at any time and without re-enrolling
@@ -114,6 +118,44 @@ interface would have told you.
 sudo ./prtg-nats overlay show mpp-berlin-01
 ```
 
+## A site with no way in
+
+An outpost with no site-to-site tunnel cannot enrol the ordinary way. The
+interface answers on `NATS_HOST_IP`, so the probe would need the very path it
+does not have before it could fetch anything - the overlay would fix that, and
+the overlay is what it cannot reach.
+
+For that case, tick **This probe cannot reach the platform directly** when
+creating the invitation. The script then builds the tunnel before its first
+request and does everything else through it.
+
+What changes, and it is worth knowing before you tick it: the platform
+generates the probe's WireGuard key instead of the probe generating its own,
+and **the script carries the private half**. It has to - a probe that cannot
+reach the platform cannot report a key it made. That turns the script into a
+credential. Hand it over the way you would hand over a password, not in a
+ticket or a chat.
+
+Such a probe is always mode `on`, not the site default. `auto` measures the
+direct path once a minute to decide whether to fall back, and here there is no
+direct path to measure - it would also leave NATS off the tunnel for the first
+two minutes, which is exactly when the probe is reporting in.
+
+The probe needs to reach two things for this to work:
+
+- the overlay endpoint over UDP - the public address, not the NATS one
+- its distribution's own mirrors, for `wireguard-tools` and for the
+  `prtgmpprobe` package. Neither comes from this platform.
+
+The reservation lives as long as the invitation. Revoke it, or let it expire,
+and the key stops working - so a command that was never used does not leave a
+way onto the overlay behind. Reissue it and you get a new key; the old script
+is then worth nothing.
+
+Everything after that is the same as any other probe: the peer becomes an
+ordinary one the moment the probe reports in, and `overlay show` treats it
+like the rest.
+
 ## Taking a probe back off
 
 ```bash
@@ -144,3 +186,4 @@ every probe on the overlay again.
 - [CLI reference](../reference/cli.md#the-overlay)
 - [Troubleshooting](troubleshooting.md)
 - [ADR 0009](../architecture/decisions/0009-a-wireguard-overlay-to-the-probes.md)
+- [ADR 0010](../architecture/decisions/0010-enrolling-a-probe-over-the-tunnel.md)
