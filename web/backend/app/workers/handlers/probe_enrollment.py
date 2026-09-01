@@ -44,6 +44,12 @@ ENROLL_STEPS: tuple[str, ...] = (
 ENROLL_JOB_TYPE = "probe.enroll"
 
 
+def _drop_reservation(overlay: OverlayRuntime, token_id: str) -> None:
+    """Give back the peer reserved for an invitation, hub included."""
+    if overlay.drop_pending_peer(token_id) and overlay.has_hub_key():
+        overlay.write_hub_config()
+
+
 async def _record_overlay_peer(context: JobContext, username: str) -> None:
     """Write the peer the bootstrap already built on the probe.
 
@@ -54,16 +60,46 @@ async def _record_overlay_peer(context: JobContext, username: str) -> None:
     """
     address = context.payload.get("overlay_address")
     public_key = context.payload.get("overlay_public_key")
+    overlay = OverlayRuntime(context.settings)
+    token_id = str(context.payload.get("invitation_id") or "")
     if not address or not public_key:
+        # An enrolment over the tunnel that reports no key contradicts itself:
+        # the probe reached this platform, so the tunnel it was handed came up.
+        # The reservation goes either way - leaving a key behind for a peer
+        # nobody will use is the one outcome worth refusing.
+        if token_id and context.payload.get("overlay_bootstrap"):
+            _drop_reservation(overlay, token_id)
         return
     mode = str(context.payload.get("overlay_mode") or "auto")
+    reported = validate_public_key(str(public_key))
+
+    # The probe was handed a key, so it has to report that one back. A
+    # different key means it generated its own - an older helper, or a probe
+    # that had been enrolled before - and the hub would now hold a peer the
+    # probe does not answer as. Say so rather than write it down.
+    reserved = overlay.read_pending_peer(token_id) if token_id else None
+    if reserved is not None and reserved.public_key != reported:
+        raise RuntimeStateError(
+            params={"probe": username},
+            details=(
+                "the probe reported a different overlay key than the one it "
+                "was given; issue a new invitation for it"
+            ),
+        )
+
     context.runtime.write_probe_overlay(
         username,
         address=str(address),
-        public_key=validate_public_key(str(public_key)),
+        public_key=reported,
         mode=validate_mode(mode),
     )
-    OverlayRuntime(context.settings).write_hub_config()
+    # After the inventory, never before: from here the peer is rendered from
+    # the probe, and dropping the reservation first would take it out of the
+    # hub for as long as the write takes - on the very tunnel this callback
+    # arrived over.
+    if token_id:
+        overlay.drop_pending_peer(token_id)
+    overlay.write_hub_config()
     await context.log(
         "jobs.overlay.attached",
         params={"probe": username, "address": str(address), "mode": mode},

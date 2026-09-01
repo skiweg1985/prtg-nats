@@ -16,6 +16,7 @@ from app.infrastructure.overlay import (
     FIRST_PEER_INDEX,
     OverlayRuntime,
     OverlaySettings,
+    PendingPeer,
     generate_keypair,
     public_key_for,
     validate_mode,
@@ -342,3 +343,136 @@ def test_a_readable_interface_still_answers_yes_or_no(
     assert overlay.interface_up() is True
     monkeypatch.setattr(subprocess, "run", answer(1))
     assert overlay.interface_up() is False
+
+
+# --- Peers reserved for an invitation ---------------------------------------
+#
+# The part with no second chance here is the key: a reservation is a working
+# way onto the overlay, and it outlives the invitation unless something takes
+# it away. These pin down that it is rendered, that an enrolled probe replaces
+# it rather than doubling it, and that pruning actually prunes.
+
+
+def _reserve(
+    overlay: OverlayRuntime, token_id: str, username: str, address: str
+) -> PendingPeer:
+    private_key, public_key = generate_keypair()
+    peer = PendingPeer(
+        token_id=token_id,
+        nats_username=username,
+        address=address,
+        private_key=private_key,
+        public_key=public_key,
+        mode="auto",
+    )
+    overlay.write_pending_peer(peer)
+    return peer
+
+
+def test_a_reserved_peer_is_in_the_hub_before_the_probe_exists(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    overlay.ensure_hub_key()
+
+    peer = _reserve(overlay, "token-1", "mpp-aussenstelle", "10.83.1.0")
+    rendered = overlay.render_hub_config()
+
+    # The whole point: the hub knows this peer before anything has spoken.
+    assert peer.public_key in rendered
+    assert "10.83.1.0/32" in rendered
+    assert "invitation, not yet redeemed" in rendered
+
+
+def test_a_reservation_is_never_confused_with_a_probe(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    overlay.ensure_hub_key()
+    _reserve(overlay, "token-1", "mpp-aussenstelle", "10.83.1.0")
+
+    # It is a peer, because the tunnel needs it to be.
+    assert [peer.nats_username for peer in overlay.peers()] == ["mpp-aussenstelle"]
+    # It is not a probe, and the status list says so by leaving it out.
+    assert overlay.status().peers == ()
+
+
+def test_an_enrolled_probe_replaces_its_own_reservation(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    overlay.ensure_hub_key()
+    runtime = RuntimeFileStore(settings)
+    _reserve(overlay, "token-1", "mpp-aussenstelle", "10.83.1.0")
+
+    # The callback writes the inventory before the reservation is dropped, so
+    # for that moment both exist. Two peer blocks for one address is a
+    # configuration wg refuses as a whole - it must be one.
+    write_probe_inventory(project_dir, "mpp-aussenstelle")
+    _, public_key = generate_keypair()
+    runtime.write_probe_overlay(
+        "mpp-aussenstelle", address="10.83.1.0", public_key=public_key, mode="auto"
+    )
+
+    peers = overlay.peers()
+    assert len(peers) == 1
+    assert peers[0].pending is False
+    assert overlay.render_hub_config().count("[Peer]") == 1
+
+
+def test_allocation_counts_a_reservation_as_taken(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    first = overlay_address_at("10.83.0.0/16", FIRST_PEER_INDEX)
+    _reserve(overlay, "token-1", "mpp-aussenstelle", first)
+
+    # Handing the same address to a second invitation would take the first
+    # probe's tunnel down the moment the second one came up.
+    assert overlay.allocate_address() != first
+
+
+def test_pruning_keeps_the_open_ones_and_drops_the_rest(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    _reserve(overlay, "token-open", "mpp-one", "10.83.1.0")
+    _reserve(overlay, "token-expired", "mpp-two", "10.83.1.1")
+
+    dropped = overlay.prune_pending_peers({"token-open"})
+
+    assert dropped == ("token-expired",)
+    assert [peer.token_id for peer in overlay.pending_peers()] == ["token-open"]
+
+
+def test_a_reservation_file_that_says_nothing_usable_is_skipped(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    overlay.ensure_hub_key()
+    _reserve(overlay, "token-good", "mpp-one", "10.83.1.0")
+    overlay.pending_dir.mkdir(parents=True, exist_ok=True)
+    (overlay.pending_dir / "token-broken").write_text(
+        "NATS_USERNAME=mpp-two\nADDRESS=10.83.1.1\nPUBLIC_KEY=nonsense\n",
+        encoding="utf-8",
+    )
+
+    # One unusable file must not take the whole hub configuration with it -
+    # that would strand every probe already on the overlay.
+    assert [peer.token_id for peer in overlay.pending_peers()] == ["token-good"]
+    assert overlay.render_hub_config().count("[Peer]") == 1
+
+
+def test_an_invitation_id_that_is_a_path_is_refused(
+    settings: Settings, project_dir
+) -> None:
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    with pytest.raises(ValidationFailedError):
+        overlay.read_pending_peer("../../hub-key")

@@ -31,7 +31,12 @@ from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTranspor
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.schema import ensure_schema
-from app.persistence.session import dispose_engine, init_engine
+from app.persistence.session import (
+    dispose_engine,
+    get_session_factory,
+    init_engine,
+)
+from app.services.enrollment import EnrollmentService
 from app.services.events import get_broadcaster
 from app.services.overlay import OverlayService
 from app.services.provisioning import ProvisioningService
@@ -133,6 +138,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await OverlayService(settings, helper, docker).reconcile_hub()
     except Exception:
         logger.exception("could not reconcile the overlay hub")
+
+    # A peer reserved for an invitation is a working way onto the overlay, and
+    # an invitation expires while the key it handed out would not. The ones
+    # that ran out while nothing was running to notice are cleared here.
+    try:
+        async with get_session_factory()() as session:
+            dropped = await EnrollmentService(
+                session, settings
+            ).prune_overlay_reservations()
+            await session.commit()
+        if dropped:
+            logger.info("overlay reservations expired", extra={"count": len(dropped)})
+    except Exception:
+        logger.exception("could not prune the overlay reservations")
 
     await runner.start()
     await sync.start()

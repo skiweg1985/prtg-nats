@@ -1,0 +1,117 @@
+---
+title: A probe with no other path enrols over the tunnel
+role: developer
+updated: 2026-09-01
+status: accepted
+---
+
+# 10. A probe with no other path enrols over the tunnel
+
+## Context
+
+[ADR 0009](0009-a-wireguard-overlay-to-the-probes.md) built the overlay for a
+site whose path to this installation is not dependable. The case it names
+first is a branch office reaching `NATS_FQDN` through a site-to-site tunnel.
+
+A site with no such tunnel at all cannot get that far. Enrolment is a
+callback: an operator pastes a command, the probe fetches the bootstrap
+script, installs the management access and reports in. Every one of those
+steps talks to this platform over HTTPS - and the platform answers on the
+NATS address, because `WEB_BIND_IP` is `NATS_HOST_IP` in `compose.yaml`. A
+probe that cannot reach that address fails at the first `curl`.
+
+The overlay would solve it, and the bootstrap already builds a tunnel. But it
+builds it in step 3, after fetching the helper that configures it - so the
+tunnel arrives after the requests that needed it. Reordering the script alone
+does not help, because of a second knot:
+
+`OverlayRuntime.peers()` renders the hub from the probe inventory, and a probe
+gets an inventory entry when it reports in. The public key comes with the
+callback. So the hub learns a peer only after the probe has spoken, and the
+probe can only speak through the tunnel that peer would make. Neither side can
+go first.
+
+The probe generating its own key is what makes it impossible. That property is
+deliberate and stated in the helper: *the private half of a probe's identity
+has no reason to exist on the platform, so it never travels.*
+
+## Decision
+
+For this case, and only this case, the platform generates the probe's key
+pair, reserves the peer before the probe exists, and hands the private half
+over in the bootstrap script.
+
+An invitation can be marked as a tunnel enrolment. When it is:
+
+- the platform generates a key pair and writes it to
+  `runtime/overlay/pending/<invitation id>`
+- `peers()` reads that directory as well, so the peer is in the rendered hub
+  configuration immediately. The hub's entrypoint polls the file and runs `wg
+  syncconf`, so no tunnel already up is disturbed
+- the bootstrap script brings up a throwaway tunnel before its first request,
+  fetches everything over it, and hands the same key to the helper, which
+  writes the real configuration. `ensure_overlay_key()` keeps a key it finds,
+  so the helper adopts it rather than generating a second one
+- the callback turns the reservation into an ordinary inventory peer
+
+**No rotation afterwards.** Replacing the key would mean the hub entering the
+new peer while the probe still holds the old one - and the management channel
+that would coordinate it runs through the very tunnel being re-keyed. The
+probe would have to switch on a timer, unobserved, with no way back if it went
+wrong. The gain does not pay for that: anyone who can read this script already
+has the CA, the management public key and a token that installs root access on
+the probe. The WireGuard key is the smaller secret in that envelope.
+
+**Reservations expire with their invitation.** A reservation is a working way
+onto the overlay. An invitation stops being usable after an hour; the key it
+handed out would not, so it is dropped when the invitation is revoked, when it
+is redeemed, whenever a new invitation is issued, and once at API start for
+the ones that ran out while nothing was running.
+
+**It is opt-in, not automatic.** An installation with an overlay still enrols
+the ordinary way by default. Probes that can reach the platform have no reason
+to install `wireguard-tools` before anything else, and the option is where the
+operator is told the script now carries a secret.
+
+## Consequences
+
+The bootstrap script for such an invitation is a credential. An ordinary
+invitation is a token that expires in an hour and can be revoked; this one
+also carries a key that stays valid as long as the probe uses it. The
+interface says so where the option is ticked, and the guidance is to hand it
+over the way a password is handed over.
+
+`runtime/overlay/` now holds state that is not a rendering of something else,
+which the module docstring used to say it never would. That is a real
+exception to [ADR 0002](0002-runtime-stays-the-source-of-truth.md), kept
+narrow: the files exist only between issuing an invitation and redeeming it,
+and nothing reads them except the hub rendering and the script rendering.
+
+The `check-static.sh` rule that forbade a private key placeholder in the
+bootstrap template is now two rules: the placeholder exists once, and it is
+rendered empty for every invitation that did not ask for a tunnel enrolment.
+
+The invitation id travels to the job as `invitation_id`. Not
+`enrollment_token_id`: `app/core/redaction.py` masks any key that reads like a
+secret, `token` included, and the handler needs to use this one. Named that
+way it arrived as `••••••••` and failed validation two steps later, which is a
+puzzling way to learn about a naming rule.
+
+The failure mode is different from the ordinary path. A normal enrolment whose
+overlay step fails still finishes - the probe is reachable the ordinary way.
+Here there is no ordinary way, so a failed tunnel aborts the script instead of
+leaving a probe nobody can reach and no message saying why.
+
+## Alternatives considered
+
+**Two commands, the probe keeping its key.** Run something on the probe that
+prints its public key, enter that on the platform, then run the real command.
+It preserves the property fully. It also means three steps across two systems
+for the operator, and the platform cannot verify the key it was handed
+belongs to the host that will use it - so the property is preserved in form
+more than in substance.
+
+**Enrol over SSH from the platform.** `./prtg-nats install-mpp ADMIN@HOST`
+already does this and needs no key to travel. It requires the platform to
+reach the probe, which is exactly what a site behind NAT with no tunnel does
+not offer. It stays the right answer whenever that reachability exists.

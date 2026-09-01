@@ -49,6 +49,7 @@ const ISSUED = {
 let invitation: Record<string, unknown> | null = null
 let openInvitations: unknown[] = []
 let createdBodies: Record<string, unknown>[] = []
+let overlay: Record<string, unknown> = { enabled: false, peers: [] }
 
 const server = setupServer(
   // The wizard now refuses to render its form without probe.create - the
@@ -130,6 +131,7 @@ const server = setupServer(
     }),
   ),
   http.get('/api/v1/jobs/:id/log', () => HttpResponse.json([])),
+  http.get('/api/v1/overlay', () => HttpResponse.json(overlay)),
 )
 
 beforeAll(() => {
@@ -140,6 +142,7 @@ afterEach(() => {
   invitation = null
   openInvitations = []
   createdBodies = []
+  overlay = { enabled: false, peers: [] }
 })
 afterAll(() => server.close())
 
@@ -510,5 +513,38 @@ describe('EnrollWizard', () => {
 
     expect(await screen.findByText(/already exists/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /create the command/i })).toBeDisabled()
+  })
+
+  // --- Enrolling over the tunnel -------------------------------------------
+
+  it('does not offer the tunnel option without an overlay', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    await screen.findByPlaceholderText('mpp-berlin-01')
+    // Nothing to enrol over, and the server would refuse the request - so the
+    // question is not asked.
+    expect(
+      screen.queryByLabelText(/cannot reach the platform directly/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('warns that the script is a secret before it is created', async () => {
+    await changeLanguage('en')
+    overlay = { enabled: true, peers: [] }
+    const user = userEvent.setup()
+    wrap()
+
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(
+      await screen.findByLabelText(/cannot reach the platform directly/i),
+    )
+
+    // The script carries the probe's private key in this case, which an
+    // ordinary invitation does not. Saying so afterwards would be too late.
+    expect(await screen.findByText(/private WireGuard key/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    expect(createdBodies[0]).toMatchObject({ overlay_bootstrap: true })
   })
 })

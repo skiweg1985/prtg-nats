@@ -2372,37 +2372,75 @@ printf '\n== Bootstrap report ==\n'
 # it in first. It runs as root on somebody else's machine, which is the worst
 # place to find a typo.
 bootstrap_dir="$(mktemp -d)"
-sed \
-  -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
-  -e 's|@@TOKEN@@|token|' \
-  -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
-  -e 's|@@CA_SHA256@@|0000|' \
-  -e 's|@@CA_FINGERPRINT@@|1111|' \
-  -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24|' \
-  -e 's|@@NATS_HOST@@|nats.example.test|' \
-  -e 's|@@NATS_PORT@@|23561|' \
-  -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
-  -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
-  -e 's|@@INSTALL_PACKAGE@@|true|' \
-  -e 's|@@OVERLAY_ENABLED@@|true|' \
-  -e 's|@@OVERLAY_MODE@@|auto|' \
-  -e 's|@@OVERLAY_ADDRESS@@|10.83.1.0|' \
-  -e 's|@@OVERLAY_SUBNET@@|10.83.0.0/16|' \
-  -e 's|@@OVERLAY_ENDPOINT@@|nats.example.test:51820|' \
-  -e 's|@@OVERLAY_HUB_KEY@@|AAAA|' \
-  -e 's|@@OVERLAY_NATS_HOST_IP@@|192.0.2.10|' \
-  bootstrap/probe-bootstrap.sh.template > "${bootstrap_dir}/bootstrap.sh"
-if sh -n "${bootstrap_dir}/bootstrap.sh" 2>/dev/null; then
-  printf '  ok    the rendered bootstrap is valid POSIX shell\n'
+# Rendered twice: an ordinary enrolment and one over the tunnel. The two differ
+# in the order they do things, so a syntax error in either branch is a syntax
+# error on somebody's console - and checking a single rendering would only ever
+# catch one of them.
+#
+# The private key is rendered the way the platform renders it: filled in for a
+# tunnel enrolment, empty for every other one.
+render_bootstrap() {
+  sed \
+    -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
+    -e 's|@@TOKEN@@|token|' \
+    -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
+    -e 's|@@CA_SHA256@@|0000|' \
+    -e 's|@@CA_FINGERPRINT@@|1111|' \
+    -e 's|@@SSH_SOURCE_CIDR@@|192.0.2.0/24|' \
+    -e 's|@@NATS_HOST@@|nats.example.test|' \
+    -e 's|@@NATS_PORT@@|23561|' \
+    -e 's|@@MANAGEMENT_PUBLIC_KEY@@|ssh-ed25519 AAAA|' \
+    -e 's|@@HELPER_SIGNING_KEY@@|-----BEGIN PUBLIC KEY-----|' \
+    -e 's|@@INSTALL_PACKAGE@@|true|' \
+    -e 's|@@OVERLAY_ENABLED@@|true|' \
+    -e 's|@@OVERLAY_MODE@@|auto|' \
+    -e 's|@@OVERLAY_ADDRESS@@|10.83.1.0|' \
+    -e 's|@@OVERLAY_SUBNET@@|10.83.0.0/16|' \
+    -e 's|@@OVERLAY_ENDPOINT@@|nats.example.test:51820|' \
+    -e 's|@@OVERLAY_HUB_KEY@@|AAAA|' \
+    -e 's|@@OVERLAY_NATS_HOST_IP@@|192.0.2.10|' \
+    -e "s|@@OVERLAY_FIRST@@|$1|" \
+    -e "s|@@OVERLAY_PRIVATE_KEY@@|$2|" \
+    bootstrap/probe-bootstrap.sh.template
+}
+
+render_bootstrap false "" > "${bootstrap_dir}/bootstrap.sh"
+render_bootstrap true BBBB > "${bootstrap_dir}/bootstrap-tunnel.sh"
+
+for rendered in "${bootstrap_dir}/bootstrap.sh" \
+  "${bootstrap_dir}/bootstrap-tunnel.sh"; do
+  if sh -n "${rendered}" 2>/dev/null; then
+    printf '  ok    %s is valid POSIX shell\n' "$(basename "${rendered}")"
+    passed=$((passed + 1))
+  else
+    printf '  FAIL  %s is valid POSIX shell\n' "$(basename "${rendered}")" >&2
+    sh -n "${rendered}" || true
+    failed=$((failed + 1))
+  fi
+  check "${rendered##*/} leaves no placeholder behind" \
+    "$(grep -c '@@' "${rendered}" || true)" "0"
+done
+
+# The throwaway tunnel runs before the first fetch and nowhere else. If it
+# ever slid below the management access again the script would be back to
+# needing the platform before it can reach it - the exact deadlock this whole
+# path exists to break.
+tunnel_line="$(
+  grep -n 'Building the overlay tunnel before anything else' \
+    "${bootstrap_dir}/bootstrap-tunnel.sh" | cut -d: -f1
+)"
+fetch_line="$(
+  grep -n '^fetch enroll-probe.sh' "${bootstrap_dir}/bootstrap-tunnel.sh" |
+    cut -d: -f1
+)"
+if [ -n "${tunnel_line}" ] && [ -n "${fetch_line}" ] &&
+  [ "${tunnel_line}" -lt "${fetch_line}" ]; then
+  printf '  ok    the tunnel is built before the first fetch\n'
   passed=$((passed + 1))
 else
-  printf '  FAIL  the rendered bootstrap is valid POSIX shell\n' >&2
-  sh -n "${bootstrap_dir}/bootstrap.sh" || true
+  printf '  FAIL  the tunnel is built before the first fetch\n' >&2
   failed=$((failed + 1))
 fi
-
-check "the rendered bootstrap leaves no placeholder behind" \
-  "$(grep -c '@@' "${bootstrap_dir}/bootstrap.sh" || true)" "0"
 
 # install-mpp.sh has no default for the NATS endpoint and asks for it at a
 # terminal. The bootstrap arrives through a pipe and has none, so every option
@@ -2441,10 +2479,21 @@ check "the bootstrap configures the overlay through the helper" \
   "$(grep -c "overlay-configure" "${bootstrap_dir}/bootstrap.sh")" "1"
 check "the bootstrap reports the key the probe generated" \
   "$(grep -c 'overlay_public_key' "${bootstrap_dir}/bootstrap.sh")" "2"
-# It never carries a private key: the probe makes its own, and only the public
-# half travels back.
-check "the bootstrap has no placeholder for a private overlay key" \
-  "$(grep -c 'PRIVATE_KEY' ./bootstrap/probe-bootstrap.sh.template)" "0"
+# A private key travels in exactly one case, and it is the one that cannot work
+# any other way: a probe whose only route to this platform is the tunnel itself
+# cannot report a key it generated, because reporting needs that tunnel
+# (ADR 0010). So the rule is not "never" any more - it is "only there".
+#
+# An ordinary enrolment still renders the field empty. That is what these two
+# check: the placeholder exists once, and nothing fills it in unless the
+# invitation asked for a tunnel enrolment.
+check "the bootstrap holds one private key placeholder" \
+  "$(grep -c '@@OVERLAY_PRIVATE_KEY@@' ./bootstrap/probe-bootstrap.sh.template)" "1"
+check "an ordinary enrolment renders no private key" \
+  "$(grep -c '^OVERLAY_PRIVATE_KEY=""$' "${bootstrap_dir}/bootstrap.sh")" "1"
+check "a tunnel enrolment renders one" \
+  "$(grep -c '^OVERLAY_PRIVATE_KEY="BBBB"$' \
+    "${bootstrap_dir}/bootstrap-tunnel.sh")" "1"
 check "the bootstrap hands it the destination path" \
   "$(printf '%s' "${bootstrap_install_call}" |
     grep -c -- '--ca-file "${CA_PATH}"')" "1"
