@@ -124,16 +124,14 @@
       "version": "Paket",
       "sensors": "Sensoren",
       "deviations": "Abweichungen",
-      "observed": "Zuletzt geprüft"
+      "observed": "Zuletzt geprüft",
+      "service": "Dienst",
+      "nats": "NATS-Verbindung"
     },
     "tabs": {
       "overview": "Übersicht",
       "sensors": "Sensoren",
-      "configuration": "Konfiguration",
-      "certificates": "Zertifikate",
-      "deployments": "Ausrollvorgänge",
-      "jobs": "Jobs",
-      "audit": "Protokoll",
+      "deviations": "Abweichungen",
       "diagnostics": "Diagnose"
     },
     "identity": "Identität",
@@ -538,7 +536,17 @@
       "configure_probe": "Tunnel konfigurieren",
       "record_peer": "Peer eintragen",
       "restore_access": "Management-Zugang zurücksetzen",
-      "remove_tunnel": "Tunnel entfernen"
+      "remove_tunnel": "Tunnel entfernen",
+      "configure": "Konfigurieren",
+      "deploy": "Ausrollen",
+      "forget_record": "Eintrag vergessen",
+      "install_access": "Management-Zugang installieren",
+      "release": "Interface freigeben",
+      "remove_access": "Management-Zugang entfernen",
+      "remove_endpoint": "Messpunkt abbauen",
+      "reserve": "Interface reservieren",
+      "setup_endpoint": "Messpunkt einrichten",
+      "write_record": "Eintrag schreiben"
     },
     "events": {
       "started": "Job gestartet: {{type}}",
@@ -694,7 +702,59 @@
       "failedList_other": "{{count}} Probes fehlgeschlagen",
       "runForReal": "Jetzt wirklich ausrollen"
     },
-    "rawResult": "Rohdaten des Ergebnisses"
+    "rawResult": "Rohdaten des Ergebnisses",
+    "types": {
+      "certificate": {
+        "renew": "Zertifikat erneuern"
+      },
+      "credential": {
+        "rotate": "Passwort wechseln"
+      },
+      "iperf": {
+        "deploy": "iperf-Zugangsdaten ausrollen",
+        "enroll": "Messpunkt einbinden",
+        "provision": "Messpunkt einrichten",
+        "remove": "Messpunkt entfernen",
+        "revoke": "iperf-Zugangsdaten entziehen",
+        "rotate": "iperf-Passwort wechseln",
+        "update_foreign_credentials": "Fremde Zugangsdaten aktualisieren"
+      },
+      "overlay": {
+        "attach": "Aufs Overlay nehmen",
+        "detach": "Vom Overlay nehmen",
+        "mode": "Overlay-Modus ändern",
+        "refresh": "Overlay-Status aktualisieren"
+      },
+      "probe": {
+        "configure": "Probe konfigurieren",
+        "enroll": "Probe einbinden",
+        "helper_update": "Helfer aktualisieren",
+        "install_ca": "CA installieren",
+        "reconcile": "Abweichungen beheben",
+        "refresh": "Zustand aktualisieren",
+        "unenroll": "Probe ausbinden",
+        "validate": "Probe prüfen"
+      },
+      "sensor": {
+        "deploy": "Sensor ausrollen",
+        "deploy_profiles": "Zugangsdaten ausrollen",
+        "release_interface": "Interface freigeben",
+        "remove": "Sensor entfernen",
+        "remove_profile": "Variante entfernen",
+        "reserve_interface": "Interface reservieren",
+        "write_profile": "Variante schreiben"
+      },
+      "stack": {
+        "update": "Stack aktualisieren"
+      },
+      "system": {
+        "backup": "Backup erstellen",
+        "export": "Runtime exportieren",
+        "restart": "NATS neu starten",
+        "setup": "Einrichtung",
+        "verify": "Installation prüfen"
+      }
+    }
   },
   "audit": {
     "title": "Protokoll",
@@ -708,7 +768,85 @@
       "result": "Ergebnis",
       "source": "Quelle"
     },
-    "immutable": "Protokolleinträge lassen sich nicht ändern und nicht löschen."
+    "immutable": "Protokolleinträge lassen sich nicht ändern und nicht löschen.",
+    "actions": {
+      "auth": {
+        "login": "Anmeldung",
+        "logout": "Abmeldung"
+      },
+      "certificate": {
+        "renew": "Zertifikat erneuert"
+      },
+      "credential": {
+        "create": "Konto angelegt",
+        "delete": "Konto gelöscht",
+        "reveal": "Passwort eingesehen",
+        "rotate": "Passwort gewechselt"
+      },
+      "enrollment": {
+        "token_create": "Einladung erstellt",
+        "token_redeem": "Einladung eingelöst",
+        "token_revoke": "Einladung zurückgezogen"
+      },
+      "iperf": {
+        "deploy": "iperf-Zugangsdaten ausgerollt",
+        "foreign_credentials_update": "Fremde Zugangsdaten aktualisiert",
+        "provision": "Messpunkt eingerichtet",
+        "register": "Messpunkt registriert",
+        "remove": "Messpunkt entfernt",
+        "revoke": "iperf-Zugangsdaten entzogen",
+        "rotate": "iperf-Passwort gewechselt"
+      },
+      "job": {
+        "cancel": "Job abgebrochen",
+        "retry": "Job wiederholt"
+      },
+      "overlay": {
+        "attach": "Aufs Overlay genommen",
+        "detach": "Vom Overlay genommen",
+        "disable": "Overlay ausgeschaltet",
+        "enable": "Overlay eingeschaltet",
+        "mode": "Overlay-Modus geändert",
+        "refresh": "Overlay aktualisiert"
+      },
+      "probe": {
+        "configure": "Probe konfiguriert",
+        "delete": "Probe ausgebunden",
+        "helper_update": "Helfer aktualisiert",
+        "install_ca": "CA installiert",
+        "reconcile": "Abweichungen behoben",
+        "refresh": "Zustand aktualisiert",
+        "set_desired_state": "Soll-Zustand geändert",
+        "update": "Probe geändert",
+        "validate": "Probe geprüft"
+      },
+      "sensor": {
+        "deploy": "Sensor ausgerollt",
+        "profile": {
+          "delete": "Variante gelöscht",
+          "upload": "Varianten-Datei hochgeladen",
+          "write": "Variante geschrieben"
+        },
+        "release_interface": "Interface freigegeben",
+        "remove": "Sensor entfernt",
+        "reserve_interface": "Interface reserviert"
+      },
+      "system": {
+        "backup": "Backup erstellt",
+        "backup_download": "Backup heruntergeladen",
+        "export": "Runtime exportiert",
+        "restart": "NATS neu gestartet",
+        "setup": "Einrichtung ausgeführt",
+        "update": "Stack aktualisiert",
+        "verify": "Installation geprüft"
+      },
+      "user": {
+        "change_password": "Passwort geändert",
+        "create": "Benutzer angelegt",
+        "delete": "Benutzer gelöscht",
+        "update": "Benutzer geändert"
+      }
+    }
   },
   "infrastructure": {
     "natsTitle": "NATS-Server",
@@ -845,6 +983,8 @@
     "renewServer": "Erneuern",
     "renewServerConfirm": "Das Serverzertifikat wird erneuert und aktiviert. Der NATS-Container startet dabei neu; alle Probes verbinden sich neu.",
     "overlay": {
+      "title": "Overlay",
+      "subtitle": "Der WireGuard-Tunnel zwischen diesem Host und den Probes",
       "hub": "Hub",
       "endpoint": "Endpunkt",
       "hubAddress": "Hub-Adresse",
@@ -1074,8 +1214,8 @@
       "helper_outdated.cause": "Ihr Verwaltungs-Helper ist älter als diese Plattform. An der Anfrage war nichts falsch – die Probe ist schlicht älter.",
       "helper_outdated.action": "Den Helper auf der Probe-Seite mit „Helper aktualisieren“ erneuern, dann den Job erneut ausführen. Eine Probe, die vor den signierten Updates enrolliert wurde, muss zuvor einmal neu enrolliert werden; ihre Seite sagt das.",
       "package_missing": "Auf „{{probe}}“ ist kein prtgmpprobe-Paket installiert.",
-      "package_missing.cause": "Ohne das Paket gibt es keinen Dienst prtg.mpprobe.service, den eine Konfiguration starten könnte. Das Paket kommt ausschließlich mit dem Bootstrap-Befehl auf die Probe – eine Anmeldung installiert es nicht nach. Typischerweise wurde es bei einer Außerbetriebnahme mit „MPP deinstallieren“ entfernt, oder seine Installation im Bootstrap ist fehlgeschlagen; die technischen Details enthalten dann deren Meldung.",
-      "package_missing.action": "Eine neue Einladung erzeugen und den Bootstrap-Befehl auf der Probe ausführen. Ist das Paket dort bereits vorhanden, überspringt der Bootstrap die Installation. Alternativ install-mpp.sh direkt auf der Probe ausführen und den Job danach erneut starten.",
+      "package_missing.cause": "Das Paket kommt nur mit dem Bootstrap-Befehl auf die Probe. Es wurde beim Ausbinden mit „Probe-Software deinstallieren“ entfernt, oder seine Installation ist fehlgeschlagen – die technischen Details zeigen dann die Meldung.",
+      "package_missing.action": "Erzeuge eine neue Einladung und führe den Befehl auf der Probe aus. Ein vorhandenes Paket überspringt der Bootstrap.",
       "host_key_mismatch": "Der Host \"{{host}}\" hat einen anderen SSH-Hostschlüssel vorgezeigt als den hinterlegten.",
       "host_key_mismatch.cause": "Entweder wurde der Host neu aufgesetzt und hat neue Schlüssel, oder unter dieser Adresse antwortet etwas anderes. Hinterlegt: {{pinned}}. Vorgezeigt: {{offered}}.",
       "host_key_mismatch.action": "Klären Sie über einen vertrauenswürdigen Kanal, ob der Host neu aufgesetzt wurde. Wenn ja, entfernen Sie den alten Eintrag bewusst und melden Sie ihn erneut an; wenn nein, brechen Sie ab und gehen Sie der Sache nach.",

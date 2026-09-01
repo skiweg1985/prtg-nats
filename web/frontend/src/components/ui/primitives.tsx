@@ -66,7 +66,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-accent-ink hover:opacity-90 border-transparent',
   secondary: 'bg-surface text-ink border-rule-2 hover:bg-surface-2',
   ghost: 'bg-transparent text-ink-2 border-transparent hover:bg-surface-2',
-  danger: 'bg-danger text-white border-transparent hover:opacity-90',
+  danger: 'bg-danger text-accent-ink border-transparent hover:opacity-90',
 }
 
 export function Button({

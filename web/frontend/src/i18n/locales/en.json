@@ -124,16 +124,14 @@
       "version": "Package",
       "sensors": "Sensors",
       "deviations": "Deviations",
-      "observed": "Last checked"
+      "observed": "Last checked",
+      "service": "Service",
+      "nats": "NATS connection"
     },
     "tabs": {
       "overview": "Overview",
       "sensors": "Sensors",
-      "configuration": "Configuration",
-      "certificates": "Certificates",
-      "deployments": "Deployments",
-      "jobs": "Jobs",
-      "audit": "Audit",
+      "deviations": "Deviations",
       "diagnostics": "Diagnostics"
     },
     "identity": "Identity",
@@ -538,7 +536,17 @@
       "configure_probe": "Configure the tunnel",
       "record_peer": "Record the peer",
       "restore_access": "Restore the management access",
-      "remove_tunnel": "Remove the tunnel"
+      "remove_tunnel": "Remove the tunnel",
+      "configure": "Configure",
+      "deploy": "Deploy",
+      "forget_record": "Forget the record",
+      "install_access": "Install the management access",
+      "release": "Release the interface",
+      "remove_access": "Remove the management access",
+      "remove_endpoint": "Remove the endpoint",
+      "reserve": "Reserve the interface",
+      "setup_endpoint": "Set up the endpoint",
+      "write_record": "Write the record"
     },
     "events": {
       "started": "Job started: {{type}}",
@@ -694,7 +702,59 @@
       "failedList_other": "{{count}} probes failed",
       "runForReal": "Deploy for real"
     },
-    "rawResult": "Raw result"
+    "rawResult": "Raw result",
+    "types": {
+      "certificate": {
+        "renew": "Renew the certificate"
+      },
+      "credential": {
+        "rotate": "Rotate a password"
+      },
+      "iperf": {
+        "deploy": "Deploy iperf credentials",
+        "enroll": "Enroll an iperf endpoint",
+        "provision": "Provision an iperf endpoint",
+        "remove": "Remove an iperf endpoint",
+        "revoke": "Revoke iperf credentials",
+        "rotate": "Rotate the iperf password",
+        "update_foreign_credentials": "Update foreign credentials"
+      },
+      "overlay": {
+        "attach": "Put a probe on the overlay",
+        "detach": "Take a probe off the overlay",
+        "mode": "Change the overlay mode",
+        "refresh": "Refresh the overlay state"
+      },
+      "probe": {
+        "configure": "Configure a probe",
+        "enroll": "Enroll a probe",
+        "helper_update": "Update the helper",
+        "install_ca": "Install the CA",
+        "reconcile": "Reconcile a probe",
+        "refresh": "Refresh the state",
+        "unenroll": "Unenroll a probe",
+        "validate": "Validate a probe"
+      },
+      "sensor": {
+        "deploy": "Deploy a sensor",
+        "deploy_profiles": "Deploy credentials",
+        "release_interface": "Release an interface",
+        "remove": "Remove a sensor",
+        "remove_profile": "Remove a variant",
+        "reserve_interface": "Reserve an interface",
+        "write_profile": "Write a variant"
+      },
+      "stack": {
+        "update": "Update the stack"
+      },
+      "system": {
+        "backup": "Create a backup",
+        "export": "Export the runtime",
+        "restart": "Restart NATS",
+        "setup": "Setup",
+        "verify": "Verify the installation"
+      }
+    }
   },
   "audit": {
     "title": "Audit",
@@ -708,7 +768,85 @@
       "result": "Result",
       "source": "Source"
     },
-    "immutable": "Audit records cannot be changed or deleted."
+    "immutable": "Audit records cannot be changed or deleted.",
+    "actions": {
+      "auth": {
+        "login": "Sign-in",
+        "logout": "Sign-out"
+      },
+      "certificate": {
+        "renew": "Certificate renewed"
+      },
+      "credential": {
+        "create": "Account created",
+        "delete": "Account deleted",
+        "reveal": "Password revealed",
+        "rotate": "Password rotated"
+      },
+      "enrollment": {
+        "token_create": "Invitation created",
+        "token_redeem": "Invitation redeemed",
+        "token_revoke": "Invitation revoked"
+      },
+      "iperf": {
+        "deploy": "iperf credentials deployed",
+        "foreign_credentials_update": "Foreign credentials updated",
+        "provision": "Endpoint provisioned",
+        "register": "Endpoint registered",
+        "remove": "Endpoint removed",
+        "revoke": "iperf credentials revoked",
+        "rotate": "iperf password rotated"
+      },
+      "job": {
+        "cancel": "Job cancelled",
+        "retry": "Job retried"
+      },
+      "overlay": {
+        "attach": "Added to the overlay",
+        "detach": "Taken off the overlay",
+        "disable": "Overlay turned off",
+        "enable": "Overlay turned on",
+        "mode": "Overlay mode changed",
+        "refresh": "Overlay refreshed"
+      },
+      "probe": {
+        "configure": "Probe configured",
+        "delete": "Probe unenrolled",
+        "helper_update": "Helper updated",
+        "install_ca": "CA installed",
+        "reconcile": "Probe reconciled",
+        "refresh": "State refreshed",
+        "set_desired_state": "Desired state changed",
+        "update": "Probe updated",
+        "validate": "Probe validated"
+      },
+      "sensor": {
+        "deploy": "Sensor deployed",
+        "profile": {
+          "delete": "Variant deleted",
+          "upload": "Variant file uploaded",
+          "write": "Variant written"
+        },
+        "release_interface": "Interface released",
+        "remove": "Sensor removed",
+        "reserve_interface": "Interface reserved"
+      },
+      "system": {
+        "backup": "Backup created",
+        "backup_download": "Backup downloaded",
+        "export": "Runtime exported",
+        "restart": "NATS restarted",
+        "setup": "Setup run",
+        "update": "Stack updated",
+        "verify": "Installation verified"
+      },
+      "user": {
+        "change_password": "Password changed",
+        "create": "User created",
+        "delete": "User deleted",
+        "update": "User updated"
+      }
+    }
   },
   "infrastructure": {
     "natsTitle": "NATS server",
@@ -845,6 +983,8 @@
     "renewServer": "Renew",
     "renewServerConfirm": "The server certificate is renewed and activated. The NATS container restarts; every probe reconnects.",
     "overlay": {
+      "title": "Overlay",
+      "subtitle": "The WireGuard tunnel between this host and the probes",
       "hub": "Hub",
       "endpoint": "Endpoint",
       "hubAddress": "Hub address",
@@ -1074,8 +1214,8 @@
       "helper_outdated.cause": "Its management helper is older than this platform. Nothing about the request was wrong - the probe simply predates it.",
       "helper_outdated.action": "Renew the helper on the probe page with \"Update helper\", then run the job again. A probe that was enrolled before signed updates has to be enrolled again first; its page says so.",
       "package_missing": "No prtgmpprobe package is installed on \"{{probe}}\".",
-      "package_missing.cause": "Without the package there is no prtg.mpprobe.service for a configuration to start. The package reaches a probe with the bootstrap command and with nothing else - enrolling does not install it. Usually it was removed by a retirement with \"Uninstall MPP\", or its installation during the bootstrap failed; the technical details then carry that message.",
-      "package_missing.action": "Create a fresh invitation and run the bootstrap command on the probe. If the package is already there, the bootstrap skips the installation. Alternatively run install-mpp.sh on the probe itself and start the job again afterwards.",
+      "package_missing.cause": "The package only reaches a probe with the bootstrap command. It was removed by an unenrollment with \"Uninstall probe software\", or its installation failed - the technical details then carry that message.",
+      "package_missing.action": "Create a fresh invitation and run the command on the probe. The bootstrap skips a package that is already there.",
       "host_key_mismatch": "The host \"{{host}}\" presented a different SSH host key than the one on record.",
       "host_key_mismatch.cause": "Either the host was rebuilt and has new keys, or something else is answering at that address. Pinned: {{pinned}}. Offered: {{offered}}.",
       "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enrol again; if it was not, stop and investigate.",

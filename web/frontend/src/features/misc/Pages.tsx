@@ -270,8 +270,14 @@ export function AuditPage() {
       key: 'action',
       header: t('audit.columns.action'),
       sortValue: (row) => row.action,
-      searchValue: (row) => row.action,
-      cell: (row) => <Mono>{row.action}</Mono>,
+      // Both spellings stay searchable: the reader knows the German word,
+      // the runbook quotes the code.
+      searchValue: (row) => `${row.action} ${t(`audit.actions.${row.action}`, '')}`,
+      cell: (row) => (
+        <span title={row.action}>
+          {t(`audit.actions.${row.action}`, row.action)}
+        </span>
+      ),
     },
     {
       key: 'object',

@@ -209,9 +209,10 @@ export function JobDetailPage() {
             ← {t('jobs.title')}
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-lg">
-              <Mono className="text-base">{job.type}</Mono>
-            </h1>
+            {/* The human name first; the raw type code stays beside it because
+                it is what the audit trail and the API speak. */}
+            <h1 className="text-lg">{t(`jobs.types.${job.type}`, job.type)}</h1>
+            <Mono className="text-ink-3 text-xs">{job.type}</Mono>
             <JobStatusBadge status={job.status} />
           </div>
           {/* The way back to where this was started. Almost every action in

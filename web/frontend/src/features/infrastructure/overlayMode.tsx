@@ -37,7 +37,7 @@ export function OverlayModeChoice({
             <span className="font-medium">
               {t(`infrastructure.overlay.modes.${mode}.name`)}
             </span>
-            <span className="text-muted block">
+            <span className="text-ink-3 block">
               {t(`infrastructure.overlay.modes.${mode}.hint`)}
             </span>
           </span>
