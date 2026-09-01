@@ -2208,7 +2208,7 @@ def check_device_watch_report(module):
 
     targets = [
         {"device_id": "a", "address": "10.0.0.1", "method": "icmp"},
-        {"device_id": "b", "address": "printer.local", "method": "icmp"},
+        {"device_id": "b", "address": "printer.example.test", "method": "icmp"},
     ]
     results = {
         "a": {"reachable": True, "rtt_ms": 1.25, "address": "10.0.0.1"},
