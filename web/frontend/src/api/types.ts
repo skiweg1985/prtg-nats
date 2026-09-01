@@ -676,15 +676,23 @@ export interface Invitation {
  * What creating an invitation returns. The token is in here once and is never
  * retrievable again - it is not stored in the clear, only its hash is.
  */
+/** One command to run on the probe before the one-liner works. */
+export interface EnrolmentStep {
+  /** Names the step; heading and note live in the translations. */
+  key: string
+  command: string
+  /** True where the command carries the probe's private overlay key. */
+  carries_secret?: boolean
+}
+
 export interface IssuedInvitation extends Invitation {
   token: string
   command: string
   /**
-   * True when `command` is the whole enrolment script rather than a one-liner
-   * that fetches it. It then carries the probe's private overlay key, which
-   * is a different kind of secret from an invitation that expires in an hour.
+   * What has to happen on the probe first, for an enrolment over the tunnel.
+   * Empty for every other invitation, where the one-liner is the whole thing.
    */
-  carries_secret?: boolean
+  setup_steps?: EnrolmentStep[]
   ca_sha256: string
 }
 

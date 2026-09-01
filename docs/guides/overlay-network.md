@@ -126,14 +126,22 @@ does not have before it could fetch anything - the overlay would fix that, and
 the overlay is what it cannot reach.
 
 For that case, tick **This probe cannot reach the platform directly** when
-creating the invitation. You then get the whole enrolment script as a block to
-paste, not the usual one-liner - the one-liner would have to download the
-script over the very tunnel that script builds.
+creating the invitation. You then get three commands instead of one, to run in
+order on a console of the probe - Raspberry Pi Connect, SSH from inside that
+site, a keyboard in front of it:
 
-Paste it into a console on the probe: Raspberry Pi Connect, SSH from inside
-that site, a keyboard in front of it. The block checks its own digest and only
-runs whole, so a paste that arrived truncated is refused rather than half
-executed as root.
+1. **Provide WireGuard** - installs `wireguard-tools`
+2. **Build the tunnel to the platform** - brings `prtgnats0` up. This is the
+   one that carries the probe's private key; treat it like a password
+3. **Start the enrolment** - the ordinary one-liner, which now has a path
+
+The order is the whole point: the one-liner downloads a script, and that
+download is the first request. A script cannot be fetched over a tunnel it has
+not built yet, so the tunnel comes first and by hand.
+
+After the second command, `sudo wg show` should report a time under
+`latest handshake`. If it does not, the endpoint is not reachable over UDP and
+the third command would fail with a timeout that says nothing.
 
 What changes, and it is worth knowing before you tick it: the platform
 generates the probe's WireGuard key instead of the probe generating its own,
@@ -158,6 +166,13 @@ The probe needs to reach two things for this to work:
 - the overlay endpoint over UDP - the public address, not the NATS one
 - its distribution's own mirrors, for `wireguard-tools` and for the
   `prtgmpprobe` package. Neither comes from this platform.
+
+And one thing has to be true on this side: **the NATS server certificate has
+to carry `NATS_HOST_IP` as a SAN.** The probe is configured with the address,
+so a certificate that only names the FQDN is refused - `tls: bad certificate`
+in the NATS log, while tunnel and enrolment both look perfectly healthy. An
+installation whose certificate predates this is fixed with
+`./prtg-nats renew-certificate`.
 
 The reservation lives as long as the invitation. Revoke it, or let it expire,
 and the key stops working - so a command that was never used does not leave a

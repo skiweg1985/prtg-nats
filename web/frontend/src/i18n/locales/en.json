@@ -196,21 +196,33 @@
         "title": "2. Run this on the probe",
         "intro": "Copy the command and run it on the host, as a user who can sudo. It fetches the CA, compares it against the fingerprint below, installs the restricted management access, and reports back.",
         "copy": "Copy",
-        "copyScript": "Copy the script",
-        "scriptHint": "Paste it into a console on the probe - Raspberry Pi Connect or SSH. The script checks itself and only runs whole; a truncated paste is refused.",
         "account": "NATS account",
         "caFingerprint": "CA fingerprint",
         "expires": "Valid for",
         "expired": "Expired",
         "secretTitle": "Treat the command as a secret",
         "secretBody": "It carries a single-use invitation. Anyone who can read it can enrol a host under this account until it is used or expires.",
-        "secretBodyScript": "This block carries the probe's private WireGuard key. It does not belong in a ticket, a chat or an email - hand it over the way you would hand over a password.",
         "waiting": "Waiting for the probe",
         "waitingHint": "This page continues on its own as soon as the host reports in.",
         "revoke": "Cancel invitation",
         "deadTitle": "This invitation can no longer be used",
         "deadBody": "It expired or was cancelled, and the command above would be refused. Create a new invitation to enrol this probe.",
-        "restart": "New invitation"
+        "restart": "New invitation",
+        "steps": {
+          "install_wireguard": {
+            "title": "Provide WireGuard",
+            "note": "Debian and Ubuntu carry the package in the main archive. On RHEL 9 it comes from EPEL, which has to be enabled first."
+          },
+          "build_tunnel": {
+            "title": "Build the tunnel to the platform",
+            "note": "The probe reaches the platform afterwards. Check with “sudo wg show” – there has to be a time under “latest handshake”."
+          },
+          "enrol": {
+            "title": "Start the enrolment",
+            "note": "Fetches the CA first and compares it against the fingerprint below, then installs. This takes a few minutes."
+          }
+        },
+        "stepSecret": "This command carries the probe’s private WireGuard key. Hand it over the way you would hand over a password – not by ticket, chat or email."
       },
       "step3": {
         "title": "3. The platform takes over",

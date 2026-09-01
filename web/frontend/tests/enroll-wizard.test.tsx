@@ -35,8 +35,19 @@ const ISSUED = {
   ...INVITATION,
   token: 'a-token',
   command: 'curl -fsSL http://nats.example.test/nats-ca.pem -o /tmp/ca.pem && …',
+  setup_steps: [] as unknown[],
   ca_sha256: 'e7b40c61ca52b201eb3a6b7d57083067283d42a9265c828cebea574796df35a2',
 }
+
+/** What a tunnel enrolment adds: two commands before the one-liner. */
+const TUNNEL_STEPS = [
+  { key: 'install_wireguard', command: 'sudo apt-get install -y wireguard-tools' },
+  {
+    key: 'build_tunnel',
+    command: "sudo sh -c 'set -e\numask 077\nip link add prtgnats0 …'",
+    carries_secret: true,
+  },
+]
 
 /**
  * The server's view of the one invitation, which is not the open list.
@@ -50,6 +61,8 @@ let invitation: Record<string, unknown> | null = null
 let openInvitations: unknown[] = []
 let createdBodies: Record<string, unknown>[] = []
 let overlay: Record<string, unknown> = { enabled: false, peers: [] }
+/** Set where a test needs the invitation to come back with setup steps. */
+let issuedOverride: Record<string, unknown> | null = null
 
 const server = setupServer(
   // The wizard now refuses to render its form without probe.create - the
@@ -119,7 +132,7 @@ const server = setupServer(
     createdBodies.push((await request.json()) as Record<string, unknown>)
     invitation = { ...INVITATION }
     openInvitations = [INVITATION]
-    return HttpResponse.json(ISSUED, { status: 201 })
+    return HttpResponse.json(issuedOverride ?? ISSUED, { status: 201 })
   }),
   http.get('/api/v1/jobs/:id', ({ params }) =>
     HttpResponse.json({
@@ -143,6 +156,7 @@ afterEach(() => {
   openInvitations = []
   createdBodies = []
   overlay = { enabled: false, peers: [] }
+  issuedOverride = null
 })
 afterAll(() => server.close())
 
@@ -546,5 +560,30 @@ describe('EnrollWizard', () => {
 
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     expect(createdBodies[0]).toMatchObject({ overlay_bootstrap: true })
+  })
+
+  it('shows a tunnel enrolment as numbered steps, warning only where it belongs', async () => {
+    await changeLanguage('en')
+    overlay = { enabled: true, peers: [] }
+    issuedOverride = { ...ISSUED, setup_steps: TUNNEL_STEPS }
+    const user = userEvent.setup()
+    wrap()
+
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(
+      await screen.findByLabelText(/cannot reach the platform directly/i),
+    )
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+
+    // Three headings in the order they have to be run - the tunnel cannot be
+    // built by the script that is fetched over it.
+    expect(await screen.findByText(/Provide WireGuard/i)).toBeInTheDocument()
+    expect(screen.getByText(/Build the tunnel/i)).toBeInTheDocument()
+    expect(screen.getByText(/Start the enrolment/i)).toBeInTheDocument()
+
+    // The key warning sits on the one command that carries a key, not over
+    // the whole page.
+    const warnings = screen.getAllByText(/private WireGuard key/i)
+    expect(warnings).toHaveLength(1)
   })
 })

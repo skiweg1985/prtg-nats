@@ -54,19 +54,31 @@ An invitation can be marked as a tunnel enrolment. When it is:
 - `peers()` reads that directory as well, so the peer is in the rendered hub
   configuration immediately. The hub's entrypoint polls the file and runs `wg
   syncconf`, so no tunnel already up is disturbed
-- the bootstrap script brings up a throwaway tunnel before its first request,
-  fetches everything over it, and hands the same key to the helper, which
-  writes the real configuration. `ensure_overlay_key()` keeps a key it finds,
-  so the helper adopts it rather than generating a second one
+- the command that builds the tunnel writes that key to
+  `/etc/prtg-nats/overlay.key`, where `ensure_overlay_key()` finds and keeps
+  it - so the helper adopts it in step 4 rather than generating a second one
+  the hub knows nothing about
+- the bootstrap script itself carries no key at all. It arrives over TLS
+  through the tunnel that already exists, notes it, and hands it to the helper
 - the callback turns the reservation into an ordinary inventory peer
 
-**The script is handed over, not fetched.** The interface returns the rendered
-script as a block to paste into a console on the probe rather than a one-liner
-that downloads it. It carries a digest of itself and refuses to run if the
-paste arrived truncated - half a root script that stops mid-heredoc is a worse
-outcome than one that will not start. It writes itself through `mktemp` under
-`umask 077` and removes the file afterwards, because that file holds the
-private key.
+**The operator builds the tunnel, then the ordinary one-liner runs.** The
+interface shows two short commands before it: one installs `wireguard-tools`,
+one brings `prtgnats0` up from the reserved key. Step three is the same
+one-liner every other probe gets, only pointed at the address.
+
+The first attempt handed over the whole rendered script as one block to paste.
+That worked and was miserable: 19,000 characters through a browser console
+that echoes every one of them took minutes, and it arrived as a wall of text
+with its one warning lost at the top. Three commands of a few hundred
+characters each paste instantly, carry their own heading, and fail one at a
+time - an operator who sees an error knows which step it belongs to.
+
+It also puts the CA ceremony back where it belongs. The block had to embed the
+CA and guard itself with a digest, because a paste can arrive truncated. A
+one-liner fetches the CA over HTTP, compares the fingerprint the operator saw
+in the browser, and only then speaks TLS - which is what every runbook already
+describes.
 
 **Everything in it is addressed by IP.** A site with no route to this platform
 has no name server that knows it either, so `NATS_FQDN` is a dead end there -
@@ -97,11 +109,10 @@ operator is told the script now carries a secret.
 
 ## Consequences
 
-The bootstrap script for such an invitation is a credential. An ordinary
-invitation is a token that expires in an hour and can be revoked; this one
-also carries a key that stays valid as long as the probe uses it. The
-interface says so where the option is ticked, and the guidance is to hand it
-over the way a password is handed over.
+One of the three commands is a credential. An ordinary invitation is a token
+that expires in an hour and can be revoked; this one also carries a key that
+stays valid as long as the probe uses it. The warning sits on that command
+alone rather than over the page, which is the only way anybody reads it.
 
 `runtime/overlay/` now holds state that is not a rendering of something else,
 which the module docstring used to say it never would. That is a real
@@ -110,8 +121,9 @@ narrow: the files exist only between issuing an invitation and redeeming it,
 and nothing reads them except the hub rendering and the script rendering.
 
 The `check-static.sh` rule that forbade a private key placeholder in the
-bootstrap template is now two rules: the placeholder exists once, and it is
-rendered empty for every invitation that did not ask for a tunnel enrolment.
+bootstrap template stands unchanged after all. The key travels in a command
+the interface shows, never in the script - a script served over the enrolment
+channel should not be a credential.
 
 The invitation id travels to the job as `invitation_id`. Not
 `enrollment_token_id`: `app/core/redaction.py` masks any key that reads like a

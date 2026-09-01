@@ -494,6 +494,12 @@ function CommandStep({
 }) {
   const { t } = useTranslation()
   const remaining = useCountdown(invitation.expires_at)
+  // The preparation an outpost needs, then the one-liner - which is the same
+  // command every other probe gets, only pointed at the address.
+  const steps = [
+    ...(invitation.setup_steps ?? []),
+    { key: 'enrol', command: invitation.command },
+  ]
   // Expired here, revoked elsewhere - either way the command on screen would
   // be refused, and waiting for a host that can no longer report in is the
   // wrong thing to show.
@@ -505,19 +511,30 @@ function CommandStep({
         <div className="space-y-3">
           <p className="text-ink-2 text-sm">{t('probes.enroll.step2.intro')}</p>
 
-          <CopyBlock
-            value={invitation.command}
-            label={
-              invitation.carries_secret
-                ? t('probes.enroll.step2.copyScript')
-                : t('probes.enroll.step2.copy')
-            }
-          />
-          {invitation.carries_secret ? (
-            <p className="text-ink-3 text-xs">
-              {t('probes.enroll.step2.scriptHint')}
-            </p>
-          ) : null}
+          {/* Numbered where there is more than one, because then the order
+              is the whole point: nothing can be fetched before the tunnel
+              carrying the fetch exists. A single command needs no number. */}
+          {steps.map((step, index) => (
+            <div key={step.key} className="space-y-1.5">
+              <div className="flex items-baseline gap-2">
+                {steps.length > 1 ? (
+                  <span className="bg-surface-2 text-ink-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-medium">
+                    {index + 1}
+                  </span>
+                ) : null}
+                <span className="text-ink text-sm font-medium">
+                  {t(`probes.enroll.step2.steps.${step.key}.title`)}
+                </span>
+              </div>
+              <CopyBlock value={step.command} label={t('probes.enroll.step2.copy')} />
+              <p className="text-ink-3 text-xs">
+                {t(`probes.enroll.step2.steps.${step.key}.note`)}
+              </p>
+              {step.carries_secret ? (
+                <Banner tone="warn">{t('probes.enroll.step2.stepSecret')}</Banner>
+              ) : null}
+            </div>
+          ))}
 
           <div className="border-rule space-y-1 border-t pt-3">
             <DetailRow label={t('probes.enroll.step2.account')}>
@@ -536,13 +553,9 @@ function CommandStep({
           </div>
 
           {/* The command carries the invitation. Anyone who can read it can
-              enrol a host as this account until it is used or expires - and
-              for a tunnel enrolment it carries the probe's private key too,
-              which does not expire with the invitation. */}
+              enrol a host as this account until it is used or expires. */}
           <Banner tone="warn" title={t('probes.enroll.step2.secretTitle')}>
-            {invitation.carries_secret
-              ? t('probes.enroll.step2.secretBodyScript')
-              : t('probes.enroll.step2.secretBody')}
+            {t('probes.enroll.step2.secretBody')}
           </Banner>
         </div>
       </Card>

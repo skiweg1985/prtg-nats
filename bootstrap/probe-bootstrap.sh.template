@@ -7,8 +7,7 @@
 #
 # What it does, in the order it matters:
 #   1. installs the CA, so everything after this is verified
-#   2. brings up a throwaway tunnel, but only for a probe that has no other way
-#      to reach the platform - see OVERLAY_FIRST below
+#   2. notes the tunnel, where the operator built one before running this
 #   3. installs the restricted management access (libexec/enroll-probe.sh,
 #      fetched and executed, never reimplemented here)
 #   4. hands the tunnel to the helper, which writes the real configuration
@@ -50,18 +49,16 @@ OVERLAY_SUBNET="@@OVERLAY_SUBNET@@"
 OVERLAY_ENDPOINT="@@OVERLAY_ENDPOINT@@"
 OVERLAY_HUB_KEY="@@OVERLAY_HUB_KEY@@"
 OVERLAY_NATS_HOST_IP="@@OVERLAY_NATS_HOST_IP@@"
-# Set for a probe that cannot reach this platform without the tunnel - a site
-# with no site-to-site VPN. The platform's own address is the NATS address, so
-# there is no order in which this script could fetch anything first: the tunnel
-# has to exist before the first request, not after the package.
+# Set for a probe that reached this platform through the tunnel rather than
+# around it - a site with no site-to-site VPN. The operator brought the tunnel
+# up before running this, from two commands the interface showed, so the only
+# difference here is the handover in step 4 and that a failed overlay is fatal
+# rather than survivable (ADR 0010).
 #
-# It is also why the private key is here. A probe normally generates its own
-# and reports the public half, but reporting needs the very tunnel the key is
-# for. So the platform made the pair, put the peer in the hub already, and this
-# script carries the private half once (ADR 0010). That makes this script a
-# secret in a way an ordinary invitation is not.
+# The private key is not in this script. It went into the command that built
+# the tunnel and is already at OVERLAY_KEY_PATH, where ensure_overlay_key()
+# finds and keeps it.
 OVERLAY_FIRST="@@OVERLAY_FIRST@@"
-OVERLAY_PRIVATE_KEY="@@OVERLAY_PRIVATE_KEY@@"
 CA_PATH="/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
 OVERLAY_INTERFACE="prtgnats0"
 OVERLAY_KEY_PATH="/etc/prtg-nats/overlay.key"
@@ -133,65 +130,25 @@ fetch() {
     || die "Could not fetch $1 from ${BASE_URL}"
 }
 
-# --- 2. The throwaway tunnel -----------------------------------------------
-# Deliberately not the real configuration. The helper writes that in step 4,
-# with its policy rule, its routing table and its watcher; two implementations
-# of it would be two ways for a probe to end up configured differently from
-# what the hub believes. This one exists for the length of one download and is
-# then taken down again.
+# --- 2. The tunnel the operator already built ------------------------------
+# For OVERLAY_FIRST the tunnel exists before this script does: the interface
+# showed two commands that install wireguard-tools and bring prtgnats0 up, and
+# this script arrived through it. It is not built here, because the download
+# of this very script is the first request - a script cannot be fetched over a
+# tunnel it has not created yet.
 #
-# So it sets no default route and touches nothing else: two routes, for the
-# overlay subnet and for the NATS address. The package still comes from the
-# internet the ordinary way.
-install_overlay_tools() {
-  command -v wg >/dev/null 2>&1 && command -v ip >/dev/null 2>&1 && return 0
-  if command -v apt-get >/dev/null 2>&1; then
-    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      --no-install-recommends wireguard-tools iproute2 >/dev/null 2>&1 || true
-  elif command -v dnf >/dev/null 2>&1; then
-    # No repository is added here. On RHEL 9 wireguard-tools comes from EPEL,
-    # and enabling somebody's repository behind their back is not a thing to
-    # do on a host we are about to leave alone.
-    dnf install -y wireguard-tools iproute >/dev/null 2>&1 || true
-  fi
-  command -v wg >/dev/null 2>&1 && command -v ip >/dev/null 2>&1
-}
-
+# What remains is the handover in step 4. The helper writes the real
+# configuration - policy rule, routing table, watcher - and wg-quick refuses an
+# interface that already exists, so the operator's one has to go first.
 overlay_down() {
   [ -n "${OVERLAY_INTERFACE}" ] || return 0
   ip link show "${OVERLAY_INTERFACE}" >/dev/null 2>&1 || return 0
   ip link delete "${OVERLAY_INTERFACE}" 2>/dev/null || true
 }
 
-overlay_up() {
-  install -d -o root -g root -m 0755 /etc/prtg-nats
-  # Written where the helper looks for it, so step 4 adopts this key instead of
-  # generating a second one. The hub already holds the matching peer; a new key
-  # there would be a tunnel that stops working the moment it is configured
-  # properly.
-  printf '%s\n' "${OVERLAY_PRIVATE_KEY}" > "${OVERLAY_KEY_PATH}.new"
-  chmod 0600 "${OVERLAY_KEY_PATH}.new"
-  mv -f "${OVERLAY_KEY_PATH}.new" "${OVERLAY_KEY_PATH}"
-
-  overlay_down
-  ip link add "${OVERLAY_INTERFACE}" type wireguard || return 1
-  wg set "${OVERLAY_INTERFACE}" \
-    private-key "${OVERLAY_KEY_PATH}" \
-    peer "${OVERLAY_HUB_KEY}" \
-    endpoint "${OVERLAY_ENDPOINT}" \
-    allowed-ips "${OVERLAY_SUBNET},${OVERLAY_NATS_HOST_IP}/32" \
-    persistent-keepalive 25 || return 1
-  ip address add "${OVERLAY_ADDRESS}/32" dev "${OVERLAY_INTERFACE}" || return 1
-  ip link set "${OVERLAY_INTERFACE}" up || return 1
-  ip route replace "${OVERLAY_SUBNET}" dev "${OVERLAY_INTERFACE}" || return 1
-  ip route replace "${OVERLAY_NATS_HOST_IP}/32" dev "${OVERLAY_INTERFACE}" || return 1
-}
-
-# A WireGuard handshake is not instant, and every request after one of these
-# would otherwise fail with a bare timeout on a console nobody returns to.
-# Used twice: after the throwaway tunnel, and again after the helper has
-# replaced it with the real one.
+# A WireGuard handshake is not instant, and every request after the helper has
+# replaced the interface would otherwise fail with a bare timeout on a console
+# nobody returns to.
 wait_for_platform() {
   attempt=1
   while [ "${attempt}" -le 10 ]; do
@@ -205,17 +162,9 @@ wait_for_platform() {
 }
 
 if [ "${OVERLAY_FIRST}" = "true" ]; then
-  say "Building the overlay tunnel before anything else"
-  install_overlay_tools ||
-    die "WireGuard is required for this enrolment but could not be installed.
-On RHEL 9 wireguard-tools comes from EPEL - enable it and run this again."
-  overlay_up ||
-    die "The overlay tunnel did not come up, so this probe cannot reach the
-platform. Check that ${OVERLAY_ENDPOINT} is reachable from here over UDP."
-
-  wait_for_platform ||
-    die "The tunnel is up but ${BASE_URL} does not answer through it."
-  say "The platform is reachable over the tunnel"
+  # Reached us, so the tunnel is up - this script came through it. Said out
+  # loud anyway, because the next lines only make sense with that in mind.
+  say "Enrolling over the overlay tunnel as ${OVERLAY_ADDRESS}"
 fi
 
 # --- 3. The management access ----------------------------------------------
