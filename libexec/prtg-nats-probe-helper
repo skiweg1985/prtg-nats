@@ -2833,11 +2833,27 @@ remove_sensor() {
   printf 'OK sensor-removed %s\n' "${name}"
 }
 
+# Retiring this probe: the management key, and the tunnel with it.
+#
+# The tunnel is not ours to keep once the probe is retired. It is a route into
+# the platform's network, and leaving it up after an unenrolment means a host
+# nobody manages any more still reaches the NATS address. The hub drops the
+# peer at the same time, which is what actually revokes the access - this end
+# is hygiene, so the interface and the systemd units do not linger.
+#
+# The answer is printed before the tunnel goes, and that order is deliberate:
+# for a probe reached over the overlay this reply travels through the very
+# interface the next line takes down. Written first it is on the wire before
+# that happens; written after, the caller sees a broken connection for work
+# that succeeded.
 remove_access() {
   rm -f -- \
     /var/lib/prtg-nats-admin/.ssh/authorized_keys \
     /etc/sudoers.d/prtg-nats-admin
   printf 'OK management-access-removed\n'
+  if [[ -f "${OVERLAY_CONFIG}" || -f "${OVERLAY_CONFIG_ENV}" ]]; then
+    remove_overlay >/dev/null 2>&1 || true
+  fi
 }
 
 # Sensors belong to this platform, not to the package. They survive its

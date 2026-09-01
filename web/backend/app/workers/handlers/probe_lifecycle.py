@@ -28,6 +28,7 @@ from app.domain.models import (
 from app.domain.reconciliation import build_plan, find_deviations
 from app.infrastructure.certificates import read_certificate
 from app.infrastructure.nats_runtime import NatsRuntime
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.probe_helper import ProbeConnection
 from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
@@ -459,6 +460,14 @@ async def unenroll(context: JobContext) -> dict[str, Any]:
 
     await context.step("remove_inventory")
     context.runtime.remove_probe(username)
+    # The peer goes with it. The hub is rendered from the inventory, so
+    # removing the entry is only half of it - without this the probe keeps a
+    # working way onto the overlay, and with it a route to the NATS address,
+    # after an operator retired it. Retiring a probe has to take its network
+    # access, not just our ability to manage it.
+    overlay = OverlayRuntime(context.settings)
+    if overlay.has_hub_key():
+        overlay.write_hub_config()
     await context.log("jobs.probe.unenrolled", params={"probe": username})
 
     if delete_account:

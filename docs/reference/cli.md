@@ -190,7 +190,15 @@ one is the bootstrap.
 
 `probe unenroll USER` removes the management access and the inventory. The
 probe keeps running and stays connected to NATS; three options clear what is
-otherwise left on the host:
+otherwise left on the host.
+
+A probe on the overlay also loses its peer: the hub is re-rendered without the
+entry, so the tunnel stops carrying anything and the route to the NATS address
+goes with it. `--remove-access` additionally takes the tunnel configuration
+off the probe itself, which is tidiness - the peer removal is what revokes the
+access.
+
+The three options:
 
 | Option | What it adds |
 | --- | --- |

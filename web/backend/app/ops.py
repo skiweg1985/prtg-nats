@@ -210,12 +210,25 @@ async def _cmd_user(args: argparse.Namespace) -> None:
 
 async def _cmd_overlay(args: argparse.Namespace) -> None:
     from app.infrastructure.docker import DockerAdapter
+    from app.infrastructure.overlay import OverlayRuntime
     from app.services.overlay import OverlayService
 
     settings = _settings()
     service = OverlayService(
         settings, _helper_client(settings), DockerAdapter(settings.docker_socket)
     )
+
+    if args.action == "refresh":
+        # Render the hub from the inventory as it stands. The shell tooling
+        # calls this after it retires a probe: the peer list is a rendering,
+        # so removing an inventory entry does nothing to the running hub until
+        # somebody writes the file again - and until then a retired probe
+        # keeps a working way onto the overlay.
+        overlay = OverlayRuntime(settings)
+        if not overlay.has_hub_key():
+            return
+        overlay.write_hub_config()
+        return
 
     if args.action == "enable":
         enabled = await service.enable(
@@ -429,6 +442,10 @@ def main(argv: list[str] | None = None) -> None:
     overlay_enable.add_argument("--subnet", default=None)
     overlay_enable.add_argument(
         "--default-mode", choices=("off", "auto", "on"), default=None
+    )
+    overlay_actions.add_parser(
+        "refresh",
+        help="re-render the hub from the inventory; does nothing without an overlay",
     )
     overlay_actions.add_parser("disable", help="stop the hub, keeping every peer")
     overlay_actions.add_parser("status", help="the hub and every peer")

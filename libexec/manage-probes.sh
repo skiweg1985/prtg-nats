@@ -34,6 +34,8 @@ case "${1:-}" in
 esac
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=ops.sh
+source "${SCRIPT_DIR}/ops.sh"
 
 require_command ssh
 require_command scp
@@ -826,6 +828,11 @@ unenroll_probe() {
     printf 'unenroll\n' | managed_ssh "${username}"
   fi
   rm -f -- "${inventory}"
+  # The overlay peer goes with the entry it was rendered from. Without this the
+  # hub keeps a peer for a probe nobody manages any more, and that probe keeps
+  # a route to the NATS address - retiring it would take our access to it and
+  # leave its access to us.
+  run_ops overlay refresh >/dev/null 2>&1 || true
   printf 'Removed probe enrollment for %s.\n' "${username}"
   if [[ "${remove_access}" != "true" ]]; then
     printf 'The restricted remote key remains installed; use --remove-access to revoke it.\n'

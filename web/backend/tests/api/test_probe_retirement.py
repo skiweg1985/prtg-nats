@@ -221,3 +221,51 @@ async def test_a_plain_unenroll_still_only_revokes_and_forgets(
 
     assert transport.commands() == ["unenroll"]
     assert (project_dir / "runtime" / "credentials" / f"{PROBE}.env").is_file()
+
+
+async def test_retiring_a_probe_takes_its_overlay_peer_with_it(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """Observed in production: it did not.
+
+    The hub is rendered from the inventory, and the retirement removed the
+    entry without writing the file again - so the running hub kept the peer.
+    A probe an operator had retired stayed on the overlay, with a route to
+    the NATS address, indefinitely.
+
+    Retiring takes the network access too. Everything else about a plain
+    unenrolment is unchanged: the probe keeps running, it just has no way in.
+    """
+    from app.infrastructure.overlay import (
+        OverlayRuntime,
+        OverlaySettings,
+        generate_keypair,
+    )
+    from app.infrastructure.runtime_files import RuntimeFileStore
+
+    write_probe_inventory(project_dir, PROBE)
+    overlay = OverlayRuntime(settings)
+    overlay.write_settings(
+        OverlaySettings(enabled=True, endpoint_host="vpn.example.test")
+    )
+    overlay.ensure_hub_key()
+    _, public_key = generate_keypair()
+    RuntimeFileStore(settings).write_probe_overlay(
+        PROBE, address="10.83.1.0", public_key=public_key, mode="on"
+    )
+    overlay.write_hub_config()
+    assert public_key in overlay.config_path.read_text(encoding="utf-8")
+
+    await sign_in(client)
+    probe_id = await probe_id_of(client)
+    accepted = await client.request("DELETE", f"/api/v1/probes/{probe_id}")
+    assert accepted.status_code == 202, accepted.text
+
+    await drain(build_runner(settings, transport))
+
+    # The file the hub actually reads, not a fresh rendering - that file is
+    # the only thing that revokes anything.
+    assert public_key not in overlay.config_path.read_text(encoding="utf-8")
