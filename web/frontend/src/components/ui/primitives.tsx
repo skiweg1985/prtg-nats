@@ -1,6 +1,13 @@
 import clsx from 'clsx'
+import { Link } from 'react-router-dom'
 import { useEffect, useRef } from 'react'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from 'react'
 
 /**
  * The small set of primitives everything else is built from.
@@ -96,6 +103,132 @@ export function Button({
   )
 }
 
+/** Every page's first line: title, subtitle, actions - one shape.
+
+    Four different header idioms had grown across the pages, and one page had
+    no title at all. The nav label, the h1 and the browser's sense of "where
+    am I" should be the same words. */
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+  backTo,
+  backLabel,
+}: {
+  title: ReactNode
+  subtitle?: ReactNode
+  action?: ReactNode
+  backTo?: string
+  backLabel?: ReactNode
+}) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+      <div className="min-w-0">
+        {backTo && (
+          <Link to={backTo} className="text-ink-3 hover:text-ink text-xs">
+            ← {backLabel}
+          </Link>
+        )}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="text-lg">{title}</h1>
+          {subtitle && <p className="text-ink-3 text-sm">{subtitle}</p>}
+        </div>
+      </div>
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+    </header>
+  )
+}
+
+/** The question every destructive action asks, asked the same way.
+
+    Promoted from SystemPage, which had the cleanest of roughly nine
+    hand-built copies. */
+export function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  cancelLabel,
+  tone = 'danger',
+  pending,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  title: string
+  body: ReactNode
+  confirmLabel: string
+  cancelLabel: string
+  tone?: 'danger' | 'primary'
+  pending?: boolean
+  error?: ReactNode
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <Dialog title={title} onClose={onClose}>
+      <div className="space-y-4">
+        {typeof body === 'string' ? <Banner tone="warn">{body}</Banner> : body}
+        {error}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            {cancelLabel}
+          </Button>
+          <Button variant={tone} disabled={pending} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+/** A tab strip with the ARIA wiring the inline version never had. */
+export function Tabs<T extends string>({
+  tabs,
+  active,
+  onSelect,
+  renderLabel,
+}: {
+  tabs: readonly T[]
+  active: T
+  onSelect: (tab: T) => void
+  renderLabel: (tab: T) => ReactNode
+}) {
+  return (
+    <nav role="tablist" className="border-rule flex gap-1 border-b">
+      {tabs.map((entry) => (
+        <button
+          key={entry}
+          type="button"
+          role="tab"
+          aria-selected={entry === active}
+          onClick={() => onSelect(entry)}
+          className={
+            entry === active
+              ? 'border-accent text-ink -mb-px border-b-2 px-3 py-2 text-sm font-medium'
+              : 'text-ink-3 hover:text-ink -mb-px border-b-2 border-transparent px-3 py-2 text-sm'
+          }
+        >
+          {renderLabel(entry)}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+/** One spinner. Two features had grown their own, in two sizes. */
+export function Spinner({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        'border-accent inline-block size-4 animate-spin rounded-full border-2 border-t-transparent',
+        className,
+      )}
+    />
+  )
+}
+
 export function Card({
   title,
   action,
@@ -142,6 +275,76 @@ export function Field({
       ) : hint ? (
         <span className="text-ink-3 text-xs">{hint}</span>
       ) : null}
+    </label>
+  )
+}
+
+/** The native select in the Input's clothes.
+
+    Eight features had hand-rolled this with three different paddings; the
+    control is the same everywhere, so the styling should be too. */
+export function Select({
+  className,
+  ...rest
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={clsx(
+        'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm',
+        'disabled:opacity-50',
+        className,
+      )}
+      {...rest}
+    />
+  )
+}
+
+export function Textarea({
+  className,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={clsx(
+        'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 font-mono text-xs',
+        'placeholder:text-ink-3 disabled:opacity-50',
+        className,
+      )}
+      {...rest}
+    />
+  )
+}
+
+/** A labelled checkbox with an optional hint underneath the label.
+
+    The raw pattern existed seven times with two different top margins on the
+    box; the alignment is decided here once. */
+export function CheckboxField({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: ReactNode
+  hint?: ReactNode
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>
+        <span className="text-ink">{label}</span>
+        {hint && <span className="text-ink-3 block text-xs">{hint}</span>}
+      </span>
     </label>
   )
 }

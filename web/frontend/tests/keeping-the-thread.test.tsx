@@ -190,7 +190,7 @@ describe('the tab of the probe detail page', () => {
     const user = userEvent.setup()
     wrap('/probes/P1')
 
-    await user.click(await screen.findByRole('button', { name: 'Deviations' }))
+    await user.click(await screen.findByRole('tab', { name: 'Deviations' }))
     expect(address()).toBe('/probes/P1?tab=deviations')
   })
 

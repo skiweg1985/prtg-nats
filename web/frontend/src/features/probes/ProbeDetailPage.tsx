@@ -39,12 +39,15 @@ import {
   Banner,
   Button,
   Card,
+  CheckboxField,
   DetailRow,
   Dialog,
   Dot,
   EmptyState,
   Mono,
+  Select,
   Skeleton,
+  Tabs,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
@@ -349,18 +352,12 @@ export function ProbeDetailPage() {
         </p>
       )}
 
-      <nav className="border-rule flex gap-1 border-b">
-        {TABS.map((entry) => (
-          <button
-            key={entry}
-            type="button"
-            onClick={() => selectTab(entry)}
-            className={
-              tab === entry
-                ? 'border-accent text-ink -mb-px border-b-2 px-3 py-2 text-sm font-medium'
-                : 'text-ink-3 hover:text-ink -mb-px border-b-2 border-transparent px-3 py-2 text-sm'
-            }
-          >
+      <Tabs
+        tabs={TABS}
+        active={tab}
+        onSelect={selectTab}
+        renderLabel={(entry) => (
+          <>
             {t(`probes.tabs.${entry}`)}
             {entry === 'deviations' && data.deviations.length > 0 && (
               <Badge
@@ -370,9 +367,9 @@ export function ProbeDetailPage() {
                 {data.deviations.length}
               </Badge>
             )}
-          </button>
-        ))}
-      </nav>
+          </>
+        )}
+      />
 
       {tab === 'overview' && <OverviewTab detail={data} />}
       {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
@@ -543,18 +540,12 @@ function CleanupOption({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>
-        <span className="text-ink">{label}</span>
-        <span className="text-ink-3 block text-xs">{hint}</span>
-      </span>
-    </label>
+    <CheckboxField
+            label={label}
+            hint={hint}
+            checked={checked}
+            onChange={(checked) => onChange(checked)}
+          />
   )
 }
 
@@ -699,8 +690,7 @@ function InterfacesCard({
         candidates.length > 1 ? (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-ink-3">{t('probes.interfaces.forSensor')}</span>
-            <select
-              className="rounded border border-rule-2 bg-surface px-2 py-1 text-ink"
+            <Select className="rounded"
               value={target}
               onChange={(event) => setSensorName(event.target.value)}
             >
@@ -709,7 +699,7 @@ function InterfacesCard({
                   {entry.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         ) : null
       }

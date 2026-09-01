@@ -22,6 +22,7 @@ import {
   Field,
   Input,
   Mono,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
@@ -521,7 +522,7 @@ function ProfileInput({
       hint={hint(t, field)}
     >
       {field.type === 'choice' ? (
-        <select
+        <Select
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -532,7 +533,7 @@ function ProfileInput({
               {choice}
             </option>
           ))}
-        </select>
+        </Select>
       ) : (
         <Input
           type={field.type === 'integer' ? 'number' : 'text'}

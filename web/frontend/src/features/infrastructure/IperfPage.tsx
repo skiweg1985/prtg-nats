@@ -25,6 +25,7 @@ import {
   Field,
   Input,
   Mono,
+  Textarea,
 } from '@/components/ui/primitives'
 
 import {
@@ -443,12 +444,12 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
                 label={t('infrastructure.iperf.privateKey')}
                 hint={t('infrastructure.iperf.privateKeyHint')}
               >
-                <textarea
+                <Textarea
                   value={privateKey}
                   onChange={(event) => setPrivateKey(event.target.value)}
                   rows={3}
                   spellCheck={false}
-                  className="rounded-control border-rule-2 bg-surface text-ink w-full border px-2.5 py-1.5 font-mono text-xs"
+                  className="w-full"
                   placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                 />
               </Field>
@@ -696,12 +697,12 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
               label={t('infrastructure.iperf.publicKey')}
               hint={t('infrastructure.iperf.publicKeyHint')}
             >
-              <textarea
+              <Textarea
                 value={publicKey}
                 onChange={(event) => setPublicKey(event.target.value)}
                 rows={6}
                 spellCheck={false}
-                className="rounded-control border-rule-2 bg-surface text-ink w-full border px-2.5 py-1.5 font-mono text-xs"
+                className="w-full"
                 placeholder={PUBLIC_KEY_EXAMPLE}
               />
             </Field>

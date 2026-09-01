@@ -29,6 +29,8 @@ import {
   Dot,
   EmptyState,
   Mono,
+  PageHeader,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
 import { CertificateStatusBadge, JobStatusBadge } from '@/components/ui/status'
@@ -339,7 +341,7 @@ export function NatsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg">{t('infrastructure.natsTitle')}</h1>
+      <PageHeader title={t('infrastructure.natsTitle')} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('dashboard.natsServer')}>
@@ -414,7 +416,7 @@ export function CertificatesPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg">{t('infrastructure.certificatesTitle')}</h1>
+      <PageHeader title={t('infrastructure.certificatesTitle')} />
       {data && data.length === 0 ? (
         <Card>
           <EmptyState title={t('infrastructure.certificatesEmpty')} />
@@ -524,13 +526,13 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg">{t('settings.title')}</h1>
+      <PageHeader title={t('settings.title')} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('settings.general')}>
           <dl>
             <DetailRow label={t('settings.language')}>
-              <select
+              <Select
                 value={currentLanguage()}
                 onChange={(event) => changeLanguage(event.target.value as Language)}
                 className="rounded-control border-rule-2 bg-surface text-ink border px-2 py-1 text-sm"
@@ -540,11 +542,11 @@ export function SettingsPage() {
                     {LANGUAGE_LABELS[language]}
                   </option>
                 ))}
-              </select>
+              </Select>
               <p className="text-ink-3 mt-1 text-xs">{t('settings.languageHint')}</p>
             </DetailRow>
             <DetailRow label={t('settings.theme')}>
-              <select
+              <Select
                 value={choice}
                 onChange={(event) =>
                   setChoice(event.target.value as 'light' | 'dark' | 'system')
@@ -554,7 +556,7 @@ export function SettingsPage() {
                 <option value="system">{t('settings.themeSystem')}</option>
                 <option value="light">{t('settings.themeLight')}</option>
                 <option value="dark">{t('settings.themeDark')}</option>
-              </select>
+              </Select>
             </DetailRow>
           </dl>
         </Card>

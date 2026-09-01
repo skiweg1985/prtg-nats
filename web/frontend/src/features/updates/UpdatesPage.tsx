@@ -23,6 +23,7 @@ import {
   DetailRow,
   EmptyState,
   Mono,
+  PageHeader,
   Skeleton,
 } from '@/components/ui/primitives'
 import { formatDateTime, formatRelative } from '@/utils/format'
@@ -158,14 +159,19 @@ export function UpdatesPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">{t('updates.title')}</h1>
-        {data.available && !running && (
-          <Button onClick={() => void check.mutateAsync()} disabled={check.isPending}>
-            {t('updates.check_now')}
-          </Button>
-        )}
-      </header>
+      <PageHeader
+        title={t('updates.title')}
+        action={
+          data.available && !running ? (
+            <Button
+              onClick={() => void check.mutateAsync()}
+              disabled={check.isPending}
+            >
+              {t('updates.check_now')}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {!data.available && (
         <Banner tone="warn" title={t('updates.unavailable.title')}>

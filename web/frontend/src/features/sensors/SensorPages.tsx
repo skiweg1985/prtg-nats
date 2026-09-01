@@ -18,6 +18,7 @@ import {
   Field,
   Input,
   Mono,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
@@ -514,7 +515,7 @@ function ParameterBuilder({
                 }
               />
             ) : field.type === 'choice' ? (
-              <select
+              <Select
                 value={String(values[field.name] ?? '')}
                 onChange={(event) =>
                   setValues({ ...values, [field.name]: event.target.value })
@@ -527,7 +528,7 @@ function ParameterBuilder({
                     {choice}
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
               <Input
                 type={field.type === 'integer' ? 'number' : 'text'}
