@@ -1,7 +1,7 @@
 ---
 title: Roles and permissions
 role: operator
-updated: 2026-08-28
+updated: 2026-09-01
 ---
 
 # Roles and permissions
@@ -13,8 +13,8 @@ door open for a custom role later without touching a single endpoint.
 
 | Role | May |
 | --- | --- |
-| **Viewer** | read everything: status, probes, sensors, jobs, logs, audit records |
-| **Operator** | also deploy sensors, apply configuration, run checks, retry and cancel jobs, manage measurement endpoints |
+| **Viewer** | read everything: status, probes, sensors, jobs, logs, audit records, the availability dashboard |
+| **Operator** | also deploy sensors, apply configuration, run checks, retry and cancel jobs, manage measurement endpoints, edit the watch list |
 | **Administrator** | also manage accounts, rotate credentials, renew certificates, add and remove probes, change system settings, restart services, and update the stack |
 
 The line between operator and administrator is deliberate: an operator keeps
@@ -31,9 +31,16 @@ job.read          job.retry        job.cancel
 credential.read   credential.rotate
 certificate.read  certificate.renew
 iperf.read        iperf.manage
+watch.read        watch.manage
 system.read       system.restart   system.settings  system.update
 audit.read        user.manage      role.manage
 ```
+
+`watch.read` is the one permission worth handing out on its own. The
+availability dashboard is written for people who never touch a probe - somebody
+at a shop who needs to know whether the till printer is on - and a viewer
+account gives them that and nothing else. `watch.manage` adds editing the watch
+list, which is operating the fleet.
 
 `iperf.manage` covers the endpoint itself - setting one up, rotating its
 password, taking it away. Handing its credentials to a probe or taking them

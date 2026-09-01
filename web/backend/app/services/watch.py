@@ -472,10 +472,11 @@ class WatchService:
         labels: dict[str, str],
         failure_threshold: int,
         notes: str | None,
+        enabled: bool = True,
     ) -> WatchDevice:
         probe = await self._session.get(ProbeRecord, probe_id)
         if probe is None:
-            raise NotFoundError(details=f"no probe {probe_id}")
+            raise NotFoundError.of("probe", probe_id)
         _validate_check(method, port)
 
         device = WatchDevice(
@@ -487,6 +488,7 @@ class WatchService:
             labels=labels,
             failure_threshold=failure_threshold,
             notes=notes,
+            enabled=enabled,
         )
         self._session.add(device)
         await self._session.flush()
@@ -495,8 +497,19 @@ class WatchService:
     async def get_device(self, device_id: str) -> WatchDevice:
         device = await self._session.get(WatchDevice, device_id)
         if device is None:
-            raise NotFoundError(details=f"no watched device {device_id}")
+            raise NotFoundError.of("watch_device", device_id)
         return device
+
+    async def validate_device(self, device: WatchDevice) -> None:
+        """Check an edited device before it is written.
+
+        The probe has to exist and a TCP check has to name a port. Both are
+        checked against the device as it will be, not as it was, so switching
+        a check to TCP without a port fails here rather than on the probe.
+        """
+        if await self._session.get(ProbeRecord, device.probe_id) is None:
+            raise NotFoundError.of("probe", device.probe_id)
+        _validate_check(device.method, device.port)
 
     async def delete_device(self, device_id: str) -> None:
         device = await self.get_device(device_id)

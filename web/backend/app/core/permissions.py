@@ -37,6 +37,13 @@ class Permission(StrEnum):
     IPERF_READ = "iperf.read"
     IPERF_MANAGE = "iperf.manage"
 
+    # Availability monitoring. Reading is separate from managing because the
+    # dashboard is meant for people who never touch a probe - a shop manager
+    # asking whether the till printer is on gets the viewer role and nothing
+    # else.
+    WATCH_READ = "watch.read"
+    WATCH_MANAGE = "watch.manage"
+
     OVERLAY_READ = "overlay.read"
     OVERLAY_MANAGE = "overlay.manage"
     # Turning the overlay on for this installation. Administrator only, and
@@ -78,6 +85,8 @@ OPERATOR_PERMISSIONS: frozenset[Permission] = READ_PERMISSIONS | {
     Permission.JOB_RETRY,
     Permission.JOB_CANCEL,
     Permission.IPERF_MANAGE,
+    # Adding a printer to the watch list is operating the fleet.
+    Permission.WATCH_MANAGE,
     # Moving a probe between the tunnel and the direct path is operating the
     # fleet, not changing what this installation is. Enabling the overlay in
     # the first place is not here: that writes .env and starts a container

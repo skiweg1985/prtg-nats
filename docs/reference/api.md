@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # REST API
@@ -601,6 +601,53 @@ port and user out of it and `parameter_line` is empty - which is the answer,
 not a missing one. From two on the alias is gone and the line names the
 profile, `--profile berlin`. The selector comes from the sensor's own parameter
 declaration, so a sensor calling it `--variant` is quoted with `--variant`.
+
+### Availability monitoring
+
+The lightweight watch list: devices that are supposed to be switched on, and
+what they did. See [Watching devices](../guides/watching-devices.md) for the
+whole picture and [ADR 0011](../architecture/decisions/0011-availability-as-state-intervals.md)
+for why the history is intervals rather than a time series.
+
+| | |
+| --- | --- |
+| `GET /watch/overview` | the dashboard in one request: devices, counts, labels |
+| `GET /watch/devices` | the same device rows without the counts |
+| `POST /watch/devices` | add a device to the watch list |
+| `GET /watch/devices/{id}` | one device with its last measurement |
+| `PATCH /watch/devices/{id}` | edit one - every field optional |
+| `DELETE /watch/devices/{id}` | remove it, and its history with it |
+| `GET /watch/devices/{id}/availability` | uptime over `days`, default 30 |
+| `GET /watch/outages` | the down intervals over `days`, newest first |
+
+Reading needs `watch.read`, which every role carries; changing the list needs
+`watch.manage`, which the operator and the administrator do. That split is the
+point of the feature: somebody who only needs to know whether the till printer
+is on gets a viewer account.
+
+`label` filters, repeatable, `key:value`:
+`GET /watch/overview?label=team:support&label=site:hamburg`. A device matches
+when it carries every pair given.
+
+Three states, and the third one matters. `up` and `down` are measurements;
+`unknown` means nobody measured - a device added a minute ago, or one whose
+probe stopped reporting. A row also carries `stale`, set when the last
+measurement is older than the platform is willing to call current, and a stale
+row counts as unknown in the totals however green it looks. A branch office
+losing its uplink therefore reads as unmeasured rather than as every printer
+in it being switched off.
+
+`receiving` on the overview says whether this platform holds its NATS
+connection at all. A dashboard full of unknown devices has two causes, and
+this is the one an operator can do something about.
+
+Availability is exact rather than sampled, and `ratio` is null when nothing
+was measured in the window - not zero, which would read as a total outage:
+
+```json
+{"up_seconds": 2588400.0, "down_seconds": 2460.0, "unknown_seconds": 1140.0,
+ "outages": 3, "longest_outage_seconds": 1680.0, "ratio": 0.99905}
+```
 
 ### Web accounts
 
