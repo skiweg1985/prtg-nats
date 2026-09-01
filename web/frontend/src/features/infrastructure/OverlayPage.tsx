@@ -125,6 +125,14 @@ export function OverlayPage() {
 
   return (
     <div className="space-y-4">
+      {/* The only nav destination that had no title of its own - every other
+          page names itself, and this one starts mid-thought with a card. */}
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="text-lg">{t('infrastructure.overlay.title')}</h1>
+        <p className="text-ink-3 text-sm">
+          {t('infrastructure.overlay.subtitle')}
+        </p>
+      </header>
       {data && !data.enabled && (
         <Banner
           tone="warn"
@@ -214,7 +222,7 @@ export function OverlayPage() {
             />
           ) : (
             <>
-              <p className="text-muted mb-3 text-sm">
+              <p className="text-ink-3 mb-3 text-sm">
                 {t('infrastructure.overlay.add.body', {
                   count: offOverlay.length,
                 })}
@@ -229,7 +237,7 @@ export function OverlayPage() {
 
       {dialog === 'add' && (
         <Dialog onClose={close} title={t('infrastructure.overlay.add.title')}>
-          <p className="text-muted mb-3 text-sm">
+          <p className="text-ink-3 mb-3 text-sm">
             {t('infrastructure.overlay.add.dialog')}
           </p>
           <div className="mb-4 space-y-2">
@@ -317,7 +325,7 @@ export function OverlayPage() {
 
       {dialog === 'enable' && (
         <Dialog onClose={close} title={t('infrastructure.overlay.enable.title')}>
-          <p className="text-muted mb-3 text-sm">
+          <p className="text-ink-3 mb-3 text-sm">
             {t('infrastructure.overlay.enable.body')}
           </p>
           <Field

@@ -371,7 +371,7 @@ export function ProbeDetailPage() {
                 : 'text-ink-3 hover:text-ink -mb-px border-b-2 border-transparent px-3 py-2 text-sm'
             }
           >
-            {t(`probes.tabs.${entry === 'deviations' ? 'configuration' : entry}`)}
+            {t(`probes.tabs.${entry}`)}
             {entry === 'deviations' && data.deviations.length > 0 && (
               <Badge
                 tone={needsAttention(data.deviations) ? 'warn' : 'neutral'}
@@ -634,7 +634,7 @@ function InterfacesCard({
         row.reserved_by ? (
           <Badge tone="accent">{row.reserved_by}</Badge>
         ) : (
-          <span className="text-muted">{t('probes.interfaces.free')}</span>
+          <span className="text-ink-3">{t('probes.interfaces.free')}</span>
         ),
     },
     {
@@ -649,7 +649,7 @@ function InterfacesCard({
             <Badge tone="warn">{row.connection}</Badge>
           ) : null}
           {!row.carries_default_route && !row.connection ? (
-            <span className="text-muted">—</span>
+            <span className="text-ink-3">—</span>
           ) : null}
         </div>
       ),
@@ -714,9 +714,9 @@ function InterfacesCard({
       action={
         candidates.length > 1 ? (
           <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted">{t('probes.interfaces.forSensor')}</span>
+            <span className="text-ink-3">{t('probes.interfaces.forSensor')}</span>
             <select
-              className="rounded border border-line bg-surface px-2 py-1 text-ink"
+              className="rounded border border-rule-2 bg-surface px-2 py-1 text-ink"
               value={target}
               onChange={(event) => setSensorName(event.target.value)}
             >
@@ -730,7 +730,7 @@ function InterfacesCard({
         ) : null
       }
     >
-      <p className="text-muted mb-3 text-sm">{t('probes.interfaces.hint')}</p>
+      <p className="text-ink-3 mb-3 text-sm">{t('probes.interfaces.hint')}</p>
       {unserved.length > 0 && (
         <div className="mb-3">
           <Banner tone="warn" title={t('probes.interfaces.neededTitle')}>

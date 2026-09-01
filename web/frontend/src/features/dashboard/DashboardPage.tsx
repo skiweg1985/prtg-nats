@@ -172,7 +172,9 @@ export function DashboardPage() {
                   className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0"
                 >
                   <Dot tone={event.result === 'success' ? 'ok' : 'danger'} />
-                  <Mono className="text-ink-2">{event.action}</Mono>
+                  <span className="text-ink-2 text-sm whitespace-nowrap">
+                    {t(`audit.actions.${event.action}`, event.action)}
+                  </span>
                   <span className="text-ink min-w-0 flex-1 truncate text-sm">
                     {event.object_label ?? event.object_type}
                   </span>
