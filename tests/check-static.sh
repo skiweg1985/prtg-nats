@@ -2479,6 +2479,27 @@ check "the bootstrap configures the overlay through the helper" \
   "$(grep -c "overlay-configure" "${bootstrap_dir}/bootstrap.sh")" "1"
 check "the bootstrap reports the key the probe generated" \
   "$(grep -c 'overlay_public_key' "${bootstrap_dir}/bootstrap.sh")" "2"
+# The report has to survive whatever the installer wrote to its log, and apt
+# writes progress with carriage returns. JSON forbids an unescaped control
+# character, so a single CR from "Reading database ... 5%" made the platform
+# refuse the whole report with a 422 - losing the failure the report existed to
+# carry, and failing the enrolment with it. Observed on a probe, not here.
+#
+# The range has to run \013-\037 rather than \013\014\016-\037: CR is \015 and
+# sits in the gap the old spelling left. LF stays out of it on purpose, because
+# tail and awk need their line breaks.
+check "the report strips carriage returns" \
+  "$(grep -cF "tr -d '\\000-\\010\\013-\\037\\177'" \
+    bootstrap/probe-bootstrap.sh.template)" "1"
+
+# The installer must not demand a name lookup for an address. A probe enrolled
+# over the overlay is configured with NATS_HOST_IP precisely because its site
+# has no name server that knows this platform, and "getent hosts" on an address
+# answers only where a reverse entry happens to exist. It reported "DNS lookup
+# failed" for a reachable endpoint.
+check "the installer skips the lookup for an address" \
+  "$(grep -c 'needs no name resolution' install-mpp.sh)" "1"
+
 # A private key travels in exactly one case, and it is the one that cannot work
 # any other way: a probe whose only route to this platform is the tunnel itself
 # cannot report a key it generated, because reporting needs that tunnel

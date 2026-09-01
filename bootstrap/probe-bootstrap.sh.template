@@ -81,10 +81,16 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 # wrong and still has to arrive as a document the platform can parse. Both the
 # number of lines and their length are capped: the last words of a failure are
 # what explains it, and the platform refuses an oversized report outright.
+#
+# The deleted range runs to \013 rather than starting at \016, because \015 is
+# carriage return and apt writes its progress with it. JSON forbids an
+# unescaped control character, so one CR from "Reading database ... 5%" made
+# the platform refuse the whole report with a 422 - losing the very failure
+# the report existed to carry, and taking the enrolment with it.
 json_escape_tail() {
   tail -n 20 "$1" |
     tr '\011' ' ' |
-    tr -d '\000-\010\013\014\016-\037\177' |
+    tr -d '\000-\010\013-\037\177' |
     cut -c1-200 |
     sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' |
     awk '{ printf "%s%s", separator, $0; separator = "\\n" }'
