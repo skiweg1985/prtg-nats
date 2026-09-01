@@ -256,10 +256,11 @@ refused otherwise. The rendered script then builds the tunnel before its first
 request, and carries the probe's private WireGuard key to do it, so the script
 is a credential rather than a command
 ([ADR 0010](../architecture/decisions/0010-enrolling-a-probe-over-the-tunnel.md)).
-The creation response then carries the whole script in `command` and sets
-`carries_secret`, instead of a one-liner that fetches it - the fetch would need
-the tunnel the script builds. The peer is reserved when the invitation is
-minted and given back when it is revoked, redeemed or expires. The mode is `on` regardless of the site default:
+The creation response then carries `setup_steps`: the commands to run on the
+probe before `command` works, each with a `key` the interface turns into a
+heading and a `carries_secret` flag. `command` itself stays the ordinary
+one-liner, addressed by IP. The peer is reserved when the invitation is minted
+and given back when it is revoked, redeemed or expires. The mode is `on` regardless of the site default:
 `auto` would leave NATS off the tunnel until three checks a minute apart have
 failed, and this probe has no direct path for those checks to find.
 

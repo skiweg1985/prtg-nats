@@ -2376,9 +2376,7 @@ bootstrap_dir="$(mktemp -d)"
 # in the order they do things, so a syntax error in either branch is a syntax
 # error on somebody's console - and checking a single rendering would only ever
 # catch one of them.
-#
-# The private key is rendered the way the platform renders it: filled in for a
-# tunnel enrolment, empty for every other one.
+
 render_bootstrap() {
   sed \
     -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
@@ -2400,12 +2398,11 @@ render_bootstrap() {
     -e 's|@@OVERLAY_HUB_KEY@@|AAAA|' \
     -e 's|@@OVERLAY_NATS_HOST_IP@@|192.0.2.10|' \
     -e "s|@@OVERLAY_FIRST@@|$1|" \
-    -e "s|@@OVERLAY_PRIVATE_KEY@@|$2|" \
     bootstrap/probe-bootstrap.sh.template
 }
 
-render_bootstrap false "" > "${bootstrap_dir}/bootstrap.sh"
-render_bootstrap true BBBB > "${bootstrap_dir}/bootstrap-tunnel.sh"
+render_bootstrap false > "${bootstrap_dir}/bootstrap.sh"
+render_bootstrap true > "${bootstrap_dir}/bootstrap-tunnel.sh"
 
 for rendered in "${bootstrap_dir}/bootstrap.sh" \
   "${bootstrap_dir}/bootstrap-tunnel.sh"; do
@@ -2420,27 +2417,6 @@ for rendered in "${bootstrap_dir}/bootstrap.sh" \
   check "${rendered##*/} leaves no placeholder behind" \
     "$(grep -c '@@' "${rendered}" || true)" "0"
 done
-
-# The throwaway tunnel runs before the first fetch and nowhere else. If it
-# ever slid below the management access again the script would be back to
-# needing the platform before it can reach it - the exact deadlock this whole
-# path exists to break.
-tunnel_line="$(
-  grep -n 'Building the overlay tunnel before anything else' \
-    "${bootstrap_dir}/bootstrap-tunnel.sh" | cut -d: -f1
-)"
-fetch_line="$(
-  grep -n '^fetch enroll-probe.sh' "${bootstrap_dir}/bootstrap-tunnel.sh" |
-    cut -d: -f1
-)"
-if [ -n "${tunnel_line}" ] && [ -n "${fetch_line}" ] &&
-  [ "${tunnel_line}" -lt "${fetch_line}" ]; then
-  printf '  ok    the tunnel is built before the first fetch\n'
-  passed=$((passed + 1))
-else
-  printf '  FAIL  the tunnel is built before the first fetch\n' >&2
-  failed=$((failed + 1))
-fi
 
 # install-mpp.sh has no default for the NATS endpoint and asks for it at a
 # terminal. The bootstrap arrives through a pipe and has none, so every option
@@ -2500,21 +2476,15 @@ check "the report strips carriage returns" \
 check "the installer skips the lookup for an address" \
   "$(grep -c 'needs no name resolution' install-mpp.sh)" "1"
 
-# A private key travels in exactly one case, and it is the one that cannot work
-# any other way: a probe whose only route to this platform is the tunnel itself
-# cannot report a key it generated, because reporting needs that tunnel
-# (ADR 0010). So the rule is not "never" any more - it is "only there".
+# The script carries no private key at all any more. It used to, because it
+# had to build the tunnel it was fetched over - which it cannot, that download
+# being the first request. The operator builds the tunnel from two commands
+# the interface shows, and the key goes into one of those instead (ADR 0010).
 #
-# An ordinary enrolment still renders the field empty. That is what these two
-# check: the placeholder exists once, and nothing fills it in unless the
-# invitation asked for a tunnel enrolment.
-check "the bootstrap holds one private key placeholder" \
-  "$(grep -c '@@OVERLAY_PRIVATE_KEY@@' ./bootstrap/probe-bootstrap.sh.template)" "1"
-check "an ordinary enrolment renders no private key" \
-  "$(grep -c '^OVERLAY_PRIVATE_KEY=""$' "${bootstrap_dir}/bootstrap.sh")" "1"
-check "a tunnel enrolment renders one" \
-  "$(grep -c '^OVERLAY_PRIVATE_KEY="BBBB"$' \
-    "${bootstrap_dir}/bootstrap-tunnel.sh")" "1"
+# So this is a "never" again, and worth keeping as one: a script served over
+# the enrolment channel should not be a credential.
+check "the bootstrap carries no private key" \
+  "$(grep -c 'PRIVATE_KEY' ./bootstrap/probe-bootstrap.sh.template)" "0"
 check "the bootstrap hands it the destination path" \
   "$(printf '%s' "${bootstrap_install_call}" |
     grep -c -- '--ca-file "${CA_PATH}"')" "1"

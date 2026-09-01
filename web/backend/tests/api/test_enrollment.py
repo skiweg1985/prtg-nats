@@ -880,11 +880,18 @@ async def test_a_tunnel_invitation_puts_its_peer_in_the_hub_first(
     assert reserved.public_key in overlay.render_hub_config()
 
 
-async def test_the_tunnel_script_carries_the_key_it_reserved(
+async def test_the_script_never_carries_a_private_key(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     project_dir: Path,
 ) -> None:
+    """Not even for a tunnel enrolment, where it once did.
+
+    The key travels in the command that builds the tunnel, which the operator
+    runs before the one-liner. A script served over the enrolment channel is
+    not a credential - and a fetch does not redeem the invitation, so anyone
+    holding the token could pull it.
+    """
     from app.core.config import get_settings
     from app.infrastructure.overlay import OverlayRuntime
 
@@ -899,17 +906,17 @@ async def test_the_tunnel_script_carries_the_key_it_reserved(
     first = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
     assert first.status_code == 200, first.text
     assert 'OVERLAY_FIRST="true"' in first.text
-    assert f'OVERLAY_PRIVATE_KEY="{reserved.private_key}"' in first.text
+    assert reserved.private_key not in first.text
+    assert "PRIVATE_KEY" not in first.text
 
-    # Fetching does not spend the invitation, so a half-finished run can be
-    # retried - and the retry has to render the same key, or the tunnel the
-    # first run built stops matching the peer in the hub.
+    # A half-finished run has to be retryable, so a second fetch renders the
+    # same script rather than minting anything new.
     second = await client.get(f"/api/v1/enroll/{issued['token']}/bootstrap.sh")
     assert second.status_code == 200
     assert second.text == first.text
 
 
-async def test_an_ordinary_invitation_carries_no_private_key(
+async def test_an_ordinary_invitation_builds_no_tunnel(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     project_dir: Path,
@@ -925,7 +932,6 @@ async def test_an_ordinary_invitation_carries_no_private_key(
 
     assert script.status_code == 200
     assert 'OVERLAY_FIRST="false"' in script.text
-    assert 'OVERLAY_PRIVATE_KEY=""' in script.text
 
 
 async def test_a_tunnel_enrolment_is_always_mode_on(
@@ -1087,60 +1093,77 @@ async def test_a_probe_reporting_a_key_it_was_not_given_is_refused(
     assert someone_elses not in OverlayRuntime(get_settings()).render_hub_config()
 
 
-async def test_the_tunnel_invitation_hands_over_the_script_itself(
+async def test_a_tunnel_invitation_comes_as_steps_not_as_a_wall(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     project_dir: Path,
     tmp_path: Path,
 ) -> None:
-    """The download is the request the probe cannot make.
+    """Three short commands, not the whole script pasted at once.
 
-    A one-liner fetches the script over HTTPS - and for this probe that fetch
-    is the first request, carried by the tunnel that the script it is fetching
-    would have built. So the script travels with the operator instead, as a
-    block to paste into a console.
+    The script is 19,000 characters. Through a browser console that echoes
+    every one of them it took minutes and arrived as a wall of text with its
+    one warning lost at the top. It also could not be fetched instead: that
+    download is the first request, and the tunnel carrying it is what the
+    script would have built.
     """
     import shutil
     import subprocess
 
     from app.core.config import get_settings
+    from app.infrastructure.overlay import OverlayRuntime
 
     await _sign_in(client)
     await _initialise(project_dir)
     _enable_overlay(get_settings())
 
     issued = await _invite(client, overlay_bootstrap=True)
-    block = issued["command"]
+    steps = issued["setup_steps"]
 
-    assert issued["carries_secret"] is True
-    # No fetch of the script, because there is nothing to fetch it over.
-    assert "bootstrap.sh" not in block
-    assert "sha256sum -c -" in block
-    # Everything the tunnel needs is inside the block already.
-    assert 'OVERLAY_FIRST="true"' in block
-    assert "PRTG_NATS_ENROL_EOF" in block
+    assert [step["key"] for step in steps] == ["install_wireguard", "build_tunnel"]
+    # The warning belongs on the one command that carries the key, not over
+    # everything.
+    assert [step["carries_secret"] for step in steps] == [False, True]
 
-    # It runs as root on someone else's machine, so it has to at least parse.
-    # "sh -n" reads and does not execute, and the input is a script this test
-    # just rendered - there is nothing untrusted in either half of that.
-    script = tmp_path / "block.sh"
-    script.write_text(block, encoding="utf-8")
+    reserved = OverlayRuntime(get_settings()).read_pending_peer(issued["id"])
+    assert reserved is not None
+    assert reserved.private_key in steps[1]["command"]
+    assert reserved.private_key not in issued["command"]
+
+    # Short enough to paste. The old block was two orders of magnitude larger.
+    assert all(len(step["command"]) < 1200 for step in steps)
+
+    # And step three is the ordinary one-liner, unchanged except for the
+    # address it points at.
+    assert "sha256sum -c -" in issued["command"]
+    assert "bootstrap.sh | sudo sh" in issued["command"]
+
+    # Each runs as root on someone else's machine, so each has to parse.
     shell = shutil.which("sh")
     assert shell is not None
-    checked = subprocess.run([shell, "-n", str(script)], check=False)  # noqa: S603
-    assert checked.returncode == 0
+    for step in [*steps, {"command": issued["command"]}]:
+        script = tmp_path / "step.sh"
+        script.write_text(step["command"], encoding="utf-8")
+        checked = subprocess.run([shell, "-n", str(script)], check=False)  # noqa: S603
+        assert checked.returncode == 0, step["command"][:80]
 
-    # And the digest has to match what the heredoc actually writes. Hashing
-    # the rendering instead of the file body differs by a trailing newline,
-    # which nothing here would notice and the probe would report as a script
-    # that refuses to run.
-    checkable = block.replace('sudo sh "${enrol}"', 'true "${enrol}"')
-    script.write_text(checkable, encoding="utf-8")
-    verified = subprocess.run(  # noqa: S603
-        [shell, str(script)], check=False, capture_output=True, text=True
-    )
-    assert verified.returncode == 0, verified.stderr
-    assert ": OK" in verified.stdout, verified.stdout
+
+async def test_an_ordinary_invitation_needs_no_preparation(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+) -> None:
+    """A probe that can reach the platform gets what it always got."""
+    from app.core.config import get_settings
+
+    await _sign_in(client)
+    await _initialise(project_dir)
+    _enable_overlay(get_settings())
+
+    issued = await _invite(client)
+
+    assert issued["setup_steps"] == []
+    assert "nats.example.test" in issued["command"]
 
 
 async def test_a_tunnel_probe_is_addressed_by_ip_not_by_name(

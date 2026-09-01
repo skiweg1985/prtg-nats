@@ -36,6 +36,7 @@ from app.core.security import hash_session_token
 from app.infrastructure.certificates import fingerprint_of_pem
 from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.overlay import (
+    INTERFACE,
     OverlayRuntime,
     PendingPeer,
     generate_keypair,
@@ -55,6 +56,28 @@ DEFAULT_TTL_MINUTES = 60
 
 PROBE = "probe"
 IPERF = "iperf"
+
+# Step one of a tunnel enrolment. Debian and Ubuntu carry wireguard-tools in
+# the main archive; on RHEL 9 it comes from EPEL, which the operator has to
+# enable - the interface says so beside this command rather than adding a
+# repository to somebody's host.
+INSTALL_WIREGUARD = "sudo apt-get install -y wireguard-tools"
+
+
+@dataclass(frozen=True, slots=True)
+class EnrolmentStep:
+    """One command an operator runs on the probe, before the one-liner.
+
+    ``key`` names the step; the interface holds its heading and its note, so
+    the wording stays translatable and out of here.
+    """
+
+    key: str
+    command: str
+    # True where the command carries the probe's private overlay key, so the
+    # warning sits on that step alone instead of over everything.
+    carries_secret: bool = False
+
 
 # What the bootstrap script is allowed to fetch. A closed set, because the
 # request that fetches these carries a valid token but no identity beyond it.
@@ -449,7 +472,6 @@ class EnrollmentService:
                 "@@OVERLAY_HUB_KEY@@": "",
                 "@@OVERLAY_NATS_HOST_IP@@": "",
                 "@@OVERLAY_FIRST@@": "false",
-                "@@OVERLAY_PRIVATE_KEY@@": "",
             }
         # The reserved key, never a fresh one: the peer built from its public
         # half is already in the hub, and a second fetch of this script has to
@@ -480,7 +502,6 @@ class EnrollmentService:
             "@@OVERLAY_HUB_KEY@@": overlay.ensure_hub_key(),
             "@@OVERLAY_NATS_HOST_IP@@": site.nats_host_ip or "",
             "@@OVERLAY_FIRST@@": "true" if pending else "false",
-            "@@OVERLAY_PRIVATE_KEY@@": pending.private_key if pending else "",
         }
 
     def _source_cidr_with_hub(self, source_cidr: str, site: SiteSettings) -> str:
@@ -562,7 +583,9 @@ class EnrollmentService:
             )
         return script
 
-    def one_liner(self, token: str, *, script: str = "bootstrap.sh") -> str:
+    def one_liner(
+        self, token: str, *, script: str = "bootstrap.sh", by_address: bool = False
+    ) -> str:
         """The command an operator pastes on the host.
 
         Fetches the CA over plain HTTP first, checks it against a fingerprint
@@ -572,54 +595,81 @@ class EnrollmentService:
         The script name is the only difference between a probe and an iperf
         endpoint here: both ceremonies are the same, and having one of them
         drift would be a second thing to keep right for no reason.
+
+        ``by_address`` is for an enrolment over the tunnel: that site has no
+        name server that knows this platform, so the name would fail where the
+        address works. Both certificates carry NATS_HOST_IP as a SAN.
         """
         site = self._runtime.site_settings()
         _, ca_sha256 = self.ca_material()
-        host = site.web_fqdn
+        host = site.nats_host_ip if by_address else site.web_fqdn
+        if not host:
+            raise RuntimeStateError(
+                details="NATS_HOST_IP is not configured"
+                if by_address
+                else "NATS_FQDN is not configured"
+            )
         ca_port = "" if site.ca_http_port == 80 else f":{site.ca_http_port}"
         ca_url = f"http://{host}{ca_port}/nats-ca.pem"
         return (
             f"curl -fsSL {ca_url} -o /tmp/prtg-nats-ca.pem \\\n"
             f'  && echo "{ca_sha256}  /tmp/prtg-nats-ca.pem" | sha256sum -c - \\\n'
             f"  && curl -fsSL --cacert /tmp/prtg-nats-ca.pem \\\n"
-            f"       {self.base_url()}/enroll/{token}/{script} | sudo sh"
+            f"       {self.base_url(by_address=by_address)}"
+            f"/enroll/{token}/{script} | sudo sh"
         )
 
-    def paste_block(self, token: str, rendered: str) -> str:
-        """The whole script as one block to paste, for a probe that cannot
-        fetch it.
+    def tunnel_setup_steps(self, record: EnrollmentToken) -> list[EnrolmentStep]:
+        """What has to happen on the probe before the ordinary one-liner works.
 
-        The one-liner downloads the script, which an outpost cannot do - that
-        download is the very first request, and the tunnel that would carry it
-        is built by the script being downloaded. So the script travels with the
-        operator instead: through the interface, into a console on the probe.
+        Two short commands rather than the whole script pasted at once. The
+        script is 19,000 characters; through a browser console that echoes
+        every one of them it took minutes, and it arrived as a wall of text
+        with the one warning that mattered lost at the top of it.
 
-        The digest is not ceremony. A paste into a browser console is the one
-        delivery here that can arrive truncated, and half a root script that
-        stops mid-heredoc is far worse than one that refuses to start. It also
-        removes the file afterwards, because that file carries a private key.
+        Split this way each command is a few hundred characters, carries its
+        own heading, and fails on its own - an operator who sees an error
+        knows which step it belongs to. It also brings back the CA ceremony
+        the one-liner has always used, because step three *is* the one-liner.
         """
-        # The digest covers exactly what the heredoc writes, trailing newline
-        # included. Hashing the argument instead would differ from the file by
-        # whatever whitespace the rendering happened to end with, and the
-        # mismatch would only ever show up on the probe, as a script that
-        # refuses to run for no visible reason.
-        body = rendered.rstrip("\n") + "\n"
-        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        # mktemp and umask 077, because this file holds the probe's private
-        # key for as long as it exists. A fixed name under /tmp would be a
-        # path anyone on the host could have prepared in advance.
-        return "\n".join(
+        overlay = OverlayRuntime(self._settings)
+        settings = overlay.settings()
+        site = self._runtime.site_settings()
+        pending = overlay.read_pending_peer(record.id)
+        endpoint = settings.endpoint
+        if pending is None or not endpoint or not site.nats_host_ip:
+            raise RuntimeStateError(
+                details="this invitation has no reserved overlay peer to set up"
+            )
+        allowed = f"{settings.subnet},{site.nats_host_ip}/32"
+        # One "sh -c" rather than a line each: every one of these needs root,
+        # and ten sudo prompts for one logical step is worse than one.
+        # "ip link delete" first so a second run replaces the interface
+        # instead of failing on it, which is what a retry looks like.
+        tunnel = "\n".join(
             (
+                "sudo sh -c 'set -e",
                 "umask 077",
-                'enrol="$(mktemp)"',
-                "cat > \"${enrol}\" <<'PRTG_NATS_ENROL_EOF'",
-                body.rstrip("\n"),
-                "PRTG_NATS_ENROL_EOF",
-                f'echo "{digest}  ${{enrol}}" | sha256sum -c - \\',
-                '  && sudo sh "${enrol}"; rm -f "${enrol}"',
+                "install -d -m 0755 /etc/prtg-nats",
+                f'printf "%s\\n" "{pending.private_key}" > /etc/prtg-nats/overlay.key',
+                "chmod 0600 /etc/prtg-nats/overlay.key",
+                f"ip link delete {INTERFACE} 2>/dev/null || true",
+                f"ip link add {INTERFACE} type wireguard",
+                f"wg set {INTERFACE} private-key /etc/prtg-nats/overlay.key \\",
+                f"  peer {overlay.ensure_hub_key()} \\",
+                f"  endpoint {endpoint} \\",
+                f"  allowed-ips {allowed} \\",
+                "  persistent-keepalive 25",
+                f"ip address add {pending.address}/32 dev {INTERFACE}",
+                f"ip link set {INTERFACE} up",
+                f"ip route replace {settings.subnet} dev {INTERFACE}",
+                f"ip route replace {site.nats_host_ip}/32 dev {INTERFACE}'",
             )
         )
+        return [
+            EnrolmentStep(key="install_wireguard", command=INSTALL_WIREGUARD),
+            EnrolmentStep(key="build_tunnel", command=tunnel, carries_secret=True),
+        ]
 
     def management_public_key(self) -> str:
         # Same spelling as pki.py: the key has no extension, so with_suffix()

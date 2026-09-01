@@ -120,13 +120,21 @@ class InvitationOut(ApiModel):
     job_id: str | None = None
 
 
+class EnrolmentStepOut(ApiModel):
+    """One command to run on the probe before the one-liner works."""
+
+    key: str
+    command: str
+    carries_secret: bool = False
+
+
 class IssuedInvitationOut(InvitationOut):
     token: str
     command: str
-    # True when `command` is the whole script rather than a one-liner, which
-    # means it carries the probe's private overlay key. The interface says so
-    # where it is shown; nothing about a one-liner needs that warning.
-    carries_secret: bool = False
+    # What has to happen on the probe first, for an enrolment over the tunnel:
+    # install wireguard-tools, build the tunnel. Empty for every other
+    # invitation, where the one-liner alone is the whole ceremony.
+    setup_steps: list[EnrolmentStepOut] = Field(default_factory=list)
     ca_sha256: str
 
 
@@ -382,20 +390,29 @@ async def create_probe_invitation(
         after={"nats_username": payload.nats_username, "kind": PROBE},
     )
     out = _invitation_out(issued.record)
-    # A tunnel enrolment gets the whole script, not a command that downloads
-    # it: that download would be the first request, and the tunnel that would
-    # carry it is what the script builds. See ADR 0010.
-    if payload.overlay_bootstrap:
-        command = enrollment.paste_block(
-            issued.token, enrollment.render_bootstrap(issued.record, issued.token)
+    # The one-liner is the same ceremony either way. A tunnel enrolment only
+    # needs two commands run before it, so that it has a path to fetch over -
+    # and it addresses the platform by IP, because the site has no name server
+    # that knows it. See ADR 0010.
+    setup_steps = [
+        EnrolmentStepOut(
+            key=step.key,
+            command=step.command,
+            carries_secret=step.carries_secret,
         )
-    else:
-        command = enrollment.one_liner(issued.token)
+        for step in (
+            enrollment.tunnel_setup_steps(issued.record)
+            if payload.overlay_bootstrap
+            else []
+        )
+    ]
     return IssuedInvitationOut(
         **out.model_dump(),
         token=issued.token,
-        command=command,
-        carries_secret=payload.overlay_bootstrap,
+        command=enrollment.one_liner(
+            issued.token, by_address=payload.overlay_bootstrap
+        ),
+        setup_steps=setup_steps,
         ca_sha256=ca_sha256,
     )
 

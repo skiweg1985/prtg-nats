@@ -196,21 +196,33 @@
         "title": "2. Diesen Befehl auf der Probe ausführen",
         "intro": "Kopieren Sie den Befehl und führen Sie ihn auf dem Host aus, als Benutzer mit sudo-Recht. Er holt die CA, vergleicht sie mit dem Fingerabdruck unten, installiert den eingeschränkten Verwaltungszugang und meldet zurück.",
         "copy": "Kopieren",
-        "copyScript": "Skript kopieren",
-        "scriptHint": "In eine Konsole auf der Probe einfügen, etwa über Raspberry Pi Connect oder SSH. Das Skript prüft sich selbst und läuft nur vollständig - ein abgeschnittenes Einfügen wird abgelehnt.",
         "account": "NATS-Konto",
         "caFingerprint": "CA-Fingerabdruck",
         "expires": "Gültig noch",
         "expired": "Abgelaufen",
         "secretTitle": "Behandeln Sie den Befehl wie ein Geheimnis",
         "secretBody": "Er enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host unter diesem Konto anmelden.",
-        "secretBodyScript": "Dieser Block enthält den privaten WireGuard-Schlüssel der Probe. Er gehört nicht in ein Ticket, einen Chat oder eine Mail - gib ihn so weiter, wie du ein Passwort weitergeben würdest.",
         "waiting": "Warten auf die Probe",
         "waitingHint": "Diese Seite geht von selbst weiter, sobald der Host sich meldet.",
         "revoke": "Einladung zurückziehen",
         "deadTitle": "Diese Einladung ist nicht mehr verwendbar",
         "deadBody": "Sie ist abgelaufen oder wurde zurückgezogen; der Befehl oben würde abgewiesen. Erstellen Sie eine neue Einladung, um diese Probe anzumelden.",
-        "restart": "Neue Einladung"
+        "restart": "Neue Einladung",
+        "steps": {
+          "install_wireguard": {
+            "title": "WireGuard bereitstellen",
+            "note": "Debian und Ubuntu haben das Paket im Hauptarchiv. Auf RHEL 9 kommt es aus EPEL, das vorher eingeschaltet sein muss."
+          },
+          "build_tunnel": {
+            "title": "Tunnel zur Plattform aufbauen",
+            "note": "Danach erreicht die Probe die Plattform. Prüfen mit „sudo wg show“ – unter „latest handshake“ muss eine Zeit stehen."
+          },
+          "enrol": {
+            "title": "Enrollment starten",
+            "note": "Holt zuerst die CA und vergleicht sie mit dem Fingerabdruck unten, dann läuft die Installation. Das dauert einige Minuten."
+          }
+        },
+        "stepSecret": "Dieser Befehl enthält den privaten WireGuard-Schlüssel der Probe. Gib ihn so weiter, wie du ein Passwort weitergeben würdest – nicht per Ticket, Chat oder Mail."
       },
       "step3": {
         "title": "3. Die Plattform übernimmt",
