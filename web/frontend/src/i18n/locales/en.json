@@ -19,7 +19,8 @@
     "settings": "Settings",
     "updates": "Updates",
     "system": "Maintenance",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "availability": "Availability"
   },
   "common": {
     "cancel": "Cancel",
@@ -50,7 +51,8 @@
     "stale": "Cached, last checked {{time}}",
     "unknown": "Unknown",
     "updated": "Updated",
-    "apply": "Apply"
+    "apply": "Apply",
+    "delete": "Delete"
   },
   "auth": {
     "signIn": "Sign in",
@@ -1244,6 +1246,64 @@
         "runtime": "Runtime export",
         "jetstream": "JetStream"
       }
+    }
+  },
+  "watch": {
+    "title": "Availability",
+    "subtitle": "Are the devices switched on and reachable? Measured by the probes on site.",
+    "addDevice": "Add device",
+    "notReceiving": "The platform is not receiving measurements right now. While that lasts every device is unknown, whether or not it is running. Check the NATS server.",
+    "paused": "Paused",
+    "lastSeen": "Last seen {{when}} by {{probe}}",
+    "neverMeasured": "Not measured yet, {{probe}} is responsible",
+    "counts": {
+      "up": "Reachable",
+      "down": "Unreachable",
+      "unknown": "Unknown"
+    },
+    "state": {
+      "up": "Reachable",
+      "down": "Unreachable",
+      "unknown": "Unknown"
+    },
+    "method": {
+      "icmp": "Ping (ICMP)",
+      "tcp": "TCP port"
+    },
+    "empty": {
+      "title": "No devices yet",
+      "hint": "Add a device and assign it to the probe that should measure it. Measuring starts with the next scan - no rollout needed.",
+      "filtered": "No devices with these labels",
+      "filteredHint": "Pick a different label or clear the filter."
+    },
+    "outages": {
+      "title": "Outages",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "none": "No outage in this period.",
+      "ongoing": "still going"
+    },
+    "dialog": {
+      "addTitle": "Add device",
+      "editTitle": "Edit device",
+      "deleteConfirm": "Deletes the device and its history with it."
+    },
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "Till printer 1",
+      "address": "Address",
+      "addressHint": "IP address or hostname. Resolved on the probe, not here.",
+      "probe": "Probe",
+      "probeHint": "The probe measures from its own network. A printer in Hamburg is not reachable from Berlin.",
+      "probePlaceholder": "Choose a probe...",
+      "method": "Check",
+      "methodHint": "Ping needs no open port. TCP is for devices that do not answer ping.",
+      "port": "Port",
+      "threshold": "Failures before down",
+      "thresholdHint": "How many measurements in a row have to fail before the device counts as down. A single lost packet is not an outage.",
+      "labels": "Labels",
+      "labelsHint": "One pair per line, such as “team: support”. The dashboard filters on them.",
+      "enabled": "Device is measured"
     }
   }
 }

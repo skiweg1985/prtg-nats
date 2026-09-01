@@ -21,6 +21,7 @@ import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { ProbeListPage } from '@/features/probes/ProbeListPage'
 import { SensorDetailPage, SensorListPage } from '@/features/sensors/SensorPages'
 import { UpdatesPage } from '@/features/updates/UpdatesPage'
+import { AvailabilityPage } from '@/features/watch/AvailabilityPage'
 import { AppLayout } from '@/layouts/AppLayout'
 
 /**
@@ -34,6 +35,8 @@ export function AppRoutes() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
+
+          <Route path="availability" element={<AvailabilityPage />} />
 
           <Route path="probes" element={<ProbeListPage />} />
           {/* Before the :probeId route, or "new" would be read as an id. */}

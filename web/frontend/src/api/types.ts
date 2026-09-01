@@ -784,3 +784,78 @@ export interface Overlay {
   interface_up: boolean | null
   peers: OverlayPeer[]
 }
+
+// --- Availability monitoring -------------------------------------------------
+
+export type WatchState = 'up' | 'down' | 'unknown'
+export type WatchCheckMethod = 'icmp' | 'tcp'
+
+/** One watched device with its last measurement. */
+export interface WatchDevice {
+  id: string
+  display_name: string
+  address: string
+  probe_id: string
+  probe_name: string
+  method: WatchCheckMethod
+  port: number | null
+  labels: Record<string, string>
+  enabled: boolean
+  failure_threshold: number
+  notes: string | null
+  state: WatchState
+  /** Null while nobody has measured it - which is not the same as down. */
+  observed_at: string | null
+  rtt_ms: number | null
+  error: string | null
+  /** The last measurement is too old to present as current. Counts as
+      unknown however green the state next to it looks. */
+  stale: boolean
+}
+
+export interface WatchOverview {
+  devices: WatchDevice[]
+  up: number
+  down: number
+  unknown: number
+  /** Every label key with the values in use, for the filter menu. */
+  labels: Record<string, string[]>
+  /** Whether the platform holds its NATS connection. A page full of unknown
+      devices has two causes, and this is the one an operator can fix. */
+  receiving: boolean
+}
+
+export interface WatchAvailability {
+  device_id: string
+  since: string
+  until: string
+  up_seconds: number
+  down_seconds: number
+  unknown_seconds: number
+  outages: number
+  longest_outage_seconds: number
+  /** Null when nothing was measured in the window - never 0, which would
+      read as a total outage. */
+  ratio: number | null
+}
+
+export interface WatchOutage {
+  device_id: string
+  device_name: string
+  started_at: string
+  ended_at: string | null
+  duration_seconds: number | null
+  reason: string | null
+}
+
+export interface WatchDeviceRequest {
+  display_name: string
+  address: string
+  probe_id: string
+  method: WatchCheckMethod
+  port: number | null
+  labels: Record<string, string>
+  failure_threshold: number
+  enabled: boolean
+  notes: string | null
+}

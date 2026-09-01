@@ -23,6 +23,9 @@ interface NavEntry {
 
 const PRIMARY: NavEntry[] = [
   { to: '/', labelKey: 'nav.dashboard', permission: 'system.read' },
+  // Second, and above the probes: for a viewer account handed to a support
+  // desk this is the only page that matters.
+  { to: '/availability', labelKey: 'nav.availability', permission: 'watch.read' },
   { to: '/probes', labelKey: 'nav.probes', permission: 'probe.read' },
   { to: '/sensors', labelKey: 'nav.sensors', permission: 'sensor.read' },
   { to: '/deployments', labelKey: 'nav.deployments', permission: 'deployment.read' },

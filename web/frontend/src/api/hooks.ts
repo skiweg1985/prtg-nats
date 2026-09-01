@@ -43,6 +43,11 @@ import type {
   SensorProfileFile,
   SensorSummary,
   SystemStatus,
+  WatchAvailability,
+  WatchDevice,
+  WatchDeviceRequest,
+  WatchOutage,
+  WatchOverview,
   WebUser,
   WirelessInterface,
 } from './types'
@@ -55,6 +60,12 @@ export const keys = {
   system: ['system'] as const,
   stackVersion: ['system', 'update'] as const,
   probes: ['probes'] as const,
+  watch: ['watch'] as const,
+  watchOverview: (labels: string[]) => ['watch', 'overview', ...labels] as const,
+  watchAvailability: (id: string, days: number) =>
+    ['watch', 'availability', id, days] as const,
+  watchOutages: (days: number, labels: string[]) =>
+    ['watch', 'outages', days, ...labels] as const,
   probe: (id: string) => ['probes', id] as const,
   probePlan: (id: string) => ['probes', id, 'plan'] as const,
   probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
@@ -1032,5 +1043,86 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/users/${id}`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.users }),
+  })
+}
+
+
+// --- Availability monitoring -------------------------------------------------
+
+/** ``?label=team:support&label=site:hamburg`` - repeated, not comma-joined,
+    because a label value may contain a comma and a key never a colon. */
+function labelQuery(labels: string[]): string {
+  return labels.map((label) => `label=${encodeURIComponent(label)}`).join('&')
+}
+
+/**
+ * The dashboard, in one request and on a live refresh.
+ *
+ * This is a page somebody leaves open on a wall display, which is the whole
+ * reason the server answers it as one document: a device per request would
+ * make a support desk's own monitoring the busiest client of the API.
+ */
+export function useWatchOverview(labels: string[] = []) {
+  return useQuery({
+    queryKey: keys.watchOverview(labels),
+    queryFn: () =>
+      api.get<WatchOverview>(
+        `/watch/overview${labels.length ? `?${labelQuery(labels)}` : ''}`,
+      ),
+    refetchInterval: LIVE_REFETCH_MS,
+  })
+}
+
+export function useWatchAvailability(deviceId: string | undefined, days: number) {
+  return useQuery({
+    queryKey: keys.watchAvailability(deviceId ?? '', days),
+    queryFn: () =>
+      api.get<WatchAvailability>(`/watch/devices/${deviceId}/availability`, {
+        days,
+      }),
+    enabled: Boolean(deviceId),
+  })
+}
+
+export function useWatchOutages(days: number, labels: string[] = []) {
+  return useQuery({
+    queryKey: keys.watchOutages(days, labels),
+    queryFn: () =>
+      api.get<WatchOutage[]>(
+        `/watch/outages?days=${days}${labels.length ? `&${labelQuery(labels)}` : ''}`,
+      ),
+    refetchInterval: LIVE_REFETCH_MS,
+  })
+}
+
+export function useCreateWatchDevice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: WatchDeviceRequest) =>
+      api.post<WatchDevice>('/watch/devices', body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.watch })
+    },
+  })
+}
+
+export function useUpdateWatchDevice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: Partial<WatchDeviceRequest> & { id: string }) =>
+      api.patch<WatchDevice>(`/watch/devices/${id}`, body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.watch })
+    },
+  })
+}
+
+export function useDeleteWatchDevice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/watch/devices/${id}`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.watch })
+    },
   })
 }

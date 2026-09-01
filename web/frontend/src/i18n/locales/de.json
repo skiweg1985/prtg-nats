@@ -19,7 +19,8 @@
     "settings": "Einstellungen",
     "updates": "Updates",
     "system": "Wartung",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "availability": "Verfügbarkeit"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -50,7 +51,8 @@
     "stale": "Zwischenspeicher, zuletzt geprüft {{time}}",
     "unknown": "Unbekannt",
     "updated": "Stand",
-    "apply": "Übernehmen"
+    "apply": "Übernehmen",
+    "delete": "Löschen"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -1244,6 +1246,64 @@
         "runtime": "Laufzeit-Export",
         "jetstream": "JetStream"
       }
+    }
+  },
+  "watch": {
+    "title": "Verfügbarkeit",
+    "subtitle": "Sind die Geräte eingeschaltet und erreichbar? Gemessen von den Probes vor Ort.",
+    "addDevice": "Gerät hinzufügen",
+    "notReceiving": "Die Plattform empfängt gerade keine Messungen. Solange das so ist, ist jedes Gerät unbekannt – unabhängig davon, ob es läuft. Prüfen Sie den NATS-Server.",
+    "paused": "Pausiert",
+    "lastSeen": "Zuletzt {{when}} von {{probe}}",
+    "neverMeasured": "Noch nicht gemessen, zuständig ist {{probe}}",
+    "counts": {
+      "up": "Erreichbar",
+      "down": "Nicht erreichbar",
+      "unknown": "Unbekannt"
+    },
+    "state": {
+      "up": "Erreichbar",
+      "down": "Nicht erreichbar",
+      "unknown": "Unbekannt"
+    },
+    "method": {
+      "icmp": "Ping (ICMP)",
+      "tcp": "TCP-Port"
+    },
+    "empty": {
+      "title": "Noch keine Geräte",
+      "hint": "Legen Sie ein Gerät an und ordnen Sie es der Probe zu, die es messen soll. Gemessen wird ab dem nächsten Scan – ohne Rollout.",
+      "filtered": "Keine Geräte mit diesen Labels",
+      "filteredHint": "Wählen Sie ein anderes Label oder heben Sie den Filter auf."
+    },
+    "outages": {
+      "title": "Ausfälle",
+      "days_one": "{{count}} Tag",
+      "days_other": "{{count}} Tage",
+      "none": "Kein Ausfall in diesem Zeitraum.",
+      "ongoing": "läuft noch"
+    },
+    "dialog": {
+      "addTitle": "Gerät hinzufügen",
+      "editTitle": "Gerät bearbeiten",
+      "deleteConfirm": "Löscht das Gerät samt seiner Verlaufsdaten."
+    },
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "Kassendrucker 1",
+      "address": "Adresse",
+      "addressHint": "IP-Adresse oder Hostname. Aufgelöst wird auf der Probe, nicht hier.",
+      "probe": "Probe",
+      "probeHint": "Die Probe misst aus ihrem eigenen Netz. Ein Drucker in Hamburg ist von Berlin aus nicht erreichbar.",
+      "probePlaceholder": "Probe wählen …",
+      "method": "Prüfung",
+      "methodHint": "Ping braucht keinen offenen Port. TCP für Geräte, die auf Ping nicht antworten.",
+      "port": "Port",
+      "threshold": "Fehlversuche bis Ausfall",
+      "thresholdHint": "So oft muss eine Messung hintereinander scheitern, bevor das Gerät als ausgefallen gilt. Ein einzelnes verlorenes Paket ist kein Ausfall.",
+      "labels": "Labels",
+      "labelsHint": "Ein Paar pro Zeile, etwa „team: support“. Danach lässt sich im Dashboard filtern.",
+      "enabled": "Gerät wird gemessen"
     }
   }
 }
