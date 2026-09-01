@@ -760,6 +760,7 @@ export interface Overlay {
   hub_address: string
   hub_public_key: string | null
   default_mode: OverlayMode
-  interface_up: boolean
+  /** null where the API container could not read it - not the same as down. */
+  interface_up: boolean | null
   peers: OverlayPeer[]
 }

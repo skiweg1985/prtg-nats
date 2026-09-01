@@ -62,7 +62,9 @@ class OverlayOut(ApiModel):
     hub_address: str
     hub_public_key: str | None
     default_mode: str
-    interface_up: bool
+    # None where the API container could not tell. The interface reports that
+    # as unknown rather than painting a hub down that may well be up.
+    interface_up: bool | None
     peers: list[OverlayPeerOut]
 
 
