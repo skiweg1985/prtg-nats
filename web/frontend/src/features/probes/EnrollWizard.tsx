@@ -30,13 +30,16 @@ import {
   Banner,
   Button,
   Card,
+  CheckboxField,
   DetailRow,
   EmptyState,
   Field,
   Input,
   Label,
   Mono,
+  Select,
   Skeleton,
+  Spinner,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -406,7 +409,7 @@ function InvitationForm({
           label={t('probes.enroll.fields.ttl')}
           hint={t('probes.enroll.fields.ttlHint')}
         >
-          <select
+          <Select
             value={ttl}
             onChange={(event) => setTtl(Number(event.target.value))}
             className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -418,23 +421,15 @@ function InvitationForm({
                   : t('probes.enroll.fields.ttlHours', { count: minutes / 60 })}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
 
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5"
+        <CheckboxField
+            label={t('probes.enroll.fields.installPackage')}
+            hint={t('probes.enroll.fields.installPackageHint')}
             checked={installPackage}
-            onChange={(event) => setInstallPackage(event.target.checked)}
+            onChange={(checked) => setInstallPackage(checked)}
           />
-          <span>
-            <span className="text-ink">{t('probes.enroll.fields.installPackage')}</span>
-            <span className="text-ink-3 block text-xs">
-              {t('probes.enroll.fields.installPackageHint')}
-            </span>
-          </span>
-        </label>
 
         {overlayEnabled ? (
           <label className="flex items-start gap-2 text-sm">
@@ -498,7 +493,7 @@ function CommandStep({
   // command every other probe gets, only pointed at the address.
   const steps = [
     ...(invitation.setup_steps ?? []),
-    { key: 'enrol', command: invitation.command },
+    { key: 'enroll', command: invitation.command },
   ]
   // Expired here, revoked elsewhere - either way the command on screen would
   // be refused, and waiting for a host that can no longer report in is the
@@ -573,10 +568,7 @@ function CommandStep({
         <Card>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span
-                className="border-accent size-4 animate-spin rounded-full border-2 border-t-transparent"
-                aria-hidden
-              />
+              <Spinner />
               <div>
                 <p className="text-ink text-sm font-medium">
                   {t('probes.enroll.step2.waiting')}

@@ -906,7 +906,6 @@ export function useExecuteReconcile() {
 export type UnenrollOptions = {
   removeSensors?: boolean
   uninstallMpp?: boolean
-  deleteAccount?: boolean
 }
 
 export function useUnenrollProbe() {
@@ -916,7 +915,6 @@ export function useUnenrollProbe() {
       const query = new URLSearchParams({
         remove_sensors: String(options.removeSensors ?? false),
         uninstall_mpp: String(options.uninstallMpp ?? false),
-        delete_account: String(options.deleteAccount ?? false),
       })
       return api.delete<JobAccepted>(`/probes/${id}?${query.toString()}`)
     },

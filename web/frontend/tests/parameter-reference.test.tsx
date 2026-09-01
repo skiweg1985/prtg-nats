@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ParameterSchema, SensorDetail } from '@/api/types'
 import { AppProviders } from '@/app/providers'
-import { ParameterReference, PrtgCard } from '@/features/sensors/SensorPages'
+import { ParameterCard, PrtgCard } from '@/features/sensors/SensorPages'
 
 function wrap(children: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -54,36 +54,46 @@ const schema: ParameterSchema = {
   default_parameter_line: '--host %host',
 }
 
-describe('ParameterReference', () => {
-  it('lists every parameter with its meaning', () => {
-    wrap(<ParameterReference schema={schema} />)
-    expect(screen.getByText('--host')).toBeInTheDocument()
+describe('ParameterCard', () => {
+  // The same five facts the old two-card layout guaranteed, now on the one
+  // surface that replaced it.
+  it('lists every fillable parameter with its meaning', () => {
+    wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
     expect(screen.getByText('--target')).toBeInTheDocument()
     expect(
-      screen.getByText('Address of the Aruba gateway of this site.'),
+      screen.getByText(/Which uplink kind is the main path/),
     ).toBeInTheDocument()
   })
 
-  it('shows the placeholder for a value PRTG substitutes', () => {
-    wrap(<ParameterReference schema={schema} />)
-    // Once in the recommended line, once as the default of --host.
+  it('keeps the PRTG-substituted parameters, folded away', () => {
+    wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
+    // --host is not a form field - PRTG fills it - but its placeholder and
+    // meaning stay reachable: in the folded section and the recommended line.
+    expect(screen.getByText('--host')).toBeInTheDocument()
     expect(screen.getAllByText(/%host/).length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(/Address of the Aruba gateway of this site\./),
+    ).toBeInTheDocument()
   })
 
-  it('names the choices instead of the bare type', () => {
-    wrap(<ParameterReference schema={schema} />)
-    expect(screen.getByText('wired | cellular')).toBeInTheDocument()
+  it('offers the choices instead of a bare text field', () => {
+    wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
+    expect(screen.getByRole('option', { name: 'wired' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'cellular' })).toBeInTheDocument()
   })
 
   it('marks what a variant can supply, so PRTG may leave it out', () => {
-    wrap(<ParameterReference schema={schema} />)
-    // The badge names the profile key behind the parameter, in either language.
+    wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
+    // The hint names the profile key behind the parameter, in either language.
     expect(screen.getByText(/(variant|Variante).*SSID/i)).toBeInTheDocument()
   })
 
-  it('falls back to the README hint when a sensor declares nothing', () => {
-    wrap(<ParameterReference schema={null} />)
-    expect(screen.getByText(/README/)).toBeInTheDocument()
+  it('renders nothing at all for a sensor without parameters', () => {
+    const { container } = wrap(
+      <ParameterCard sensorName="plain" schema={null} />,
+    )
+    // A card that could only say "nothing here" would be noise.
+    expect(container.querySelector('section')).toBeNull()
   })
 })
 

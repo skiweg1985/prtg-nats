@@ -28,6 +28,7 @@ from app.domain.models import (
 from app.domain.reconciliation import build_plan, find_deviations
 from app.infrastructure.certificates import read_certificate
 from app.infrastructure.nats_runtime import NatsRuntime
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.probe_helper import ProbeConnection
 from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
@@ -342,15 +343,19 @@ async def reconcile_on(context: JobContext, username: str) -> dict[str, Any]:
     return {"probe": username, "actions": applied}
 
 
-def unenroll_steps(
-    *, remove_sensors: bool, uninstall_mpp: bool, delete_account: bool
-) -> tuple[str, ...]:
+def unenroll_steps(*, remove_sensors: bool, uninstall_mpp: bool) -> tuple[str, ...]:
     """The steps one retirement runs, in the only order they work in.
 
     Anything that needs the management channel has to happen before
     revoke_access, which is the step that closes it. Deleting the NATS
     account has to happen after remove_inventory, because the server refuses
     while an inventory still points at it.
+
+    The account step is not optional any more. The account exists because
+    the probe does - it is created by the enrolment - so it leaves with the
+    probe, the same way the overlay peer does. Keeping it used to be a
+    checkbox, which meant every retirement quietly left a working NATS
+    credential behind unless somebody remembered to tick it.
     """
     steps: list[str] = []
     if remove_sensors:
@@ -358,8 +363,7 @@ def unenroll_steps(
     if uninstall_mpp:
         steps.append(UNINSTALL_MPP_STEP)
     steps.extend(UNENROLL_STEPS)
-    if delete_account:
-        steps.append(DELETE_ACCOUNT_STEP)
+    steps.append(DELETE_ACCOUNT_STEP)
     return tuple(steps)
 
 
@@ -425,7 +429,6 @@ async def unenroll(context: JobContext) -> dict[str, Any]:
     username: str = context.payload["probe"]
     remove_sensors = bool(context.payload.get("remove_sensors"))
     uninstall_mpp = bool(context.payload.get("uninstall_mpp"))
-    delete_account = bool(context.payload.get("delete_account"))
     removed_sensors: list[str] = []
     package = "none"
 
@@ -459,19 +462,38 @@ async def unenroll(context: JobContext) -> dict[str, Any]:
 
     await context.step("remove_inventory")
     context.runtime.remove_probe(username)
+    # The peer goes with it. The hub is rendered from the inventory, so
+    # removing the entry is only half of it - without this the probe keeps a
+    # working way onto the overlay, and with it a route to the NATS address,
+    # after an operator retired it. Retiring a probe has to take its network
+    # access, not just our ability to manage it.
+    overlay = OverlayRuntime(context.settings)
+    if overlay.has_hub_key():
+        overlay.write_hub_config()
     await context.log("jobs.probe.unenrolled", params={"probe": username})
 
-    if delete_account:
-        await context.step(DELETE_ACCOUNT_STEP)
+    await context.step(DELETE_ACCOUNT_STEP)
+    account_deleted = False
+    if NatsRuntime(context.settings).is_last_account(username):
+        # Retiring the last probe must not fail over its account: NATS needs
+        # at least one, and a stuck half-retirement helps nobody. The account
+        # stays, and the log says so instead of pretending.
+        await context.log(
+            "jobs.credential.kept_last",
+            level=LogLevel.WARNING,
+            params={"probe": username},
+        )
+    else:
         provisioning = ProvisioningService(context.settings, context.docker)
         await provisioning.delete_account(username)
+        account_deleted = True
         await context.log("jobs.credential.deleted", params={"probe": username})
 
     return {
         "probe": username,
         "sensors_removed": removed_sensors,
         "package": package,
-        "account_deleted": delete_account,
+        "account_deleted": account_deleted,
     }
 
 

@@ -195,6 +195,14 @@ the tunnel that would otherwise carry it. A probe that does not answer there
 is refused rather than left unreachable. `--force` overrides that when you
 know what you are doing.
 
+**Retiring a probe takes its peer too.** `./prtg-nats probe unenroll` and
+**Retire** in the interface remove the inventory entry, and the hub is
+re-rendered without it - so a retired probe loses its way onto the overlay
+and its route to the NATS address at the same moment. The probe keeps running
+and keeps its own configuration; it simply has no path any more. That is the
+point: retiring a host has to take its access, not only our ability to manage
+it.
+
 **Turn off** on the same page - or `./prtg-nats overlay disable` - stops the
 hub without touching a single peer. Re-enabling does not mean visiting every
 probe again. Put any probe in mode `on` back to `auto` first, though, or it

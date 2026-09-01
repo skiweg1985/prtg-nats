@@ -39,13 +39,17 @@ import {
   Banner,
   Button,
   Card,
+  CheckboxField,
   DetailRow,
   Dialog,
   Dot,
   EmptyState,
   Mono,
+  Select,
   Skeleton,
+  Tabs,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
 
@@ -111,7 +115,6 @@ export function ProbeDetailPage() {
   const [cleanup, setCleanup] = useState<Required<UnenrollOptions>>({
     removeSensors: false,
     uninstallMpp: false,
-    deleteAccount: false,
   })
 
   if (isLoading) return <Skeleton className="h-64" />
@@ -251,16 +254,6 @@ export function ProbeDetailPage() {
                 }
               />
             </PermissionGate>
-            <PermissionGate permission="credential.rotate">
-              <CleanupOption
-                label={t('probes.cleanup.deleteAccount')}
-                hint={t('probes.cleanup.deleteAccountHint')}
-                checked={cleanup.deleteAccount}
-                onChange={(checked) =>
-                  setCleanup({ ...cleanup, deleteAccount: checked })
-                }
-              />
-            </PermissionGate>
           </fieldset>
 
           {cleanup.uninstallMpp && !cleanup.removeSensors && data.sensors.length > 0 && (
@@ -359,18 +352,12 @@ export function ProbeDetailPage() {
         </p>
       )}
 
-      <nav className="border-rule flex gap-1 border-b">
-        {TABS.map((entry) => (
-          <button
-            key={entry}
-            type="button"
-            onClick={() => selectTab(entry)}
-            className={
-              tab === entry
-                ? 'border-accent text-ink -mb-px border-b-2 px-3 py-2 text-sm font-medium'
-                : 'text-ink-3 hover:text-ink -mb-px border-b-2 border-transparent px-3 py-2 text-sm'
-            }
-          >
+      <Tabs
+        tabs={TABS}
+        active={tab}
+        onSelect={selectTab}
+        renderLabel={(entry) => (
+          <>
             {t(`probes.tabs.${entry}`)}
             {entry === 'deviations' && data.deviations.length > 0 && (
               <Badge
@@ -380,9 +367,9 @@ export function ProbeDetailPage() {
                 {data.deviations.length}
               </Badge>
             )}
-          </button>
-        ))}
-      </nav>
+          </>
+        )}
+      />
 
       {tab === 'overview' && <OverviewTab detail={data} />}
       {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
@@ -413,7 +400,15 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
         <Card title={t('probes.identity')}>
           <dl>
             <DetailRow label={t('probes.natsUser')}>
-              <Mono>{summary.nats_username}</Mono>
+              <span className="flex items-center gap-3">
+                <Mono>{summary.nats_username}</Mono>
+                <Link
+                  to="/infrastructure/credentials"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
             </DetailRow>
             <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
             <DetailRow label={t('probes.probeId')}>
@@ -494,6 +489,46 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             <ErrorDetails error={reveal.error} />
           </div>
         )}
+
+        {/* Where everything about this probe is managed. The probe is an
+            aggregate of things owned by other pages - variants on the sensor
+            page, endpoints on the iperf pages, the overlay on its own page -
+            and until now nothing said so. One row per aspect: the current
+            value, and the way to the page that changes it. */}
+        <Card title={t('probes.atAGlance.title')} className="lg:col-span-2">
+          <dl>
+            <DetailRow label={t('probes.atAGlance.sensors')}>
+              <span className="flex items-center gap-3">
+                <span>
+                  {t('probes.atAGlance.sensorsValue', {
+                    count: inventory.assigned_sensors.length,
+                  })}
+                </span>
+                <Link
+                  to="?tab=sensors"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
+            </DetailRow>
+            <DetailRow label={t('probes.atAGlance.endpoints')}>
+              <span className="flex items-center gap-3">
+                <span>
+                  {inventory.known_iperf_endpoints.length > 0
+                    ? inventory.known_iperf_endpoints.join(', ')
+                    : t('probes.atAGlance.none')}
+                </span>
+                <Link
+                  to="/infrastructure/iperf"
+                  className="text-accent text-xs hover:underline"
+                >
+                  {t('probes.atAGlance.manage')}
+                </Link>
+              </span>
+            </DetailRow>
+          </dl>
+        </Card>
       </div>
 
       {accessKey !== null && (
@@ -509,13 +544,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
           </p>
           <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
             <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(accessKey)}
-            >
-              {t('common.copy')}
-            </Button>
+            <CopyButton value={accessKey} />
           </div>
           <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
           <div className="mt-4 flex items-center justify-between gap-2">
@@ -559,18 +588,12 @@ function CleanupOption({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>
-        <span className="text-ink">{label}</span>
-        <span className="text-ink-3 block text-xs">{hint}</span>
-      </span>
-    </label>
+    <CheckboxField
+            label={label}
+            hint={hint}
+            checked={checked}
+            onChange={(checked) => onChange(checked)}
+          />
   )
 }
 
@@ -632,7 +655,7 @@ function InterfacesCard({
       header: t('probes.interfaces.columns.reserved'),
       cell: (row) =>
         row.reserved_by ? (
-          <Badge tone="accent">{row.reserved_by}</Badge>
+          <Badge tone="accent" quiet>{row.reserved_by}</Badge>
         ) : (
           <span className="text-ink-3">{t('probes.interfaces.free')}</span>
         ),
@@ -646,7 +669,7 @@ function InterfacesCard({
             <Badge tone="danger">{t('probes.interfaces.defaultRoute')}</Badge>
           ) : null}
           {row.connection ? (
-            <Badge tone="warn">{row.connection}</Badge>
+            <Badge tone="warn" quiet>{row.connection}</Badge>
           ) : null}
           {!row.carries_default_route && !row.connection ? (
             <span className="text-ink-3">—</span>
@@ -715,8 +738,7 @@ function InterfacesCard({
         candidates.length > 1 ? (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-ink-3">{t('probes.interfaces.forSensor')}</span>
-            <select
-              className="rounded border border-rule-2 bg-surface px-2 py-1 text-ink"
+            <Select className="rounded"
               value={target}
               onChange={(event) => setSensorName(event.target.value)}
             >
@@ -725,7 +747,7 @@ function InterfacesCard({
                   {entry.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         ) : null
       }
@@ -1163,9 +1185,9 @@ function SensorVariantRows({
           {held.map((variant) => (
             <li key={variant.name} className="flex flex-wrap items-center gap-2">
               <Mono>{variant.name}</Mono>
-              <code className="bg-surface-2 rounded-inset text-ink px-1.5 py-0.5 font-mono text-xs">
+              <InlineCode>
                 {variant.parameter_line}
-              </code>
+              </InlineCode>
             </li>
           ))}
         </ul>
@@ -1253,9 +1275,9 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
                     {t('infrastructure.iperf.noParameterNeeded')}
                   </Badge>
                 ) : (
-                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                  <InlineCode>
                     {holder.parameter_line}
-                  </code>
+                  </InlineCode>
                 ))}
             </li>
           )
@@ -1297,6 +1319,12 @@ function OverlayRow({ username }: { username: string }) {
         <Badge tone={pathTone(peer.mode, state)}>
           {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
         </Badge>
+        <Link
+          to="/infrastructure/overlay"
+          className="text-accent text-xs hover:underline"
+        >
+          {t('probes.atAGlance.manage')}
+        </Link>
       </span>
     </DetailRow>
   )

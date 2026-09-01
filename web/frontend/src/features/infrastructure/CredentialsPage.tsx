@@ -21,7 +21,9 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
 } from '@/components/ui/primitives'
+import { CopyButton } from '@/components/ui/CopyBlock'
 
 /**
  * NATS account management - what `prtg-nats user …` used to be.
@@ -124,10 +126,10 @@ export function CredentialsPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('credentials.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('credentials.subtitle')}</p>
-      </header>
+      <PageHeader title={t('credentials.title')} subtitle={t('credentials.subtitle')} />
+      {/* Probe accounts are managed by enrolment and retirement; saying so
+          here keeps people from deleting one by hand and stranding a probe. */}
+      <p className="text-ink-3 text-xs">{t('credentials.autoHint')}</p>
 
       <DataTable
         rows={data}
@@ -170,13 +172,7 @@ export function CredentialsPage() {
           <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
           <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
             <Mono className="min-w-0 flex-1 break-all">{revealed.password}</Mono>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(revealed.password)}
-            >
-              {t('common.copy')}
-            </Button>
+            <CopyButton value={revealed.password} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>

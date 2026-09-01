@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { AppProviders } from '@/app/providers'
-import { DeploymentListPage } from '@/features/misc/Pages'
+import { RolloutsView } from '@/features/deployments/RolloutsView'
 import { changeLanguage } from '@/i18n'
 
 /**
@@ -82,7 +82,7 @@ function wrap() {
     <AppProviders client={client}>
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
-          <Route path="/deployments" element={<DeploymentListPage />} />
+          <Route path="/deployments" element={<RolloutsView />} />
         </Routes>
       </MemoryRouter>
     </AppProviders>,

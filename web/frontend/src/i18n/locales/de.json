@@ -8,14 +8,13 @@
     "menu": "Menü",
     "probes": "Probes",
     "sensors": "Sensoren",
-    "deployments": "Ausrollvorgänge",
     "jobs": "Jobs",
     "infrastructure": "Infrastruktur",
     "nats": "NATS",
     "iperf": "Messpunkte",
     "certificates": "Zertifikate",
     "credentials": "NATS-Konten",
-    "audit": "Protokoll",
+    "audit": "Audit",
     "settings": "Einstellungen",
     "updates": "Updates",
     "system": "Wartung",
@@ -27,6 +26,10 @@
     "close": "Schließen",
     "confirm": "Bestätigen",
     "copy": "Kopieren",
+    "copied": "Kopiert",
+    "collapse": "Einklappen",
+    "showLines_one": "{{count}} Zeile anzeigen",
+    "showLines_other": "{{count}} Zeilen anzeigen",
     "edit": "Bearbeiten",
     "hidden": "Verborgen",
     "hideTechnicalDetails": "Technische Details verbergen",
@@ -56,10 +59,10 @@
     "signIn": "Anmelden",
     "signOut": "Abmelden",
     "username": "Benutzername",
-    "password": "Kennwort",
-    "currentPassword": "Aktuelles Kennwort",
-    "newPassword": "Neues Kennwort",
-    "changePassword": "Kennwort ändern",
+    "password": "Passwort",
+    "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "changePassword": "Passwort ändern",
     "signInTitle": "Anmeldung bei {{name}}",
     "setupTitle": "Ersten Administrator anlegen",
     "setupIntro": "Es existiert noch kein Konto. Das hier angelegte Konto verwaltet die Plattform.",
@@ -67,7 +70,7 @@
     "createAccount": "Konto anlegen",
     "passwordHint": "Mindestens 12 Zeichen. Länge zählt mehr als Sonderzeichen.",
     "developmentBanner": "Die Entwicklungsanmeldung ist aktiv. Jede Anfrage läuft ohne Anmeldung mit Administratorrechten.",
-    "mustChangePassword": "Das Kennwort muss geändert werden, bevor es weitergeht."
+    "mustChangePassword": "Das Passwort muss geändert werden, bevor es weitergeht."
   },
   "dashboard": {
     "title": "Übersicht",
@@ -90,7 +93,7 @@
     "streams": "Streams",
     "messages": "Nachrichten",
     "storage": "Speicher",
-    "endpoint": "Endpunkt",
+    "endpoint": "Adresse",
     "coreAddress": "PRTG Core",
     "notConfigured": "Diese Installation ist noch nicht eingerichtet. Zuerst die Einrichtung auf dem Server ausführen.",
     "natsUnavailable": "Der NATS-Monitoring-Endpunkt hat nicht geantwortet. Containerzustand und Probe-Verbindungen lassen sich nicht ermitteln.",
@@ -155,7 +158,7 @@
     "updateHelper": "Helper aktualisieren",
     "helperOutdatedTitle": "Der Probe-Helper ist älter als diese Plattform",
     "helperOutdatedBody": "Er lehnt Anfragen ab, die er noch nicht kennt. „Helper aktualisieren“ ersetzt ihn über den Verwaltungskanal; die Probe prüft die Signatur, bevor sie etwas schreibt.",
-    "helperUnsignedBody": "Diese Probe wurde enrolliert, bevor Helper-Updates signiert wurden, und trägt deshalb keinen Schlüssel, gegen den sie eine Signatur prüfen könnte. Enrolliere sie erneut – auf der Konsole mit „probe enroll ADMIN@HOST --reenroll“ oder mit einer neuen Einladung über „Probe hinzufügen“ –, danach wirkt der Knopf unten.",
+    "helperUnsignedBody": "Diese Probe wurde eingebunden, bevor Helper-Updates signiert wurden, und trägt keinen Prüfschlüssel. Binde sie erneut ein - per neuer Einladung oder „probe enroll ADMIN@HOST --reenroll“ -, danach wirkt der Knopf unten.",
     "notes": "Notizen",
     "displayName": "Anzeigename",
     "deviationsTitle": "Abweichungen",
@@ -168,22 +171,20 @@
     "planRestartWarning": "Dabei wird der Probe-Dienst neu gestartet. Er verbindet sich danach wieder.",
     "configure": "Konfiguration anwenden",
     "unenroll": "Ausbinden",
-    "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Ohne weitere Auswahl läuft die Probe weiter und bleibt mit NATS verbunden.",
+    "unenrollWarning": "Damit werden Management-Zugang, Inventar und NATS-Konto von {{probe}} entfernt. Die Probe verliert ihre Verbindung; bindest du sie später neu ein, bekommt sie einen neuen PRTG Access Key.",
     "cleanup": {
       "legend": "Zusätzlich aufräumen",
       "removeSensors": "Sensoren entfernen",
       "removeSensorsHint": "Nimmt alle {{count}} Sensoren von der Probe: Dienste, sudo-Regeln, Konfiguration und Zugangsdaten.",
       "uninstallMpp": "Probe-Software deinstallieren",
       "uninstallMppHint": "Entfernt das Paket prtgmpprobe, seine Konfiguration samt NATS-CA und die Paessler-Paketquelle.",
-      "deleteAccount": "NATS-Konto löschen",
-      "deleteAccountHint": "Die Probe verliert damit sofort ihre Verbindung und meldet nicht mehr an PRTG.",
       "sensorsSurviveHint": "Die Sensoren bleiben ohne Probe-Software als funktionslose Dienste zurück."
     },
     "executePlan": "Abweichungen jetzt beheben",
     "enroll": {
       "action": "Probe hinzufügen",
       "title": "Probe hinzufügen",
-      "subtitle": "Die Probe meldet sich selbst an; Sie führen einen Befehl auf ihr aus.",
+      "subtitle": "Die Probe bindet sich selbst ein; du führst einen Befehl auf ihr aus.",
       "step1": {
         "title": "1. Was aus dieser Probe wird",
         "intro": "Bis hierher passiert auf der Probe nichts. Es geht nur um den Namen, den sie tragen wird, und das NATS-Konto, mit dem sie sich verbindet.",
@@ -192,19 +193,19 @@
       },
       "step2": {
         "title": "2. Diesen Befehl auf der Probe ausführen",
-        "intro": "Kopieren Sie den Befehl und führen Sie ihn auf dem Host aus, als Benutzer mit sudo-Recht. Er holt die CA, vergleicht sie mit dem Fingerabdruck unten, installiert den eingeschränkten Verwaltungszugang und meldet zurück.",
+        "intro": "Kopiere den Befehl und führe ihn auf dem Host aus, als Benutzer mit sudo-Recht. Er holt die CA, prüft den Fingerabdruck, installiert den Management-Zugang und meldet zurück.",
         "copy": "Kopieren",
         "account": "NATS-Konto",
         "caFingerprint": "CA-Fingerabdruck",
         "expires": "Gültig noch",
         "expired": "Abgelaufen",
-        "secretTitle": "Behandeln Sie den Befehl wie ein Geheimnis",
-        "secretBody": "Er enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host unter diesem Konto anmelden.",
+        "secretTitle": "Behandle den Befehl wie ein Geheimnis",
+        "secretBody": "Er enthält eine einmalige Einladung. Wer sie lesen kann, kann bis zu ihrem Ablauf einen Host unter diesem Konto einbinden.",
         "waiting": "Warten auf die Probe",
         "waitingHint": "Diese Seite geht von selbst weiter, sobald der Host sich meldet.",
         "revoke": "Einladung zurückziehen",
         "deadTitle": "Diese Einladung ist nicht mehr verwendbar",
-        "deadBody": "Sie ist abgelaufen oder wurde zurückgezogen; der Befehl oben würde abgewiesen. Erstellen Sie eine neue Einladung, um diese Probe anzumelden.",
+        "deadBody": "Sie ist abgelaufen oder zurückgezogen; der Befehl oben würde abgewiesen. Erstelle eine neue Einladung.",
         "restart": "Neue Einladung",
         "steps": {
           "install_wireguard": {
@@ -215,7 +216,7 @@
             "title": "Tunnel zur Plattform aufbauen",
             "note": "Danach erreicht die Probe die Plattform. Prüfen mit „sudo wg show“ – unter „latest handshake“ muss eine Zeit stehen."
           },
-          "enrol": {
+          "enroll": {
             "title": "Enrollment starten",
             "note": "Holt zuerst die CA und vergleicht sie mit dem Fingerabdruck unten, dann läuft die Installation. Das dauert einige Minuten."
           }
@@ -225,11 +226,11 @@
       "step3": {
         "title": "3. Die Plattform übernimmt",
         "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
-        "doneTitle": "Die Probe ist angemeldet",
+        "doneTitle": "Die Probe ist eingebunden",
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
-        "donePrtg": "In PRTG fehlen noch zwei Schritte, ohne die die Probe dort nicht auftaucht: den Access Key als neue Zeile in die Access-Key-Liste des Cores eintragen und die Probe anschließend genehmigen. Den Access Key zeigt die Seite der Probe unter „PRTG Access Key“.",
-        "failedTitle": "Die Anmeldung wurde nicht fertig",
-        "failedBody": "Das Protokoll unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederholen Sie den Job; muss der Host den Befehl erneut ausführen, erstellen Sie eine neue Einladung.",
+        "donePrtg": "In PRTG fehlen noch zwei Schritte: den Access Key in die Access-Key-Liste des Cores eintragen und die Probe genehmigen. Der Key steht auf der Probe-Seite unter „PRTG Access Key“.",
+        "failedTitle": "Die Einbindung wurde nicht fertig",
+        "failedBody": "Der Verlauf unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederhole den Job; sonst erstelle eine neue Einladung und führe den Befehl erneut aus.",
         "toProbe": "Zur Probe",
         "toProbes": "Zur Probenliste",
         "toJob": "Job öffnen",
@@ -237,8 +238,8 @@
         "toDeploy": "Sensor ausrollen"
       },
       "fields": {
-        "account": "NATS-Konto",
-        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird angelegt, falls es noch nicht existiert.",
+        "account": "Name",
+        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird auch der Name des NATS-Kontos, das die Probe automatisch bekommt.",
         "probeName": "Probenname (optional)",
         "probeNameHint": "Was PRTG anzeigt. Wird aus dem Hostnamen abgeleitet, wenn leer. Keine Leerzeichen.",
         "host": "Adresse (optional)",
@@ -256,10 +257,10 @@
         "ttlHours_other": "{{count}} Stunden"
       },
       "errors": {
-        "accountTaken": "Dieses Konto gibt es bereits. Wählen Sie einen anderen Namen, oder melden Sie die Probe erneut an, die es benutzt.",
+        "accountTaken": "Dieses Konto gibt es bereits. Wähle einen anderen Namen, oder binde die Probe erneut ein, die es benutzt.",
         "accountShape": "Nur Kleinbuchstaben, Ziffern und Bindestriche, mindestens zwei Zeichen.",
         "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen.",
-        "hostTaken": "Diese Adresse ist bereits als „{{probe}}\" angemeldet. Melden Sie sie erneut unter diesem Konto an, oder entfernen Sie sie zuerst, um ihr ein anderes zu geben."
+        "hostTaken": "Diese Adresse ist bereits als „{{probe}}“ eingebunden. Binde sie erneut unter diesem Konto ein, oder entferne sie zuerst."
       },
       "open": {
         "title": "Offene Einladungen",
@@ -269,8 +270,8 @@
         "reissue": "Neu ausstellen"
       },
       "reenroll": {
-        "title": "Erneutes Anmelden einer bekannten Probe",
-        "body": "Dieses Konto gehört zu einer angemeldeten Probe. Beim erneuten Anmelden bleiben Probe-ID und Access Key erhalten - PRTG sieht dieselbe Probe, nichts muss dort neu eingetragen werden."
+        "title": "Bekannte Probe erneut einbinden",
+        "body": "Dieses Konto gehört zu einer eingebundenen Probe. Beim erneuten Einbinden bleiben Probe-ID und Access Key erhalten - PRTG sieht dieselbe Probe."
       },
       "noPermissionTitle": "Keine Berechtigung",
       "noPermission": "Zum Anmelden einer Probe fehlt die Berechtigung probe.create."
@@ -328,14 +329,23 @@
     "prtg": {
       "missingBadge": "PRTG fehlt",
       "bannerTitle": "In PRTG ist diese Probe noch nicht eingetragen",
-      "bannerBody": "Die zwei Handgriffe, die die Plattform nicht übernehmen kann: den Access Key in PRTG hinterlegen (Setup > Systemverwaltung > Probes > Probe Connection Settings) und die Verbindungsanfrage genehmigen - ohne \"Approve and auto-discover\". Danach hier abhaken.",
+      "bannerBody": "Zwei Handgriffe kann die Plattform nicht übernehmen: den Access Key in PRTG hinterlegen (Setup → Systemverwaltung → Probes) und die Verbindungsanfrage genehmigen - ohne „Approve and auto-discover“. Danach hier abhaken.",
       "markDone": "Als eingetragen markieren",
       "markUndone": "Zurücksetzen",
       "markedBy": "In PRTG eingetragen - abgehakt von {{by}} {{when}}.",
       "alreadyMarked": "Als in PRTG eingetragen markiert."
     },
     "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "atAGlance": {
+      "title": "Konfiguration im Überblick",
+      "sensors": "Sensoren",
+      "sensorsValue_one": "{{count}} ausgerollt",
+      "sensorsValue_other": "{{count}} ausgerollt",
+      "endpoints": "Messpunkte",
+      "none": "keine",
+      "manage": "Verwalten →"
+    }
   },
   "sensors": {
     "title": "Sensoren",
@@ -358,28 +368,11 @@
     "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
     "parametersResult": "Parameterzeile für PRTG",
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
-    "noParameterSchema": "Dieser Sensor liefert kein Parameterschema mit. Die Optionen stehen in seiner README.",
     "reference": {
-      "title": "Parameter dieses Sensors",
-      "intro": "Was der Sensor annimmt, was er annehmen muss und was die Werte bedeuten.",
       "recommendedLine": "Empfohlener Anfang der Parameterzeile",
-      "required": "Pflicht",
-      "repeatable": "Mehrfach",
       "fromVariant": "Aus Variante: {{key}}",
-      "fromPrtg": "PRTG setzt diesen Wert selbst ein. Er wird nicht eingetippt und steht nicht in den Sensoreinstellungen.",
-      "columns": {
-        "name": "Parameter",
-        "type": "Typ bzw. Werte",
-        "default": "Standard",
-        "description": "Bedeutung"
-      },
-      "types": {
-        "string": "Text",
-        "integer": "Ganzzahl",
-        "boolean": "Schalter",
-        "choice": "Auswahl"
-      },
-      "movedSection": "Verschobene Parameter (werden abgelehnt)"
+      "movedSection": "Verschobene Parameter (werden abgelehnt)",
+      "fromPrtgSection": "Von PRTG belegte Parameter"
     },
     "installedOn": "Installiert auf diesen Probes",
     "remove": "Entfernen",
@@ -424,7 +417,6 @@
     }
   },
   "deployments": {
-    "title": "Ausrollvorgänge",
     "subtitle": "Sensor-Rollouts und ihr Ergebnis je Probe",
     "empty": "Es wurde noch nichts ausgerollt.",
     "noTargets": "Für diesen Rollout ist kein Ziel erfasst.",
@@ -460,7 +452,9 @@
     "empty": "Es wurde noch kein Job ausgeführt.",
     "filters": {
       "running": "Nur laufende",
-      "failed": "Nur gescheiterte"
+      "failed": "Nur gescheiterte",
+      "rollouts": "Rollouts",
+      "all": "Alle Jobs"
     },
     "emptyFiltered": "Kein Job passt zu diesem Filter.",
     "columns": {
@@ -606,8 +600,8 @@
         "interface_released": "{{probe}}: {{interface}} ist wieder unter normaler Verwaltung",
         "profile_deployed": "{{probe}}: Zugangsdaten für Messpunkt {{endpoint}} ausgerollt",
         "variant_deployed": "{{probe}}: Variante {{variant}} ausgerollt",
-        "default_deployed": "{{probe}}: Profil default zeigt jetzt auf Endpunkt {{endpoint}}",
-        "default_cleared": "{{probe}}: Profil default von {{sensor}} entfernt - es steht nicht mehr für genau einen Endpunkt",
+        "default_deployed": "{{probe}}: Profil default zeigt jetzt auf Messpunkt {{endpoint}}",
+        "default_cleared": "{{probe}}: Profil default von {{sensor}} entfernt - es steht nicht mehr für genau einen Messpunkt",
         "no_endpoints": "Es ist kein Messpunkt registriert; der Sensor meldet credentials-unreadable, bis einer ausgerollt wird",
         "profile_file_deployed": "{{probe}}: {{file}} für Variante {{profile}} übertragen ({{bytes}} Byte)",
         "profile_resolved": "{{sensor}}: Variante {{profile}} für {{probes}} Probe(s)",
@@ -621,8 +615,8 @@
         "access_verified": "{{endpoint}}: {{host}} hat über den Verwaltungskanal geantwortet, iperf3 {{iperf3}}, Dienst {{service}}",
         "seen_from": "{{endpoint}} sieht uns von {{peer}} kommen, erlaubt ist {{allowed}}",
         "endpoint_ready": "{{endpoint}}: iperf3 auf {{host}}:{{port}} eingerichtet, Benutzer {{username}}",
-        "record_incomplete": "{{endpoint}}: {{host}} hält bereits das neue Kennwort, der Eintrag wurde aber nicht geschrieben; die Aufnahme erneut ausführen",
-        "enrolled": "{{endpoint}} auf {{host}} ist aufgenommen",
+        "record_incomplete": "{{endpoint}}: {{host}} hält bereits das neue Passwort, der Eintrag wurde aber nicht geschrieben; die Einbindung erneut ausführen",
+        "enrolled": "{{endpoint}} auf {{host}} ist eingebunden",
         "probe_skipped": "{{probe}} übersprungen: kein Inventareintrag; die Zugangsdaten für {{endpoint}} bleiben dort liegen",
         "profile_kept": "{{probe}}: {{sensor}} hat die Zugangsdaten für {{endpoint}} nicht losgelassen",
         "profile_revoked": "{{probe}}: Zugangsdaten für {{endpoint}} entzogen",
@@ -635,11 +629,11 @@
         "access_removed": "{{endpoint}}: Verwaltungszugang auf {{host}} entfernt",
         "access_kept": "{{endpoint}}: Verwaltungszugang auf {{host}} ließ sich nicht entfernen; der Schlüssel bleibt dort zurück",
         "forgotten": "{{endpoint}}: Eintrag und Hostschlüssel von {{host}} entfernt",
-        "password_set": "{{endpoint}}: neues Kennwort auf {{host}} gesetzt",
+        "password_set": "{{endpoint}}: neues Passwort auf {{host}} gesetzt",
         "foreign_credentials_stored": "{{endpoint}}: neues Passwort hinterlegt; {{probes}} Probe(s) werden aktualisiert",
         "profile_deployed": "{{probe}}: Zugangsdaten für Messpunkt {{endpoint}} ausgerollt",
         "probe_locked_out": "{{probe}} hat die neuen Zugangsdaten für {{endpoint}} nicht erhalten und misst dort bis dahin nicht mehr",
-        "rotated": "{{endpoint}}: Kennwort rotiert und an {{probes}} Probe(s) verteilt"
+        "rotated": "{{endpoint}}: Passwort gewechselt und an {{probes}} Probe(s) ausgerollt"
       },
       "system": {
         "certificate_renewed": "Serverzertifikat erneuert",
@@ -664,8 +658,9 @@
       },
       "credential": {
         "rotated_server": "Serverseitige Zugangsdaten für {{probe}} rotiert",
-        "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen",
-        "deleted": "NATS-Konto {{probe}} gelöscht"
+        "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Passwort im PRTG Core eintragen",
+        "deleted": "NATS-Konto {{probe}} gelöscht",
+        "kept_last": "Das NATS-Konto von {{probe}} ist das letzte - es bleibt bestehen, damit NATS nicht ohne Konto dasteht"
       },
       "stack": {
         "backup_taken": "Runtime als {{archive}} gesichert",
@@ -695,7 +690,7 @@
       "prtgNextBody": "Gemessen wird erst, wenn in PRTG ein Script-v2-Sensorobjekt auf dem Gerät der Probe angelegt ist. Den Skriptnamen und die Parameterzeile nennt die Sensorseite.",
       "toSensor": "Zum Sensor",
       "dryRunTitle": "Das war ein Probelauf",
-      "dryRunBody": "Es wurde nichts installiert - der Lauf hat nur gezeigt, was passieren würde. Zum tatsächlichen Ausrollen den Vorgang ohne Probelauf starten.",
+      "dryRunBody": "Es wurde nichts installiert - der Lauf hat nur gezeigt, was passieren würde. Zum tatsächlichen Ausrollen den Rollout ohne Probelauf starten.",
       "succeededList_one": "{{count}} Probe erfolgreich",
       "succeededList_other": "{{count}} Probes erfolgreich",
       "failedList_one": "{{count}} Probe fehlgeschlagen",
@@ -757,7 +752,7 @@
     }
   },
   "audit": {
-    "title": "Protokoll",
+    "title": "Audit",
     "subtitle": "Jede administrative Aktion, der Reihe nach",
     "empty": "Es wurde noch nichts protokolliert.",
     "columns": {
@@ -855,7 +850,7 @@
     "containers": "Container",
     "containersEmpty": "Es läuft kein Container des Stacks.",
     "iperfTitle": "Messpunkte",
-    "iperfSubtitle": "Die Gegenstellen, gegen die der Sensor iperf-throughput misst",
+    "iperfSubtitle": "Die Messpunkte, gegen die der Sensor iperf-throughput misst",
     "iperfEmpty": "Es ist kein Messpunkt eingerichtet.",
     "expiresIn_one": "Läuft in {{count}} Tag ab",
     "expiresIn_other": "Läuft in {{count}} Tagen ab",
@@ -872,12 +867,12 @@
         "deployedTo": "Auf Probes"
       },
       "host": "Adresse",
-      "addIntro": "Zwei Schritte: erst wird der Host geprüft, dann meldet sich die Plattform einmalig per SSH an und richtet den Messpunkt selbst ein. Danach hält sie einen eigenen, eng begrenzten Zugang - die Anmeldedaten von hier werden nicht gespeichert.",
+      "addIntro": "Erst wird der Host geprüft, dann richtet die Plattform den Messpunkt einmalig per SSH selbst ein. Sie behält nur einen eng begrenzten Zugang; die Zugangsdaten von hier werden nicht gespeichert.",
       "addTitle": "Messpunkt einrichten",
       "adminHint": "Ein Konto, das auf dem Host root werden darf. Wird nur für diese eine Verbindung benutzt.",
       "adminUser": "Administrator",
       "credentialBody": "Sie gelten für eine Verbindung, werden nicht gespeichert, nicht protokolliert und nicht in den Job geschrieben. Danach hält die Plattform ihren eigenen eingeschränkten Schlüssel.",
-      "credentialTitle": "Die Anmeldedaten bleiben hier nicht",
+      "credentialTitle": "Die Zugangsdaten bleiben hier nicht",
       "foreign": "fremd",
       "foreignUserHint": "Leer lassen, wenn der Messpunkt ohne Authentifizierung misst.",
       "hostHint": "Die Adresse, unter der die Probes messen und diese Plattform den Host per SSH erreicht.",
@@ -886,7 +881,7 @@
       "keepService": "Dienst weiterlaufen lassen",
       "keepServiceHint": "Nimmt nur die Zugangsdaten von den Probes und vergisst den Eintrag. Der iperf3-Dienst bleibt unverändert.",
       "keysKnown": "Dieser Host ist bereits mit genau diesen Schlüsseln hinterlegt.",
-      "keysNew": "Dieser Host ist noch nicht bekannt. Vergleichen Sie den Fingerabdruck, bevor Anmeldedaten dorthin gehen.",
+      "keysNew": "Dieser Host ist noch nicht bekannt. Vergleiche den Fingerabdruck, bevor Zugangsdaten dorthin gehen.",
       "measureUser": "Messbenutzer",
       "nameHint": "Unter diesem Namen tragen die Probes die Zugangsdaten; er steht später im Sensor.",
       "nameShape": "Erlaubt sind Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.",
@@ -897,9 +892,9 @@
       "register": "Fremden registrieren",
       "registerIntro": "Für einen Host, den jemand anderes betreibt: Es wird nichts installiert und nichts kontaktiert. Nur der Eintrag hier entsteht, damit die Probes ihn nutzen können.",
       "registerTitle": "Fremden Messpunkt registrieren",
-      "setupHelp": "Wie der Betreiber diesen Endpoint einrichtet",
-      "setupHelpIntro": "Von hier aus wird dieser Host nicht angefasst. Wer dort root ist, führt einmal das Folgende aus - oder sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh aus diesem Repository, das dasselbe tut und sich danach selbst prüft.",
-      "setupHelpService": "Schlüsselpaar, Zugangsdaten und Dienst. iperf3 speichert kein Passwort, nur den SHA-256 über \"{user}passwort\", und es entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne das antwortet der Endpoint jedem, egal was sonst eingerichtet ist.",
+      "setupHelp": "Wie der Betreiber diesen Messpunkt einrichtet",
+      "setupHelpIntro": "Dieser Host wird von hier aus nicht angefasst. Wer dort root ist, führt das Folgende aus - oder setup-iperf3-endpoint.sh aus dem Repository, das dasselbe tut und sich selbst prüft.",
+      "setupHelpService": "iperf3 speichert kein Passwort, nur den SHA-256 über „{user}passwort“, und entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne es antwortet der Messpunkt jedem.",
       "setupHelpCheck": "Danach die Gegenprobe auf dem Endpoint selbst: der erste Befehl muss scheitern, der zweite muss durchgehen. Ein Endpoint, der ohne Zugangsdaten weiter antwortet, sieht aus wie ein funktionierender.",
       "setupHelpBackTitle": "Was von dort zurückkommen muss",
       "setupHelpBackBody": "Der Benutzername, das Passwort aus den letzten beiden Zeilen und der Inhalt von /etc/iperf3/public.pem - die drei Felder unten. Das Passwort lässt sich auf dem Host danach nicht mehr auslesen, dort liegt nur sein Hash.",
@@ -912,7 +907,7 @@
       "updateForeign": "Hinterlegtes Passwort aktualisieren",
       "updatingForeign": "Wird aktualisiert …",
       "updateForeignTitle": "Hinterlegtes Passwort aktualisieren",
-      "updateForeignBody": "Der Betreiber hat das Passwort für \"{{name}}\" bereits geändert. Das neue Passwort wird hier gespeichert und an {{count}} Probe(s) verteilt. Der Messpunkt wird nicht kontaktiert.",
+      "updateForeignBody": "Der Betreiber hat das Passwort für „{{name}}“ bereits geändert. Es wird hier gespeichert und an {{count}} Probe(s) ausgerollt; der Messpunkt selbst wird nicht kontaktiert.",
       "updateForeignHint": "Das Passwort liegt nur im geschützten Runtime-Verzeichnis und in den Profilen der zugeordneten Probes. Es wird nicht in den Job oder das Audit-Protokoll geschrieben.",
       "updateForeignSubmit": "Aktualisieren und ausrollen",
       "newPassword": "Neues Passwort",
@@ -926,8 +921,8 @@
       "startedBody": "Die Plattform meldet sich an, installiert den Zugang und richtet iperf3 ein. Der Fortschritt steht im Job.",
       "startedTitle": "Der Messpunkt wird eingerichtet",
       "rotateTitle": "Passwort des Messpunkts wechseln",
-      "rotateBody": "Für \"{{name}}\" wird ein neues Passwort gesetzt und an die {{count}} Probe(s) verteilt, die dagegen messen.",
-      "probesTitle": "Probes, die gegen diesen Endpunkt messen",
+      "rotateBody": "Für „{{name}}“ wird ein neues Passwort gesetzt und an die {{count}} Probe(s) ausgerollt, die dagegen messen.",
+      "probesTitle": "Probes, die gegen diesen Messpunkt messen",
       "probesBody": "Die Probes auswählen, welche die Zugangsdaten von {{name}} halten sollen. Eine hier entfernte Probe bleibt entfernt: das Ausrollen des Sensors liest dieselbe Zuordnung.",
       "probesEmpty": "Es ist keine Probe eingebunden.",
       "probeHolds": "hält sie",
@@ -952,7 +947,7 @@
       "endpointsHeld_one": "hält {{count}} Messpunkt",
       "endpointsHeld_other": "hält {{count}} Messpunkte",
       "aliasLostTitle": "Bestehende Sensoren auf diesen Probes hören auf zu messen",
-      "aliasLostBody": "Diese Probes halten bisher genau einen Messpunkt und tragen darum das Profil \"default\": {{probes}}. Mit dem zweiten fällt es weg. Sensorobjekte ohne --server werden rot (\"kein Messpunkt angegeben\"); Objekte, die --server selbst setzen, messen unbemerkt ohne Anmeldung weiter. Tragen Sie vorher in jedem betroffenen PRTG-Objekt --profile <Name> nach.",
+      "aliasLostBody": "Diese Probes halten genau einen Messpunkt und tragen darum das Profil „default“: {{probes}}. Mit dem zweiten fällt es weg: Objekte ohne --server werden rot, Objekte mit --server messen unbemerkt ohne Anmeldung weiter. Trag vorher --profile <Name> nach.",
       "aliasReturnsBody": "Diese Probes halten danach nur noch einen Messpunkt und bekommen das Profil \"default\" zurück: {{probes}}. Ein bereits eingetragenes --profile bleibt richtig, ist aber nicht mehr nötig.",
       "sensorMissingTitle": "Die Zugangsdaten liegen da, aber nichts liest sie",
       "sensorMissingBody": "Diese Probes halten den Messpunkt, haben \"{{sensor}}\" aber nicht installiert: {{probes}}. Bis der Sensor ausgerollt ist, wird nicht gemessen.",
@@ -1058,7 +1053,7 @@
       "disable": {
         "action": "Ausschalten",
         "title": "Overlay ausschalten",
-        "body": "Der Hub wird gestoppt. Jede Probe behält Adresse und Schlüssel und erreicht diese Installation weiterhin auf dem gewöhnlichen Weg. Probes im Modus „an“ erreichen NATS dann nur noch über einen Tunnel, den es nicht mehr gibt — stell sie vorher auf „auto“."
+        "body": "Der Hub wird gestoppt; jede Probe behält Adresse und Schlüssel und bleibt auf dem gewöhnlichen Weg erreichbar. Stell Probes im Modus „An“ vorher auf „Auto“ - ihr Tunnel ist danach weg."
       }
     }
   },
@@ -1195,7 +1190,7 @@
     },
     "auth": {
       "authentication_required": "Bitte anmelden.",
-      "invalid_credentials": "Benutzername oder Kennwort ist falsch.",
+      "invalid_credentials": "Benutzername oder Passwort ist falsch.",
       "account_locked": "Zu viele Fehlversuche. In {{retry_after_seconds}} Sekunden erneut versuchen.",
       "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
       "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen."
@@ -1212,21 +1207,21 @@
       "request_rejected.action": "Die technischen Details lesen, die Ursache beheben, dann den Job erneut ausführen.",
       "helper_outdated": "Die Probe kennt die Anfrage „{{command}}“ noch nicht.",
       "helper_outdated.cause": "Ihr Verwaltungs-Helper ist älter als diese Plattform. An der Anfrage war nichts falsch – die Probe ist schlicht älter.",
-      "helper_outdated.action": "Den Helper auf der Probe-Seite mit „Helper aktualisieren“ erneuern, dann den Job erneut ausführen. Eine Probe, die vor den signierten Updates enrolliert wurde, muss zuvor einmal neu enrolliert werden; ihre Seite sagt das.",
+      "helper_outdated.action": "Erneuere den Helper auf der Probe-Seite mit „Helper aktualisieren“ und führe den Job erneut aus. Eine Probe von vor den signierten Updates muss zuvor einmal neu eingebunden werden.",
       "package_missing": "Auf „{{probe}}“ ist kein prtgmpprobe-Paket installiert.",
       "package_missing.cause": "Das Paket kommt nur mit dem Bootstrap-Befehl auf die Probe. Es wurde beim Ausbinden mit „Probe-Software deinstallieren“ entfernt, oder seine Installation ist fehlgeschlagen – die technischen Details zeigen dann die Meldung.",
       "package_missing.action": "Erzeuge eine neue Einladung und führe den Befehl auf der Probe aus. Ein vorhandenes Paket überspringt der Bootstrap.",
       "host_key_mismatch": "Der Host \"{{host}}\" hat einen anderen SSH-Hostschlüssel vorgezeigt als den hinterlegten.",
       "host_key_mismatch.cause": "Entweder wurde der Host neu aufgesetzt und hat neue Schlüssel, oder unter dieser Adresse antwortet etwas anderes. Hinterlegt: {{pinned}}. Vorgezeigt: {{offered}}.",
-      "host_key_mismatch.action": "Klären Sie über einen vertrauenswürdigen Kanal, ob der Host neu aufgesetzt wurde. Wenn ja, entfernen Sie den alten Eintrag bewusst und melden Sie ihn erneut an; wenn nein, brechen Sie ab und gehen Sie der Sache nach.",
+      "host_key_mismatch.action": "Kläre über einen vertrauenswürdigen Kanal, ob der Host neu aufgesetzt wurde. Wenn ja, entferne den alten Eintrag und binde ihn erneut ein; wenn nein, brich ab und geh der Sache nach.",
       "host_already_enrolled": "Die Adresse „{{host}}\" ist bereits als „{{probe}}\" angemeldet.",
-      "host_already_enrolled.cause": "Der Verwaltungszugang liegt auf dem Host, nicht im Inventareintrag. Ein zweiter Eintrag für dieselbe Adresse würde ihn mitbenutzen, und das Entfernen eines der beiden würde ihn für beide zurückziehen - übrig bliebe eine Probe, die am NATS verbunden und zugleich nicht erreichbar ist.",
-      "host_already_enrolled.action": "Melden Sie diesen Host erneut unter „{{probe}}\" an, wenn Sie das meinten. Soll er ein anderes Konto bekommen, entfernen Sie zuerst „{{probe}}\" - damit wird auch der Verwaltungszugang auf dem Host zurückgezogen, den die nächste Anmeldung neu einrichtet."
+      "host_already_enrolled.cause": "Der Management-Zugang liegt auf dem Host, nicht im Inventareintrag. Ein zweiter Eintrag würde ihn mitbenutzen, und das Entfernen eines der beiden zöge ihn für beide zurück.",
+      "host_already_enrolled.action": "Binde diesen Host erneut unter „{{probe}}“ ein, wenn du das meintest. Soll er ein anderes Konto bekommen, entferne zuerst „{{probe}}“."
     },
     "nats": {
       "reload_refused": "NATS hat seine bisherige Konfiguration behalten.",
       "reload_refused.cause": "Manche Einstellungen lassen sich ohne Neustart nicht übernehmen - allen voran ein geänderter Servername. Die Änderung steht auf der Platte und ist noch nicht aktiv.",
-      "reload_refused.action": "Starten Sie den NATS-Server auf der Wartungsseite (Infrastruktur → Wartung) neu. Danach verbinden sich alle Probes und der PRTG-Core neu."
+      "reload_refused.action": "Starte den NATS-Server auf der Wartungsseite neu (Infrastruktur → Wartung). Danach verbinden sich alle Probes und der PRTG-Core neu."
     },
     "docker": {
       "unavailable": "Die Containersteuerung steht in dieser Installation nicht zur Verfügung.",
@@ -1255,9 +1250,9 @@
       "unreachable": "Die Management-API ist nicht erreichbar."
     },
     "enrollment": {
-      "token_invalid": "Diese Einladung zur Anmeldung lässt sich nicht verwenden.",
+      "token_invalid": "Diese Einladung lässt sich nicht verwenden.",
       "token_invalid.cause": "Sie ist unbekannt, abgelaufen, bereits verbraucht oder wurde zurückgezogen. Eine Einladung gilt für einen Host, einmal.",
-      "token_invalid.action": "Erstellen Sie eine neue Einladung und führen Sie den angezeigten Befehl auf dem Host aus."
+      "token_invalid.action": "Erstelle eine neue Einladung und führe den angezeigten Befehl auf dem Host aus."
     },
     "stack.update_unavailable": "Diese Installation kann sich nicht selbst aktualisieren ({{reason}})",
     "stack.update_blocked": "Das Update kann gerade nicht starten ({{reason}})",
@@ -1291,15 +1286,16 @@
     "unused": "Nicht in Verwendung",
     "create": "Konto anlegen",
     "createTitle": "Neues NATS-Konto",
-    "createHint": "Das Kennwort wird erzeugt und in der geschützten Zugangsdatei abgelegt. Anzeigen nur, wenn der PRTG Core es eingetippt braucht.",
+    "createHint": "Das Passwort wird erzeugt und in der geschützten Zugangsdatei abgelegt. Anzeigen nur, wenn der PRTG Core es eingetippt braucht.",
     "rotate": "Passwort wechseln",
-    "rotateWarning": "Für {{account}} wird ein neues Kennwort erzeugt. Das bisherige gilt sofort nicht mehr.",
-    "rotateProbeHint": "Die eingebundene Probe bekommt das neue Kennwort im selben Job und verbindet sich damit neu.",
+    "rotateWarning": "Für {{account}} wird ein neues Passwort erzeugt. Das bisherige gilt sofort nicht mehr.",
+    "rotateProbeHint": "Die eingebundene Probe bekommt das neue Passwort im selben Job und verbindet sich damit neu.",
     "delete": "Löschen",
     "deleteBlockedProbe": "Für dieses Konto ist eine Probe eingebunden.",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
-    "revealTitle": "Kennwort für {{account}}",
-    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
+    "revealTitle": "Passwort für {{account}}",
+    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen.",
+    "autoHint": "Konten eingebundener Probes entstehen und verschwinden mit der Probe. Hier verwaltest du nur, was darüber hinausgeht - etwa das Konto des PRTG-Core."
   },
   "updates": {
     "title": "Updates",

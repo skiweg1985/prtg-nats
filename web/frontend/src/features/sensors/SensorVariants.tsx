@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 
 import {
   useDeleteSensorProfile,
@@ -22,21 +21,24 @@ import {
   Field,
   Input,
   Mono,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, formatDateTime, shortFingerprint } from '@/utils/format'
+
+import { fieldDescription, fieldLabel } from './parameterFields'
+
+/** fieldDescription returns '' where this dialog wants undefined. */
+function hintOf(
+  t: Parameters<typeof fieldDescription>[0],
+  field: Parameters<typeof fieldDescription>[1],
+) {
+  return fieldDescription(t, field) || undefined
+}
 
 /** A variant name has to survive as a file name and as a PRTG parameter. */
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
-
-function label(t: TFunction, field: { name: string; label_key?: string }) {
-  return field.label_key ? t(field.label_key, field.name) : field.name
-}
-
-function hint(t: TFunction, field: { description?: string; description_key?: string }) {
-  if (field.description_key) return t(field.description_key, field.description ?? '')
-  return field.description || undefined
-}
 
 /**
  * The variants of one sensor: one SSID, one measurement endpoint, one site.
@@ -95,7 +97,10 @@ export function SensorVariants({
                   {variant.probes.length === 0 && (
                     // The state and its cure are the same click: deploying a
                     // variant means ticking probes in the edit dialog.
-                    <button type="button" onClick={() => setEditing(variant.name)}>
+                    <button
+                      type="button"
+                      className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
+                      onClick={() => setEditing(variant.name)}>
                       <Badge tone="warn">
                         {t('sensors.variants.notDeployed')}
                       </Badge>
@@ -122,24 +127,16 @@ export function SensorVariants({
                 {/* What to paste into PRTG - the point where the variant
                     actually arrives at the sensor. */}
                 <span>
-                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                  <InlineCode>
                     {variant.parameter_line}
-                  </code>
+                  </InlineCode>
                   {needsInterface && (
                     <span className="text-ink-3 block text-right text-xs">
                       {t('sensors.variants.interfaceSuffix')}
                     </span>
                   )}
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(variant.parameter_line)
-                  }
-                >
-                  {t('common.copy')}
-                </Button>
+                <CopyButton value={variant.parameter_line} />
                 <PermissionGate permission="sensor.configure">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(variant.name)}>
                     {t('common.edit')}
@@ -397,11 +394,11 @@ function VariantDialog({
               {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
-                  label={label(t, field)}
+                  label={fieldLabel(t, field)}
                   hint={
                     stored?.secrets_set.includes(field.name)
                       ? t('sensors.variants.secretStored')
-                      : hint(t, field)
+                      : hintOf(t, field)
                   }
                 >
                   <Input
@@ -429,7 +426,7 @@ function VariantDialog({
                 return (
                   <Field
                     key={field.name}
-                    label={label(t, field)}
+                    label={fieldLabel(t, field)}
                     hint={
                       files[field.name]
                         ? files[field.name].name
@@ -437,7 +434,7 @@ function VariantDialog({
                           ? t('sensors.variants.fileStored', {
                               fingerprint: shortFingerprint(uploaded.sha256),
                             })
-                          : hint(t, field)
+                          : hintOf(t, field)
                     }
                   >
                     <input
@@ -524,11 +521,11 @@ function ProfileInput({
   const { t } = useTranslation()
   return (
     <Field
-      label={label(t, field) + (field.required ? ' *' : '')}
-      hint={hint(t, field)}
+      label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+      hint={hintOf(t, field)}
     >
       {field.type === 'choice' ? (
-        <select
+        <Select
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -539,7 +536,7 @@ function ProfileInput({
               {choice}
             </option>
           ))}
-        </select>
+        </Select>
       ) : (
         <Input
           type={field.type === 'integer' ? 'number' : 'text'}

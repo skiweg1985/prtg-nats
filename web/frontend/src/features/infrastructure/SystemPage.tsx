@@ -12,12 +12,12 @@ import {
 import { PermissionGate, useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
-  Banner,
   Button,
   Card,
-  Dialog,
+  ConfirmDialog,
   EmptyState,
   Mono,
+  PageHeader,
   Skeleton,
 } from '@/components/ui/primitives'
 import { formatBytes, formatRelative, shortFingerprint } from '@/utils/format'
@@ -44,10 +44,7 @@ export function SystemPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('system.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('system.subtitle')}</p>
-      </header>
+      <PageHeader title={t('system.title')} subtitle={t('system.subtitle')} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
@@ -110,7 +107,7 @@ export function SystemPage() {
       <BackupsCard downloadable={can('system.restart')} />
 
       {confirming === 'restart' && (
-        <ConfirmAction
+        <ConfirmDialog
           title={t('system.restart.confirmTitle')}
           body={t('system.restart.confirmBody')}
           confirmLabel={t('system.restart.run')}
@@ -123,11 +120,12 @@ export function SystemPage() {
               },
             })
           }
+          cancelLabel={t('common.cancel')}
           onClose={() => setConfirming(null)}
         />
       )}
       {confirming === 'export' && (
-        <ConfirmAction
+        <ConfirmDialog
           title={t('system.backup.exportConfirmTitle')}
           body={t('system.backup.exportWarning')}
           confirmLabel={t('system.backup.export')}
@@ -140,6 +138,7 @@ export function SystemPage() {
               },
             })
           }
+          cancelLabel={t('common.cancel')}
           onClose={() => setConfirming(null)}
         />
       )}
@@ -196,35 +195,3 @@ function BackupsCard({ downloadable }: { downloadable: boolean }) {
   )
 }
 
-function ConfirmAction({
-  title,
-  body,
-  confirmLabel,
-  pending,
-  onConfirm,
-  onClose,
-}: {
-  title: string
-  body: string
-  confirmLabel: string
-  pending: boolean
-  onConfirm: () => void
-  onClose: () => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <Dialog title={title} onClose={onClose}>
-      <div className="space-y-4">
-        <Banner tone="warn">{body}</Banner>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="danger" disabled={pending} onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  )
-}

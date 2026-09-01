@@ -124,7 +124,7 @@ describe('the endpoints a probe holds', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: /Sensors/i }))
+    await user.click(await screen.findByRole('tab', { name: /Sensors/i }))
 
     const link = await screen.findByRole('link', { name: 'berlin' })
     expect(link).toHaveAttribute('href', '/infrastructure/iperf/berlin')
@@ -136,7 +136,7 @@ describe('the endpoints a probe holds', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: /Sensors/i }))
+    await user.click(await screen.findByRole('tab', { name: /Sensors/i }))
 
     expect(await screen.findByText('gone')).toBeInTheDocument()
     expect(screen.getByText('not registered')).toBeInTheDocument()
@@ -148,7 +148,7 @@ describe('the endpoints a probe holds', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: /Diagnostics/i }))
+    await user.click(await screen.findByRole('tab', { name: /Diagnostics/i }))
 
     expect(screen.queryByText('berlin, gone')).not.toBeInTheDocument()
   })

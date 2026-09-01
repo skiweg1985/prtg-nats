@@ -19,6 +19,7 @@ import {
   Field,
   Input,
   Mono,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
 
@@ -128,7 +129,7 @@ export function DeployDialog({
     <Dialog title={t('deployments.create')} onClose={onClose} size="md">
       <div className="space-y-4">
         <Field label={t('deployments.selectSensor')}>
-          <select
+          <Select
             value={sensor}
             onChange={(event) => setSensor(event.target.value)}
             className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -140,7 +141,7 @@ export function DeployDialog({
                 {entry.name} · v{entry.version}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         {chosenSensor && (

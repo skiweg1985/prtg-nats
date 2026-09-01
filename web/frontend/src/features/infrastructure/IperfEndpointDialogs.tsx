@@ -19,11 +19,14 @@ import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
   Banner,
   Button,
-  Dialog,
+  CheckboxField,
   DetailRow,
+  Dialog,
   Field,
   Input,
   Mono,
+  Select,
+  Spinner,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -181,20 +184,12 @@ export function RemoveDialog({
         </p>
 
         {endpoint.managed ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={keepService}
-              onChange={(event) => setKeepService(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">{t('infrastructure.iperf.keepService')}</span>
-              <span className="text-ink-3 block text-xs">
-                {t('infrastructure.iperf.keepServiceHint')}
-              </span>
-            </span>
-          </label>
+          <CheckboxField
+            label={t('infrastructure.iperf.keepService')}
+            hint={t('infrastructure.iperf.keepServiceHint')}
+            checked={keepService}
+            onChange={(checked) => setKeepService(checked)}
+          />
         ) : (
           <Banner tone="warn" title={t('infrastructure.iperf.foreign')}>
             {t('infrastructure.iperf.removeForeign')}
@@ -351,7 +346,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
             label={t('infrastructure.iperf.inviteTtl')}
             hint={t('infrastructure.iperf.inviteTtlHint')}
           >
-            <select
+            <Select
               value={ttl}
               onChange={(event) => setTtl(Number(event.target.value))}
               className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -361,7 +356,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
                   {minutes < 60 ? `${minutes} min` : `${minutes / 60} h`}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
 
           {create.error != null && <ErrorDetails error={create.error} />}
@@ -448,7 +443,7 @@ function InviteWaiting({
           </Banner>
           <div className="flex items-center justify-between gap-2">
             <span className="text-ink-3 flex items-center gap-2 text-sm">
-              <span className="border-ink-3 inline-block h-3 w-3 animate-spin rounded-full border border-t-transparent" />
+              <Spinner className="size-3 border" />
               {t('infrastructure.iperf.inviteWaiting')}
             </span>
             <Button size="sm" variant="ghost" onClick={onRevoke}>

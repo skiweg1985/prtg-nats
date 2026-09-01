@@ -16,6 +16,7 @@ import {
   Mono,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { formatDateTime } from '@/utils/format'
 
@@ -217,16 +218,10 @@ function HolderRow({ holder }: { holder: IperfHolder }) {
         </div>
       ) : (
         <div className="flex items-start gap-2">
-          <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+          <InlineCode>
             {holder.parameter_line}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => void navigator.clipboard.writeText(holder.parameter_line)}
-          >
-            {t('common.copy')}
-          </Button>
+          </InlineCode>
+          <CopyButton value={holder.parameter_line} />
         </div>
       )}
     </li>

@@ -34,6 +34,8 @@ case "${1:-}" in
 esac
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=ops.sh
+source "${SCRIPT_DIR}/ops.sh"
 
 require_command ssh
 require_command scp
@@ -826,15 +828,26 @@ unenroll_probe() {
     printf 'unenroll\n' | managed_ssh "${username}"
   fi
   rm -f -- "${inventory}"
+  # The overlay peer goes with the entry it was rendered from. Without this the
+  # hub keeps a peer for a probe nobody manages any more, and that probe keeps
+  # a route to the NATS address - retiring it would take our access to it and
+  # leave its access to us.
+  run_ops overlay refresh >/dev/null 2>&1 || true
   printf 'Removed probe enrollment for %s.\n' "${username}"
   if [[ "${remove_access}" != "true" ]]; then
     printf 'The restricted remote key remains installed; use --remove-access to revoke it.\n'
   fi
-  # Said rather than done: deleting the account is its own decision, and the
-  # command that does it refuses while an inventory still names the probe -
-  # which is exactly the state that has just ended.
-  printf 'The NATS account %s still exists; remove it with "user delete %s".\n' \
-    "${username}" "${username}"
+  # The account goes with the probe. It was created by the enrolment, so the
+  # retirement takes it back - the platform does the same. The one refusal
+  # worth surviving is the last remaining account: NATS needs at least one,
+  # so that case is reported instead of failing a retirement that has
+  # already revoked the probe's access.
+  if run_ops user delete "${username}" >/dev/null 2>&1; then
+    printf 'Removed the NATS account %s.\n' "${username}"
+  else
+    printf 'The NATS account %s was kept - remove it with "user delete %s" once
+another account exists.\n' "${username}" "${username}"
+  fi
 }
 
 create_runtime_directories

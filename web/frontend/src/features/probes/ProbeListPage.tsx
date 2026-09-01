@@ -8,7 +8,12 @@ import type { ProbeSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
-import { Badge, Button, Mono } from '@/components/ui/primitives'
+import {
+  Badge,
+  Button,
+  Mono,
+  PageHeader,
+} from '@/components/ui/primitives'
 import { ProbeStatusBadge } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 
@@ -182,18 +187,24 @@ export function ProbeListPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('probes.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('probes.subtitle')}</p>
-        <div className="ml-auto flex items-baseline gap-3">
-          <OpenInvitationsHint />
-          <PermissionGate permission="probe.create">
-            <Button variant="primary" size="sm" onClick={() => navigate('/probes/new')}>
-              {t('probes.enroll.action')}
-            </Button>
-          </PermissionGate>
-        </div>
-      </header>
+      <PageHeader
+        title={t('probes.title')}
+        subtitle={t('probes.subtitle')}
+        action={
+          <>
+            <OpenInvitationsHint />
+            <PermissionGate permission="probe.create">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => navigate('/probes/new')}
+              >
+                {t('probes.enroll.action')}
+              </Button>
+            </PermissionGate>
+          </>
+        }
+      />
 
       {/* No retry button: what failed was an action on a selection that is
           still selected, so pressing it again is the button in the bar. It

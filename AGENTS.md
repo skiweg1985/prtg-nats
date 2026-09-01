@@ -113,7 +113,9 @@ deployment that breaks on the customer's machine rather than here.
 **TypeScript.** `eslint --max-warnings 0`, so a warning is a failure. Every
 new user-facing string needs a key in both `src/i18n/locales/de.json` and
 `en.json`, including messages for backend error codes; `npm run i18n:check`
-catches a key that exists in one language only.
+catches a key that exists in one language only. Wording follows
+[docs/web/terminology.md](docs/web/terminology.md) - one term per concept,
+Du-Anrede, and the check enforces the retired terms.
 
 **Markdown.** Documentation pages carry YAML front matter with `title`, `role`
 and `updated`. Prose is wrapped by hand at 79 columns; tables and links are

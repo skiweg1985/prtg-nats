@@ -476,3 +476,36 @@ def test_an_invitation_id_that_is_a_path_is_refused(
     overlay = OverlayRuntime(settings)
     with pytest.raises(ValidationFailedError):
         overlay.read_pending_peer("../../hub-key")
+
+
+def test_retiring_a_probe_takes_its_peer_with_it(
+    settings: Settings, project_dir
+) -> None:
+    """The one that was wrong in production.
+
+    The hub is rendered from the inventory, so removing an entry does nothing
+    to the running hub until the file is written again. Without that, a probe
+    an operator retired kept a working way onto the overlay - and with it a
+    route to the NATS address. Retiring has to take the network access, not
+    only our ability to manage the host.
+    """
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    overlay.ensure_hub_key()
+    runtime = RuntimeFileStore(settings)
+
+    write_probe_inventory(project_dir, "mpp-outpost")
+    _, public_key = generate_keypair()
+    runtime.write_probe_overlay(
+        "mpp-outpost", address="10.83.1.0", public_key=public_key, mode="on"
+    )
+    overlay.write_hub_config()
+    assert public_key in overlay.render_hub_config()
+
+    runtime.remove_probe("mpp-outpost")
+    overlay.write_hub_config()
+
+    # Not just absent from a fresh rendering - absent from the file the hub
+    # actually reads, which is the only thing that revokes anything.
+    assert public_key not in overlay.config_path.read_text(encoding="utf-8")
+    assert overlay.peers() == ()

@@ -14,6 +14,7 @@ import {
   Field,
   Input,
   Mono,
+  Select,
 } from '@/components/ui/primitives'
 import { formatRelative } from '@/utils/format'
 
@@ -96,7 +97,7 @@ export function UsersCard() {
             />
           </Field>
           <Field label={t('settings.role')}>
-            <select
+            <Select
               value={role}
               onChange={(event) => setRole(event.target.value)}
               className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
@@ -106,7 +107,7 @@ export function UsersCard() {
                   {t(`roles.${name}`)}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           {create.error && (
             <div className="sm:col-span-2">
@@ -186,7 +187,7 @@ function UserRow({
           ? t('settings.lastLogin') + ': ' + formatRelative(user.last_login_at)
           : t('common.never')}
       </span>
-      <select
+      <Select
         value={user.roles[0] ?? 'viewer'}
         onChange={(event) => onRoleChange(event.target.value)}
         disabled={isSelf}
@@ -198,7 +199,7 @@ function UserRow({
             {t(`roles.${name}`)}
           </option>
         ))}
-      </select>
+      </Select>
       <Button size="sm" variant="ghost" onClick={onToggleActive} disabled={isSelf}>
         {user.is_active ? t('settings.deactivate') : t('settings.activate')}
       </Button>

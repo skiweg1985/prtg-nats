@@ -2,10 +2,11 @@ import { QueryClient } from '@tanstack/react-query'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '@/api/client'
 import { AppProviders } from '@/app/providers'
+import { CopyBlock } from '@/components/ui/CopyBlock'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import i18n, { changeLanguage } from '@/i18n'
@@ -219,5 +220,28 @@ describe('i18n runtime', () => {
     expect(i18n.t('errors.auth.permission_denied', { permission: 'sensor.deploy' })).toContain(
       'sensor.deploy',
     )
+  })
+})
+
+describe('CopyBlock', () => {
+  it('copies the complete value while showing only the first line', async () => {
+    const user = userEvent.setup()
+    const script = ['first line', 'second line', 'third line', 'fourth line', 'fifth line'].join('\n')
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+
+    render(<CopyBlock value={script} />)
+
+    // Folded: only the head is in the document.
+    expect(screen.getByText(/first line/)).toBeInTheDocument()
+    expect(screen.queryByText(/fourth line/)).not.toBeInTheDocument()
+
+    // Copy takes everything regardless.
+    await user.click(screen.getByRole('button', { name: /copy/i }))
+    expect(writeText).toHaveBeenCalledWith(script)
+
+    // And the fold opens on demand.
+    await user.click(screen.getByRole('button', { name: /show 5 lines/i }))
+    expect(screen.getByText(/fourth line/)).toBeInTheDocument()
   })
 })

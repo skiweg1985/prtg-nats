@@ -39,10 +39,9 @@ from app.api.schemas.probes import (
     SensorStateOut,
 )
 from app.api.schemas.system import WirelessInterfaceOut
-from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
+from app.core.errors import NotFoundError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.models import DesiredProbeState, DesiredSensor, ProbeSummary
-from app.infrastructure.nats_runtime import NatsRuntime
 from app.persistence.models.inventory import ProbeDesiredState, ProbeRecord
 from app.services.audit import AuditWriter
 from app.services.auth import Principal
@@ -721,9 +720,6 @@ async def unenroll_probe(
         bool,
         Query(description="Uninstall the probe software, its config and the CA"),
     ] = False,
-    delete_account: Annotated[
-        bool, Query(description="Delete the NATS account once the inventory is gone")
-    ] = False,
 ) -> JobAccepted:
     """Retire a probe, optionally clearing everything this platform put on it.
 
@@ -740,18 +736,11 @@ async def unenroll_probe(
         raise PermissionDeniedError.of(Permission.SENSOR_REMOVE.value)
     if uninstall_mpp and not principal.has(Permission.PROBE_UPDATE):
         raise PermissionDeniedError.of(Permission.PROBE_UPDATE.value)
-    if delete_account:
-        if not principal.has(Permission.CREDENTIAL_ROTATE):
-            raise PermissionDeniedError.of(Permission.CREDENTIAL_ROTATE.value)
-        # Checked here rather than in the job: the account is deleted last,
-        # so a refusal there would arrive after the probe has already lost
-        # its access. The job repeats the check - this only keeps the common
-        # case from becoming a half-finished retirement.
-        if NatsRuntime(settings).is_last_account(record.nats_username):
-            raise ConflictError(
-                params={"resource": "nats_account"},
-                details="refusing to remove the last NATS account",
-            )
+    # The NATS account goes with the probe, unconditionally. It was created
+    # by the enrolment, so retiring the probe retires it - no separate
+    # permission, no checkbox. The one exception, the last remaining account,
+    # is handled inside the job: it is kept with a warning rather than
+    # failing a retirement that has already revoked the probe's access.
 
     job = await jobs.create(
         JobRequest(
@@ -759,7 +748,6 @@ async def unenroll_probe(
             steps=probe_lifecycle.unenroll_steps(
                 remove_sensors=remove_sensors,
                 uninstall_mpp=uninstall_mpp,
-                delete_account=delete_account,
             ),
             resources=(ResourceRef("probe", record.id),),
             target_type="probe",
@@ -769,7 +757,6 @@ async def unenroll_probe(
                 "probe": record.nats_username,
                 "remove_sensors": remove_sensors,
                 "uninstall_mpp": uninstall_mpp,
-                "delete_account": delete_account,
             },
         ),
         principal,
@@ -783,7 +770,6 @@ async def unenroll_probe(
         after={
             "remove_sensors": remove_sensors,
             "uninstall_mpp": uninstall_mpp,
-            "delete_account": delete_account,
         },
     )
     return JobAccepted(

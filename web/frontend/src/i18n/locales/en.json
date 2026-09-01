@@ -8,7 +8,6 @@
     "menu": "Menu",
     "probes": "Probes",
     "sensors": "Sensors",
-    "deployments": "Deployments",
     "jobs": "Jobs",
     "infrastructure": "Infrastructure",
     "nats": "NATS",
@@ -27,6 +26,10 @@
     "close": "Close",
     "confirm": "Confirm",
     "copy": "Copy",
+    "copied": "Copied",
+    "collapse": "Collapse",
+    "showLines_one": "Show {{count}} line",
+    "showLines_other": "Show {{count}} lines",
     "edit": "Edit",
     "hidden": "Hidden",
     "hideTechnicalDetails": "Hide technical details",
@@ -90,14 +93,14 @@
     "streams": "Streams",
     "messages": "Messages",
     "storage": "Storage",
-    "endpoint": "Endpoint",
+    "endpoint": "Address",
     "coreAddress": "PRTG core",
     "notConfigured": "This installation has not been set up yet. Run the stack setup on the server first.",
     "natsUnavailable": "The NATS monitoring endpoint did not answer. Container state and probe connections cannot be reported.",
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
     "setupAction": "Initialise now",
-    "pendingEnrolled": "Enrolment open",
+    "pendingEnrolled": "Enrollment open",
     "prtgMissing": "PRTG missing"
   },
   "probes": {
@@ -155,7 +158,7 @@
     "updateHelper": "Update helper",
     "helperOutdatedTitle": "The probe helper is older than this platform",
     "helperOutdatedBody": "It will refuse requests it does not know yet. \"Update helper\" replaces it over the management channel; the probe checks the signature before it writes anything.",
-    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enrol it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
+    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enroll it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
@@ -168,22 +171,20 @@
     "planRestartWarning": "This restarts the probe service. It reconnects afterwards.",
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
-    "unenrollWarning": "This removes the management access and the inventory for {{probe}}. With nothing else selected, the probe keeps running and stays connected to NATS.",
+    "unenrollWarning": "This removes the management access, the inventory and the NATS account of {{probe}}. The probe loses its connection; enrolling it again later hands it a new PRTG access key.",
     "cleanup": {
       "legend": "Also clear",
       "removeSensors": "Remove sensors",
       "removeSensorsHint": "Takes all {{count}} sensors off the probe: services, sudo rules, configuration and credentials.",
       "uninstallMpp": "Uninstall probe software",
       "uninstallMppHint": "Removes the prtgmpprobe package, its configuration including the NATS CA, and the Paessler package source.",
-      "deleteAccount": "Delete NATS account",
-      "deleteAccountHint": "The probe loses its connection immediately and stops reporting to PRTG.",
       "sensorsSurviveHint": "Without the probe software the sensors stay behind as services nothing calls."
     },
     "executePlan": "Fix deviations now",
     "enroll": {
       "action": "Add probe",
       "title": "Add probe",
-      "subtitle": "The probe enrols itself; you run one command on it.",
+      "subtitle": "The probe enrolls itself; you run one command on it.",
       "step1": {
         "title": "1. What this probe becomes",
         "intro": "Nothing reaches the probe yet. This only decides the name it will carry and the NATS account it will connect with.",
@@ -199,12 +200,12 @@
         "expires": "Valid for",
         "expired": "Expired",
         "secretTitle": "Treat the command as a secret",
-        "secretBody": "It carries a single-use invitation. Anyone who can read it can enrol a host under this account until it is used or expires.",
+        "secretBody": "It carries a single-use invitation. Anyone who can read it can enroll a host under this account until it is used or expires.",
         "waiting": "Waiting for the probe",
         "waitingHint": "This page continues on its own as soon as the host reports in.",
-        "revoke": "Cancel invitation",
+        "revoke": "Revoke invitation",
         "deadTitle": "This invitation can no longer be used",
-        "deadBody": "It expired or was cancelled, and the command above would be refused. Create a new invitation to enrol this probe.",
+        "deadBody": "It expired or was revoked, and the command above would be refused. Create a new invitation to enroll this probe.",
         "restart": "New invitation",
         "steps": {
           "install_wireguard": {
@@ -215,8 +216,8 @@
             "title": "Build the tunnel to the platform",
             "note": "The probe reaches the platform afterwards. Check with “sudo wg show” – there has to be a time under “latest handshake”."
           },
-          "enrol": {
-            "title": "Start the enrolment",
+          "enroll": {
+            "title": "Start the enrollment",
             "note": "Fetches the CA first and compares it against the fingerprint below, then installs. This takes a few minutes."
           }
         },
@@ -227,8 +228,8 @@
         "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
-        "donePrtg": "Two steps in PRTG are still missing, and without them the probe never appears there: add the access key as a new line to the core's access-key list, then approve the probe. The probe's own page shows the access key under \"PRTG access key\".",
-        "failedTitle": "The enrolment did not finish",
+        "donePrtg": "Two steps are still missing in PRTG: add the access key to the core's access-key list, then approve the probe. The key is on the probe's page under \"PRTG access key\".",
+        "failedTitle": "The enrollment did not finish",
         "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
         "toProbe": "Open the probe",
         "toProbes": "To the probe list",
@@ -237,8 +238,8 @@
         "toDeploy": "Deploy a sensor"
       },
       "fields": {
-        "account": "NATS account",
-        "accountHint": "Lower-case letters, digits and hyphens. Created if it does not exist yet.",
+        "account": "Name",
+        "accountHint": "Lower-case letters, digits and hyphens. Also becomes the name of the NATS account the probe gets automatically.",
         "probeName": "Probe name (optional)",
         "probeNameHint": "What PRTG shows. Derived from the host name if left empty. No spaces.",
         "host": "Address (optional)",
@@ -256,10 +257,10 @@
         "ttlHours_other": "{{count}} hours"
       },
       "errors": {
-        "accountTaken": "This account already exists. Pick another name, or enrol the probe that uses it again.",
+        "accountTaken": "This account already exists. Pick another name, or enroll the probe that uses it again.",
         "accountShape": "Lower-case letters, digits and hyphens only, at least two characters.",
         "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
-        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enrol it again under that account, or remove it first to give it a different one."
+        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enroll it again under that account, or remove it first to give it a different one."
       },
       "open": {
         "title": "Open invitations",
@@ -328,14 +329,23 @@
     "prtg": {
       "missingBadge": "PRTG missing",
       "bannerTitle": "This probe is not registered in PRTG yet",
-      "bannerBody": "The two steps the platform cannot take: add the access key in PRTG (Setup > System Administration > Probes > Probe Connection Settings) and approve the connection request - not via \"Approve and auto-discover\". Then tick it off here.",
+      "bannerBody": "Two steps the platform cannot take for you: add the access key in PRTG (Setup → System Administration → Probes) and approve the connection request - without \"Approve and auto-discover\". Tick this off afterwards.",
       "markDone": "Mark as registered",
       "markUndone": "Reset",
       "markedBy": "Registered in PRTG - ticked by {{by}} {{when}}.",
       "alreadyMarked": "Marked as registered in PRTG."
     },
     "accessKeyMarkDone": "Registered in PRTG - tick it off",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "atAGlance": {
+      "title": "Configuration at a glance",
+      "sensors": "Sensors",
+      "sensorsValue_one": "{{count}} deployed",
+      "sensorsValue_other": "{{count}} deployed",
+      "endpoints": "iperf endpoints",
+      "none": "none",
+      "manage": "Manage →"
+    }
   },
   "sensors": {
     "title": "Sensors",
@@ -358,28 +368,11 @@
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
     "parametersResult": "Parameter line for PRTG",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
-    "noParameterSchema": "This sensor does not ship a parameter schema. Its README lists the options.",
     "reference": {
-      "title": "Parameters of this sensor",
-      "intro": "What the sensor accepts, what it requires, and what the values mean.",
       "recommendedLine": "Recommended start of the parameter line",
-      "required": "Required",
-      "repeatable": "Repeatable",
       "fromVariant": "From variant: {{key}}",
-      "fromPrtg": "PRTG substitutes this value itself. It is not typed out and does not appear in the sensor settings.",
-      "columns": {
-        "name": "Parameter",
-        "type": "Type or values",
-        "default": "Default",
-        "description": "Meaning"
-      },
-      "types": {
-        "string": "Text",
-        "integer": "Integer",
-        "boolean": "Switch",
-        "choice": "Choice"
-      },
-      "movedSection": "Moved parameters (rejected by the sensor)"
+      "movedSection": "Moved parameters (rejected by the sensor)",
+      "fromPrtgSection": "Parameters PRTG fills in itself"
     },
     "installedOn": "Installed on these probes",
     "remove": "Remove",
@@ -424,7 +417,6 @@
     }
   },
   "deployments": {
-    "title": "Deployments",
     "subtitle": "Sensor rollouts and their outcome per probe",
     "empty": "No deployment has run yet.",
     "noTargets": "No target was recorded for this rollout.",
@@ -460,7 +452,9 @@
     "empty": "No job has run yet.",
     "filters": {
       "running": "Running only",
-      "failed": "Failed only"
+      "failed": "Failed only",
+      "rollouts": "Rollouts",
+      "all": "All jobs"
     },
     "emptyFiltered": "No job matches this filter.",
     "columns": {
@@ -526,12 +520,12 @@
       "verify_access": "Check management access",
       "write_inventory": "Write the inventory",
       "export": "Archive the runtime",
-      "preflight": "Checking preconditions",
-      "fetch": "Fetching from the repository",
+      "preflight": "Check the preconditions",
+      "fetch": "Fetch from the repository",
       "checkout": "Moving the checkout",
-      "build": "Building the images",
-      "recreate": "Recreating the stack",
-      "settle": "Recording the outcome",
+      "build": "Build the images",
+      "recreate": "Recreate the stack",
+      "settle": "Record the outcome",
       "check_helper": "Check the probe helper",
       "configure_probe": "Configure the tunnel",
       "record_peer": "Record the peer",
@@ -621,7 +615,7 @@
         "access_verified": "{{endpoint}}: {{host}} answered over the management channel, iperf3 {{iperf3}}, service {{service}}",
         "seen_from": "{{endpoint}} sees us arrive from {{peer}}, allowed is {{allowed}}",
         "endpoint_ready": "{{endpoint}}: iperf3 set up on {{host}}:{{port}}, user {{username}}",
-        "record_incomplete": "{{endpoint}}: {{host}} already holds the new password but the record was not written; run the enrolment again",
+        "record_incomplete": "{{endpoint}}: {{host}} already holds the new password but the record was not written; run the enrollment again",
         "enrolled": "{{endpoint}} at {{host}} is enrolled",
         "probe_skipped": "{{probe}} skipped: no inventory entry; the credentials for {{endpoint}} stay there",
         "profile_kept": "{{probe}}: {{sensor}} did not let go of the credentials for {{endpoint}}",
@@ -665,7 +659,8 @@
       "credential": {
         "rotated_server": "Server-side credentials for {{probe}} rotated",
         "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password",
-        "deleted": "NATS account {{probe}} deleted"
+        "deleted": "NATS account {{probe}} deleted",
+        "kept_last": "The NATS account of {{probe}} is the last one - it stays, so NATS is not left without any account"
       },
       "stack": {
         "backup_taken": "Runtime archived as {{archive}}",
@@ -855,7 +850,7 @@
     "containers": "Containers",
     "containersEmpty": "No container of the stack is running.",
     "iperfTitle": "iperf endpoints",
-    "iperfSubtitle": "The counterparts the iperf-throughput sensor measures against",
+    "iperfSubtitle": "The measurement endpoints the iperf-throughput sensor measures against",
     "iperfEmpty": "No measurement endpoint is set up.",
     "expiresIn_one": "Expires in {{count}} day",
     "expiresIn_other": "Expires in {{count}} days",
@@ -872,7 +867,7 @@
         "deployedTo": "On probes"
       },
       "host": "Address",
-      "addIntro": "Two steps: the host is checked first, then the platform signs in over SSH once and sets the endpoint up itself. Afterwards it holds its own narrow access - the credentials used here are not stored.",
+      "addIntro": "The host is checked first, then the platform signs in once over SSH and sets the endpoint up itself. It keeps only a narrow access of its own; the credentials from here are not stored.",
       "addTitle": "Set up a measurement endpoint",
       "adminHint": "An account that may become root on that host. Used for this one connection.",
       "adminUser": "Administrator",
@@ -898,8 +893,8 @@
       "registerIntro": "For a host somebody else operates: nothing is installed and nothing is reached. Only the record here, so the probes can use it.",
       "registerTitle": "Register a foreign endpoint",
       "setupHelp": "How the operator sets this endpoint up",
-      "setupHelpIntro": "Nothing here reaches that host. Somebody with root on it does the following once - or runs sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh from this repository, which does exactly the same and checks itself afterwards.",
-      "setupHelpService": "Key pair, credentials and the service. iperf3 stores no password, only the SHA-256 over \"{user}password\", and it reads the credentials the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers anybody, whatever else is set up.",
+      "setupHelpIntro": "This host is not touched from here. Whoever is root there runs the following once - or setup-iperf3-endpoint.sh from the repository, which does the same and checks itself.",
+      "setupHelpService": "iperf3 stores no password, only the SHA-256 of \"{user}password\", and decrypts what the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers everyone.",
       "setupHelpCheck": "Then the counter-check, on the endpoint itself: the first command has to fail and the second one has to succeed. An endpoint that still answers without credentials looks exactly like a working one.",
       "setupHelpBackTitle": "What has to come back from there",
       "setupHelpBackBody": "The user name, the password the last two lines print, and the contents of /etc/iperf3/public.pem - the three fields below. The password cannot be read back from that host afterwards, because only its hash is on disk.",
@@ -952,7 +947,7 @@
       "endpointsHeld_one": "holds {{count}} endpoint",
       "endpointsHeld_other": "holds {{count}} endpoints",
       "aliasLostTitle": "Existing sensors on these probes stop measuring",
-      "aliasLostBody": "These probes hold exactly one endpoint so far and therefore carry the \"default\" profile: {{probes}}. The second one takes it away. Sensor objects without --server go red (\"no endpoint given\"); objects that set --server themselves keep measuring without a sign-in, unnoticed. Add --profile <name> to every affected PRTG object first.",
+      "aliasLostBody": "These probes hold exactly one endpoint and therefore carry the \"default\" profile: {{probes}}. With the second it goes away: objects without --server turn red, objects naming one keep measuring without a sign-in, unnoticed. Add --profile <name> to each affected PRTG object first.",
       "aliasReturnsBody": "These probes will hold only one endpoint afterwards and get the \"default\" profile back: {{probes}}. A --profile already entered stays correct, but is no longer needed.",
       "sensorMissingTitle": "The credentials are there, but nothing reads them",
       "sensorMissingBody": "These probes hold the endpoint but do not have \"{{sensor}}\" installed: {{probes}}. Until the sensor is deployed, nothing is measured.",
@@ -970,7 +965,7 @@
       "inviteCreate": "Create the invitation",
       "inviteCreating": "Creating…",
       "inviteCommandIntro": "Run this command on the endpoint host, as a user with sudo. It sets up iperf3, installs the access for this platform and reports back.",
-      "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enrol a host as this endpoint until it is spent or expires.",
+      "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enroll a host as this endpoint until it is spent or expires.",
       "inviteWaiting": "Waiting for the host",
       "inviteDeadTitle": "This invitation can no longer be used",
       "inviteDeadBody": "It expired or was revoked; the command would be refused.",
@@ -1058,7 +1053,7 @@
       "disable": {
         "action": "Turn off",
         "title": "Turn the overlay off",
-        "body": "The hub stops. Every probe keeps its address and its key and still reaches this installation the ordinary way. Probes left in mode \"on\" reach NATS only through a tunnel that is no longer there - put them back to \"auto\" first."
+        "body": "The hub stops; every probe keeps its address and key and stays reachable the ordinary way. Put probes in mode \"On\" back to \"Auto\" first - their tunnel is gone afterwards."
       }
     }
   },
@@ -1218,10 +1213,10 @@
       "package_missing.action": "Create a fresh invitation and run the command on the probe. The bootstrap skips a package that is already there.",
       "host_key_mismatch": "The host \"{{host}}\" presented a different SSH host key than the one on record.",
       "host_key_mismatch.cause": "Either the host was rebuilt and has new keys, or something else is answering at that address. Pinned: {{pinned}}. Offered: {{offered}}.",
-      "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enrol again; if it was not, stop and investigate.",
+      "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enroll again; if it was not, stop and investigate.",
       "host_already_enrolled": "The address \"{{host}}\" is already enrolled as \"{{probe}}\".",
       "host_already_enrolled.cause": "The management access lives on the host, not in an inventory entry. A second entry for the same address would share it, and retiring either one would revoke it for both - leaving a probe that is connected to NATS and unreachable at the same time.",
-      "host_already_enrolled.action": "Enrol this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrolment installs again."
+      "host_already_enrolled.action": "Enroll this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrollment installs again."
     },
     "nats": {
       "reload_refused": "NATS kept its previous configuration.",
@@ -1255,7 +1250,7 @@
       "unreachable": "The management API cannot be reached."
     },
     "enrollment": {
-      "token_invalid": "This enrolment invitation cannot be used.",
+      "token_invalid": "This enrollment invitation cannot be used.",
       "token_invalid.cause": "It is unknown, expired, already used, or was revoked. An invitation is good for one host, once.",
       "token_invalid.action": "Create a new invitation and run the command it gives you on the host."
     },
@@ -1299,7 +1294,8 @@
     "deleteBlockedProbe": "A probe is enrolled for this account.",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
-    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
+    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog.",
+    "autoHint": "Accounts of enrolled probes come and go with the probe. This page manages what goes beyond that - the PRTG core account, for instance."
   },
   "updates": {
     "title": "Updates",

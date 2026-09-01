@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
+
+import { fieldDescription, fieldLabel } from './parameterFields'
 
 import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorDetail, SensorSummary } from '@/api/types'
@@ -18,8 +19,11 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
+  Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, shortFingerprint } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
@@ -89,6 +93,7 @@ export function SensorListPage() {
         row.outdated_on > 0 ? (
           <button
             type="button"
+            className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
             onClick={(event) => {
               event.stopPropagation()
               setUpdating(row.name)
@@ -105,10 +110,7 @@ export function SensorListPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('sensors.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('sensors.subtitle')}</p>
-      </header>
+      <PageHeader title={t('sensors.title')} subtitle={t('sensors.subtitle')} />
 
       <DataTable
         rows={data}
@@ -223,8 +225,7 @@ export function SensorDetailPage() {
       />
       {/* The builder first: it is what somebody setting up a sensor came for,
           and the reference below lists the same parameters a second time. */}
-      <ParameterBuilder sensorName={name} schema={data.parameter_schema} />
-      <ParameterReference schema={data.parameter_schema} />
+      <ParameterCard sensorName={name} schema={data.parameter_schema} />
 
       {deploying && (
         <DeployDialog
@@ -258,16 +259,10 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         <p className="text-ink-2">{t('sensors.prtg.intro')}</p>
         {basename && (
           <div className="flex items-center gap-2">
-            <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+            <InlineCode>
               {basename}
-            </code>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(basename)}
-            >
-              {t('common.copy')}
-            </Button>
+            </InlineCode>
+            <CopyButton value={basename} />
           </div>
         )}
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
@@ -305,183 +300,18 @@ export function sensorReadmeHref(sensorName: string, href: string) {
   return `/sensors/${encodeURIComponent(otherReadme[1])}${otherReadme[2] ?? ''}`
 }
 
-/** The label of a field: its translation if there is one, else its own name. */
-function fieldLabel(t: TFunction, field: { name: string; label_key?: string }) {
-  return field.label_key ? t(field.label_key, field.name) : field.name
-}
-
 /**
- * The description of a field.
+ * The one surface for a sensor's parameters: fill in, look up, copy.
  *
- * The English plain text ships with the sensor and is kept in step with the
- * script's own argparse help by tests/sensor-checks.py. A translation key is
- * optional on top - a reference that shows nothing until every sensor is
- * translated would be a reference nobody can use yet.
+ * This used to be two cards - a builder form and, one screen below it, a
+ * reference table repeating every name, description, default and choice the
+ * form had already shown. The source admitted it: "the reference below lists
+ * the same parameters a second time". Now the form carries the reference
+ * facts on its rows, and the two things the form never had - the parameters
+ * PRTG substitutes itself, and the retired ones - live in collapsed sections
+ * underneath.
  */
-function fieldDescription(
-  t: TFunction,
-  field: { description?: string; description_key?: string },
-) {
-  if (field.description_key) return t(field.description_key, field.description ?? '')
-  return field.description ?? ''
-}
-
-/**
- * What each parameter of a sensor means, to look up rather than to fill in.
- *
- * Until now this lived in the sensor's README: whoever wanted to know whether
- * --ssid is required, or what --stage accepts, read prose or the argparse of
- * the script. Both are in the repository, neither is in the interface where
- * the sensor is being set up.
- */
-export function ParameterReference({ schema }: { schema: ParameterSchema | null }) {
-  const { t } = useTranslation()
-
-  if (!schema || schema.parameters.length === 0) {
-    return (
-      <Card title={t('sensors.reference.title')}>
-        <p className="text-ink-3 text-sm">{t('sensors.noParameterSchema')}</p>
-      </Card>
-    )
-  }
-
-  // Which parameters a variant can supply instead. Collected from the profile
-  // side so the row can say "you may leave this out once a variant carries it".
-  const suppliedBy = new Map<string, string>()
-  for (const entry of [...schema.settings, ...schema.credentials, ...schema.files]) {
-    if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
-  }
-
-  const listed = schema.parameters.filter(
-    (field) => field.group !== 'internal' && field.group !== 'moved',
-  )
-  const moved = schema.parameters.filter((field) => field.group === 'moved')
-
-  return (
-    <Card title={t('sensors.reference.title')}>
-      <p className="text-ink-3 mb-3 text-sm">{t('sensors.reference.intro')}</p>
-
-      {schema.default_parameter_line && (
-        <div className="bg-surface-2 rounded-inset mb-4 p-3">
-          <p className="text-ink-3 mb-1.5 text-xs">
-            {t('sensors.reference.recommendedLine')}
-          </p>
-          <div className="flex items-start gap-2">
-            <code className="text-ink flex-1 font-mono text-xs break-all">
-              {schema.default_parameter_line}
-            </code>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                void navigator.clipboard.writeText(schema.default_parameter_line)
-              }
-            >
-              {t('common.copy')}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-rule text-ink-3 border-b text-left">
-              <th className="py-1.5 pr-3 font-medium">
-                {t('sensors.reference.columns.name')}
-              </th>
-              <th className="py-1.5 pr-3 font-medium">
-                {t('sensors.reference.columns.type')}
-              </th>
-              <th className="py-1.5 pr-3 font-medium">
-                {t('sensors.reference.columns.default')}
-              </th>
-              <th className="py-1.5 font-medium">
-                {t('sensors.reference.columns.description')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {listed.map((field) => (
-              <tr key={field.name} className="border-rule border-b last:border-0">
-                <td className="py-2 pr-3 align-top">
-                  <Mono>{fieldLabel(t, field)}</Mono>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {field.required && (
-                      <Badge tone="warn">{t('sensors.reference.required')}</Badge>
-                    )}
-                    {field.repeatable && (
-                      <Badge tone="neutral">{t('sensors.reference.repeatable')}</Badge>
-                    )}
-                    {suppliedBy.has(field.name) && (
-                      <Badge tone="neutral">
-                        {t('sensors.reference.fromVariant', {
-                          key: suppliedBy.get(field.name),
-                        })}
-                      </Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="text-ink-2 py-2 pr-3 align-top">
-                  {field.choices && field.choices.length > 0 ? (
-                    <Mono>{field.choices.join(' | ')}</Mono>
-                  ) : (
-                    t(`sensors.reference.types.${field.type}`)
-                  )}
-                </td>
-                <td className="text-ink-2 py-2 pr-3 align-top">
-                  {field.source === 'prtg' ? (
-                    <Mono>{field.prtg_placeholder}</Mono>
-                  ) : field.default !== undefined && field.default !== null ? (
-                    <Mono>{String(field.default)}</Mono>
-                  ) : (
-                    <span className="text-ink-3">—</span>
-                  )}
-                </td>
-                <td className="text-ink-2 py-2 align-top">
-                  {fieldDescription(t, field)}
-                  {field.source === 'prtg' && (
-                    <p className="text-ink-3 mt-1 text-xs">
-                      {t('sensors.reference.fromPrtg')}
-                    </p>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {moved.length > 0 && (
-        <details className="mt-3">
-          <summary className="text-ink-3 cursor-pointer text-xs">
-            {t('sensors.reference.movedSection')}
-          </summary>
-          <ul className="text-ink-3 mt-2 space-y-1 text-xs">
-            {moved.map((field) => (
-              <li key={field.name}>
-                <Mono>{field.name}</Mono> · {fieldDescription(t, field)}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </Card>
-  )
-}
-
-/**
- * Builds the parameter line for PRTG from a form.
- *
- * The sensor scripts parse their options with argparse and an operator types
- * them into a PRTG text field by hand. A form that produces the exact string
- * removes the two ways that goes wrong: a misremembered flag name and a typo.
- *
- * Parameters PRTG substitutes itself are left out: asking for a password here
- * that the device settings already hold would invite someone to type it into
- * the sensor configuration, which is the one place it is not supposed to be.
- */
-function ParameterBuilder({
+export function ParameterCard({
   sensorName,
   schema,
 }: {
@@ -501,6 +331,22 @@ function ParameterBuilder({
       field.group !== 'internal' &&
       field.group !== 'moved',
   )
+  // Which parameters a variant can supply instead, so the row can say "you
+  // may leave this out once a variant carries it".
+  const suppliedBy = new Map<string, string>()
+  for (const entry of schema
+    ? [...schema.settings, ...schema.credentials, ...schema.files]
+    : []) {
+    if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
+  }
+  const fromPrtg = (schema?.parameters ?? []).filter(
+    (field) => field.source === 'prtg',
+  )
+  const moved = (schema?.parameters ?? []).filter(
+    (field) => field.group === 'moved',
+  )
+  // A sensor without parameters gets no card at all - a card that only says
+  // "nothing here" is noise, not information.
   if (fields.length === 0) return null
 
   const missing = fields.filter(
@@ -511,12 +357,37 @@ function ParameterBuilder({
     <Card title={t('sensors.parameters')}>
       <p className="text-ink-3 mb-3 text-sm">{t('sensors.parametersIntro')}</p>
 
+      {schema?.default_parameter_line && (
+        <div className="bg-surface-2 rounded-inset mb-4 p-3">
+          <p className="text-ink-3 mb-1.5 text-xs">
+            {t('sensors.reference.recommendedLine')}
+          </p>
+          <div className="flex items-start gap-2">
+            <InlineCode className="flex-1">
+              {schema.default_parameter_line}
+            </InlineCode>
+            <CopyButton value={schema.default_parameter_line} />
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         {fields.map((field) => (
           <Field
             key={field.name}
             label={fieldLabel(t, field) + (field.required ? ' *' : '')}
-            hint={fieldDescription(t, field) || undefined}
+            hint={
+              [
+                fieldDescription(t, field),
+                suppliedBy.has(field.name)
+                  ? t('sensors.reference.fromVariant', {
+                      key: suppliedBy.get(field.name),
+                    })
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ') || undefined
+            }
           >
             {field.type === 'boolean' ? (
               <input
@@ -527,7 +398,7 @@ function ParameterBuilder({
                 }
               />
             ) : field.type === 'choice' ? (
-              <select
+              <Select
                 value={String(values[field.name] ?? '')}
                 onChange={(event) =>
                   setValues({ ...values, [field.name]: event.target.value })
@@ -540,7 +411,7 @@ function ParameterBuilder({
                     {choice}
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
               <Input
                 type={field.type === 'integer' ? 'number' : 'text'}
@@ -572,19 +443,45 @@ function ParameterBuilder({
 
       {render.data && (
         <div className="bg-surface-2 rounded-inset mt-3 flex items-start gap-2 p-3">
-          <code className="text-ink flex-1 font-mono text-xs break-all">
+          <InlineCode className="flex-1">
             {render.data.parameters || '—'}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => void navigator.clipboard.writeText(render.data.parameters)}
-          >
-            {t('common.copy')}
-          </Button>
+          </InlineCode>
+          <CopyButton value={render.data.parameters} />
         </div>
       )}
       {render.error && <ErrorDetails error={render.error} />}
+
+      {fromPrtg.length > 0 && (
+        <details className="mt-4">
+          <summary className="text-ink-3 cursor-pointer text-xs">
+            {t('sensors.reference.fromPrtgSection')}
+          </summary>
+          <ul className="text-ink-2 mt-2 space-y-1.5 text-xs">
+            {fromPrtg.map((field) => (
+              <li key={field.name} className="flex flex-wrap items-baseline gap-2">
+                <Mono>{fieldLabel(t, field)}</Mono>
+                {field.prtg_placeholder && <Mono>{field.prtg_placeholder}</Mono>}
+                <span>{fieldDescription(t, field)}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {moved.length > 0 && (
+        <details className="mt-3">
+          <summary className="text-ink-3 cursor-pointer text-xs">
+            {t('sensors.reference.movedSection')}
+          </summary>
+          <ul className="text-ink-3 mt-2 space-y-1 text-xs">
+            {moved.map((field) => (
+              <li key={field.name}>
+                <Mono>{field.name}</Mono> · {fieldDescription(t, field)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </Card>
   )
 }

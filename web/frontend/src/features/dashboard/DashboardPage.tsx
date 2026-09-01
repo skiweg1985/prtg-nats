@@ -12,6 +12,7 @@ import {
   EmptyState,
   Label,
   Mono,
+  PageHeader,
   Skeleton,
 } from '@/components/ui/primitives'
 import { PermissionGate } from '@/app/providers'
@@ -64,10 +65,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('dashboard.title')}</h1>
-        <p className="text-ink-3 text-sm">{t('dashboard.question')}</p>
-      </header>
+      <PageHeader title={t('dashboard.title')} subtitle={t('dashboard.question')} />
 
       {!data.system.site.is_configured && (
         <Banner tone="danger">{t('dashboard.notConfigured')}</Banner>

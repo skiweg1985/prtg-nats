@@ -25,6 +25,8 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
+  Textarea,
 } from '@/components/ui/primitives'
 
 import {
@@ -148,12 +150,11 @@ export function IperfPage() {
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-3">
-          <h1 className="text-lg">{t('infrastructure.iperfTitle')}</h1>
-          <p className="text-ink-3 text-sm">{t('infrastructure.iperfSubtitle')}</p>
-        </div>
-        <PermissionGate permission="iperf.manage">
+      <PageHeader
+        title={t('infrastructure.iperfTitle')}
+        subtitle={t('infrastructure.iperfSubtitle')}
+        action={
+          <PermissionGate permission="iperf.manage">
           <span className="flex gap-2">
             <Button size="sm" onClick={() => setDialog('register')}>
               {t('infrastructure.iperf.register')}
@@ -168,7 +169,8 @@ export function IperfPage() {
             </Button>
           </span>
         </PermissionGate>
-      </header>
+        }
+      />
 
       <DataTable
         rows={data ?? []}
@@ -443,12 +445,12 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
                 label={t('infrastructure.iperf.privateKey')}
                 hint={t('infrastructure.iperf.privateKeyHint')}
               >
-                <textarea
+                <Textarea
                   value={privateKey}
                   onChange={(event) => setPrivateKey(event.target.value)}
                   rows={3}
                   spellCheck={false}
-                  className="rounded-control border-rule-2 bg-surface text-ink w-full border px-2.5 py-1.5 font-mono text-xs"
+                  className="w-full"
                   placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                 />
               </Field>
@@ -696,12 +698,12 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
               label={t('infrastructure.iperf.publicKey')}
               hint={t('infrastructure.iperf.publicKeyHint')}
             >
-              <textarea
+              <Textarea
                 value={publicKey}
                 onChange={(event) => setPublicKey(event.target.value)}
                 rows={6}
                 spellCheck={false}
-                className="rounded-control border-rule-2 bg-surface text-ink w-full border px-2.5 py-1.5 font-mono text-xs"
+                className="w-full"
                 placeholder={PUBLIC_KEY_EXAMPLE}
               />
             </Field>

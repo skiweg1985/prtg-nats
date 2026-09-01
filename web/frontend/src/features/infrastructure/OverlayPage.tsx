@@ -28,6 +28,7 @@ import {
   Field,
   Input,
   Mono,
+  PageHeader,
 } from '@/components/ui/primitives'
 
 import { OverlayModeChoice, pathTone } from './overlayMode'
@@ -127,12 +128,7 @@ export function OverlayPage() {
     <div className="space-y-4">
       {/* The only nav destination that had no title of its own - every other
           page names itself, and this one starts mid-thought with a card. */}
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="text-lg">{t('infrastructure.overlay.title')}</h1>
-        <p className="text-ink-3 text-sm">
-          {t('infrastructure.overlay.subtitle')}
-        </p>
-      </header>
+      <PageHeader title={t('infrastructure.overlay.title')} subtitle={t('infrastructure.overlay.subtitle')} />
       {data && !data.enabled && (
         <Banner
           tone="warn"

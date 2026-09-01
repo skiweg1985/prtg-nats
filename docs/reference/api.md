@@ -203,23 +203,25 @@ path. See
 [ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
 
 `DELETE /probes/{id}` removes the management access and the inventory; the
-probe keeps running and stays connected. Three query parameters clear what it
-otherwise leaves behind, each with its own permission and its own step in the
-job:
+probe keeps running and stays connected - but its NATS account always goes:
+it was created by the enrolment, so the retirement takes it back. Two query
+parameters clear what is otherwise left on the host, each with its own
+permission and its own step in the job:
 
 | Parameter | What it adds | Permission |
 | --- | --- | --- |
 | `remove_sensors=true` | every sensor the inventory or the probe knows of | `sensor.remove` |
 | `uninstall_mpp=true` | the `prtgmpprobe` package, its configuration with the NATS CA, and the Paessler package source | `probe.update` |
-| `delete_account=true` | the NATS account, once no inventory names it | `credential.rotate` |
 
 The order is fixed and not negotiable: sensors and the probe software both
 need the management channel, so they run before it is revoked, and a failure
 in either aborts the job with the access still in place - a probe that could
 not be cleaned up has to stay reachable. The account goes last, because the
-server refuses to delete one an inventory still points at. Deleting the last
-remaining account is refused before the job is created, not once the probe has
-already lost its access.
+server refuses to delete one an inventory still points at. The last remaining
+account is the one exception: it is kept, with a warning in the job log,
+because a server without any account refuses its own reload. Re-enrolling a
+retired probe therefore hands it a fresh account and with it a new PRTG
+access key.
 
 `uninstall_mpp=true` decides how the host comes back. Nothing but the
 bootstrap script installs the package, so taking that host on again means a
