@@ -323,9 +323,19 @@ check_nats_endpoint() {
     return 0
   fi
 
-  resolved="$(getent hosts "${host}" | awk '{ print $1; exit }')" || resolved=""
-  [[ -n "${resolved}" ]] || die "DNS lookup failed for ${host}"
-  printf 'DNS   %s resolves to %s\n' "${host}" "${resolved}"
+  # An address needs no lookup, and insisting on one fails where it matters
+  # most: a probe enrolled over the overlay is configured with NATS_HOST_IP
+  # precisely because its site has no name server that knows this platform.
+  # "getent hosts" on an address answers only if a reverse entry happens to
+  # exist, so this used to turn a working endpoint into "DNS lookup failed".
+  if [[ "${host}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+    resolved="${host}"
+    printf 'ADDR  %s needs no name resolution\n' "${host}"
+  else
+    resolved="$(getent hosts "${host}" | awk '{ print $1; exit }')" || resolved=""
+    [[ -n "${resolved}" ]] || die "DNS lookup failed for ${host}"
+    printf 'DNS   %s resolves to %s\n' "${host}" "${resolved}"
+  fi
 
   timeout 5 bash -c "</dev/tcp/${host}/${port}" 2>/dev/null ||
     die "Cannot open a TCP connection to ${host}:${port}.
