@@ -223,6 +223,22 @@ for (const [language, rules] of Object.entries(FORBIDDEN_TERMS)) {
   }
 }
 
+// Written for a sysadmin: two sentences of body copy, one for a banner.
+// docs/web/terminology.md carries the budget; this only catches the runaway
+// cases. The allowlist is for strings whose length is the information -
+// today none.
+const LENGTH_BUDGET = 280
+const OVERLONG_ALLOWED = new Set([])
+for (const [language, table] of tables) {
+  for (const [key, value] of table) {
+    if (value.length > LENGTH_BUDGET && !OVERLONG_ALLOWED.has(key)) {
+      problems.push(
+        `${language}: "${key}" runs ${value.length} characters - split it or move the detail into a <details> block`,
+      )
+    }
+  }
+}
+
 const unused = [...source.keys()].filter(
   (key) => !isUsed(key) && !AHEAD_OF_THE_INTERFACE.has(key),
 )

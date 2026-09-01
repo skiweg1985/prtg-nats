@@ -128,7 +128,7 @@ describe('assigning an endpoint', () => {
     )
     // Both outcomes have to be named: going red is the loud one, measuring on
     // without a sign-in is the one nobody sees.
-    expect(title.parentElement).toHaveTextContent('alone')
+    expect(title.parentElement).toHaveTextContent(/default/)
     expect(title.parentElement).toHaveTextContent(/without a sign-in/)
     expect(title.parentElement).toHaveTextContent(/red/)
   })

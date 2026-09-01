@@ -229,7 +229,7 @@
         "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
-        "donePrtg": "Two steps in PRTG are still missing, and without them the probe never appears there: add the access key as a new line to the core's access-key list, then approve the probe. The probe's own page shows the access key under \"PRTG access key\".",
+        "donePrtg": "Two steps are still missing in PRTG: add the access key to the core's access-key list, then approve the probe. The key is on the probe's page under \"PRTG access key\".",
         "failedTitle": "The enrollment did not finish",
         "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
         "toProbe": "Open the probe",
@@ -330,7 +330,7 @@
     "prtg": {
       "missingBadge": "PRTG missing",
       "bannerTitle": "This probe is not registered in PRTG yet",
-      "bannerBody": "The two steps the platform cannot take: add the access key in PRTG (Setup > System Administration > Probes > Probe Connection Settings) and approve the connection request - not via \"Approve and auto-discover\". Then tick it off here.",
+      "bannerBody": "Two steps the platform cannot take for you: add the access key in PRTG (Setup → System Administration → Probes) and approve the connection request - without \"Approve and auto-discover\". Tick this off afterwards.",
       "markDone": "Mark as registered",
       "markUndone": "Reset",
       "markedBy": "Registered in PRTG - ticked by {{by}} {{when}}.",
@@ -858,7 +858,7 @@
         "deployedTo": "On probes"
       },
       "host": "Address",
-      "addIntro": "Two steps: the host is checked first, then the platform signs in over SSH once and sets the endpoint up itself. Afterwards it holds its own narrow access - the credentials used here are not stored.",
+      "addIntro": "The host is checked first, then the platform signs in once over SSH and sets the endpoint up itself. It keeps only a narrow access of its own; the credentials from here are not stored.",
       "addTitle": "Set up a measurement endpoint",
       "adminHint": "An account that may become root on that host. Used for this one connection.",
       "adminUser": "Administrator",
@@ -884,8 +884,8 @@
       "registerIntro": "For a host somebody else operates: nothing is installed and nothing is reached. Only the record here, so the probes can use it.",
       "registerTitle": "Register a foreign endpoint",
       "setupHelp": "How the operator sets this endpoint up",
-      "setupHelpIntro": "Nothing here reaches that host. Somebody with root on it does the following once - or runs sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh from this repository, which does exactly the same and checks itself afterwards.",
-      "setupHelpService": "Key pair, credentials and the service. iperf3 stores no password, only the SHA-256 over \"{user}password\", and it reads the credentials the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers anybody, whatever else is set up.",
+      "setupHelpIntro": "This host is not touched from here. Whoever is root there runs the following once - or setup-iperf3-endpoint.sh from the repository, which does the same and checks itself.",
+      "setupHelpService": "iperf3 stores no password, only the SHA-256 of \"{user}password\", and decrypts what the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers everyone.",
       "setupHelpCheck": "Then the counter-check, on the endpoint itself: the first command has to fail and the second one has to succeed. An endpoint that still answers without credentials looks exactly like a working one.",
       "setupHelpBackTitle": "What has to come back from there",
       "setupHelpBackBody": "The user name, the password the last two lines print, and the contents of /etc/iperf3/public.pem - the three fields below. The password cannot be read back from that host afterwards, because only its hash is on disk.",
@@ -938,7 +938,7 @@
       "endpointsHeld_one": "holds {{count}} endpoint",
       "endpointsHeld_other": "holds {{count}} endpoints",
       "aliasLostTitle": "Existing sensors on these probes stop measuring",
-      "aliasLostBody": "These probes hold exactly one endpoint so far and therefore carry the \"default\" profile: {{probes}}. The second one takes it away. Sensor objects without --server go red (\"no endpoint given\"); objects that set --server themselves keep measuring without a sign-in, unnoticed. Add --profile <name> to every affected PRTG object first.",
+      "aliasLostBody": "These probes hold exactly one endpoint and therefore carry the \"default\" profile: {{probes}}. With the second it goes away: objects without --server turn red, objects naming one keep measuring without a sign-in, unnoticed. Add --profile <name> to each affected PRTG object first.",
       "aliasReturnsBody": "These probes will hold only one endpoint afterwards and get the \"default\" profile back: {{probes}}. A --profile already entered stays correct, but is no longer needed.",
       "sensorMissingTitle": "The credentials are there, but nothing reads them",
       "sensorMissingBody": "These probes hold the endpoint but do not have \"{{sensor}}\" installed: {{probes}}. Until the sensor is deployed, nothing is measured.",
@@ -1044,7 +1044,7 @@
       "disable": {
         "action": "Turn off",
         "title": "Turn the overlay off",
-        "body": "The hub stops. Every probe keeps its address and its key and still reaches this installation the ordinary way. Probes left in mode \"on\" reach NATS only through a tunnel that is no longer there - put them back to \"auto\" first."
+        "body": "The hub stops; every probe keeps its address and key and stays reachable the ordinary way. Put probes in mode \"On\" back to \"Auto\" first - their tunnel is gone afterwards."
       }
     }
   },

@@ -229,7 +229,7 @@
         "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
         "doneTitle": "Die Probe ist eingebunden",
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
-        "donePrtg": "In PRTG fehlen noch zwei Schritte, ohne die die Probe dort nicht auftaucht: den Access Key als neue Zeile in die Access-Key-Liste des Cores eintragen und die Probe anschließend genehmigen. Den Access Key zeigt die Seite der Probe unter „PRTG Access Key“.",
+        "donePrtg": "In PRTG fehlen noch zwei Schritte: den Access Key in die Access-Key-Liste des Cores eintragen und die Probe genehmigen. Der Key steht auf der Probe-Seite unter „PRTG Access Key“.",
         "failedTitle": "Die Einbindung wurde nicht fertig",
         "failedBody": "Der Verlauf unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederhole den Job; sonst erstelle eine neue Einladung und führe den Befehl erneut aus.",
         "toProbe": "Zur Probe",
@@ -330,7 +330,7 @@
     "prtg": {
       "missingBadge": "PRTG fehlt",
       "bannerTitle": "In PRTG ist diese Probe noch nicht eingetragen",
-      "bannerBody": "Die zwei Handgriffe, die die Plattform nicht übernehmen kann: den Access Key in PRTG hinterlegen (Setup > Systemverwaltung > Probes > Probe Connection Settings) und die Verbindungsanfrage genehmigen - ohne \"Approve and auto-discover\". Danach hier abhaken.",
+      "bannerBody": "Zwei Handgriffe kann die Plattform nicht übernehmen: den Access Key in PRTG hinterlegen (Setup → Systemverwaltung → Probes) und die Verbindungsanfrage genehmigen - ohne „Approve and auto-discover“. Danach hier abhaken.",
       "markDone": "Als eingetragen markieren",
       "markUndone": "Zurücksetzen",
       "markedBy": "In PRTG eingetragen - abgehakt von {{by}} {{when}}.",
@@ -858,7 +858,7 @@
         "deployedTo": "Auf Probes"
       },
       "host": "Adresse",
-      "addIntro": "Zwei Schritte: erst wird der Host geprüft, dann meldet sich die Plattform einmalig per SSH an und richtet den Messpunkt selbst ein. Danach hält sie einen eigenen, eng begrenzten Zugang - die Zugangsdaten von hier werden nicht gespeichert.",
+      "addIntro": "Erst wird der Host geprüft, dann richtet die Plattform den Messpunkt einmalig per SSH selbst ein. Sie behält nur einen eng begrenzten Zugang; die Zugangsdaten von hier werden nicht gespeichert.",
       "addTitle": "Messpunkt einrichten",
       "adminHint": "Ein Konto, das auf dem Host root werden darf. Wird nur für diese eine Verbindung benutzt.",
       "adminUser": "Administrator",
@@ -884,8 +884,8 @@
       "registerIntro": "Für einen Host, den jemand anderes betreibt: Es wird nichts installiert und nichts kontaktiert. Nur der Eintrag hier entsteht, damit die Probes ihn nutzen können.",
       "registerTitle": "Fremden Messpunkt registrieren",
       "setupHelp": "Wie der Betreiber diesen Messpunkt einrichtet",
-      "setupHelpIntro": "Von hier aus wird dieser Host nicht angefasst. Wer dort root ist, führt einmal das Folgende aus - oder sensors/iperf-throughput/endpoint/setup-iperf3-endpoint.sh aus diesem Repository, das dasselbe tut und sich danach selbst prüft.",
-      "setupHelpService": "Schlüsselpaar, Zugangsdaten und Dienst. iperf3 speichert kein Passwort, nur den SHA-256 über \"{user}passwort\", und es entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne das antwortet der Endpoint jedem, egal was sonst eingerichtet ist.",
+      "setupHelpIntro": "Dieser Host wird von hier aus nicht angefasst. Wer dort root ist, führt das Folgende aus - oder setup-iperf3-endpoint.sh aus dem Repository, das dasselbe tut und sich selbst prüft.",
+      "setupHelpService": "iperf3 speichert kein Passwort, nur den SHA-256 über „{user}passwort“, und entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne es antwortet der Messpunkt jedem.",
       "setupHelpCheck": "Danach die Gegenprobe auf dem Endpoint selbst: der erste Befehl muss scheitern, der zweite muss durchgehen. Ein Endpoint, der ohne Zugangsdaten weiter antwortet, sieht aus wie ein funktionierender.",
       "setupHelpBackTitle": "Was von dort zurückkommen muss",
       "setupHelpBackBody": "Der Benutzername, das Passwort aus den letzten beiden Zeilen und der Inhalt von /etc/iperf3/public.pem - die drei Felder unten. Das Passwort lässt sich auf dem Host danach nicht mehr auslesen, dort liegt nur sein Hash.",
@@ -938,7 +938,7 @@
       "endpointsHeld_one": "hält {{count}} Messpunkt",
       "endpointsHeld_other": "hält {{count}} Messpunkte",
       "aliasLostTitle": "Bestehende Sensoren auf diesen Probes hören auf zu messen",
-      "aliasLostBody": "Diese Probes halten genau einen Messpunkt und tragen darum das Profil „default“: {{probes}}. Mit dem zweiten fällt es weg, und PRTG-Objekte ohne --server werden rot. Trag vorher in jedem betroffenen Objekt --profile <Name> nach.",
+      "aliasLostBody": "Diese Probes halten genau einen Messpunkt und tragen darum das Profil „default“: {{probes}}. Mit dem zweiten fällt es weg: Objekte ohne --server werden rot, Objekte mit --server messen unbemerkt ohne Anmeldung weiter. Trag vorher --profile <Name> nach.",
       "aliasReturnsBody": "Diese Probes halten danach nur noch einen Messpunkt und bekommen das Profil \"default\" zurück: {{probes}}. Ein bereits eingetragenes --profile bleibt richtig, ist aber nicht mehr nötig.",
       "sensorMissingTitle": "Die Zugangsdaten liegen da, aber nichts liest sie",
       "sensorMissingBody": "Diese Probes halten den Messpunkt, haben \"{{sensor}}\" aber nicht installiert: {{probes}}. Bis der Sensor ausgerollt ist, wird nicht gemessen.",
@@ -1044,7 +1044,7 @@
       "disable": {
         "action": "Ausschalten",
         "title": "Overlay ausschalten",
-        "body": "Der Hub wird gestoppt. Jede Probe behält Adresse und Schlüssel und erreicht diese Installation weiterhin auf dem gewöhnlichen Weg. Probes im Modus „an“ erreichen NATS dann nur noch über einen Tunnel, den es nicht mehr gibt — stell sie vorher auf „auto“."
+        "body": "Der Hub wird gestoppt; jede Probe behält Adresse und Schlüssel und bleibt auf dem gewöhnlichen Weg erreichbar. Stell Probes im Modus „An“ vorher auf „Auto“ - ihr Tunnel ist danach weg."
       }
     }
   },
