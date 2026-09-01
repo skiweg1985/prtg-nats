@@ -112,7 +112,6 @@ export function ProbeDetailPage() {
   const [cleanup, setCleanup] = useState<Required<UnenrollOptions>>({
     removeSensors: false,
     uninstallMpp: false,
-    deleteAccount: false,
   })
 
   if (isLoading) return <Skeleton className="h-64" />
@@ -249,16 +248,6 @@ export function ProbeDetailPage() {
                 checked={cleanup.uninstallMpp}
                 onChange={(checked) =>
                   setCleanup({ ...cleanup, uninstallMpp: checked })
-                }
-              />
-            </PermissionGate>
-            <PermissionGate permission="credential.rotate">
-              <CleanupOption
-                label={t('probes.cleanup.deleteAccount')}
-                hint={t('probes.cleanup.deleteAccountHint')}
-                checked={cleanup.deleteAccount}
-                onChange={(checked) =>
-                  setCleanup({ ...cleanup, deleteAccount: checked })
                 }
               />
             </PermissionGate>

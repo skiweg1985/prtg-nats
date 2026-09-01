@@ -208,9 +208,10 @@ The three options:
 
 The first two need the management channel, so they run before it is revoked,
 and a failure stops the unenrollment rather than stranding a host nobody can
-reach any more. The NATS account is not touched: `user delete USER` does that,
-and only works once no inventory names the probe - which is what the
-unenrollment has just ended.
+reach any more. The NATS account goes with the probe - it was created by the
+enrolment, so the retirement takes it back. The one exception is the last
+remaining account: NATS needs at least one, so it is kept and said so rather
+than failing a retirement that has already revoked the probe's access.
 
 ```bash
 sudo ./prtg-nats probe unenroll mpp-berlin-01 --remove-sensors --uninstall-mpp --remove-access

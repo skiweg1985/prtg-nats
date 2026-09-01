@@ -172,15 +172,13 @@
     "planRestartWarning": "Dabei wird der Probe-Dienst neu gestartet. Er verbindet sich danach wieder.",
     "configure": "Konfiguration anwenden",
     "unenroll": "Ausbinden",
-    "unenrollWarning": "Damit werden Management-Zugang und Inventar für {{probe}} entfernt. Ohne weitere Auswahl läuft die Probe weiter und bleibt mit NATS verbunden.",
+    "unenrollWarning": "Damit werden Management-Zugang, Inventar und NATS-Konto von {{probe}} entfernt. Die Probe verliert ihre Verbindung; bindest du sie später neu ein, bekommt sie einen neuen PRTG Access Key.",
     "cleanup": {
       "legend": "Zusätzlich aufräumen",
       "removeSensors": "Sensoren entfernen",
       "removeSensorsHint": "Nimmt alle {{count}} Sensoren von der Probe: Dienste, sudo-Regeln, Konfiguration und Zugangsdaten.",
       "uninstallMpp": "Probe-Software deinstallieren",
       "uninstallMppHint": "Entfernt das Paket prtgmpprobe, seine Konfiguration samt NATS-CA und die Paessler-Paketquelle.",
-      "deleteAccount": "NATS-Konto löschen",
-      "deleteAccountHint": "Die Probe verliert damit sofort ihre Verbindung und meldet nicht mehr an PRTG.",
       "sensorsSurviveHint": "Die Sensoren bleiben ohne Probe-Software als funktionslose Dienste zurück."
     },
     "executePlan": "Abweichungen jetzt beheben",
@@ -241,8 +239,8 @@
         "toDeploy": "Sensor ausrollen"
       },
       "fields": {
-        "account": "NATS-Konto",
-        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird angelegt, falls es noch nicht existiert.",
+        "account": "Name",
+        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird auch der Name des NATS-Kontos, das die Probe automatisch bekommt.",
         "probeName": "Probenname (optional)",
         "probeNameHint": "Was PRTG anzeigt. Wird aus dem Hostnamen abgeleitet, wenn leer. Keine Leerzeichen.",
         "host": "Adresse (optional)",
@@ -669,7 +667,8 @@
       "credential": {
         "rotated_server": "Serverseitige Zugangsdaten für {{probe}} rotiert",
         "manual_followup": "{{probe}} hat keine eingebundene Probe; das neue Kennwort im PRTG Core eintragen",
-        "deleted": "NATS-Konto {{probe}} gelöscht"
+        "deleted": "NATS-Konto {{probe}} gelöscht",
+        "kept_last": "Das NATS-Konto von {{probe}} ist das letzte - es bleibt bestehen, damit NATS nicht ohne Konto dasteht"
       },
       "stack": {
         "backup_taken": "Runtime als {{archive}} gesichert",
@@ -1303,7 +1302,8 @@
     "deleteBlockedProbe": "Für dieses Konto ist eine Probe eingebunden.",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Kennwort für {{account}}",
-    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
+    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen.",
+    "autoHint": "Konten eingebundener Probes entstehen und verschwinden mit der Probe. Hier verwaltest du nur, was darüber hinausgeht - etwa das Konto des PRTG-Core."
   },
   "updates": {
     "title": "Updates",

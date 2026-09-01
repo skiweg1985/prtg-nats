@@ -109,12 +109,14 @@ async def test_a_full_cleanup_clears_the_probe_before_it_revokes_access(
             "uninstall_mpp",
             "revoke_access",
             "remove_inventory",
+            "delete_account",
         ]
 
     probes = project_dir / "runtime" / "probes"
     assert not (probes / f"{PROBE}.env").exists()
     assert not (probes / f"{PROBE}.sensors").exists()
-    # The account is a separate decision and was not asked for here.
+    # The account would go too, but this one is the last the server has -
+    # it is kept with a warning rather than failing the retirement.
     assert (project_dir / "runtime" / "credentials" / f"{PROBE}.env").is_file()
 
 
@@ -186,31 +188,54 @@ async def test_a_probe_that_cannot_be_cleaned_up_keeps_its_access(
 
 async def test_the_last_nats_account_survives_the_probe_that_used_it(
     client: AsyncClient,
+    settings: Settings,
     project_dir: Path,
     transport: ScriptedTransport,
 ) -> None:
-    """Refused before the job starts, not once the access is already gone."""
+    """The retirement finishes; the last account stays, with a warning.
+
+    Failing would arrive after the probe has already lost its access, and a
+    server without any account refuses to reload - so the exception lives in
+    the job, not as a refusal at the door.
+    """
     write_probe_inventory(project_dir, PROBE)
     await sign_in(client)
     probe_id = await probe_id_of(client)
 
-    refused = await client.request(
-        "DELETE", f"/api/v1/probes/{probe_id}", params={"delete_account": True}
-    )
-    assert refused.status_code == 409, refused.text
-    assert transport.commands() == []
-    assert (project_dir / "runtime" / "probes" / f"{PROBE}.env").is_file()
+    accepted = await client.request("DELETE", f"/api/v1/probes/{probe_id}")
+    assert accepted.status_code == 202, accepted.text
+
+    await drain(build_runner(settings, transport))
+
+    assert not (project_dir / "runtime" / "probes" / f"{PROBE}.env").exists()
+    assert (project_dir / "runtime" / "credentials" / f"{PROBE}.env").is_file()
 
 
-async def test_a_plain_unenroll_still_only_revokes_and_forgets(
+async def test_the_account_goes_with_the_probe(
     client: AsyncClient,
     settings: Settings,
     project_dir: Path,
     transport: ScriptedTransport,
 ) -> None:
-    """The default stays what it was: the probe keeps running and reporting."""
+    """The account was created by the enrolment, so retiring takes it back.
+
+    It used to be a checkbox, which meant every retirement quietly left a
+    working NATS credential behind unless somebody remembered to tick it.
+    """
     write_probe_inventory(project_dir, PROBE, sensors=("internet-speed",))
     write_sensor(project_dir, "internet-speed")
+    # A second live account, so the one being removed is not the last.
+    core = project_dir / "runtime" / "credentials" / "prtg-nats.env"
+    core.write_text(
+        "NATS_FQDN=nats.example.test\nNATS_PORT=23561\n"
+        "NATS_USERNAME=prtg-nats\n"
+        "NATS_PASSWORD=fedcba9876543210fedcba9876543210\n",
+        encoding="utf-8",
+    )
+    (project_dir / "runtime" / "auth-users").mkdir(parents=True, exist_ok=True)
+    (project_dir / "runtime" / "auth-users" / "prtg-nats.auth").write_text(
+        "user: prtg-nats\n", encoding="utf-8"
+    )
     await sign_in(client)
     probe_id = await probe_id_of(client)
 
@@ -220,7 +245,9 @@ async def test_a_plain_unenroll_still_only_revokes_and_forgets(
     await drain(build_runner(settings, transport))
 
     assert transport.commands() == ["unenroll"]
-    assert (project_dir / "runtime" / "credentials" / f"{PROBE}.env").is_file()
+    assert not (project_dir / "runtime" / "credentials" / f"{PROBE}.env").exists()
+    # The other account is untouched.
+    assert core.is_file()
 
 
 async def test_retiring_a_probe_takes_its_overlay_peer_with_it(

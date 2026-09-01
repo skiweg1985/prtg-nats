@@ -172,15 +172,13 @@
     "planRestartWarning": "This restarts the probe service. It reconnects afterwards.",
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
-    "unenrollWarning": "This removes the management access and the inventory for {{probe}}. With nothing else selected, the probe keeps running and stays connected to NATS.",
+    "unenrollWarning": "This removes the management access, the inventory and the NATS account of {{probe}}. The probe loses its connection; enrolling it again later hands it a new PRTG access key.",
     "cleanup": {
       "legend": "Also clear",
       "removeSensors": "Remove sensors",
       "removeSensorsHint": "Takes all {{count}} sensors off the probe: services, sudo rules, configuration and credentials.",
       "uninstallMpp": "Uninstall probe software",
       "uninstallMppHint": "Removes the prtgmpprobe package, its configuration including the NATS CA, and the Paessler package source.",
-      "deleteAccount": "Delete NATS account",
-      "deleteAccountHint": "The probe loses its connection immediately and stops reporting to PRTG.",
       "sensorsSurviveHint": "Without the probe software the sensors stay behind as services nothing calls."
     },
     "executePlan": "Fix deviations now",
@@ -241,8 +239,8 @@
         "toDeploy": "Deploy a sensor"
       },
       "fields": {
-        "account": "NATS account",
-        "accountHint": "Lower-case letters, digits and hyphens. Created if it does not exist yet.",
+        "account": "Name",
+        "accountHint": "Lower-case letters, digits and hyphens. Also becomes the name of the NATS account the probe gets automatically.",
         "probeName": "Probe name (optional)",
         "probeNameHint": "What PRTG shows. Derived from the host name if left empty. No spaces.",
         "host": "Address (optional)",
@@ -669,7 +667,8 @@
       "credential": {
         "rotated_server": "Server-side credentials for {{probe}} rotated",
         "manual_followup": "{{probe}} has no enrolled probe; update the PRTG core with the new password",
-        "deleted": "NATS account {{probe}} deleted"
+        "deleted": "NATS account {{probe}} deleted",
+        "kept_last": "The NATS account of {{probe}} is the last one - it stays, so NATS is not left without any account"
       },
       "stack": {
         "backup_taken": "Runtime archived as {{archive}}",
@@ -1303,7 +1302,8 @@
     "deleteBlockedProbe": "A probe is enrolled for this account.",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
-    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
+    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog.",
+    "autoHint": "Accounts of enrolled probes come and go with the probe. This page manages what goes beyond that - the PRTG core account, for instance."
   },
   "updates": {
     "title": "Updates",
