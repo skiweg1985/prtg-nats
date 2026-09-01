@@ -22,6 +22,7 @@ import {
   Input,
   Mono,
 } from '@/components/ui/primitives'
+import { CopyButton } from '@/components/ui/CopyBlock'
 
 /**
  * NATS account management - what `prtg-nats user …` used to be.
@@ -170,13 +171,7 @@ export function CredentialsPage() {
           <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
           <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
             <Mono className="min-w-0 flex-1 break-all">{revealed.password}</Mono>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(revealed.password)}
-            >
-              {t('common.copy')}
-            </Button>
+            <CopyButton value={revealed.password} />
           </div>
           <div className="mt-4 flex justify-end">
             <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>

@@ -46,6 +46,7 @@ import {
   Mono,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
 
@@ -509,13 +510,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
           </p>
           <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
             <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(accessKey)}
-            >
-              {t('common.copy')}
-            </Button>
+            <CopyButton value={accessKey} />
           </div>
           <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
           <div className="mt-4 flex items-center justify-between gap-2">
@@ -1163,9 +1158,9 @@ function SensorVariantRows({
           {held.map((variant) => (
             <li key={variant.name} className="flex flex-wrap items-center gap-2">
               <Mono>{variant.name}</Mono>
-              <code className="bg-surface-2 rounded-inset text-ink px-1.5 py-0.5 font-mono text-xs">
+              <InlineCode>
                 {variant.parameter_line}
-              </code>
+              </InlineCode>
             </li>
           ))}
         </ul>
@@ -1253,9 +1248,9 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
                     {t('infrastructure.iperf.noParameterNeeded')}
                   </Badge>
                 ) : (
-                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                  <InlineCode>
                     {holder.parameter_line}
-                  </code>
+                  </InlineCode>
                 ))}
             </li>
           )

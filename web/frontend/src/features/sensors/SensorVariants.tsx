@@ -24,6 +24,7 @@ import {
   Mono,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, formatDateTime, shortFingerprint } from '@/utils/format'
 
 /** A variant name has to survive as a file name and as a PRTG parameter. */
@@ -122,24 +123,16 @@ export function SensorVariants({
                 {/* What to paste into PRTG - the point where the variant
                     actually arrives at the sensor. */}
                 <span>
-                  <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+                  <InlineCode>
                     {variant.parameter_line}
-                  </code>
+                  </InlineCode>
                   {needsInterface && (
                     <span className="text-ink-3 block text-right text-xs">
                       {t('sensors.variants.interfaceSuffix')}
                     </span>
                   )}
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(variant.parameter_line)
-                  }
-                >
-                  {t('common.copy')}
-                </Button>
+                <CopyButton value={variant.parameter_line} />
                 <PermissionGate permission="sensor.configure">
                   <Button size="sm" variant="ghost" onClick={() => setEditing(variant.name)}>
                     {t('common.edit')}

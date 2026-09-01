@@ -20,6 +20,7 @@ import {
   Mono,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, shortFingerprint } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
@@ -258,16 +259,10 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         <p className="text-ink-2">{t('sensors.prtg.intro')}</p>
         {basename && (
           <div className="flex items-center gap-2">
-            <code className="bg-surface-2 rounded-inset text-ink px-2 py-1 font-mono text-xs">
+            <InlineCode>
               {basename}
-            </code>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void navigator.clipboard.writeText(basename)}
-            >
-              {t('common.copy')}
-            </Button>
+            </InlineCode>
+            <CopyButton value={basename} />
           </div>
         )}
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
@@ -367,18 +362,10 @@ export function ParameterReference({ schema }: { schema: ParameterSchema | null 
             {t('sensors.reference.recommendedLine')}
           </p>
           <div className="flex items-start gap-2">
-            <code className="text-ink flex-1 font-mono text-xs break-all">
+            <InlineCode className="flex-1">
               {schema.default_parameter_line}
-            </code>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                void navigator.clipboard.writeText(schema.default_parameter_line)
-              }
-            >
-              {t('common.copy')}
-            </Button>
+            </InlineCode>
+            <CopyButton value={schema.default_parameter_line} />
           </div>
         </div>
       )}
@@ -572,16 +559,10 @@ function ParameterBuilder({
 
       {render.data && (
         <div className="bg-surface-2 rounded-inset mt-3 flex items-start gap-2 p-3">
-          <code className="text-ink flex-1 font-mono text-xs break-all">
+          <InlineCode className="flex-1">
             {render.data.parameters || '—'}
-          </code>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => void navigator.clipboard.writeText(render.data.parameters)}
-          >
-            {t('common.copy')}
-          </Button>
+          </InlineCode>
+          <CopyButton value={render.data.parameters} />
         </div>
       )}
       {render.error && <ErrorDetails error={render.error} />}

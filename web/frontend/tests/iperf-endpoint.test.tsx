@@ -274,6 +274,10 @@ describe('IperfPage', () => {
     await user.click(help)
     expect(box).toHaveAttribute('open')
 
+    // The script arrives folded - nobody reads 28 lines of shell in a dialog,
+    // they copy it. Unfold to check the content is really there.
+    await user.click(screen.getAllByRole('button', { name: /show \d+ lines/i })[0])
+
     // The two lines that decide whether the endpoint the record describes can
     // authenticate a probe at all: the hash iperf3 reads, and the service
     // actually started with the credentials.
