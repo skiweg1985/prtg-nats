@@ -94,14 +94,14 @@
     "streams": "Streams",
     "messages": "Messages",
     "storage": "Storage",
-    "endpoint": "Endpoint",
+    "endpoint": "Address",
     "coreAddress": "PRTG core",
     "notConfigured": "This installation has not been set up yet. Run the stack setup on the server first.",
     "natsUnavailable": "The NATS monitoring endpoint did not answer. Container state and probe connections cannot be reported.",
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
     "setupAction": "Initialise now",
-    "pendingEnrolled": "Enrolment open",
+    "pendingEnrolled": "Enrollment open",
     "prtgMissing": "PRTG missing"
   },
   "probes": {
@@ -159,7 +159,7 @@
     "updateHelper": "Update helper",
     "helperOutdatedTitle": "The probe helper is older than this platform",
     "helperOutdatedBody": "It will refuse requests it does not know yet. \"Update helper\" replaces it over the management channel; the probe checks the signature before it writes anything.",
-    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enrol it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
+    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enroll it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
@@ -185,7 +185,7 @@
     "enroll": {
       "action": "Add probe",
       "title": "Add probe",
-      "subtitle": "The probe enrols itself; you run one command on it.",
+      "subtitle": "The probe enrolls itself; you run one command on it.",
       "step1": {
         "title": "1. What this probe becomes",
         "intro": "Nothing reaches the probe yet. This only decides the name it will carry and the NATS account it will connect with.",
@@ -201,12 +201,12 @@
         "expires": "Valid for",
         "expired": "Expired",
         "secretTitle": "Treat the command as a secret",
-        "secretBody": "It carries a single-use invitation. Anyone who can read it can enrol a host under this account until it is used or expires.",
+        "secretBody": "It carries a single-use invitation. Anyone who can read it can enroll a host under this account until it is used or expires.",
         "waiting": "Waiting for the probe",
         "waitingHint": "This page continues on its own as soon as the host reports in.",
-        "revoke": "Cancel invitation",
+        "revoke": "Revoke invitation",
         "deadTitle": "This invitation can no longer be used",
-        "deadBody": "It expired or was cancelled, and the command above would be refused. Create a new invitation to enrol this probe.",
+        "deadBody": "It expired or was revoked, and the command above would be refused. Create a new invitation to enroll this probe.",
         "restart": "New invitation",
         "steps": {
           "install_wireguard": {
@@ -217,8 +217,8 @@
             "title": "Build the tunnel to the platform",
             "note": "The probe reaches the platform afterwards. Check with “sudo wg show” – there has to be a time under “latest handshake”."
           },
-          "enrol": {
-            "title": "Start the enrolment",
+          "enroll": {
+            "title": "Start the enrollment",
             "note": "Fetches the CA first and compares it against the fingerprint below, then installs. This takes a few minutes."
           }
         },
@@ -230,7 +230,7 @@
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
         "donePrtg": "Two steps in PRTG are still missing, and without them the probe never appears there: add the access key as a new line to the core's access-key list, then approve the probe. The probe's own page shows the access key under \"PRTG access key\".",
-        "failedTitle": "The enrolment did not finish",
+        "failedTitle": "The enrollment did not finish",
         "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
         "toProbe": "Open the probe",
         "toProbes": "To the probe list",
@@ -258,10 +258,10 @@
         "ttlHours_other": "{{count}} hours"
       },
       "errors": {
-        "accountTaken": "This account already exists. Pick another name, or enrol the probe that uses it again.",
+        "accountTaken": "This account already exists. Pick another name, or enroll the probe that uses it again.",
         "accountShape": "Lower-case letters, digits and hyphens only, at least two characters.",
         "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
-        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enrol it again under that account, or remove it first to give it a different one."
+        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enroll it again under that account, or remove it first to give it a different one."
       },
       "open": {
         "title": "Open invitations",
@@ -528,12 +528,12 @@
       "verify_access": "Check management access",
       "write_inventory": "Write the inventory",
       "export": "Archive the runtime",
-      "preflight": "Checking preconditions",
-      "fetch": "Fetching from the repository",
+      "preflight": "Check the preconditions",
+      "fetch": "Fetch from the repository",
       "checkout": "Moving the checkout",
-      "build": "Building the images",
-      "recreate": "Recreating the stack",
-      "settle": "Recording the outcome",
+      "build": "Build the images",
+      "recreate": "Recreate the stack",
+      "settle": "Record the outcome",
       "check_helper": "Check the probe helper",
       "configure_probe": "Configure the tunnel",
       "record_peer": "Record the peer",
@@ -623,7 +623,7 @@
         "access_verified": "{{endpoint}}: {{host}} answered over the management channel, iperf3 {{iperf3}}, service {{service}}",
         "seen_from": "{{endpoint}} sees us arrive from {{peer}}, allowed is {{allowed}}",
         "endpoint_ready": "{{endpoint}}: iperf3 set up on {{host}}:{{port}}, user {{username}}",
-        "record_incomplete": "{{endpoint}}: {{host}} already holds the new password but the record was not written; run the enrolment again",
+        "record_incomplete": "{{endpoint}}: {{host}} already holds the new password but the record was not written; run the enrollment again",
         "enrolled": "{{endpoint}} at {{host}} is enrolled",
         "probe_skipped": "{{probe}} skipped: no inventory entry; the credentials for {{endpoint}} stay there",
         "profile_kept": "{{probe}}: {{sensor}} did not let go of the credentials for {{endpoint}}",
@@ -858,7 +858,7 @@
     "containers": "Containers",
     "containersEmpty": "No container of the stack is running.",
     "iperfTitle": "iperf endpoints",
-    "iperfSubtitle": "The counterparts the iperf-throughput sensor measures against",
+    "iperfSubtitle": "The measurement endpoints the iperf-throughput sensor measures against",
     "iperfEmpty": "No measurement endpoint is set up.",
     "expiresIn_one": "Expires in {{count}} day",
     "expiresIn_other": "Expires in {{count}} days",
@@ -973,7 +973,7 @@
       "inviteCreate": "Create the invitation",
       "inviteCreating": "Creating…",
       "inviteCommandIntro": "Run this command on the endpoint host, as a user with sudo. It sets up iperf3, installs the access for this platform and reports back.",
-      "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enrol a host as this endpoint until it is spent or expires.",
+      "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enroll a host as this endpoint until it is spent or expires.",
       "inviteWaiting": "Waiting for the host",
       "inviteDeadTitle": "This invitation can no longer be used",
       "inviteDeadBody": "It expired or was revoked; the command would be refused.",
@@ -1221,10 +1221,10 @@
       "package_missing.action": "Create a fresh invitation and run the command on the probe. The bootstrap skips a package that is already there.",
       "host_key_mismatch": "The host \"{{host}}\" presented a different SSH host key than the one on record.",
       "host_key_mismatch.cause": "Either the host was rebuilt and has new keys, or something else is answering at that address. Pinned: {{pinned}}. Offered: {{offered}}.",
-      "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enrol again; if it was not, stop and investigate.",
+      "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enroll again; if it was not, stop and investigate.",
       "host_already_enrolled": "The address \"{{host}}\" is already enrolled as \"{{probe}}\".",
       "host_already_enrolled.cause": "The management access lives on the host, not in an inventory entry. A second entry for the same address would share it, and retiring either one would revoke it for both - leaving a probe that is connected to NATS and unreachable at the same time.",
-      "host_already_enrolled.action": "Enrol this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrolment installs again."
+      "host_already_enrolled.action": "Enroll this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrollment installs again."
     },
     "nats": {
       "reload_refused": "NATS kept its previous configuration.",
@@ -1258,7 +1258,7 @@
       "unreachable": "The management API cannot be reached."
     },
     "enrollment": {
-      "token_invalid": "This enrolment invitation cannot be used.",
+      "token_invalid": "This enrollment invitation cannot be used.",
       "token_invalid.cause": "It is unknown, expired, already used, or was revoked. An invitation is good for one host, once.",
       "token_invalid.action": "Create a new invitation and run the command it gives you on the host."
     },

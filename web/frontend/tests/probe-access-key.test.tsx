@@ -11,7 +11,7 @@ import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { changeLanguage } from '@/i18n'
 
 /**
- * The last step of an enrolment happens in PRTG by hand: the operator adds the
+ * The last step of an enrollment happens in PRTG by hand: the operator adds the
  * probe's access key to the core's list. Before this the value existed only on
  * the NATS host, so anyone working in the interface had to fall back to a
  * shell. What the tests below pin down is the bargain that makes showing it

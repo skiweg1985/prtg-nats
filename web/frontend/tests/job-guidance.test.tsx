@@ -91,12 +91,12 @@ function wrap(detail: JobDetail) {
 }
 
 describe('the job page names the next step', () => {
-  it('says the two PRTG steps after a successful enrolment', async () => {
+  it('says the two PRTG steps after a successful enrollment', async () => {
     await changeLanguage('en')
     wrap(job({}))
 
     expect(await screen.findByText('The probe is enrolled')).toBeInTheDocument()
-    // The enrolment job names its probe by NATS account, not record id -
+    // The enrollment job names its probe by NATS account, not record id -
     // the link still has to reach the probe's page.
     const link = screen.getByRole('link', { name: 'Open the probe' })
     expect(link).toHaveAttribute('href', '/probes/P1')

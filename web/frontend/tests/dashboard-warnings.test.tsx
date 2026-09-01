@@ -144,7 +144,7 @@ describe('the warnings card', () => {
 })
 
 /**
- * A probe stuck mid-enrolment or never entered in PRTG used to be in no
+ * A probe stuck mid-enrollment or never entered in PRTG used to be in no
  * number at all: "all good" showed over both.
  */
 describe('the probes no status colour counts', () => {
@@ -157,7 +157,7 @@ describe('the probes no status colour counts', () => {
     )
     wrap()
 
-    expect(await screen.findByText('Enrolment open')).toBeInTheDocument()
+    expect(await screen.findByText('Enrollment open')).toBeInTheDocument()
     expect(screen.getByText('PRTG missing')).toBeInTheDocument()
   })
 
@@ -166,7 +166,7 @@ describe('the probes no status colour counts', () => {
     wrap()
 
     await screen.findByText(/certificate/i)
-    expect(screen.queryByText('Enrolment open')).not.toBeInTheDocument()
+    expect(screen.queryByText('Enrollment open')).not.toBeInTheDocument()
     expect(screen.queryByText('PRTG missing')).not.toBeInTheDocument()
   })
 })

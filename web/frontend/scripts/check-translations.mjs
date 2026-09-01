@@ -186,6 +186,43 @@ const AHEAD_OF_THE_INTERFACE = new Set([
   'probes.notes',
 ])
 
+// One term per concept, per language - docs/web/terminology.md is the
+// glossary. A banned word creeping back in is cheaper to catch here than in
+// a review, because the reviewer sees one string and the user sees all of
+// them. Checked as substrings of the VALUES, per language; a key listed in
+// the exceptions may keep the word (quoting a CLI flag, naming PRTG's UI).
+const FORBIDDEN_TERMS = {
+  de: [
+    ['Kennwort', []],
+    ['Anmeldedaten', []],
+    ['Gegenstelle', []],
+    ['enrollier', []],
+    ['Ausrollvorgang', []],
+    [/\bSonde\b/, []],
+  ],
+  en: [
+    [/\benrol(?!l)/, []],
+    ['counterpart', []],
+  ],
+}
+
+for (const [language, rules] of Object.entries(FORBIDDEN_TERMS)) {
+  const flat = tables.get(language)
+  if (!flat) continue
+  for (const [needle, exceptions] of rules) {
+    for (const [key, value] of flat) {
+      if (exceptions.includes(key)) continue
+      const hit =
+        needle instanceof RegExp ? needle.test(value) : value.includes(needle)
+      if (hit) {
+        problems.push(
+          `${language}: "${key}" uses the retired term ${needle} - see docs/web/terminology.md`,
+        )
+      }
+    }
+  }
+}
+
 const unused = [...source.keys()].filter(
   (key) => !isUsed(key) && !AHEAD_OF_THE_INTERFACE.has(key),
 )

@@ -39,7 +39,7 @@ const ISSUED = {
   ca_sha256: 'e7b40c61ca52b201eb3a6b7d57083067283d42a9265c828cebea574796df35a2',
 }
 
-/** What a tunnel enrolment adds: two commands before the one-liner. */
+/** What a tunnel enrollment adds: two commands before the one-liner. */
 const TUNNEL_STEPS = [
   { key: 'install_wireguard', command: 'sudo apt-get install -y wireguard-tools' },
   {
@@ -401,7 +401,7 @@ describe('EnrollWizard', () => {
   it('links to the probe itself, where the access key can be revealed', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
-    // The probe reaches the list through the enrolment that just finished.
+    // The probe reaches the list through the enrollment that just finished.
     server.use(
       http.get('/api/v1/probes', () =>
         HttpResponse.json([
@@ -506,7 +506,7 @@ describe('EnrollWizard', () => {
     )
     wrap()
 
-    // The interface used to recommend re-enrolment in one message and refuse
+    // The interface used to recommend re-enrollment in one message and refuse
     // it in this form; the server always could.
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-rebuilt')
     expect(
@@ -536,7 +536,7 @@ describe('EnrollWizard', () => {
     wrap()
 
     await screen.findByPlaceholderText('mpp-berlin-01')
-    // Nothing to enrol over, and the server would refuse the request - so the
+    // Nothing to enroll over, and the server would refuse the request - so the
     // question is not asked.
     expect(
       screen.queryByLabelText(/cannot reach the platform directly/i),
@@ -562,7 +562,7 @@ describe('EnrollWizard', () => {
     expect(createdBodies[0]).toMatchObject({ overlay_bootstrap: true })
   })
 
-  it('shows a tunnel enrolment as numbered steps, warning only where it belongs', async () => {
+  it('shows a tunnel enrollment as numbered steps, warning only where it belongs', async () => {
     await changeLanguage('en')
     overlay = { enabled: true, peers: [] }
     issuedOverride = { ...ISSUED, setup_steps: TUNNEL_STEPS }
@@ -579,7 +579,7 @@ describe('EnrollWizard', () => {
     // built by the script that is fetched over it.
     expect(await screen.findByText(/Provide WireGuard/i)).toBeInTheDocument()
     expect(screen.getByText(/Build the tunnel/i)).toBeInTheDocument()
-    expect(screen.getByText(/Start the enrolment/i)).toBeInTheDocument()
+    expect(screen.getByText(/Start the enrollment/i)).toBeInTheDocument()
 
     // The key warning sits on the one command that carries a key, not over
     // the whole page.

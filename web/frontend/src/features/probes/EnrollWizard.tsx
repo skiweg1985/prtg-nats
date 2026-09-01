@@ -498,7 +498,7 @@ function CommandStep({
   // command every other probe gets, only pointed at the address.
   const steps = [
     ...(invitation.setup_steps ?? []),
-    { key: 'enrol', command: invitation.command },
+    { key: 'enroll', command: invitation.command },
   ]
   // Expired here, revoked elsewhere - either way the command on screen would
   // be refused, and waiting for a host that can no longer report in is the
