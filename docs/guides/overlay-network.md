@@ -126,8 +126,14 @@ does not have before it could fetch anything - the overlay would fix that, and
 the overlay is what it cannot reach.
 
 For that case, tick **This probe cannot reach the platform directly** when
-creating the invitation. The script then builds the tunnel before its first
-request and does everything else through it.
+creating the invitation. You then get the whole enrolment script as a block to
+paste, not the usual one-liner - the one-liner would have to download the
+script over the very tunnel that script builds.
+
+Paste it into a console on the probe: Raspberry Pi Connect, SSH from inside
+that site, a keyboard in front of it. The block checks its own digest and only
+runs whole, so a paste that arrived truncated is refused rather than half
+executed as root.
 
 What changes, and it is worth knowing before you tick it: the platform
 generates the probe's WireGuard key instead of the probe generating its own,
@@ -140,6 +146,12 @@ Such a probe is always mode `on`, not the site default. `auto` measures the
 direct path once a minute to decide whether to fall back, and here there is no
 direct path to measure - it would also leave NATS off the tunnel for the first
 two minutes, which is exactly when the probe is reporting in.
+
+Such a probe is addressed by IP throughout - `BASE_URL`, the package
+installer and its own NATS configuration. Its site has no name server that
+knows this platform, so `NATS_FQDN` would be a dead end even with the tunnel
+up. The server certificate names `NATS_HOST_IP` as well, so nothing is
+verified less strictly; it is only less readable in a config file.
 
 The probe needs to reach two things for this to work:
 

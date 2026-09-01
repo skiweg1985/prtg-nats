@@ -107,6 +107,33 @@ async def _record_overlay_peer(context: JobContext, username: str) -> None:
     )
 
 
+async def _record_nats_host_override(context: JobContext, username: str) -> None:
+    """Point an outpost at the address, because the name is a dead end there.
+
+    A site with no route to this platform has no name server that knows
+    NATS_FQDN either, so the probe would be configured with something it can
+    never resolve - tunnel or no tunnel. NATS_HOST_IP is what it uses instead,
+    and the server certificate carries that address as a SAN, so the name is
+    the only thing given up.
+    """
+    if not context.payload.get("overlay_bootstrap"):
+        return
+    host_ip = context.runtime.site_settings().nats_host_ip
+    if not host_ip:
+        raise RuntimeStateError(
+            details=(
+                "NATS_HOST_IP is not configured, so this probe has no usable "
+                "address for NATS"
+            )
+        )
+    context.runtime.write_probe_nats_host(username, host_ip)
+    await context.log(
+        "jobs.probe.nats_host_pinned",
+        params={"probe": username, "host": host_ip},
+        target=username,
+    )
+
+
 async def enroll(context: JobContext) -> dict[str, Any]:
     """Take over from the bootstrap script and finish the job."""
     created: dict[str, Any] = {
@@ -241,6 +268,7 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
         params={"username": username, "probe_name": probe_name},
     )
     await _record_overlay_peer(context, username)
+    await _record_nats_host_override(context, username)
 
     # --- 5. The CA ----------------------------------------------------------
     # The bootstrap script already installed it; this proves it over the

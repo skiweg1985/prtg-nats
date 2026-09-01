@@ -103,6 +103,13 @@ class ProbeInventory:
     overlay_public_key: str | None = None
     overlay_mode: str = "off"
     overlay_last_state: str | None = None
+    # What this probe should call the NATS server, where that is not
+    # NATS_FQDN. A site with no route to this platform also has no name server
+    # that knows it, so an outpost enrolled over the tunnel is configured with
+    # NATS_HOST_IP instead - which the server certificate carries as a SAN, so
+    # nothing is given up by using it. Empty everywhere else, and the site
+    # setting is what applies then.
+    nats_host_override: str | None = None
 
     @property
     def has_credentials(self) -> bool:
@@ -355,6 +362,7 @@ class RuntimeFileStore:
             overlay_public_key=values.get("OVERLAY_PUBLIC_KEY") or None,
             overlay_mode=values.get("OVERLAY_MODE") or "off",
             overlay_last_state=values.get("OVERLAY_LAST_STATE") or None,
+            nats_host_override=values.get("NATS_HOST_OVERRIDE") or None,
         )
 
     def probe_username_for_host(
@@ -503,24 +511,30 @@ class RuntimeFileStore:
             f"PROBE_ID={probe_id}\n"
             f"ACCESS_KEY={access_key}\n"
             f"PROBE_NAME={probe_name}\n"
-        ) + self._overlay_lines(read_env_file(path) if path.is_file() else {})
+        ) + self._carried_lines(read_env_file(path) if path.is_file() else {})
         path.touch(mode=0o600, exist_ok=True)
         path.chmod(0o600)
         path.write_text(content, encoding="utf-8")
 
     @staticmethod
-    def _overlay_lines(values: Mapping[str, str]) -> str:
-        """The overlay keys of an inventory file, omitted when there are none.
+    def _carried_lines(values: Mapping[str, str]) -> str:
+        """The keys a reconfiguration must not drop, omitted where unset.
 
-        A probe that has never been on the overlay keeps the file it always
-        had, which is what lets the shell tooling read both without knowing
-        which of the two it is looking at.
+        write_probe_inventory() rewrites the whole file, and these are written
+        by other paths: the overlay peer by its own job, the host override at
+        enrolment. Losing either here would strand the probe behind its own
+        tunnel, or point it at a name its site cannot resolve.
+
+        A probe that has neither keeps the file it always had, which is what
+        lets the shell tooling read both without knowing which it is looking
+        at.
         """
         keys = (
             "OVERLAY_ADDRESS",
             "OVERLAY_PUBLIC_KEY",
             "OVERLAY_MODE",
             "OVERLAY_LAST_STATE",
+            "NATS_HOST_OVERRIDE",
         )
         present = {key: values.get(key, "") for key in keys}
         if not any(present.values()):
@@ -551,6 +565,15 @@ class RuntimeFileStore:
                 "OVERLAY_LAST_STATE": last_state,
             },
         )
+
+    def write_probe_nats_host(self, nats_username: str, host: str) -> None:
+        """Record the address this probe should use instead of NATS_FQDN.
+
+        Written at enrolment for an outpost that reaches this platform only
+        through the tunnel: its site has no name server that knows NATS_FQDN,
+        so the name would be a dead end no matter how good the tunnel is.
+        """
+        self._update_probe_values(nats_username, {"NATS_HOST_OVERRIDE": host})
 
     def clear_probe_overlay(self, nats_username: str) -> None:
         self._update_probe_values(

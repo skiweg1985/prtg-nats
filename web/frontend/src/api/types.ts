@@ -679,6 +679,12 @@ export interface Invitation {
 export interface IssuedInvitation extends Invitation {
   token: string
   command: string
+  /**
+   * True when `command` is the whole enrolment script rather than a one-liner
+   * that fetches it. It then carries the probe's private overlay key, which
+   * is a different kind of secret from an invitation that expires in an hour.
+   */
+  carries_secret?: boolean
   ca_sha256: string
 }
 
