@@ -140,7 +140,7 @@ export function OverlayPage() {
           {t('infrastructure.overlay.disabled.body')}
         </Banner>
       )}
-      {data?.enabled && !data.interface_up && (
+      {data?.enabled && data.interface_up === false && (
         <Banner tone="danger" title={t('infrastructure.overlay.hubDown.title')}>
           {t('infrastructure.overlay.hubDown.body')}
         </Banner>

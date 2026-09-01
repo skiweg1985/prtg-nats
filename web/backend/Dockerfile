@@ -59,9 +59,13 @@ COPY --from=iperf-builder /build/output/tools /tools
 FROM python:3.11-slim-bookworm AS base
 
 # openssh-client: the probe helper channel falls back to it for host-key
-# handling; ca-certificates: outbound TLS for nothing today, for OIDC tomorrow.
+# handling; ca-certificates: outbound TLS for nothing today, for OIDC tomorrow;
+# iproute2: this container shares the host network namespace, so "ip link show"
+# is how it sees whether the overlay interface is up. Without it the check
+# cannot run at all, and an absent tool reads the same as a downed interface.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y openssh-client ca-certificates \
+    && apt-get install --no-install-recommends -y \
+        openssh-client ca-certificates iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \

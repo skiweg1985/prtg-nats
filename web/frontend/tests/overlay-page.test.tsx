@@ -19,6 +19,7 @@ import { changeLanguage } from '@/i18n'
  */
 
 let enabled = true
+let interfaceUp: boolean | null = true
 let modeRequests: unknown[] = []
 let enableRequests: unknown[] = []
 let permissions = ['overlay.read', 'overlay.manage', 'overlay.enable', 'probe.read']
@@ -75,7 +76,7 @@ const server = setupServer(
       hub_address: '10.83.0.1',
       hub_public_key: 'D'.repeat(43) + '=',
       default_mode: 'auto',
-      interface_up: true,
+      interface_up: interfaceUp,
       peers: PEERS,
     }),
   ),
@@ -121,6 +122,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
 afterEach(() => {
   server.resetHandlers()
   enabled = true
+  interfaceUp = true
   modeRequests = []
   enableRequests = []
   permissions = ['overlay.read', 'overlay.manage', 'overlay.enable', 'probe.read']
@@ -168,6 +170,26 @@ describe('the overlay page', () => {
     await user.click(screen.getByRole('button', { name: 'Turn on' }))
 
     expect(enableRequests).toEqual([{ endpoint_host: 'vpn.example.com' }])
+  })
+
+  it('does not call the hub down when it simply cannot read it', async () => {
+    // The API container answers null when it has no way to look. Painting a
+    // red banner from that reported a healthy hub as broken for everyone who
+    // enabled the overlay.
+    await changeLanguage('en')
+    interfaceUp = null
+    wrap()
+
+    expect(await screen.findByText('mpp-berlin')).toBeInTheDocument()
+    expect(screen.queryByText(/hub interface is not up/i)).not.toBeInTheDocument()
+  })
+
+  it('does call it down when it is', async () => {
+    await changeLanguage('en')
+    interfaceUp = false
+    wrap()
+
+    expect(await screen.findByText(/hub interface is not up/i)).toBeInTheDocument()
   })
 
   it('hides the switch from anyone who may not press it', async () => {

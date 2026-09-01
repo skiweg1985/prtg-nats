@@ -147,7 +147,12 @@ class StackVerification:
             ]
             if missing:
                 problems.append(f"not in the hub configuration: {', '.join(missing)}")
-        if not overlay.interface_up():
+        interface_up = overlay.interface_up()
+        if interface_up is None:
+            problems.append(
+                "the hub interface cannot be read from here; iproute2 is missing"
+            )
+        elif not interface_up:
             problems.append("the hub interface is not up")
 
         return CheckResult(

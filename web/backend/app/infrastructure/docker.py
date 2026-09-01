@@ -379,6 +379,20 @@ class DockerAdapter:
                 json={
                     "Image": OVERLAY_IMAGE,
                     "Env": [f"OVERLAY_INTERFACE={OVERLAY_INTERFACE}"],
+                    # Lost when this moved off compose, and worth having back:
+                    # the entrypoint waits for a configuration before it brings
+                    # the interface up, so "running" and "carrying a tunnel"
+                    # are not the same state. Durations are nanoseconds.
+                    "Healthcheck": {
+                        "Test": [
+                            "CMD-SHELL",
+                            f"wg show {OVERLAY_INTERFACE} >/dev/null 2>&1",
+                        ],
+                        "Interval": 30_000_000_000,
+                        "Timeout": 5_000_000_000,
+                        "StartPeriod": 20_000_000_000,
+                        "Retries": 3,
+                    },
                     "HostConfig": {
                         "Binds": [f"{overlay_dir}:/etc/wireguard:ro"],
                         "NetworkMode": "host",

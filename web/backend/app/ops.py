@@ -251,7 +251,7 @@ async def _cmd_overlay(args: argparse.Namespace) -> None:
         print(f"Subnet:      {hub.subnet}")
         print(f"Hub address: {hub.hub_address}")
         print(f"Hub key:     {hub.hub_public_key or '-'}")
-        print(f"Interface:   {'up' if hub.interface_up else 'down'}")
+        print(f"Interface:   {_interface_state(hub.interface_up)}")
         print(f"Default:     {hub.default_mode}")
         if not hub.peers:
             print("\nNo probe is on the overlay yet.")
@@ -288,6 +288,13 @@ async def _cmd_overlay(args: argparse.Namespace) -> None:
         print(f"NATS path:  {'tunnel' if state.route_active else 'direct'}")
         print(f"Direct was: {state.direct_ok}")
         return
+
+
+def _interface_state(up: bool | None) -> str:
+    """Three answers, because "cannot tell" is not "down"."""
+    if up is None:
+        return "unknown (this container cannot read it)"
+    return "up" if up else "down"
 
 
 def _helper_client(settings: Settings) -> ProbeHelperClient:

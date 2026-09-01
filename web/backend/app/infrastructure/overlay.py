@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import shutil
 import subprocess
 from base64 import b64decode, b64encode
 from collections.abc import Iterable
@@ -36,11 +37,14 @@ from app.core.errors import (
     RuntimeStateError,
     ValidationFailedError,
 )
+from app.core.logging import get_logger
 from app.infrastructure.runtime_files import (
     RuntimeFileStore,
     overlay_address_at,
     read_env_file,
 )
+
+logger = get_logger(__name__)
 
 INTERFACE = "prtgnats0"
 # A WireGuard key is 32 raw bytes; base64 makes that 44 characters with one
@@ -173,7 +177,8 @@ class OverlayStatus:
     settings: OverlaySettings
     hub_public_key: str | None
     peers: tuple[OverlayPeer, ...]
-    interface_up: bool
+    # None where the container could not tell - not the same as "down".
+    interface_up: bool | None
 
     @property
     def enabled(self) -> bool:
@@ -370,21 +375,34 @@ class OverlayRuntime:
 
     # --- Status -------------------------------------------------------------
 
-    def interface_up(self) -> bool:
-        """Whether the hub interface exists in this network namespace.
+    def interface_up(self) -> bool | None:
+        """Whether the hub interface exists in this network namespace, or None
+        when this container cannot tell.
 
-        The API container shares the host namespace with the hub, so this is
-        the real interface and not a guess from the configuration file.
+        The API container shares the host namespace with the hub, so a reading
+        here is the real interface and not a guess from the configuration file.
+
+        Three states rather than two, and that is the point. This used to name
+        "/sbin/ip" outright, the image did not carry iproute2, and the
+        FileNotFoundError landed in the same branch as a downed interface - so
+        a healthy hub was reported as down on the page, in verify and on the
+        command line, with nothing anywhere to say why. A tool that is not
+        there is not an answer about the interface, and saying so beats
+        guessing in either direction.
         """
+        executable = shutil.which("ip")
+        if executable is None:
+            logger.warning("cannot read the overlay interface: iproute2 is missing")
+            return None
         try:
-            result = subprocess.run(  # noqa: S603 - fixed argv, no shell
-                ["/sbin/ip", "link", "show", INTERFACE],
+            result = subprocess.run(  # noqa: S603 - resolved argv, no shell
+                [executable, "link", "show", INTERFACE],
                 capture_output=True,
                 timeout=5,
                 check=False,
             )
         except (OSError, subprocess.SubprocessError):
-            return False
+            return None
         return result.returncode == 0
 
     def status(self) -> OverlayStatus:

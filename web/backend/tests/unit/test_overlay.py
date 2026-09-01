@@ -300,3 +300,45 @@ async def test_the_ordinary_address_is_tried_when_the_tunnel_does_not_answer(
             connection, HelperRequest(command=HelperCommand.PROBE_INFO), 30
         )
     assert attempted == ["10.83.1.0"]
+
+
+def test_a_missing_tool_is_not_a_downed_interface(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, project_dir
+) -> None:
+    """The bug this exists for: the check named /sbin/ip outright, the API
+    image did not carry iproute2, and the FileNotFoundError arrived in the
+    same branch as a downed interface. A healthy hub was reported as down on
+    the page, in verify and on the command line, with nothing to say why."""
+    import shutil
+
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    assert overlay.interface_up() is None
+    # And it reaches the caller as the third state rather than collapsing.
+    assert overlay.status().interface_up is None
+
+
+def test_a_readable_interface_still_answers_yes_or_no(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, project_dir
+) -> None:
+    import shutil
+    import subprocess
+
+    _enable(project_dir, settings)
+    overlay = OverlayRuntime(settings)
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/sbin/ip")
+
+    def answer(code: int):
+        def run(
+            *_args: object, **_kwargs: object
+        ) -> subprocess.CompletedProcess[bytes]:
+            return subprocess.CompletedProcess(args=[], returncode=code)
+
+        return run
+
+    monkeypatch.setattr(subprocess, "run", answer(0))
+    assert overlay.interface_up() is True
+    monkeypatch.setattr(subprocess, "run", answer(1))
+    assert overlay.interface_up() is False

@@ -81,6 +81,25 @@ NATS port. If a deny rule with application `unknown-tcp` matches, allow the
 session or add an application definition for NATS. Certificates, credentials
 and configuration are fine in this case and need no change.
 
+### The overlay page says the hub is down, and it is not
+
+Check the host, not the page:
+
+```bash
+docker ps --filter name=prtg-nats-overlay
+ip -brief addr show prtgnats0
+```
+
+An interface with the hub address on it means the hub is fine and the reading
+is wrong. That happens on an API image built before this was fixed: the check
+runs `ip link show` in the API container, which shares the host's network
+namespace, and the image did not carry `iproute2` - so the tool being absent
+arrived as "the interface is down".
+
+`sudo ./prtg-nats update` rebuilds the image and the banner goes. A container
+that still cannot read it now says so in `verify` as "the hub interface cannot
+be read from here" rather than claiming it is down.
+
 ### The overlay is up but nothing passes through it
 
 Look at the handshake age first: `./prtg-nats overlay show USER`. An

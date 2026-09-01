@@ -108,6 +108,13 @@ def settings(project_dir: Path) -> Iterator[Settings]:
         # want them; a background task under every test makes failures hard to
         # attribute.
         "PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS": "3600",
+        # A path that does not exist, so DockerAdapter.available is False and
+        # the suite behaves the same whether or not the machine running it has
+        # a Docker daemon. Without this, anything that reaches for Docker
+        # quietly talks to the developer's real one - which is how a test can
+        # pass on one machine and fail on the next for no reason in the diff.
+        # The test that deliberately drives the real API brings its own path.
+        "PRTG_NATS_WEB_DOCKER_SOCKET": str(project_dir / "no-docker.sock"),
     }
     previous = {key: os.environ.get(key) for key in overrides}
     os.environ.update(overrides)
