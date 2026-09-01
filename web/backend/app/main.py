@@ -44,6 +44,7 @@ from app.workers.inventory_sync import InventorySync
 from app.workers.job_runner import JobRunner
 from app.workers.stack_recovery import settle_interrupted_update
 from app.workers.update_check import UpdateCheck
+from app.workers.watch_ingest import WatchIngest
 
 # Imported for the side effect of registering every model with the metadata.
 # Bound to a private name rather than imported as `app.persistence.models`,
@@ -116,10 +117,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     updates = UpdateCheck(settings=settings, docker=docker)
+    watch = WatchIngest(settings=settings, runtime=runtime)
 
     app.state.job_runner = runner
     app.state.inventory_sync = sync
     app.state.update_check = updates
+    app.state.watch_ingest = watch
 
     # Before the runner, and that order is load-bearing. An update replaces
     # this container while its job is still running, so on the way back up
@@ -156,6 +159,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await runner.start()
     await sync.start()
     await updates.start()
+    # Last, and never fatal: an installation with no watched devices has
+    # nothing to receive, and one whose NATS server is not up yet gets its
+    # connection on a later tick.
+    await watch.start()
     logger.info(
         "application started",
         extra={
@@ -168,6 +175,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await watch.stop()
         await updates.stop()
         await sync.stop()
         await runner.stop()

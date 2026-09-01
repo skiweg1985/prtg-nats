@@ -21,6 +21,12 @@ from app.persistence.models.inventory import (
 )
 from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
 from app.persistence.models.updates import StackUpdate, StackVersion
+from app.persistence.models.watch import (
+    WatchDevice,
+    WatchLatencyBucket,
+    WatchObservation,
+    WatchStateInterval,
+)
 
 __all__ = [
     "Alert",
@@ -43,5 +49,9 @@ __all__ = [
     "StackUpdate",
     "StackVersion",
     "UserRole",
+    "WatchDevice",
+    "WatchLatencyBucket",
+    "WatchObservation",
+    "WatchStateInterval",
     "WebUser",
 ]

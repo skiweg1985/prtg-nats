@@ -142,3 +142,24 @@ class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
+
+
+class WatchCheckMethod(StrEnum):
+    """How a watched device is asked whether it is there."""
+
+    ICMP = "icmp"  # echo request, the only method that needs no open port
+    TCP = "tcp"  # connect and hang up, for anything that answers ICMP badly
+
+
+class WatchState(StrEnum):
+    """What a watched device is doing, as far as anybody measured.
+
+    ``UNKNOWN`` is not a third kind of broken. It means nobody looked - the
+    probe stopped reporting, or the device was only just added. Keeping it
+    apart from ``DOWN`` is what stops a branch office losing its uplink from
+    reading as every device in it being switched off.
+    """
+
+    UP = "up"
+    DOWN = "down"
+    UNKNOWN = "unknown"
