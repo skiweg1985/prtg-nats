@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 
 import {
   useDeleteSensorProfile,
@@ -28,17 +27,18 @@ import {
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, formatDateTime, shortFingerprint } from '@/utils/format'
 
+import { fieldDescription, fieldLabel } from './parameterFields'
+
+/** fieldDescription returns '' where this dialog wants undefined. */
+function hintOf(
+  t: Parameters<typeof fieldDescription>[0],
+  field: Parameters<typeof fieldDescription>[1],
+) {
+  return fieldDescription(t, field) || undefined
+}
+
 /** A variant name has to survive as a file name and as a PRTG parameter. */
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
-
-function label(t: TFunction, field: { name: string; label_key?: string }) {
-  return field.label_key ? t(field.label_key, field.name) : field.name
-}
-
-function hint(t: TFunction, field: { description?: string; description_key?: string }) {
-  if (field.description_key) return t(field.description_key, field.description ?? '')
-  return field.description || undefined
-}
 
 /**
  * The variants of one sensor: one SSID, one measurement endpoint, one site.
@@ -391,11 +391,11 @@ function VariantDialog({
               {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
-                  label={label(t, field)}
+                  label={fieldLabel(t, field)}
                   hint={
                     stored?.secrets_set.includes(field.name)
                       ? t('sensors.variants.secretStored')
-                      : hint(t, field)
+                      : hintOf(t, field)
                   }
                 >
                   <Input
@@ -423,7 +423,7 @@ function VariantDialog({
                 return (
                   <Field
                     key={field.name}
-                    label={label(t, field)}
+                    label={fieldLabel(t, field)}
                     hint={
                       files[field.name]
                         ? files[field.name].name
@@ -431,7 +431,7 @@ function VariantDialog({
                           ? t('sensors.variants.fileStored', {
                               fingerprint: shortFingerprint(uploaded.sha256),
                             })
-                          : hint(t, field)
+                          : hintOf(t, field)
                     }
                   >
                     <input
@@ -518,8 +518,8 @@ function ProfileInput({
   const { t } = useTranslation()
   return (
     <Field
-      label={label(t, field) + (field.required ? ' *' : '')}
-      hint={hint(t, field)}
+      label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+      hint={hintOf(t, field)}
     >
       {field.type === 'choice' ? (
         <Select

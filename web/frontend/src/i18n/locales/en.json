@@ -360,28 +360,11 @@
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
     "parametersResult": "Parameter line for PRTG",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
-    "noParameterSchema": "This sensor does not ship a parameter schema. Its README lists the options.",
     "reference": {
-      "title": "Parameters of this sensor",
-      "intro": "What the sensor accepts, what it requires, and what the values mean.",
       "recommendedLine": "Recommended start of the parameter line",
-      "required": "Required",
-      "repeatable": "Repeatable",
       "fromVariant": "From variant: {{key}}",
-      "fromPrtg": "PRTG substitutes this value itself. It is not typed out and does not appear in the sensor settings.",
-      "columns": {
-        "name": "Parameter",
-        "type": "Type or values",
-        "default": "Default",
-        "description": "Meaning"
-      },
-      "types": {
-        "string": "Text",
-        "integer": "Integer",
-        "boolean": "Switch",
-        "choice": "Choice"
-      },
-      "movedSection": "Moved parameters (rejected by the sensor)"
+      "movedSection": "Moved parameters (rejected by the sensor)",
+      "fromPrtgSection": "Parameters PRTG fills in itself"
     },
     "installedOn": "Installed on these probes",
     "remove": "Remove",

@@ -360,28 +360,11 @@
     "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
     "parametersResult": "Parameterzeile für PRTG",
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
-    "noParameterSchema": "Dieser Sensor liefert kein Parameterschema mit. Die Optionen stehen in seiner README.",
     "reference": {
-      "title": "Parameter dieses Sensors",
-      "intro": "Was der Sensor annimmt, was er annehmen muss und was die Werte bedeuten.",
       "recommendedLine": "Empfohlener Anfang der Parameterzeile",
-      "required": "Pflicht",
-      "repeatable": "Mehrfach",
       "fromVariant": "Aus Variante: {{key}}",
-      "fromPrtg": "PRTG setzt diesen Wert selbst ein. Er wird nicht eingetippt und steht nicht in den Sensoreinstellungen.",
-      "columns": {
-        "name": "Parameter",
-        "type": "Typ bzw. Werte",
-        "default": "Standard",
-        "description": "Bedeutung"
-      },
-      "types": {
-        "string": "Text",
-        "integer": "Ganzzahl",
-        "boolean": "Schalter",
-        "choice": "Auswahl"
-      },
-      "movedSection": "Verschobene Parameter (werden abgelehnt)"
+      "movedSection": "Verschobene Parameter (werden abgelehnt)",
+      "fromPrtgSection": "Von PRTG belegte Parameter"
     },
     "installedOn": "Installiert auf diesen Probes",
     "remove": "Entfernen",
