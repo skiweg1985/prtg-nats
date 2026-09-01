@@ -93,6 +93,7 @@ export function SensorListPage() {
         row.outdated_on > 0 ? (
           <button
             type="button"
+            className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
             onClick={(event) => {
               event.stopPropagation()
               setUpdating(row.name)

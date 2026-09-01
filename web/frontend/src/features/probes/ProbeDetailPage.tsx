@@ -655,7 +655,7 @@ function InterfacesCard({
       header: t('probes.interfaces.columns.reserved'),
       cell: (row) =>
         row.reserved_by ? (
-          <Badge tone="accent">{row.reserved_by}</Badge>
+          <Badge tone="accent" quiet>{row.reserved_by}</Badge>
         ) : (
           <span className="text-ink-3">{t('probes.interfaces.free')}</span>
         ),
@@ -669,7 +669,7 @@ function InterfacesCard({
             <Badge tone="danger">{t('probes.interfaces.defaultRoute')}</Badge>
           ) : null}
           {row.connection ? (
-            <Badge tone="warn">{row.connection}</Badge>
+            <Badge tone="warn" quiet>{row.connection}</Badge>
           ) : null}
           {!row.carries_default_route && !row.connection ? (
             <span className="text-ink-3">—</span>

@@ -61,7 +61,11 @@ function StepChip({ step }: { step: JobStep }) {
           : 'neutral'
 
   return (
-    <Badge tone={tone} className={step.status === 'skipped' ? 'opacity-50' : undefined}>
+    <Badge
+      tone={tone}
+      quiet
+      className={step.status === 'skipped' ? 'opacity-50' : undefined}
+    >
       <Dot tone={tone} />
       {t(`jobs.steps.${step.name}`, step.name)}
     </Badge>

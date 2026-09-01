@@ -31,16 +31,23 @@ export function Badge({
   tone = 'neutral',
   children,
   className,
+  quiet,
 }: {
   tone?: Tone
   children: ReactNode
   className?: string
+  /** Sentence-case body text instead of the shouting label style. For chips
+      that carry words a human wrote - step names, connection names - which
+      ALL-CAPS turns into noise. */
+  quiet?: boolean
 }) {
   return (
     <span
       className={clsx(
         'inline-flex items-center gap-1.5 rounded-inset border px-2 py-0.5',
-        'font-mono text-[0.6875rem] tracking-[0.04em] whitespace-nowrap uppercase',
+        quiet
+          ? 'text-xs whitespace-nowrap'
+          : 'font-mono text-[0.6875rem] tracking-[0.04em] whitespace-nowrap uppercase',
         TONE_CLASSES[tone],
         className,
       )}

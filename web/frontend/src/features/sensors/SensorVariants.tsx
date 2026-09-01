@@ -97,7 +97,10 @@ export function SensorVariants({
                   {variant.probes.length === 0 && (
                     // The state and its cure are the same click: deploying a
                     // variant means ticking probes in the edit dialog.
-                    <button type="button" onClick={() => setEditing(variant.name)}>
+                    <button
+                      type="button"
+                      className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
+                      onClick={() => setEditing(variant.name)}>
                       <Badge tone="warn">
                         {t('sensors.variants.notDeployed')}
                       </Badge>
