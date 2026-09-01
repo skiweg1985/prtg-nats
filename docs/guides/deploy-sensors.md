@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # Manage sensor scripts centrally
@@ -658,6 +658,7 @@ profiles and remaining reservations stay untouched.
 | `link-quality` | reachability and quality of the uplink (loss, latency, jitter) | [README](../../sensors/link-quality/README.md) |
 | `iperf-throughput` | the uplink against a self-operated iperf3 endpoint (throughput, loss, jitter, latency) | [README](../../sensors/iperf-throughput/README.md) |
 | `aruba-uplink` | which uplink of an Aruba gateway carries the site (primary and backup, path quality, LTE signal) | [README](../../sensors/aruba-uplink/README.md) |
+| `device-watch` | whether the devices on this site are switched on (printers, card terminals) | [README](../../sensors/device-watch/README.md) |
 
 `internet-speed` and `link-quality` answer two different questions about the
 same line: one asks how much it carries, the other how cleanly it carries.
@@ -668,6 +669,12 @@ and makes telephony unusable.
 [your own endpoint](#measurement-endpoints) instead of the internet: not
 "does the provider deliver the contracted line" but "can the site do its
 work".
+
+`device-watch` is the odd one out, and deliberately so. The others measure
+the line; this one measures what hangs off it, and its results go to this
+platform rather than only to PRTG - it is the collector for the
+[availability dashboard](watching-devices.md). PRTG still gets a summary
+per site, which is the channel to raise an alarm on.
 
 `aruba-uplink` answers a question none of the others can: those three
 describe how well a line carries, it says *which* line that is. Where a
