@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+
+"""Privileged reachability check for the "device-watch" Script v2 sensor.
+
+One echo request per target, several hundred targets at a time, one pass.
+That is the whole job: the sensor asks whether a printer is switched on,
+not how good the line to it is - `link-quality` is the sensor for that
+question, against a handful of targets rather than hundreds.
+
+Started by systemd per connection on /run/prtg-sensor-device-watch.sock;
+stdin and stdout are the socket, the task comes in as JSON and the result
+goes out as JSON. The route over a socket rather than sudo is the same one
+prtg-sensor-link-quality takes, and for the same reason:
+prtg.mpprobe.service runs with NoNewPrivileges=yes, so the kernel ignores
+the setuid bit of sudo and the cap_net_raw of /bin/ping alike.
+
+Why one socket for the whole list rather than one call per device: three
+hundred devices measured one at a time is three hundred round trips through
+systemd's socket activation, and a run that takes longer than the scanning
+interval it was started from. Here every echo request goes out first and
+the answers are collected as they arrive, so the run costs one timeout, not
+three hundred.
+
+It stays callable directly on the command line: whoever runs it as root
+with a JSON task on stdin gets the same answer.
+"""
+
+import errno
+import fcntl
+import json
+import os
+import select
+import socket
+import struct
+import sys
+import time
+
+RUN_DIR = "/run"
+LOCK_PATH = os.path.join(RUN_DIR, "prtg-sensor-device-watch.lock")
+
+ICMP_ECHO_REQUEST = 8
+ICMP_ECHO_REPLY = 0
+ICMP_DESTINATION_UNREACHABLE = 3
+ICMP_TIME_EXCEEDED = 11
+ICMPV6_ECHO_REQUEST = 128
+ICMPV6_ECHO_REPLY = 129
+ICMPV6_DESTINATION_UNREACHABLE = 1
+ICMPV6_TIME_EXCEEDED = 3
+
+# The limits are not a convenience but the protection against this service
+# becoming a load generator. Whoever takes over the probe's service user
+# reaches this socket, and what they can do with it ends here.
+MAX_TARGETS = 500
+MIN_TIMEOUT_MS = 200
+MAX_TIMEOUT_MS = 10000
+MIN_PACKETS = 1
+MAX_PACKETS = 4
+PAYLOAD_BYTES = 32
+# Every packet carries this after its timestamp, and a reply without it is
+# not ours. A raw socket sees every ICMP answer on the host - a concurrent
+# ping(8) that happened to pick the same identifier would otherwise flow
+# into the measurement as a device answering.
+MAGIC = b"prtg-nats-watch"
+# A whole run may not exceed this, whatever the numbers above allow in
+# combination. Longer than the scanning interval it was called from and the
+# sensor would be overtaken by its own next run.
+MAX_RUN_SECONDS = 55
+# One task per connection, and the connection is the whole conversation.
+READ_TIMEOUT_SECONDS = 15
+MAX_REQUEST_BYTES = 256 * 1024
+
+
+def fail(code, message):
+    """Answer with a reason and stop. Never an exit code - the sensor reads
+    this JSON, and a process that only died tells it nothing."""
+    respond({"result": "error", "code": code, "message": message[:500]})
+    sys.exit(0)
+
+
+def respond(document):
+    sys.stdout.write(json.dumps(document))
+    sys.stdout.flush()
+
+
+def read_request():
+    data = bytearray()
+    while True:
+        chunk = sys.stdin.buffer.read(65536)
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > MAX_REQUEST_BYTES:
+            fail("bad-request", "The task is larger than this service accepts.")
+    try:
+        document = json.loads(bytes(data).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        fail("bad-request", "The task is not valid JSON.")
+    if not isinstance(document, dict):
+        fail("bad-request", "The task is not an object.")
+    return document
+
+
+def clamp(value, low, high, default):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+def parse_targets(document):
+    """Validate the target list before a single packet is sent.
+
+    An address is resolved here rather than trusted: the sensor passes what
+    somebody typed into the interface, and a name that does not resolve is a
+    result about that device, not a reason to abandon the whole run.
+    """
+    raw = document.get("targets")
+    if not isinstance(raw, list) or not raw:
+        fail("bad-request", "The task names no targets.")
+    if len(raw) > MAX_TARGETS:
+        fail("bad-request", "At most %d targets per run." % MAX_TARGETS)
+
+    targets = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            fail("bad-request", "A target is not an object.")
+        identifier = entry.get("id")
+        host = entry.get("host")
+        if not isinstance(identifier, str) or not identifier:
+            fail("bad-request", "A target carries no id.")
+        if not isinstance(host, str) or not host:
+            fail("bad-request", "A target carries no host.")
+        targets.append({"id": identifier, "host": host})
+    return targets
+
+
+def resolve(host):
+    """(family, address) for a host, or None with a reason.
+
+    IPv4 first when a name has both: a printer in a branch office is
+    reachable over the address the site actually routes, and that is
+    overwhelmingly v4. A v6-only host still resolves - the preference only
+    decides between two working answers.
+    """
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            info = socket.getaddrinfo(host, None, family, socket.SOCK_DGRAM)
+        except socket.gaierror:
+            continue
+        if info:
+            return info[0][0], info[0][4][0], None
+    return None, None, "unresolved"
+
+
+def checksum(payload):
+    """The internet checksum of RFC 1071."""
+    if len(payload) % 2:
+        payload += b"\x00"
+    total = 0
+    for index in range(0, len(payload), 2):
+        total += (payload[index] << 8) + payload[index + 1]
+    while total >> 16:
+        total = (total & 0xFFFF) + (total >> 16)
+    return ~total & 0xFFFF
+
+
+def build_payload(sent_at=None):
+    """Timestamp first, marker after it, padded to a fixed size.
+
+    The timestamp travels in the packet rather than in a table here: the
+    reply carries it back, so the round-trip time is computed from the
+    packet's own history and a late reply still means something.
+    """
+    payload = struct.pack("!d", time.time() if sent_at is None else sent_at)
+    payload += MAGIC
+    return payload.ljust(PAYLOAD_BYTES, b"\x00")[:PAYLOAD_BYTES]
+
+
+def build_echo(family, identifier, sequence, payload):
+    """One echo request for the given family."""
+    request_type = ICMP_ECHO_REQUEST if family == socket.AF_INET else ICMPV6_ECHO_REQUEST
+    header = struct.pack("!BBHHH", request_type, 0, 0, identifier, sequence)
+    # IPv6 checksums are computed by the kernel over a pseudo header it
+    # alone knows; filling one in here would make the packet invalid.
+    if family == socket.AF_INET:
+        header = struct.pack(
+            "!BBHHH",
+            request_type,
+            0,
+            checksum(header + payload),
+            identifier,
+            sequence,
+        )
+    return header + payload
+
+
+def parse_reply(family, packet):
+    """(identifier, sequence, kind, sent_at) of a reply, or None.
+
+    The identifier comes back out of the packet rather than being tested
+    against a candidate, so attributing a reply is a dictionary lookup in
+    the caller and not a pass over every target - which at five hundred
+    devices is the difference between a linear run and a quadratic one.
+
+    A destination-unreachable or time-exceeded message carries the original
+    request in its body, which is how a router's rejection is attributed to
+    the target it was about instead of being dropped as noise. An echo reply
+    additionally has to carry the marker - see MAGIC.
+    """
+    if family == socket.AF_INET:
+        if len(packet) < 28:
+            return None
+        header_length = (packet[0] & 0x0F) * 4
+        icmp = packet[header_length:]
+        reply_type = ICMP_ECHO_REPLY
+        unreachable = (ICMP_DESTINATION_UNREACHABLE, ICMP_TIME_EXCEEDED)
+    else:
+        icmp = packet
+        reply_type = ICMPV6_ECHO_REPLY
+        unreachable = (ICMPV6_DESTINATION_UNREACHABLE, ICMPV6_TIME_EXCEEDED)
+
+    if len(icmp) < 8:
+        return None
+    message_type = icmp[0]
+
+    if message_type == reply_type:
+        identifier, sequence = struct.unpack("!HH", icmp[4:8])
+        if MAGIC not in icmp[8:]:
+            return None
+        sent_at = None
+        if len(icmp) >= 16:
+            try:
+                (sent_at,) = struct.unpack("!d", icmp[8:16])
+            except struct.error:
+                sent_at = None
+        return identifier, sequence, "echo", sent_at
+
+    if message_type in unreachable:
+        embedded = icmp[8:]
+        if family == socket.AF_INET:
+            if len(embedded) < 28:
+                return None
+            embedded = embedded[(embedded[0] & 0x0F) * 4:]
+        else:
+            if len(embedded) < 48:
+                return None
+            embedded = embedded[40:]
+        if len(embedded) < 8:
+            return None
+        identifier, sequence = struct.unpack("!HH", embedded[4:8])
+        # The marker is not required here: a router only has to quote the
+        # first eight bytes of the packet it rejected, so on many of them
+        # the payload never comes back.
+        return identifier, sequence, "unreachable", None
+
+    return None
+
+
+def open_socket(family):
+    protocol = socket.IPPROTO_ICMP if family == socket.AF_INET else socket.IPPROTO_ICMPV6
+    try:
+        raw = socket.socket(family, socket.SOCK_RAW, protocol)
+    except PermissionError:
+        return None, "no-privileges"
+    except OSError as problem:
+        if problem.errno in (errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT):
+            # A probe without IPv6 is normal, not an error.
+            return None, "unsupported"
+        return None, "socket-failed"
+    raw.setblocking(False)
+    return raw, None
+
+
+def measure(targets, timeout_ms, packets):
+    """Send to every target, then collect whatever comes back.
+
+    The order is the point. Sending first and waiting once means the run
+    costs one timeout however many devices are unreachable - waiting per
+    device would make a rack of switched-off printers take minutes.
+    """
+    results = {}
+    prepared = []
+    for index, target in enumerate(targets):
+        family, address, problem = resolve(target["host"])
+        if problem:
+            results[target["id"]] = {
+                "id": target["id"],
+                "reachable": False,
+                "code": "unresolved",
+                "address": None,
+                "rtt_ms": None,
+            }
+            continue
+        # The identifier is the target's place in the list; the sequence
+        # number is the attempt. Together they name a packet uniquely
+        # without a second lookup table.
+        prepared.append(
+            {
+                "id": target["id"],
+                "family": family,
+                "address": address,
+                "token": index & 0xFFFF,
+            }
+        )
+        results[target["id"]] = {
+            "id": target["id"],
+            "reachable": False,
+            "code": "timeout",
+            "address": address,
+            "rtt_ms": None,
+        }
+
+    if not prepared:
+        return results
+
+    sockets = {}
+    for family in {target["family"] for target in prepared}:
+        raw, problem = open_socket(family)
+        if raw is None:
+            if problem == "no-privileges":
+                fail("no-privileges", "This service is not allowed to open an "
+                                      "ICMP socket.")
+            for target in prepared:
+                if target["family"] == family:
+                    results[target["id"]]["code"] = problem or "socket-failed"
+            continue
+        sockets[family] = raw
+
+    if not sockets:
+        return results
+
+    by_token = {(target["family"], target["token"]): target for target in prepared}
+    deadline = time.time() + min(
+        MAX_RUN_SECONDS, (timeout_ms * packets) / 1000.0 + 1.0
+    )
+
+    try:
+        for sequence in range(packets):
+            for target in prepared:
+                raw = sockets.get(target["family"])
+                if raw is None or results[target["id"]]["reachable"]:
+                    continue
+                packet = build_echo(
+                    target["family"], target["token"], sequence, build_payload()
+                )
+                try:
+                    raw.sendto(packet, (target["address"], 0))
+                except OSError:
+                    # A single address the kernel refuses - no route, an
+                    # interface that just went down - is that device's
+                    # result, not the run's.
+                    results[target["id"]]["code"] = "no-route"
+            collect(sockets, by_token, results, min(
+                deadline, time.time() + timeout_ms / 1000.0
+            ))
+            if all(entry["reachable"] for entry in results.values()):
+                break
+            if time.time() >= deadline:
+                break
+    finally:
+        for raw in sockets.values():
+            raw.close()
+
+    return results
+
+
+def collect(sockets, by_token, results, until):
+    """Read replies until the deadline passes."""
+    readable_sockets = {raw.fileno(): (family, raw) for family, raw in sockets.items()}
+    while True:
+        remaining = until - time.time()
+        if remaining <= 0:
+            return
+        try:
+            ready, _, _ = select.select(list(readable_sockets), [], [], remaining)
+        except OSError:
+            return
+        for descriptor in ready:
+            family, raw = readable_sockets[descriptor]
+            try:
+                packet, source = raw.recvfrom(2048)
+            except OSError:
+                continue
+            parsed = parse_reply(family, packet)
+            if parsed is None:
+                continue
+            token, _sequence, kind, sent_at = parsed
+            target = by_token.get((family, token))
+            if target is None:
+                # Somebody else's ping. The raw socket sees every ICMP
+                # packet on the host, so this is the normal case, not a
+                # problem.
+                continue
+            entry = results[target["id"]]
+            if kind == "echo":
+                entry["reachable"] = True
+                entry["code"] = "ok"
+                if sent_at is not None:
+                    rtt = (time.time() - sent_at) * 1000.0
+                    # A clock that moved under us produces a negative or
+                    # absurd value. Reporting reachable without a time is
+                    # honest; reporting -4 ms is not.
+                    if 0 <= rtt <= 60000:
+                        entry["rtt_ms"] = round(rtt, 3)
+            elif entry["code"] == "timeout":
+                entry["code"] = "unreachable"
+            if source and entry.get("address") is None:
+                entry["address"] = source[0]
+
+
+def take_lock():
+    """One run at a time.
+
+    Two runs would each see the other's echo replies on the raw socket, and
+    a printer would report a round-trip time measured against a packet
+    nobody here sent.
+    """
+    try:
+        handle = open(LOCK_PATH, "w")
+    except OSError:
+        return None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        fail("busy", "Another measurement is already running.")
+    return handle
+
+
+def main():
+    socket.setdefaulttimeout(READ_TIMEOUT_SECONDS)
+    document = read_request()
+
+    action = document.get("action")
+    if action == "self-check":
+        raw, problem = open_socket(socket.AF_INET)
+        if raw is not None:
+            raw.close()
+        if problem == "no-privileges":
+            fail("no-privileges", "No ICMP socket: the service is not "
+                                  "privileged enough.")
+        respond({"result": "ok", "targets": [], "duration_ms": 0})
+        return
+    if action != "measure":
+        fail("bad-request", "Unknown action.")
+
+    targets = parse_targets(document)
+    timeout_ms = clamp(document.get("timeout_ms"), MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, 1500)
+    packets = clamp(document.get("packets"), MIN_PACKETS, MAX_PACKETS, 2)
+
+    lock = take_lock()
+    started = time.time()
+    try:
+        results = measure(targets, timeout_ms, packets)
+    finally:
+        if lock is not None:
+            lock.close()
+
+    respond(
+        {
+            "result": "ok",
+            "duration_ms": int((time.time() - started) * 1000),
+            "targets": [results[target["id"]] for target in targets],
+        }
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as problem:  # noqa: BLE001 - the socket needs an answer
+        # Whatever went wrong, the caller is waiting on this socket and gets
+        # a reason rather than an empty read.
+        fail("internal-error", "%s: %s" % (type(problem).__name__, problem))

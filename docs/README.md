@@ -1,7 +1,7 @@
 ---
 title: Documentation
 role: everyone
-updated: 2026-08-27
+updated: 2026-09-01
 ---
 
 # PRTG-NATS documentation
@@ -22,6 +22,7 @@ German.
 | register one somebody else operates | Deployer | [An iperf endpoint somebody else operates](guides/foreign-iperf-endpoint.md) |
 | connect probes over a WireGuard overlay | Operator | [Connect probes over the overlay](guides/overlay-network.md) |
 | update, back up, restore, or rotate credentials | Operator | [Operations and maintenance](guides/operations.md) |
+| watch whether printers and terminals are switched on | Operator | [Watching devices](guides/watching-devices.md) |
 | decide whether the installation is healthy | Operator | [Monitoring](guides/monitoring.md) |
 | diagnose a failure | Everyone | [Troubleshooting](guides/troubleshooting.md) |
 

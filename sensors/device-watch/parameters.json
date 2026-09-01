@@ -1,0 +1,29 @@
+{
+  "parameters": [
+    {
+      "name": "--timeout-ms",
+      "type": "integer",
+      "default": 1500,
+      "description": "Milliseconds to wait for a single answer."
+    },
+    {
+      "name": "--packets",
+      "type": "integer",
+      "default": 2,
+      "description": "Attempts per device before it counts as unreachable in this run."
+    },
+    {
+      "name": "--config",
+      "type": "string",
+      "group": "internal",
+      "description": "Where the probe's own configuration is, if not the usual place.",
+      "default": "/etc/paessler/mpprobe/config.yaml"
+    },
+    {
+      "name": "--self-check",
+      "type": "boolean",
+      "group": "internal",
+      "description": "Only verify that the sensor is able to run."
+    }
+  ]
+}

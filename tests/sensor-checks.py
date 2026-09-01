@@ -2023,6 +2023,278 @@ def aruba_row(kind, up=True, utilisation="0.07%"):
             "B/w utiln": utilisation}
 
 
+def check_device_watch_output():
+    """Output format and the states a run can end in."""
+    print("\n== device-watch: output for PRTG ==")
+    script = os.path.join(SENSOR_DIR, "device-watch", "script",
+                          "device-watch.py")
+    module = load_module("device_watch", script)
+
+    # No MPP configuration on a development machine, which is the same
+    # situation as a probe whose configuration is unreadable. The sensor
+    # has to say so in channels rather than die.
+    completed = run_script(script, "\n")
+    check("a run without a probe configuration yields exit code 0",
+          completed.returncode, 0)
+    document = json.loads(completed.stdout)
+    check("the answer carries the schema version", document.get("version"), 2)
+    check("a missing configuration is reported as a failure code",
+          failure_code(document), module.FAILURE_CODES["no-config"])
+    check("and the message names the file",
+          module.MPP_CONFIG in document.get("message", ""), True)
+
+    completed = run_script(script, "--totally-unknown\n")
+    document = json.loads(completed.stdout)
+    check("an unknown parameter reports a sensor error",
+          document.get("status"), "error")
+    check("the message names the typo",
+          "--totally-unknown" in document.get("message", ""), True)
+
+    completed = run_script(script, "--timeout-ms 5\n")
+    document = json.loads(completed.stdout)
+    check("a timeout below the limit is refused",
+          failure_code(document), module.FAILURE_CODES["no-config"])
+
+    check_device_watch_config(module)
+    check_device_watch_channels(module)
+    check_device_watch_report(module)
+
+
+def failure_code(document):
+    """The value of the failure-code channel, or None."""
+    for entry in document.get("channels") or []:
+        if entry.get("name") == "Failure Code":
+            return entry.get("value")
+    return None
+
+
+def check_device_watch_config(module):
+    """Reading the probe's own configuration, which is where its access
+    to NATS comes from - it has no credentials of its own."""
+    print("\n== device-watch: the probe's configuration ==")
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "config.yaml")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(
+                "id: 4711\n"
+                "name: Hamburg\n"
+                "nats:\n"
+                "  url: tls://nats.example.test:23561\n"
+                "  authentication:\n"
+                "    user: mpp-hamburg-01\n"
+                "    password: s3cret\n"
+                "  server_ca: /etc/paessler/mpprobe/certs/ca.pem\n"
+                "logging:\n"
+                "  console:\n"
+                "    level: off\n"
+            )
+        config = module.read_mpp_config(path)
+
+    check("the NATS address is read", config["url"],
+          "tls://nats.example.test:23561")
+    # Nested one level deeper than the url, and a parser that loses the
+    # nesting would read "user" out of the wrong section.
+    check("the account is read", config["user"], "mpp-hamburg-01")
+    check("the password is read", config["password"], "s3cret")
+    check("the CA path is read", config["ca"],
+          "/etc/paessler/mpprobe/certs/ca.pem")
+
+    check("the address is split into host, port and TLS",
+          module.split_url("tls://nats.example.test:23561"),
+          ("nats.example.test", 23561, True))
+    check("a plain address is recognised as such",
+          module.split_url("nats://10.0.0.1:4222"), ("10.0.0.1", 4222, False))
+
+    def rejected(url):
+        try:
+            module.split_url(url)
+        except module.ConfigError as problem:
+            return str(problem)
+        return ""
+
+    check("an address without a port is rejected",
+          "no port" in rejected("tls://nats.example.test"), True)
+    check("an unreadable port is rejected",
+          "no usable port" in rejected("tls://nats.example.test:http"), True)
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "config.yaml")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("id: 4711\nname: Hamburg\n")
+        try:
+            module.read_mpp_config(path)
+            missing = ""
+        except module.ConfigError as problem:
+            missing = str(problem)
+    check("a configuration without a NATS server is rejected",
+          "no NATS server" in missing, True)
+
+
+def check_device_watch_channels(module):
+    """What PRTG sees. The channel ids are what carry the history, so a
+    number that moves takes a graph with it."""
+    print("\n== device-watch: channels ==")
+
+    targets = [
+        {"device_id": "a", "address": "10.0.0.1", "method": "icmp"},
+        {"device_id": "b", "address": "10.0.0.2", "method": "icmp"},
+        {"device_id": "c", "address": "10.0.0.3", "method": "icmp"},
+    ]
+    results = {
+        "a": {"reachable": True, "rtt_ms": 1.0, "code": "ok"},
+        "b": {"reachable": False, "code": "timeout"},
+        "c": {"reachable": True, "rtt_ms": 2.0, "code": "ok"},
+    }
+    document = module.present(targets, results, 1200)
+    values = {entry["name"]: entry["value"] for entry in document["channels"]}
+
+    check("every device is counted", values["Devices"], 3)
+    check("the reachable ones are counted", values["Reachable"], 2)
+    check("and so are the others", values["Unreachable"], 1)
+    check("a working run reports no failure", values["Failure Code"], 0)
+    # The names come first in the message: whoever reads it in a
+    # notification wants to know what is gone, not the total.
+    check("the message names what is unreachable",
+          document["message"].startswith("1 of 3 devices unreachable: 10.0.0.2"),
+          True)
+
+    identifiers = [entry["id"] for entry in document["channels"]]
+    check("the channel ids are the documented ones", identifiers,
+          [module.CHANNEL_TOTAL, module.CHANNEL_REACHABLE,
+           module.CHANNEL_UNREACHABLE, module.CHANNEL_FAILURE,
+           module.CHANNEL_DURATION])
+
+    all_up = module.present(targets, {
+        key: {"reachable": True, "rtt_ms": 1.0} for key in ("a", "b", "c")
+    }, 900)
+    check("with everything up the message says so",
+          all_up["message"], "All 3 devices reachable")
+
+    # A probe with nothing assigned is not a broken sensor. It says what
+    # to do instead of showing an alarm nobody can act on.
+    empty = module.present([], {}, 10)
+    check("a probe without devices reports zero, not an error",
+          [entry["value"] for entry in empty["channels"][:3]], [0, 0, 0])
+    check("and the message says where to add them",
+          "Availability" in empty["message"], True)
+
+    # Five names, then a count. A shop with forty printers off must not
+    # produce a message nobody can read.
+    many = [
+        {"device_id": str(index), "address": "10.0.0.%d" % index,
+         "method": "icmp"}
+        for index in range(10)
+    ]
+    crowded = module.present(many, {}, 100)
+    check("a long list of failures is cut off",
+          crowded["message"].endswith("and 5 more"), True)
+
+
+def check_device_watch_report(module):
+    """The report on the wire. The platform refuses anything it cannot
+    read, so the shape is part of the sensor's contract."""
+    print("\n== device-watch: the report ==")
+
+    sent = {}
+
+    class FakeConnection:
+        def publish(self, subject, payload, reply_to=""):
+            sent["subject"] = subject
+            sent["payload"] = json.loads(payload.decode("utf-8"))
+
+        def flush(self):
+            sent["flushed"] = True
+
+    targets = [
+        {"device_id": "a", "address": "10.0.0.1", "method": "icmp"},
+        {"device_id": "b", "address": "printer.local", "method": "icmp"},
+    ]
+    results = {
+        "a": {"reachable": True, "rtt_ms": 1.25, "address": "10.0.0.1"},
+        "b": {"reachable": False, "code": "unresolved", "address": None},
+    }
+    module.send_report(FakeConnection(), "mpp-hamburg-01", "abc123",
+                       targets, results)
+
+    check("the report goes to this probe's own subject", sent["subject"],
+          "prtg-nats.watch.report.mpp-hamburg-01")
+    document = sent["payload"]
+    check("it carries the protocol version", document["version"],
+          module.PROTOCOL_VERSION)
+    check("it names the account", document["account"], "mpp-hamburg-01")
+    check("it carries the revision it measured against",
+          document["revision"], "abc123")
+    check("every device is in it", len(document["results"]), 2)
+
+    first, second = document["results"]
+    check("a reachable device carries its round-trip time",
+          (first["ok"], first["rtt_ms"]), (True, 1.25))
+    check("and no error", first["error"], None)
+    # The reason travels as a code rather than as prose: it ends up in the
+    # history, where an operator filters on it.
+    check("an unreachable device carries the reason",
+          (second["ok"], second["error"]), (False, "unresolved"))
+    # Without this the process can exit with the report still in a socket
+    # buffer, which loses a run for no reason anybody could later see.
+    check("the report is flushed before the run ends",
+          sent.get("flushed"), True)
+
+
+def check_device_watch_helper():
+    """The privileged part: packet building, attribution and limits."""
+    print("\n== device-watch: privileged helper ==")
+    wrapper = os.path.join(SENSOR_DIR, "device-watch", "privileged",
+                           "prtg-sensor-device-watch")
+    module = load_module("prtg_sensor_device_watch", wrapper)
+
+    payload = module.build_payload(1000.0)
+    packet = module.build_echo(socket.AF_INET, 0x1234, 7, payload)
+    # The classic property of an internet checksum: computed over the
+    # finished packet it comes out zero. If that falls over, not a single
+    # echo ever comes back.
+    check("the finished packet's checksum is zero", module.checksum(packet), 0)
+    check("the packet carries id and sequence number",
+          struct.unpack("!BBHHH", packet[:8])[3:], (0x1234, 7))
+    # With ICMPv6 the kernel sets the checksum itself - it needs the
+    # pseudo-header with the addresses, which this program does not know.
+    packet6 = module.build_echo(socket.AF_INET6, 0x1234, 7, payload)
+    check("with ICMPv6 the field is left to the kernel",
+          struct.unpack("!BBHHH", packet6[:8])[2], 0)
+
+    header = bytes([0x45]) + b"\x00" * 19
+    reply = header + struct.pack("!BBHHH", 0, 0, 0, 0x1234, 7) + payload
+    check("an own answer is attributed with its send time",
+          module.parse_reply(socket.AF_INET, reply),
+          (0x1234, 7, "echo", 1000.0))
+
+    # A raw socket sees every ICMP answer of the system, including that of
+    # a concurrently running ping(8). Without the marker in the payload it
+    # would flow into the measurement as a device answering.
+    foreign = header + struct.pack("!BBHHH", 0, 0, 0, 0x1234, 7) + b"alien" * 6
+    check("an answer without the marker is discarded",
+          module.parse_reply(socket.AF_INET, foreign), None)
+
+    # An error message carries the start of the packet that triggered it.
+    # That yields "unreachable" instead of just "silent" - the difference
+    # between a firewall and a device that is switched off.
+    inner = header + struct.pack("!BBHHH", 8, 0, 0, 0x1234, 11)
+    error = header + struct.pack("!BBHI", 3, 1, 0, 0) + inner
+    check("an error message is attributed to its packet",
+          module.parse_reply(socket.AF_INET, error),
+          (0x1234, 11, "unreachable", None))
+
+    check("a value outside the limits is pulled back in",
+          module.clamp(100000, module.MIN_TIMEOUT_MS, module.MAX_TIMEOUT_MS, 1500),
+          module.MAX_TIMEOUT_MS)
+    check("and so is one below them",
+          module.clamp(1, module.MIN_TIMEOUT_MS, module.MAX_TIMEOUT_MS, 1500),
+          module.MIN_TIMEOUT_MS)
+    check("something unreadable falls back to the default",
+          module.clamp("soon", module.MIN_TIMEOUT_MS, module.MAX_TIMEOUT_MS, 1500),
+          1500)
+
+
 def check_aruba_uplink_output():
     """Output format, parsers and role assignment of the gateway sensor."""
     print("\n== aruba-uplink: output for PRTG ==")
@@ -2434,6 +2706,8 @@ if __name__ == "__main__":
     check_iperf_throughput_output()
     check_link_quality_output()
     check_link_quality_helper()
+    check_device_watch_output()
+    check_device_watch_helper()
     check_aruba_uplink_output()
     if FAILURES:
         print("\n%d sensor check(s) failed." % FAILURES,
