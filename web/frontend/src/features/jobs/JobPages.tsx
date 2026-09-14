@@ -519,6 +519,24 @@ function DryRunFollowUp({ job, sensor }: { job: JobDetail; sensor: string | null
  * keep the raw form, folded away rather than removed - it is still the only
  * record there is.
  */
+/**
+ * One entry of a rollout's ``failed`` list.
+ *
+ * The worker records the probe together with the error code and details, not
+ * the bare name. A bare name is still accepted, so a result written in that
+ * shape does not take the whole page down with it.
+ */
+function failedProbe(entry: unknown): { probe: string; code: string | null } {
+  if (entry !== null && typeof entry === 'object') {
+    const record = entry as Record<string, unknown>
+    return {
+      probe: String(record.probe ?? ''),
+      code: typeof record.code === 'string' ? record.code : null,
+    }
+  }
+  return { probe: String(entry), code: null }
+}
+
 function JobResult({ job }: { job: JobDetail }) {
   const { t } = useTranslation()
 
@@ -527,7 +545,7 @@ function JobResult({ job }: { job: JobDetail }) {
       ? (job.result.succeeded as string[])
       : []
     const failed = Array.isArray(job.result.failed)
-      ? (job.result.failed as string[])
+      ? job.result.failed.map(failedProbe)
       : []
     return (
       <div className="mt-3 space-y-2 text-sm">
@@ -551,9 +569,19 @@ function JobResult({ job }: { job: JobDetail }) {
               {t('jobs.deploy.failedList', { count: failed.length })}
             </p>
             <ul className="mt-0.5 space-y-0.5">
-              {failed.map((name) => (
-                <li key={name}>
-                  <ProbeLink username={name} />
+              {failed.map((entry) => (
+                <li key={entry.probe}>
+                  <ProbeLink username={entry.probe} />
+                  {/* The same wording the rollout view uses for its targets, so
+                      one failure does not read two ways on two pages. */}
+                  {entry.code && (
+                    <span className="text-danger ml-2 text-xs">
+                      {t(`errors.${entry.code}`, {
+                        probe: entry.probe,
+                        defaultValue: entry.code,
+                      })}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
