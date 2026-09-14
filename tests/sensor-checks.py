@@ -1309,7 +1309,7 @@ def check_iperf_throughput_validation(module):
             raise module.Failed("server-unreachable", "Connection refused")
         events.append(("direction", direction))
         endpoint_ready["value"] = False
-        return {"bit_s": 10000000, "met": True}
+        return {"bit_s": 10000000, "grade": module.TARGET_OK}
 
     def restart_endpoint(seconds):
         events.append(("pause", seconds))
@@ -1500,28 +1500,42 @@ def check_iperf_throughput_parsing(module):
     check("TCP takes the receiver's view", tcp["bit_s"], 29990000)
     check("TCP counts the retransmits", tcp["retransmits"], 3)
     check("TCP converts the round-trip time to milliseconds", tcp["rtt_ms"], 32.3)
-    check("29.99 of 30 Mbit/s count as held", tcp["met"], True)
+    check("29.99 of 30 Mbit/s count as held", tcp["grade"], module.TARGET_OK)
     # Without a target rate there is nothing to hold, and an invented
     # finding would be worse than none.
     check("without a target rate there is no finding",
-          module.summarise(IPERF_TCP_REPORT, False, None)["met"], None)
+          module.summarise(IPERF_TCP_REPORT, False, None).get("grade"), None)
     check("the measured rate is still there",
           module.summarise(IPERF_TCP_REPORT, False, None)["bit_s"], 29990000)
-    check("20 of 30 Mbit/s do not",
-          module.summarise({"end": {"sum_received": {"bits_per_second": 2e7},
-                                    "sum_sent": {}}}, False, target)["met"],
-          False)
+
+    def tcp_grade(bit_s):
+        return module.summarise({"end": {"sum_received": {"bits_per_second": bit_s},
+                                         "sum_sent": {}}}, False, target)["grade"]
+
+    # Up to five percent short is held, beyond half short is an error, and
+    # everything in between only warns.
+    check("28.5 of 30 Mbit/s are still held", tcp_grade(28.5e6), module.TARGET_OK)
+    check("28.4 of 30 Mbit/s warn", tcp_grade(28.4e6), module.TARGET_WARNING)
+    check("15 of 30 Mbit/s still only warn", tcp_grade(15e6),
+          module.TARGET_WARNING)
+    check("14.9 of 30 Mbit/s are an error", tcp_grade(14.9e6),
+          module.TARGET_ERROR)
 
     udp = module.summarise(IPERF_UDP_REPORT, True, target)
     check("UDP reports the jitter", udp["jitter_ms"], 0.339)
     check("UDP reports the loss", udp["loss_percent"], 0.8)
     # With UDP the loss decides, not the rate: the target rate is sent
     # regardless of whether the line carries it.
-    check("0.8 % loss is still within tolerance", udp["met"], True)
-    check("5 % loss is not",
-          module.summarise({"end": {"sum": {"bits_per_second": 3e7,
-                                            "lost_percent": 5.0}}},
-                           True, target)["met"], False)
+    check("0.8 % loss is still within tolerance", udp["grade"], module.TARGET_OK)
+
+    def udp_grade(loss):
+        return module.summarise({"end": {"sum": {"bits_per_second": 3e7,
+                                                 "lost_percent": loss}}},
+                                True, target)["grade"]
+
+    check("5 % loss warns", udp_grade(5.0), module.TARGET_WARNING)
+    check("50 % loss still only warns", udp_grade(50.0), module.TARGET_WARNING)
+    check("60 % loss is an error", udp_grade(60.0), module.TARGET_ERROR)
 
     for text, code in (("test authorization failed", "auth-failed"),
                        ("the server is busy running a test", "busy"),
@@ -1555,11 +1569,12 @@ def check_iperf_throughput_channels(module):
     measurement = {
         "code": "ok", "protocol": "udp", "endpoint": "endpoint.example:5201",
         "download_kbit": 30000, "download_target_kbit": 30000,
-        "download_met": 1, "download_loss_percent": 0.12,
+        "download_grade": module.TARGET_OK, "download_loss_percent": 0.12,
         "download_jitter_ms": 0.34,
-        "upload_kbit": 4000, "upload_target_kbit": 10000, "upload_met": 0,
+        "upload_kbit": 9350, "upload_target_kbit": 10000,
+        "upload_grade": module.TARGET_WARNING,
         "upload_loss_percent": 6.5, "upload_jitter_ms": 2.1,
-        "target_met": 0, "duration_ms": 21000,
+        "target_grade": module.TARGET_WARNING, "duration_ms": 21000,
     }
     result = module.present(measurement, 0, iperf_arguments())
     by_id = {entry["id"]: entry for entry in result["channels"]}
@@ -1570,7 +1585,21 @@ def check_iperf_throughput_channels(module):
     check("a missed target remains a successful measurement",
           by_id[10]["value"], module.LOOKUP_YES)
     check("and only shows in its own channel", by_id[20]["value"],
-          module.LOOKUP_NO)
+          module.TARGET_WARNING)
+    # The yes/no lookup has no warning, so Target Met needs one that does.
+    check("Target Met uses a lookup with a warning state",
+          by_id[20]["lookup_name"], module.TARGET_LOOKUP)
+
+    # A result cached before the update carries yes/no. It is still served
+    # for up to an hour and must not lose its alarm in the meantime.
+    legacy = dict(measurement, download_met=1, upload_met=0, target_met=0)
+    for key in ("download_grade", "upload_grade", "target_grade"):
+        del legacy[key]
+    legacy_ids = {entry["id"]: entry["value"]
+                  for entry in module.present(legacy, 0,
+                                              iperf_arguments())["channels"]}
+    check("a cached yes/no miss is still an error", legacy_ids[20],
+          module.TARGET_ERROR)
     check("the failure code stays at ok", by_id[18]["value"], 0)
     # Without decimal places, half a percent of packet loss would vanish
     # in rounding - and that is exactly where a line starts becoming
