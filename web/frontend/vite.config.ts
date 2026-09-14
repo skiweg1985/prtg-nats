@@ -5,6 +5,13 @@ import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Vite inlines assets under 4 KB as data: URIs, and a few of the fontsource
+    // subsets are that small. The Caddyfile's CSP allows fonts only from
+    // 'self', so the browser blocked exactly those subsets. Serving them as
+    // files keeps the policy strict.
+    assetsInlineLimit: (filePath) => (filePath.endsWith('.woff2') ? false : undefined),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

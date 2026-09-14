@@ -114,7 +114,11 @@ describe('the job page names the next step', () => {
           sensor: 'wlan-auth',
           version: '6',
           succeeded: ['mpp-berlin'],
-          failed: ['mpp-hamburg'],
+          // The shape the worker really writes. A bare name here once hid that
+          // the page rendered this object as a React child and crashed.
+          failed: [
+            { probe: 'mpp-hamburg', code: 'probe.unreachable', details: 'timed out' },
+          ],
           dry_run: false,
         },
       }),
@@ -128,7 +132,27 @@ describe('the job page names the next step', () => {
     // The outcome is rendered, not dumped: one probe per line, not a JSON blob.
     expect(screen.getByText('1 probe succeeded')).toBeInTheDocument()
     expect(screen.getByText('1 probe failed')).toBeInTheDocument()
+    expect(screen.getByText('mpp-hamburg')).toBeInTheDocument()
+    expect(
+      screen.getByText('The probe "mpp-hamburg" did not answer over the management channel.'),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/"succeeded"/)).not.toBeInTheDocument()
+  })
+
+  it('still lists a failed probe recorded by name only', async () => {
+    await changeLanguage('en')
+    wrap(
+      job({
+        type: 'sensor.deploy',
+        target_type: 'deployment',
+        target_id: 'D1',
+        target_label: 'wlan-auth → 1 probe(s)',
+        result: { sensor: 'wlan-auth', succeeded: [], failed: ['mpp-hamburg'], dry_run: false },
+      }),
+    )
+
+    expect(await screen.findByText('1 probe failed')).toBeInTheDocument()
+    expect(screen.getByText('mpp-hamburg')).toBeInTheDocument()
   })
 
   it('marks a dry run as one instead of celebrating it', async () => {
