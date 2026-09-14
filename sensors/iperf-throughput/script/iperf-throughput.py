@@ -146,11 +146,19 @@ MAX_HOLD_SECONDS = 60
 # as held. Same tolerance as in the internet-speed sensor, so both sensors
 # speak the same language.
 SLIP_TOLERANCE = 0.05
+# Beyond this shortfall a missed target is an error, below it a warning. A
+# line at 80 percent of the business minimum is degraded, but the site still
+# works; a line at a third of it is an outage in all but name, and only that
+# should wake somebody.
+ERROR_SHORTFALL = 0.50
 # From this share of lost packets on, a direction counts as missed.
 # Deliberately not zero: a UDP measurement shows occasional single losses
 # even on a healthy line - measured on a probe, three runs with 0.00 / 0.28
 # / 0.00 percent over the same path.
 MAX_LOSS_PERCENT = 1.0
+# With UDP the received rate is the sent rate minus the loss, so the loss
+# percentage is the shortfall. The error threshold is therefore the same.
+ERROR_LOSS_PERCENT = ERROR_SHORTFALL * 100
 # Catches the most common mix-up: the channels report kbit/s, the parameter
 # expects Mbit/s. Whoever enters 30000 means 30.
 MIN_TARGET_MBIT = 1
@@ -733,7 +741,7 @@ def summarise(document: dict[str, Any], udp: bool,
     performance. The sender's view also contains what the kernel merely
     accepted.
 
-    Without a target rate, "met" stays None: there is nothing to hold, and
+    Without a target rate, "grade" stays None: there is nothing to hold, and
     an invented finding would be worse than none.
     """
     end = document.get("end") or {}
@@ -755,15 +763,18 @@ def summarise(document: dict[str, Any], udp: bool,
         outcome["packets"] = int(summary.get("packets") or 0)
         # With UDP the loss decides, not the rate: the target rate is
         # sent regardless of whether the line carries it.
-        outcome["met"] = (None if rate_bit_s is None
-                          else outcome["loss_percent"] <= MAX_LOSS_PERCENT)
+        if rate_bit_s is not None:
+            outcome["grade"] = grade(outcome["loss_percent"] <= MAX_LOSS_PERCENT,
+                                     outcome["loss_percent"] > ERROR_LOSS_PERCENT)
     else:
         received = end.get("sum_received") or {}
         sent = end.get("sum_sent") or {}
         outcome["bit_s"] = int(received.get("bits_per_second") or 0)
         outcome["retransmits"] = int(sent.get("retransmits") or 0)
-        outcome["met"] = (None if rate_bit_s is None else
-                          outcome["bit_s"] >= (1.0 - SLIP_TOLERANCE) * rate_bit_s)
+        if rate_bit_s is not None:
+            outcome["grade"] = grade(
+                outcome["bit_s"] >= (1.0 - SLIP_TOLERANCE) * rate_bit_s,
+                outcome["bit_s"] < (1.0 - ERROR_SHORTFALL) * rate_bit_s)
         # Only the sending side knows the round-trip time. In the
         # download direction the far end sends, so the value stays empty
         # there.
@@ -792,8 +803,7 @@ def measure(args: dict[str, Any]) -> dict[str, Any]:
             "protocol": "udp" if args["udp"] else "tcp",
             "endpoint": "%s:%d" % (args["server"], args["port"]),
         }
-        met = True
-        graded = False
+        overall = None
         measurement["hold_seconds"] = args["seconds"]
         directions = sorted(directions_of(args).items())
         for index, (direction, rate_bit_s) in enumerate(directions):
@@ -807,10 +817,11 @@ def measure(args: dict[str, Any]) -> dict[str, Any]:
             key = "download" if direction == "download" else "upload"
             measurement["%s_kbit" % key] = int(outcome["bit_s"] / 1000)
             if rate_bit_s is not None:
-                graded = True
                 measurement["%s_target_kbit" % key] = int(rate_bit_s / 1000)
-                measurement["%s_met" % key] = 1 if outcome["met"] else 0
-                met = met and outcome["met"]
+                measurement["%s_grade" % key] = outcome["grade"]
+                # The worse direction decides: a download that holds does not
+                # make an upload at a third of its target any less of an outage.
+                overall = max(overall or TARGET_OK, outcome["grade"])
             for field in ("jitter_ms", "loss_percent", "retransmits"):
                 if field in outcome:
                     measurement["%s_%s" % (key, field)] = outcome[field]
@@ -821,8 +832,8 @@ def measure(args: dict[str, Any]) -> dict[str, Any]:
         # Without a target rate there is nothing to pass. The channel is
         # then omitted instead of reporting a "yes" that carries no
         # statement.
-        if graded:
-            measurement["target_met"] = 1 if met else 0
+        if overall is not None:
+            measurement["target_grade"] = overall
         measurement["duration_ms"] = int((time.monotonic() - started) * 1000)
         return measurement
     except Timeout:
@@ -966,9 +977,40 @@ LOOKUP_YES = 1
 LOOKUP_NO = 2
 ALARM_LOOKUP = "prtg.standardlookups.yesno.stateyesok"
 
+# Target Met needs a warning between held and missed, which the yes/no lookup
+# cannot express. Among the lookups PRTG ships, this one is generic and reads
+# plainly: 1 = OK, 2 = Warning, 3 = Error. Its 0 means "unknown" and is never
+# sent - without a target rate the channel is left out instead.
+TARGET_LOOKUP = "prtg.standardlookups.paessler.exe.status"
+TARGET_OK = 1
+TARGET_WARNING = 2
+TARGET_ERROR = 3
+
+
+def grade(held: bool, failed: bool) -> int:
+    if held:
+        return TARGET_OK
+    return TARGET_ERROR if failed else TARGET_WARNING
+
 
 def lookup_value(condition) -> int:
     return LOOKUP_YES if condition else LOOKUP_NO
+
+
+def grade_of(measurement: dict[str, Any], key: str):
+    """The grade of one direction, or of the whole run for key "target".
+
+    A result cached by the previous version carries a yes/no "met" instead.
+    It is served for up to an hour after an update, and read as the two ends
+    of the new scale rather than dropped.
+    """
+    value = measurement.get("%s_grade" % key)
+    if value is not None:
+        return value
+    met = measurement.get("%s_met" % key)
+    if met is None:
+        return None
+    return TARGET_OK if met else TARGET_ERROR
 
 
 def channel(identifier: int, name: str, value, **extra) -> dict[str, Any]:
@@ -1006,7 +1048,7 @@ def describe(measurement: dict[str, Any], age_seconds: int,
         target = measurement.get("%s_target_kbit" % key)
         if target is None:
             continue
-        if measurement.get("%s_met" % key):
+        if grade_of(measurement, key) == TARGET_OK:
             held.append("%s %s" % (rate_text(target), label))
         else:
             loss = measurement.get("%s_loss_percent" % key)
@@ -1093,10 +1135,10 @@ def present(measurement: dict[str, Any], age_seconds: int,
         channels.append(channel(17, "Test Duration",
                                 int(measurement["duration_ms"]),
                                 kind="time_milliseconds"))
-    if measurement.get("target_met") is not None:
+    if grade_of(measurement, "target") is not None:
         channels.append(channel(20, "Target Met",
-                                lookup_value(measurement["target_met"]),
-                                type="lookup", lookup_name=ALARM_LOOKUP))
+                                grade_of(measurement, "target"),
+                                type="lookup", lookup_name=TARGET_LOOKUP))
 
     # Ascending, so the channel list in PRTG has the same order no matter
     # which optional values are present.

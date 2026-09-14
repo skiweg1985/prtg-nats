@@ -552,15 +552,34 @@ An endpoint without authentication, protected only by the firewall:
 | 16 | Result Age | s, 0 = just measured | always |
 | 17 | Test Duration | ms | always |
 | 18 | Failure Code | see below | always |
-| 20 | Target Met | 1 = target held, 2 = missed | only with a target rate |
+| 20 | Target Met | 1 = held, 2 = short (warning), 3 = far short (error) | only with a target rate |
 | 21 | Packet Loss Download | % | UDP only |
 | 22 | Packet Loss Upload | % | UDP only |
 | 23 | Retransmits Download | count | TCP only |
 | 24 | Retransmits Upload | count | TCP only |
 
 **The primary channel is Target Met** — provided a target rate is set. The
-channel alarms on its own, no limit needs entering. To alarm per
-direction, additionally set a lower limit on **Download** or **Upload**.
+channel alarms on its own, no limit needs entering. It has three states,
+and the worse direction decides:
+
+| Target Met | TCP: achieved rate | UDP: packet loss | State in PRTG |
+| --- | --- | --- | --- |
+| 1 | at least 95 % of the target | up to 1 % | OK |
+| 2 | 50 % to under 95 % | over 1 % up to 50 % | Warning |
+| 3 | under 50 % | over 50 % | Error |
+
+A line slightly short of its target is degraded, but the site still works;
+only a line at less than half of it counts as down. With UDP the loss is the
+shortfall — what is lost does not arrive — so the error threshold is the
+same.
+
+The channel uses the lookup `prtg.standardlookups.paessler.exe.status`
+shipped with PRTG. A sensor created with an earlier version of this script
+has the channel bound to the yes/no lookup; delete the channel in PRTG, or
+re-create the sensor, so the warning state shows up.
+
+To alarm per direction, additionally set a lower limit on **Download** or
+**Upload**.
 
 **Without a target rate this channel is absent**, and the alarm hangs on a
 lower limit on **Download**. A "yes" without a target would carry no
@@ -595,7 +614,7 @@ Everything else remains a successful output with a negative finding, so
 the channel history stays readable across an outage.
 
 **A missed target rate is not a failure code.** Channel 10 stays at 1,
-channel 18 at 0, and only channel 20 reads 2.
+channel 18 at 0, and only channel 20 reads 2 or 3.
 
 ## Create the sensor in PRTG
 
