@@ -172,15 +172,25 @@ was rejected.
 | `ssid-not-found` | 7 | SSID not found in the scan |
 | `dhcp-timeout` | 8 | no DHCP answer |
 | `auth-timeout` | 9 | key negotiation not completed |
+| `assoc-lost` | 10 | the link changed while DHCP was running |
 
 The message line names the network, the access point behind it and the
 address that was offered — in a list of sensors that is everything visible
 without opening one:
 
 ```text
-Authentication succeeded on "Office" via 1c:30:03:12:46:f3, DHCP offered 192.0.2.75
-The access point rejected the passphrase on "Office" (auth-failed-psk)
+Authentication succeeded on "Office" via 1c:30:03:12:46:f3, DHCP offered 192.0.2.75 from 192.0.2.1
+The access point rejected the association on "Office" (assoc-rejected (status 17))
 ```
+
+The DHCP server is named alongside the address because the address alone
+does not say which network answered. Two SSIDs that belong in different
+VLANs are told apart by their server, and a lease from the wrong one
+otherwise reads like a healthy result. Where a rejection carries an
+802.11 status code, it is carried through as well: `17` means the access
+point had no capacity left, `30` that it turned the station away for the
+moment, `12` that it refused for a reason outside the standard — a MAC
+filter or a client block, for instance.
 
 The SSID comes from the link the probe actually joined, so it also names
 the network behind a `--profile`, where the PRTG configuration holds only
@@ -251,15 +261,26 @@ process list. Why no sudo: see
 4. Association and completed key negotiation are read off the event stream
    with timestamps, plus signal and frequency.
 5. With `--stage dhcp`, a complete DHCP cycle follows in test mode.
-6. Cleanup always happens: end the instance, power the interface down,
+6. Before the address is believed, the link is checked against the one
+   that was measured — same cell, still connected. On a probe where two
+   sensors share one radio, a lease collected after the link changed
+   belongs to the other run; it is reported as `assoc-lost` rather than
+   as an address.
+7. Cleanup always happens: end the instance, power the interface down,
    delete generated files — even on timeout or abort.
 
 The scan interval in PRTG has to stay above the time budget of a run.
 A failing test uses its budget in full — `--timeout` seconds, 45 by
 default — so an interval below that starts the next run while the previous
-one still holds the radio. The waiting above absorbs an overlap of a few
-seconds, not a permanent one: the sensor then reports `iface-busy` instead
-of measuring. A budget of 45 seconds and an interval of 120 leaves room
+one still holds the radio. A run waits for the interface for half of its
+own time budget, at most 15 seconds — what it waits for is another run of
+the same kind, bounded by the same budget, so a fixed number would be
+wrong for a 10-second test and for a 300-second one alike. The ceiling
+comes from the script, which gives the helper `--timeout` plus 20 seconds
+on the socket: waiting longer would time the script out while the helper
+is still measuring. That absorbs an
+overlap, not a permanent one: beyond it the sensor reports `iface-busy`
+instead of measuring. A budget of 45 seconds and an interval of 120 leaves room
 for both.
 
 All variable values go into the `wpa_supplicant` configuration as hex

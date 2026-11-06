@@ -43,6 +43,7 @@ FAILURE_CODES = {
     "ssid-not-found": 7,
     "dhcp-timeout": 8,
     "auth-timeout": 9,
+    "assoc-lost": 10,
 }
 
 
@@ -275,6 +276,12 @@ def work(args: dict[str, Any]):
             quoted, details.get("bssid") or args["interface"])
         if details.get("ip_address"):
             message += ", DHCP offered %s" % details["ip_address"]
+            # The address alone does not say which network answered. Two
+            # SSIDs that should sit in different VLANs are told apart by
+            # their DHCP server, and without it a lease from the wrong
+            # network reads like a healthy result.
+            if details.get("dhcp_server"):
+                message += " from %s" % details["dhcp_server"]
     else:
         message = "%s%s (%s)" % (
             answer.get("message", "Authentication failed"), quoted, code)

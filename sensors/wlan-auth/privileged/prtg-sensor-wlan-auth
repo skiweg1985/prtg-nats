@@ -42,7 +42,20 @@ ALLOWED_INTERFACES = os.path.join(CONFIG_DIR, "allowed-interfaces")
 # Shared by the work directories of a run and by the search for the ones
 # a previous run left behind.
 WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
-# How long a run waits for the interface before it gives up on it.
+# How long a run waits for the interface before it gives up on it. Half of
+# its own time budget, because what it is waiting for is another run of the
+# same kind - and that one is bounded by the same budget. A fixed number
+# cannot be right for both a 10-second and a 300-second test, and on a probe
+# where two sensors share one radio it decides whether the second one
+# measures or reports iface-busy.
+#
+# The ceiling is not a round number: the sensor script waits
+# "--timeout plus 20 seconds" on the socket, and this run needs the whole
+# of --timeout for the measurement itself. Waiting longer than those 20
+# seconds would have the script time out while the helper is still working
+# - a sensor error for a measurement that was about to succeed. 15 leaves
+# five seconds for the handover itself.
+LOCK_WAIT_CEILING = 15
 LOCK_WAIT_SECONDS = 15
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
@@ -88,6 +101,23 @@ FAILURE_EVENTS = (
     ("CTRL-EVENT-NETWORK-NOT-FOUND", None, "ssid-not-found",
      "The SSID was not found during the scan"),
 )
+
+
+# An access point that turns a station away says why in the association
+# response, and wpa_supplicant passes the number straight through. Without
+# it PRTG says only "rejected"; with it the difference between "no capacity
+# left" (17), "come back later" (30) and "denied for a reason outside the
+# standard" (12, typical for MAC filters and client blocks) is readable from
+# the sensor message alone.
+STATUS_CODE = re.compile(r"status_code=(\d+)")
+
+
+def with_status_code(message, line):
+    """The event's own status code, appended where it names one."""
+    found = STATUS_CODE.search(line)
+    if not found:
+        return message
+    return "%s (status %s)" % (message, found.group(1))
 
 
 class Blocked(Exception):
@@ -329,7 +359,7 @@ class SupplicantRun:
         for _, line in snapshot:
             for marker, detail, code, message in FAILURE_EVENTS:
                 if marker in line and (detail is None or detail in line):
-                    return code, message
+                    return code, with_status_code(message, line)
         return None
 
     def control(self, *arguments):
@@ -359,6 +389,18 @@ def parse_status(text):
         if value:
             values[key.strip()] = value.strip()
     return values
+
+
+def link_fingerprint(run):
+    """What identifies this association: which cell, and whether it stands.
+
+    Read before and after the DHCP stage. Two sensors share one radio on a
+    probe, and the lock serialises their runs but not what the network does
+    in between - a lease collected after the link changed belongs to the
+    other run, not to this one.
+    """
+    status = parse_status(run.control("status"))
+    return status.get("bssid", ""), status.get("wpa_state", "")
 
 
 def collect_link_details(run, result):
@@ -660,8 +702,18 @@ def perform_test(job):
         collect_link_details(run, result)
 
         if job["stage"] == "dhcp":
+            before = link_fingerprint(run)
             duration, lease = run_dhcp(
                 interface, deadline - time.monotonic())
+            after = link_fingerprint(run)
+            # Reporting an address from a link that is no longer the one we
+            # measured would be worse than reporting none: it reads like a
+            # healthy result for a network this run never reached.
+            if after != before or after[1] != "COMPLETED":
+                raise Failed(
+                    "assoc-lost",
+                    "The link changed while DHCP was running; the address "
+                    "would belong to another association")
             result["timings"]["dhcp_ms"] = duration
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
@@ -730,6 +782,11 @@ def validate_job(job):
     return job
 
 
+def lock_budget(timeout):
+    """The share of a run's budget it may spend waiting for the radio."""
+    return min(LOCK_WAIT_CEILING, max(1.0, timeout / 2.0))
+
+
 def lock_interface(interface, wait=LOCK_WAIT_SECONDS):
     """Exclude parallel runs on the same interface.
 
@@ -754,8 +811,8 @@ def lock_interface(interface, wait=LOCK_WAIT_SECONDS):
                 handle.close()
                 raise Blocked(
                     "iface-busy",
-                    "Another test is still running on %s after %d seconds"
-                    % (interface, wait))
+                    "Another test is still running on %s after %.0f "
+                    "seconds" % (interface, wait))
             time.sleep(0.25)
 
 
@@ -859,7 +916,8 @@ def main():
             emit({"result": "ok", "code": "ok", "message": "helper reachable",
                   "timings": {}, "details": {}})
         job = validate_job(merge_profile(job))
-        handle = lock_interface(job["interface"])
+        handle = lock_interface(job["interface"],
+                                lock_budget(job["timeout"]))
         emit(perform_test(job))
     except Blocked as blocked:
         emit({"result": "blocked", "code": blocked.code,

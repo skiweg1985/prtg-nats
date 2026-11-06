@@ -514,6 +514,45 @@ def check_wlan_auth_output():
     check("the message names the cause",
           "auth-failed-eap" in result["message"], True)
 
+    # A lease says nothing about which network handed it out. Two SSIDs
+    # that belong in different VLANs are told apart by their DHCP server,
+    # and without it a lease from the wrong network reads like success.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok",
+        "code": "ok",
+        "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300,
+                    "dhcp_ms": 700},
+        "details": {"ssid": "Guest", "bssid": "00:00:5e:00:53:c2",
+                    "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "signal_dbm": -58, "frequency_mhz": 5220},
+    }
+    result = module.work(dict(arguments, ssid="Guest", auth="psk",
+                              psk="passphrase123", identity=None,
+                              password=None))
+    check("the message names the address", "198.51.100.19" in result["message"],
+          True)
+    check("and the server that handed it out",
+          "from 198.51.100.1" in result["message"], True)
+
+    # The helper refuses a lease it collected after the link changed. That
+    # has to reach PRTG as its own cause, not as a nameless failure.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed",
+        "code": "assoc-lost",
+        "message": ("The link changed while DHCP was running; the address "
+                    "would belong to another association"),
+        "timings": {"total_ms": 5000, "assoc_ms": 800},
+        "details": {"ssid": "Guest"},
+    }
+    result = module.work(dict(arguments, ssid="Guest"))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a lease from a changed link is its own failure code",
+          channels[18]["value"], 10)
+    check("and never reports an address",
+          "DHCP offered" in result["message"], False)
+
 
 def check_wlan_auth_configuration():
     """The wpa_supplicant configuration must not be subvertible."""
@@ -541,6 +580,56 @@ def check_wlan_auth_configuration():
           len([line for line in lines if line.startswith("network={")]), 1)
     check("the passphrase is not in the configuration in clear text",
           any("passphrase123" in line for line in lines), False)
+
+    # An access point that turns a station away says why. Carrying the
+    # number through is the difference between "rejected" and a cause
+    # somebody can act on.
+    check("the status code of a rejection reaches the message",
+          module.with_status_code(
+              "The access point rejected the association",
+              "CTRL-EVENT-ASSOC-REJECT bssid=00:00:5e:00:53:c2 status_code=17"),
+          "The access point rejected the association (status 17)")
+    check("an event without one is left alone",
+          module.with_status_code("Rejected", "CTRL-EVENT-ASSOC-REJECT"),
+          "Rejected")
+
+    # Two sensors share one radio. A lease collected after the link changed
+    # belongs to the other run, and the fingerprint is what tells them apart.
+    class FakeRun:
+        def __init__(self, *answers):
+            self.answers = list(answers)
+
+        def control(self, *_arguments):
+            return self.answers.pop(0)
+
+    same = FakeRun("bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n",
+                   "bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n")
+    check("the same association yields the same fingerprint",
+          module.link_fingerprint(same), module.link_fingerprint(same))
+    moved = FakeRun("bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n",
+                    "bssid=00:00:5e:00:53:c0\nwpa_state=COMPLETED\n")
+    check("another cell yields another one",
+          module.link_fingerprint(moved) != module.link_fingerprint(moved),
+          True)
+    gone = FakeRun("wpa_state=SCANNING\n")
+    check("a link that no longer stands is not complete",
+          module.link_fingerprint(gone)[1], "SCANNING")
+
+    # Waiting for the radio is bounded by the run's own budget, not by a
+    # number that happens to suit one timeout. A probe with two sensors on
+    # one radio otherwise reports iface-busy for a link about to be free.
+    check("a short run waits only a short while",
+          module.lock_budget(10), 5.0)
+    check("a long one stops at the ceiling",
+          module.lock_budget(300), float(module.LOCK_WAIT_CEILING))
+    check("waiting never eats the whole budget",
+          all(module.lock_budget(t) < t for t in (10, 45, 120, 300)), True)
+    # The script gives the helper "--timeout plus 20 seconds" on the
+    # socket, and the measurement itself needs all of --timeout. A longer
+    # wait would time the script out while the helper still works.
+    check("and never outlasts the script's patience",
+          all(module.lock_budget(t) + t <= t + 20 - 5
+              for t in (10, 45, 120, 300)), True)
 
     for description, job, expected in (
         ("a too-short passphrase", {"ssid": "A", "auth": "psk", "psk": "shrt"},
