@@ -11,9 +11,9 @@ status: accepted
 
 `wlan-auth` checks one network per sensor. A probe that has to watch
 several networks therefore carries several sensors on the one radio it
-owns. The site at Wertheim does exactly that: a Raspberry Pi with `wlan0`,
-one sensor for the internal network over PEAP, one for the guest network
-over WPA2-PSK.
+owns. One site does exactly that: a Raspberry Pi with a single `wlan0`, one
+sensor for the internal network over PEAP, one for the guest network over
+WPA2-PSK.
 
 PRTG knows a scanning interval per sensor and nothing about the other
 sensors on the same device. There is no way to express "these two share a
