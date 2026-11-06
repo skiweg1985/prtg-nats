@@ -74,9 +74,19 @@ JOB_TTL_FACTOR = 3
 JOB_TTL_MINIMUM = 300
 
 # A result renewed exactly at max_age is already too old when the next
-# request arrives. The scheduler therefore renews it before the limit, and
-# the remaining fifth is the room an occupied radio needs.
-REFRESH_FRACTION = 0.8
+# request arrives, so the renewal has to start early enough to finish in
+# time. How early is not a fraction: it is how long a round over every job
+# on this radio takes, because that is what a job may have to wait through
+# before its turn comes. Measured on a probe with two jobs of 15 seconds
+# and max_age 60, a fixed four fifths renewed at 48 and finished at 58 -
+# one job more and the result would have passed max_age and been thrown
+# away, although the scheduler did everything right.
+#
+# The floor keeps the scheduler measuring where a round cannot fit into
+# max_age at all. Then every job is overdue all the time, they are served
+# in turn, and they age together - which is what the age channel is there
+# to show.
+REFRESH_FLOOR_SECONDS = 1.0
 
 # How long the scheduler sleeps when nothing is due. Short enough that a
 # newly registered job is measured almost at once, long enough to cost
@@ -954,6 +964,24 @@ def job_identity(job):
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def round_budget(jobs):
+    """The time a round over every job on this radio can take.
+
+    The worst case, deliberately: a failing sign-in uses its whole time
+    budget, and it is the failing ones that have to stay measurable. The
+    waiting counts too - a test run by hand on the probe can hold the
+    radio while the scheduler waits out its lock, and a round that does
+    not allow for it is one a measured age can overrun.
+    """
+    return sum(entry["job"]["timeout"] + lock_budget(entry["job"]["timeout"])
+               for entry in jobs.values())
+
+
+def refresh_threshold(max_age, jobs):
+    """The age at which a result has to be renewed to stay in time."""
+    return max(REFRESH_FLOOR_SECONDS, max_age - round_budget(jobs))
+
+
 class Scheduler:
     """Measures the registered jobs one after another on the one radio.
 
@@ -1025,11 +1053,52 @@ class Scheduler:
                     continue
                 if entry["measured"] is None:
                     return entry
-                ratio = (now - entry["measured"]) / entry["max_age"]
+                threshold = refresh_threshold(entry["max_age"], self._jobs)
+                if threshold <= 0:
+                    continue
+                ratio = (now - entry["measured"]) / threshold
                 if ratio > best_ratio:
                     best = entry
                     best_ratio = ratio
-        return best if best_ratio >= REFRESH_FRACTION else None
+        return best if best_ratio >= 1.0 else None
+
+    def snapshot(self):
+        """What this service is measuring, for diagnosis on the probe.
+
+        Without it nothing about a running schedule is observable: the
+        probe writes no sensor output to the journal, so the only other
+        way to tell a job that expired from one that was never registered
+        is to wait and guess. Credentials are deliberately absent - the
+        truncated identity is enough to tell two jobs apart.
+        """
+        now = time.monotonic()
+        jobs = []
+        with self._guard:
+            budget = round_budget(self._jobs)
+            for identity, entry in sorted(self._jobs.items()):
+                result = entry["result"] or {}
+                age = entry["measured"]
+                jobs.append({
+                    "job": identity[:12],
+                    "interface": entry["job"]["interface"],
+                    "ssid": entry["job"].get("ssid") or "",
+                    "stage": entry["job"]["stage"],
+                    "timeout": entry["job"]["timeout"],
+                    "max_age": entry["max_age"],
+                    "age": None if age is None else round(now - age, 1),
+                    "renew_at": round(
+                        refresh_threshold(entry["max_age"], self._jobs), 1),
+                    "asked_ago": round(now - entry["asked"], 1),
+                    "expires_in": round(
+                        job_ttl(entry["max_age"]) - (now - entry["asked"]), 1),
+                    "result": result.get("result", ""),
+                    "code": result.get("code", ""),
+                })
+        return {"result": "ok", "code": "ok",
+                "message": "%d job(s), %d s of radio time per round"
+                           % (len(jobs), budget),
+                "round_budget": budget, "jobs": jobs,
+                "timings": {}, "details": {}}
 
     def _measure(self, job):
         """One measurement, behind the interface lock.
@@ -1118,6 +1187,9 @@ def handle_request(payload):
         action = job.get("action")
         if action == "ping":
             return ping_answer()
+        if action == "status":
+            # Read-only, and the only window into a running schedule.
+            return SCHEDULER.snapshot()
         job = validate_job(merge_profile(job))
         if action == "collect":
             return SCHEDULER.collect(job, job["max_age"])

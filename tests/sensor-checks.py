@@ -695,6 +695,46 @@ def check_wlan_auth_scheduler():
     check("one approaching its limit is renewed before it passes it",
           scheduler._due()["max_age"], 300)
 
+    # The renewal has to start early enough to finish in time, and how
+    # early is the time a round over every job takes - not a fraction.
+    # Measured on a probe: two jobs of 15 seconds with max_age 60 renewed
+    # at 48 under a fixed four fifths and finished at 58. One job more and
+    # the result would have passed max_age and been thrown away, although
+    # the scheduler did everything right.
+    two_short = {"a": dict(entry(60, 0), job=dict(job, timeout=15)),
+                 "b": dict(entry(60, 0), job=dict(job, timeout=15))}
+    # 15 seconds of measuring plus 7.5 of waiting out the lock, twice.
+    check("a round is as long as its jobs can take, waiting included",
+          module.round_budget(two_short), 45.0)
+    check("and the renewal starts a whole round before the limit",
+          module.refresh_threshold(60, two_short), 15.0)
+    scheduler._jobs = two_short
+    scheduler._jobs["a"]["measured"] = now - 16
+    scheduler._jobs["b"]["measured"] = now - 5
+    check("so a result one round short of the limit is renewed",
+          scheduler._due()["job"]["timeout"], 15)
+
+    # Where a round cannot fit into max_age at all, every job is overdue
+    # all the time. Measuring in turn is then correct, and they age
+    # together - which is what the age channel is there to show.
+    crowded = {str(i): dict(entry(60, 10), job=dict(job, timeout=45))
+               for i in range(4)}
+    check("an over-subscribed radio keeps measuring",
+          module.refresh_threshold(60, crowded),
+          module.REFRESH_FLOOR_SECONDS)
+
+    # The snapshot is read by whoever debugs on the probe. It must name
+    # the jobs without handing out what they sign in with.
+    scheduler._jobs = {"only": entry(300, 12)}
+    snapshot = scheduler.snapshot()
+    serialised = json.dumps(snapshot)
+    check("the snapshot names the network", snapshot["jobs"][0]["ssid"],
+          "Corporate")
+    check("and reports the age it holds", snapshot["jobs"][0]["age"], 12.0)
+    check("the password never leaves the service",
+          "secret" in serialised, False)
+    check("nor does the identity", "monitor" in serialised, False)
+
     scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
     check("a job nobody asks for any more is dropped", scheduler._due(), None)
     check("and is gone from the scheduler",

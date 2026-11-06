@@ -164,6 +164,15 @@ than `--max-age`. It uses the standard lookup
 value that does not exist must not read as a failed sign-in, and must not
 read as a successful one either.
 
+> **A sensor that existed before this change needs its lookup switched by
+> hand.** PRTG keeps the lookup a channel was created with, so an existing
+> `Auth Result` stays on `prtg.standardlookups.yesno.stateyesok` and
+> answers the new value with *"undefined lookup value (3)"* and a warning.
+> In the channel settings of `Auth Result`, set the lookup to
+> `prtg.standardlookups.netapp.nichealth`. The history survives it: `1` and
+> `2` mean the same in both lookups. Sensors created afterwards get it
+> right by themselves.
+
 **Measurement Age** says how old the reported measurement is. It is the
 channel that shows whether the radio keeps up with what the sensors ask of
 it, and a limit on it is the alarm for that. It exists from the first scan,
@@ -345,6 +354,32 @@ result at all: `Auth Result` goes to 3 and the failure code to 12.
 So a sensor asking for a 45-second check to be no older than a minute, next
 to a second one of its kind, cannot be satisfied — and says that, instead of
 reporting a failure about the Wi-Fi.
+
+The renewal starts a whole round before the limit, not at some fraction of
+it: a result renewed at `--max-age` would already be too old by the time
+the round is over. With the default `--max-age 300` and two networks of 45
+seconds, the radio is used every 210 seconds — not every minute, however
+often PRTG asks. **A scanning interval of one minute no longer means a
+measurement every minute.** Whoever wants that has to say so, with a
+`--max-age` just above what a round costs.
+
+The state on a probe is readable where the measuring happens, which is the
+only place it exists:
+
+```bash
+python3 - <<'PY'
+import json, socket
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect("/run/prtg-sensor-wlan-auth.sock")
+s.sendall(json.dumps({"action": "status"}).encode())
+s.shutdown(socket.SHUT_WR)
+print(s.recv(65536).decode())
+PY
+```
+
+It names every registered job with the freshness it asked for, the age it
+holds, when it is renewed and when it expires unasked — and never the
+credentials it signs in with.
 
 All variable values go into the `wpa_supplicant` configuration as hex
 strings. Quotation marks or line breaks in an SSID or a password therefore

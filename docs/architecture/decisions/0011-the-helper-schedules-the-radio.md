@@ -146,6 +146,20 @@ but "it failed at the last run, and that was X seconds ago". The age
 channel makes X visible, but every threshold and every notification text
 anybody has configured has to be read that way from now on.
 
+**Cost.** An existing sensor needs its lookup switched by hand. PRTG keeps
+the lookup a channel was created with, so `Auth Result` on a sensor older
+than this change answers the third value with "undefined lookup value (3)"
+and a warning until somebody sets the channel to
+`prtg.standardlookups.netapp.nichealth`. Measured on a probe, not reasoned
+about: the same values carry the history across, but the lookup does not
+follow the script.
+
+**Cost.** A scanning interval stops meaning a measurement. With the default
+`--max-age` of 300 seconds and two networks, the radio is used every 210
+seconds however often PRTG asks - which is what the sensor asked for, and
+still a change in behaviour for anybody who read the interval as the
+measuring rate.
+
 **Cost.** A parameter change takes effect one expiry later. The old job
 goes on being measured until it has not been asked for long enough -
 harmless in itself, but it costs radio time, and it is the reason a job's
