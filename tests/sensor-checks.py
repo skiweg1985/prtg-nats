@@ -2124,7 +2124,17 @@ def check_aruba_uplink_output():
     document = json.loads(completed.stdout)
     check("the same kind twice is rejected", document.get("status"), "error")
     check("and the message names the way out",
-          "--backup none" in document.get("message", ""), True)
+          "leave --backup out" in document.get("message", ""), True)
+
+    # The parameters name the uplinks the site has. A site on one line says
+    # so by leaving --backup out, and must not end up monitoring a second
+    # path nobody configured.
+    completed = run_script(
+        script, "--self-check --host 192.0.2.1 --user monitoring "
+                "--password s3cr3t-value\n")
+    document = json.loads(completed.stdout)
+    check("a configuration without --backup is a valid one",
+          document.get("status"), "ok")
 
     # The deployment runs exactly this before it activates the sensor, and
     # rolls the rollout back on anything but "ok". No gateway is known at
@@ -2239,11 +2249,40 @@ def check_aruba_uplink_channels(module):
     check("with a backup every block is present", default,
           [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
            30, 31, 32, 33, 40, 41, 42, 43])
-    # Without an alternative path the backup channels would report a
-    # permanent alarm for something the site does not have.
-    check("without a backup the backup channels are gone",
+    # Without an alternative path the backup channels stay and report that
+    # the site does not use one. Dropping them would tear the history apart
+    # the day somebody adds a second line.
+    check("without a backup the backup channels stay",
           identifiers(backup="none"),
-          [10, 11, 12, 15, 16, 17, 18, 20, 30, 31, 32, 33])
+          [10, 11, 12, 13, 14, 15, 16, 17, 18, 20,
+           30, 31, 32, 33, 40, 41, 42, 43])
+
+    def states(**overrides):
+        args = aruba_arguments(**overrides)
+        summary = module.summarise(args, uplinks, rates)
+        document = module.present(args, summary, {"rsrp": -99.0}, quality, 0,
+                                  12, "ok", "")
+        return {entry["id"]: entry["value"]
+                for entry in document["channels"]}
+
+    # The third state is what makes a single-line site readable: not an
+    # outage, not a healthy backup, but a path this site does not use.
+    check("an unused backup is neither up nor down",
+          states(backup="none")[13], module.STATE_UNUSED)
+    check("a backup in use reports its state", states()[13],
+          module.STATE_UP)
+    check("a dead backup is an error",
+          module.state_value(False), module.STATE_DOWN)
+    check("and the unused state wins over the measurement",
+          module.state_value(True, False), module.STATE_UNUSED)
+    # An unused path has nothing to measure, so its quality channels have
+    # to stand at zero rather than repeat the primary's numbers.
+    check("an unused backup measures nothing",
+          [states(backup="none")[identifier]
+           for identifier in (14, 40, 41, 42, 43)],
+          [0.0, 0.0, 0.0, 0.0, 0.0])
+    check("the primary never reports the unused state",
+          states(backup="none")[12], module.STATE_UP)
     check("a wired-only site carries no radio channels",
           [identifier for identifier in identifiers(backup="none")
            if identifier in (19, 21, 22)], [])
@@ -2264,7 +2303,7 @@ def check_aruba_uplink_channels(module):
     check("and sets Test Result to error", codes[10], module.LOOKUP_NO)
     check("and enters its code", codes[18],
           module.FAILURE_CODES["gateway-unreachable"])
-    check("and reports the primary as down", codes[12], module.LOOKUP_NO)
+    check("and reports the primary as down", codes[12], module.STATE_DOWN)
 
     # The path measurement is secondary: losing it must not pull the result
     # channel down with it.

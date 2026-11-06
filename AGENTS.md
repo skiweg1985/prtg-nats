@@ -127,3 +127,25 @@ command in [docs/reference/cli.md](docs/reference/cli.md), a new endpoint in
 
 **Comments.** Explain why something is the way it is, not what the line does.
 The existing comments in `ci.yaml` and `prtg-nats` set the tone.
+
+## Agent skills
+
+The engineering skills from `mattpocock/skills` read their per-repository
+configuration from `docs/agents/`.
+
+### Issue tracker
+
+Issues and specs live as GitHub issues in `skiweg1985/prtg-nats`, driven
+through the `gh` CLI. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical triage roles keep their default label strings:
+`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`. See [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context, with the ADRs under `docs/architecture/decisions/` and
+`docs/web/terminology.md` in place of a root `GLOSSARY.md`. See
+[docs/agents/domain.md](docs/agents/domain.md).

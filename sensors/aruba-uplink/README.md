@@ -10,7 +10,8 @@ switches over quietly, `link-quality` and `internet-speed` keep reporting
 green — the line does carry, after all — and the site runs on mobile data
 until the bill arrives. The other direction is just as quiet: the backup
 deregisters, nobody notices, and the next real outage finds nothing to fail
-over to. Channel *Backup Uplink Up* exists for exactly that second case.
+over to. Channel *Backup Uplink State* exists for exactly that second
+case.
 
 The gateway measures the path quality of every uplink by itself, against
 its own health-check targets. The sensor takes those numbers instead of
@@ -88,7 +89,7 @@ the sensor configuration.
 | `--user` | — | required, the read-only account |
 | `--password` | — | required, its password |
 | `--primary` | `wired` | which uplink kind is the main path: `wired` or `cellular` |
-| `--backup` | `cellular` | the alternative path: `cellular`, `wired` or `none` |
+| `--backup` | `none` | the alternative path: `cellular`, `wired` or `none` |
 | `--backup-share` | `25` | percentage of traffic on the backup from which it counts as moved over |
 | `--billing-day` | `1` | day of the month the mobile data volume starts over on, `0` for a counter that never resets |
 | `--timeout-ms` | `10000` | milliseconds to wait for a single answer |
@@ -99,26 +100,37 @@ the device**. A gateway that load-balances reports no uplink as a backup at
 all — it counts `g_numBkpUplinks: 0` while happily using both — so only the
 parameters can say what the main path is meant to be.
 
+> **Version 2 and earlier assumed an LTE backup.** A sensor configured
+> back then without `--backup` monitored the cellular path, and after this
+> update it no longer does — the backup channels report *Not Available*
+> instead. Where the site does have a second line, add `--backup cellular`
+> (or `--backup wired`) to its parameters in PRTG.
+
+The parameters name the uplinks the site actually uses, and nothing else.
+`--backup` left out means there is none: the backup channels then report
+*Not Available* instead of an outage, and the channel list stays the same
+as at every other site. That is also the way to park a second line that is
+in maintenance — take `--backup` out for as long as it lasts, and the
+channel keeps its history without alarming for a path nobody is watching.
+
 ### Examples
 
-A site on a fixed line with LTE backup needs nothing beyond the
-credentials:
+A site on a fixed line, nothing else:
 
 ```text
 --host %host --user %scriptplaceholder1 --password %scriptplaceholder2
 ```
 
-A site without an alternative path. Without this the sensor would report a
-permanent alarm for a backup the site does not have:
+The same site with an LTE backup:
 
 ```text
---host %host --user %scriptplaceholder1 --password %scriptplaceholder2 --backup none
+--host %host --user %scriptplaceholder1 --password %scriptplaceholder2 --backup cellular
 ```
 
 A site that has only mobile data:
 
 ```text
---host %host --user %scriptplaceholder1 --password %scriptplaceholder2 --primary cellular --backup none
+--host %host --user %scriptplaceholder1 --password %scriptplaceholder2 --primary cellular
 ```
 
 A site where LTE is the main path and the fixed line the fallback:
@@ -133,8 +145,8 @@ A site where LTE is the main path and the fixed line the fallback:
 | --- | --- |
 | Test Result | the gateway answered and delivered usable data |
 | Uplinks Connected | how many uplinks stand |
-| Primary Uplink Up | the kind named by `--primary` is `Connected` and `Reachable` |
-| Backup Uplink Up | the alternative path is ready for use |
+| Primary Uplink State | the kind named by `--primary` is `Connected` and `Reachable` |
+| Backup Uplink State | the alternative path is ready for use, or is not used by this site |
 | Traffic on Backup | share of the backup in the overall traffic |
 | Primary Bandwidth Utilisation | utilisation of the main path |
 | Uplink Changes 24h | changeovers within the last 24 hours |
@@ -153,11 +165,20 @@ a little traffic on the backup permanently, and comparing against zero
 would alarm forever at such a site. Without a backup the channel simply
 reports whether the primary stands and carries.
 
-Which channels exist follows the **configuration**, never the measurement.
-The backup channels are absent with `--backup none`, the radio channels
-when neither role is `cellular`. Everything else is always there, a dead
-uplink included — it then reports 0 and an alarm. A channel that disappears
-during an outage and returns afterwards tears its history apart in PRTG.
+**Primary Uplink State** and **Backup Uplink State** know three answers:
+*Healthy*, *Unhealthy*, and *Not Available* for a path the site does not
+use. The third one carries no state at all, so it never alarms and never
+turns the sensor yellow. Only the backup reaches it — a primary uplink is
+what this sensor measures, and a site without one is configured wrong, not
+quietly tolerated.
+
+Which channels exist follows the **configuration**, never the measurement,
+and the configuration decides only on the kinds of uplink: the radio
+channels are absent when neither role is `cellular`. Everything else is
+always there, a dead uplink and an unused backup included. A channel that
+disappears during an outage and returns afterwards tears its history apart
+in PRTG, and one that disappears because somebody took a line out of the
+configuration loses the comparison with the weeks before.
 
 ### Failure codes
 
