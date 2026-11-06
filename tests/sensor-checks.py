@@ -492,6 +492,7 @@ def check_wlan_auth_output():
         "ca_cert": None, "domain_suffix_match": None, "no_verify_server": True,
         "client_cert": None, "private_key": None, "private_key_passwd": None,
         "bssid": None, "hidden": False, "stage": "dhcp", "timeout": 45,
+        "max_age": 300, "measure_now": False,
     }
     result = module.work(arguments)
     channels = {entry["id"]: entry for entry in result["channels"]}
@@ -503,11 +504,20 @@ def check_wlan_auth_output():
     check("the success channel says no", channels[10]["value"], 2)
     check("the success channel uses a standard lookup",
           channels[10]["lookup_name"],
-          "prtg.standardlookups.yesno.stateyesok")
+          "prtg.standardlookups.netapp.nichealth")
     check("the association time survives a failure",
           channels[12]["value"], 2700)
     check("the failure cause is machine-readable", channels[18]["value"], 3)
-    check("without a DHCP stage the DHCP channel is absent", 14 in channels, False)
+    # The channel structure follows the parameters, never the answer: with
+    # --stage dhcp the channel is there even when this run never got an
+    # address, because a channel that comes and goes tears its history
+    # apart in PRTG.
+    check("with a DHCP stage the DHCP channel is present", 14 in channels, True)
+    check("and reads zero where nothing was measured",
+          channels[14]["value"], 0)
+    assoc_only = {entry["id"]: entry for entry
+                  in module.work(dict(arguments, stage="assoc"))["channels"]}
+    check("without a DHCP stage it is absent", 14 in assoc_only, False)
     check("channels are sorted ascending",
           [entry["id"] for entry in result["channels"]],
           sorted(entry["id"] for entry in result["channels"]))
@@ -536,6 +546,83 @@ def check_wlan_auth_output():
     check("and the server that handed it out",
           "from 198.51.100.1" in result["message"], True)
 
+    # A job the scheduler has not reached yet is not a failure. It gets the
+    # third lookup state, which alarms on nothing, and says so in the
+    # message - a sensor error here would blame the Wi-Fi for a radio that
+    # is simply still busy.
+    module.call_helper = lambda job, timeout: {
+        "result": "pending",
+        "code": "not-measured",
+        "message": "Registered on this probe, waiting for the first "
+                   "measurement",
+        "timings": {}, "details": {}, "age": None,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a job without a measurement is neither green nor red",
+          channels[10]["value"], 3)
+    check("it has its own failure code", channels[18]["value"], 11)
+    check("the age channel exists from the first scan", 17 in channels, True)
+    check("and reads zero until something was measured",
+          channels[17]["value"], 0)
+    check("the message says what it is waiting for",
+          "waiting for the first measurement" in result["message"], True)
+
+    # A measurement older than the sensor asked for is not a measurement.
+    # Serving it would keep the sensor green on a sign-in from hours ago.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate"}, "age": 901.0,
+    }
+    result = module.work(dict(arguments, max_age=900))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a result past its freshness stops counting as a result",
+          channels[10]["value"], 3)
+    check("a stale result has its own failure code",
+          channels[18]["value"], 12)
+    check("the age channel carries the age", channels[17]["value"], 901)
+    check("and the message names it",
+          "901 seconds old" in result["message"], True)
+
+    # Within the freshness the age is a reading like any other, and the
+    # message says how old what it reports is.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate", "bssid": "00:00:5e:00:53:c2"},
+        "age": 42.4,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a fresh result is a result", channels[10]["value"], 1)
+    check("the age is reported in seconds", channels[17]["value"], 42)
+    check("the message says how old the reading is",
+          "measured 42 s ago" in result["message"], True)
+
+    # What the script asks for decides whether the radio is used. PRTG
+    # collects; only a hand-run diagnosis measures on the spot, and only
+    # that one needs the patience of a whole test.
+    asked = {}
+
+    def remember(job, timeout):
+        asked.clear()
+        asked.update({"action": job.get("action"),
+                      "max_age": job.get("max_age"), "timeout": timeout})
+        return {"result": "ok", "code": "ok", "message": "ok",
+                "timings": {}, "details": {}, "age": 1.0}
+
+    module.call_helper = remember
+    module.work(dict(arguments))
+    check("the sensor collects instead of measuring", asked["action"],
+          "collect")
+    check("it passes the freshness it needs", asked["max_age"], 300)
+    check("and waits only as long as a memory read takes",
+          asked["timeout"], module.COLLECT_TIMEOUT)
+    module.work(dict(arguments, measure_now=True))
+    check("--measure-now measures on the spot", asked["action"], "test")
+    check("and then waits for a whole test", asked["timeout"], 65)
+
     # The helper refuses a lease it collected after the link changed. That
     # has to reach PRTG as its own cause, not as a nameless failure.
     module.call_helper = lambda job, timeout: {
@@ -552,6 +639,79 @@ def check_wlan_auth_output():
           channels[18]["value"], 10)
     check("and never reports an address",
           "DHCP offered" in result["message"], False)
+
+
+def check_wlan_auth_scheduler():
+    """The radio is shared out by the helper, so the sharing is checked."""
+    print("\n== wlan-auth: the scheduler on the radio ==")
+    wrapper = os.path.join(
+        SENSOR_DIR, "wlan-auth", "privileged", "prtg-sensor-wlan-auth")
+    module = load_module("prtg_sensor_wlan_auth", wrapper)
+
+    job = {"interface": "wlan0", "ssid": "Corporate", "auth": "peap",
+           "identity": "monitor", "password": "secret", "stage": "dhcp",
+           "timeout": 45}
+    check("a changed password is a different job",
+          module.job_identity(job)
+          != module.job_identity(dict(job, password="other")), True)
+    check("a changed SSID is a different job",
+          module.job_identity(job)
+          != module.job_identity(dict(job, ssid="Guest")), True)
+    # Otherwise a sensor whose interval somebody edits would lose the
+    # measurement it already had, and start again at "not measured yet".
+    check("a changed freshness is the same job",
+          module.job_identity(dict(job, max_age=60)),
+          module.job_identity(dict(job, max_age=600)))
+
+    # Three missed requests are not a deleted sensor, and the floor keeps
+    # a sensor asking every half minute from expiring in 90 seconds.
+    check("a job outlives a few missed requests", module.job_ttl(300), 900)
+    check("and never expires faster than the floor", module.job_ttl(30),
+          float(module.JOB_TTL_MINIMUM))
+
+    scheduler = module.Scheduler()
+    now = time.monotonic()
+
+    def entry(max_age, measured, asked=0.0):
+        return {"job": job, "max_age": max_age, "asked": now - asked,
+                "measured": None if measured is None else now - measured,
+                "result": None if measured is None else {"result": "ok"}}
+
+    scheduler._jobs = {"fresh": entry(300, 10), "new": entry(300, None)}
+    check("a job that was never measured goes first",
+          scheduler._due()["measured"], None)
+
+    # Measuring each age against the job's own freshness is what shares
+    # the radio out evenly: the one furthest past its share goes next, not
+    # the one that waited longest in seconds.
+    scheduler._jobs = {"patient": entry(300, 100), "demanding": entry(60, 100)}
+    check("the job furthest past its own freshness goes next",
+          scheduler._due()["max_age"], 60)
+
+    scheduler._jobs = {"fresh": entry(300, 10)}
+    check("a result well inside its freshness is not measured again",
+          scheduler._due(), None)
+    scheduler._jobs = {"ageing": entry(300, 280)}
+    check("one approaching its limit is renewed before it passes it",
+          scheduler._due()["max_age"], 300)
+
+    scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
+    check("a job nobody asks for any more is dropped", scheduler._due(), None)
+    check("and is gone from the scheduler",
+          "abandoned" in scheduler._jobs, False)
+
+    # The deployment writes a different systemd unit for a helper that
+    # keeps running, and it asks the helper which one. Both halves of that
+    # contract are in this repository, so they are checked together.
+    completed = subprocess.run([sys.executable, wrapper, "--unit-mode"],
+                               capture_output=True, text=True, check=False)
+    check("the helper names the unit shape it needs",
+          completed.stdout.strip(), "daemon")
+    rollout = open(os.path.join(PROJECT_DIR, "libexec",
+                                "prtg-nats-probe-helper"),
+                   encoding="utf-8").read()
+    check("and the rollout asks for exactly that word",
+          '"${mode}" == "daemon"' in rollout, True)
 
 
 def check_wlan_auth_configuration():
@@ -616,8 +776,10 @@ def check_wlan_auth_configuration():
           module.link_fingerprint(gone)[1], "SCANNING")
 
     # Waiting for the radio is bounded by the run's own budget, not by a
-    # number that happens to suit one timeout. A probe with two sensors on
-    # one radio otherwise reports iface-busy for a link about to be free.
+    # number that happens to suit one timeout. Two sensors no longer meet
+    # here - the scheduler measures for both - but a test somebody runs by
+    # hand on the probe still meets the scheduler, and that overlap is
+    # worth waiting out instead of reporting iface-busy.
     check("a short run waits only a short while",
           module.lock_budget(10), 5.0)
     check("a long one stops at the ceiling",
@@ -2587,6 +2749,7 @@ if __name__ == "__main__":
     check_privilege_path()
     check_wlan_auth_output()
     check_wlan_auth_configuration()
+    check_wlan_auth_scheduler()
     check_internet_speed_output()
     check_iperf_throughput_output()
     check_link_quality_output()

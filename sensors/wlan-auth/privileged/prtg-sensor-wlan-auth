@@ -3,10 +3,19 @@
 """Privileged Wi-Fi sign-in test for the "wlan-auth" Script v2 sensor.
 
 The sensor script runs as the probe's service user and must not configure
-any Wi-Fi. This program takes over exactly that step. It is started by
-systemd per connection on /run/prtg-sensor-wlan-auth.sock; stdin and stdout
-are the socket. The task comes in as JSON, the result goes out as JSON -
-credentials thereby never sit in argv and are not readable via /proc.
+any Wi-Fi. This program takes over exactly that step. The task comes in as
+JSON, the result goes out as JSON - credentials thereby never sit in argv
+and are not readable via /proc.
+
+It runs as a service that systemd starts on /run/prtg-sensor-wlan-auth.sock
+and keeps running, because it schedules the radio itself. A probe can carry
+several sensors of this type on the one interface it owns, and PRTG cannot
+keep them off each other: it knows an interval per sensor and nothing about
+the other sensors on the same device. So the sensors ask for the last
+measurement and its age, and this service decides when to measure. See
+ADR 0011. Started without a socket from systemd, it stays the filter
+program it has always been: JSON on stdin, JSON on stdout, one measurement
+on the spot - which is how it is called by hand on the probe.
 
 The route over a socket instead of sudo is necessary because
 prtg.mpprobe.service runs with NoNewPrivileges=yes and the kernel then
@@ -30,6 +39,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -57,6 +67,40 @@ WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
 # five seconds for the handover itself.
 LOCK_WAIT_CEILING = 15
 LOCK_WAIT_SECONDS = 15
+
+# How a job's time to live is derived from the freshness it asked for, and
+# the floor under it. See job_ttl.
+JOB_TTL_FACTOR = 3
+JOB_TTL_MINIMUM = 300
+
+# A result renewed exactly at max_age is already too old when the next
+# request arrives. The scheduler therefore renews it before the limit, and
+# the remaining fifth is the room an occupied radio needs.
+REFRESH_FRACTION = 0.8
+
+# How long the scheduler sleeps when nothing is due. Short enough that a
+# newly registered job is measured almost at once, long enough to cost
+# nothing while the probe is quiet.
+SCHEDULER_IDLE_SECONDS = 1.0
+
+# Requests served at the same time. Asking is a memory read and returns
+# at once; the limit is there so a client that hangs cannot make this
+# service spawn threads without end.
+MAX_CONNECTIONS = 8
+CONNECTION_TIMEOUT = 10
+REQUEST_LIMIT = 65536
+
+# A probe watches a handful of networks. The limit is there because every
+# entry holds credentials in memory, so a sensor asking with ever-changing
+# parameters must not be able to fill this service with them.
+MAX_JOBS = 16
+
+# What makes up a job's identity. See job_identity.
+IDENTITY_FIELDS = ("interface", "ssid", "auth", "profile", "psk",
+                   "identity", "password", "anonymous_identity", "ca_cert",
+                   "domain_suffix_match", "verify_server", "client_cert",
+                   "private_key", "private_key_passwd", "bssid", "hidden",
+                   "stage", "timeout")
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
 # names the programs rather than the packages behind them.
@@ -779,6 +823,13 @@ def validate_job(job):
         raise Blocked("bad-request", "Invalid timeout")
     if not 5 <= job["timeout"] <= 300:
         raise Blocked("bad-request", "The timeout must be 5 to 300 seconds")
+    try:
+        job["max_age"] = int(job.get("max_age") or 300)
+    except (TypeError, ValueError):
+        raise Blocked("bad-request", "Invalid maximum age")
+    if not 30 <= job["max_age"] <= 3600:
+        raise Blocked("bad-request",
+                      "The maximum age must be 30 to 3600 seconds")
     return job
 
 
@@ -878,58 +929,290 @@ def reclaim_interface(interface):
                        check=False)
 
 
-def main():
-    if os.geteuid() != 0:
-        emit({"result": "blocked", "code": "no-privileges",
-              "message": "This helper must run as root through its sudo rule"})
+def job_ttl(max_age):
+    """How long a job survives without anybody asking for it.
 
+    Three missed requests are not a deleted sensor: a probe that is
+    restarting, or a scan that overran, must not cost a job its
+    registration. Much longer than that and the radio would go on
+    measuring for a sensor somebody removed days ago.
+    """
+    return max(JOB_TTL_MINIMUM, JOB_TTL_FACTOR * max_age)
+
+
+def job_identity(job):
+    """A stable name for a job, derived from everything it does.
+
+    The credentials are part of it on purpose. A changed password is then
+    a different job: the old one stops being asked for and expires,
+    rather than the scheduler going on measuring with credentials nobody
+    uses any more. What is deliberately not part of it is max_age - a
+    sensor may ask for a different freshness without losing its history.
+    """
+    material = json.dumps([job.get(field) for field in IDENTITY_FIELDS],
+                          sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+class Scheduler:
+    """Measures the registered jobs one after another on the one radio.
+
+    PRTG knows a scanning interval per sensor and nothing about the other
+    sensors on the same device, so it cannot keep two of them off one
+    radio. This is the only place that sees every job, which is why the
+    order is decided here instead of by whoever asked first.
+
+    Everything it knows lives in this object and nowhere else. A restart
+    therefore forgets the jobs and the credentials with them, and the
+    next request registers them again - one cycle lost, nothing to clean
+    up, and no file holding a password.
+    """
+
+    def __init__(self):
+        self._guard = threading.Lock()
+        self._jobs = {}
+        self._wake = threading.Event()
+
+    def collect(self, job, max_age):
+        """Register or renew a job, and answer with what is known now."""
+        identity = job_identity(job)
+        now = time.monotonic()
+        with self._guard:
+            entry = self._jobs.get(identity)
+            if entry is None:
+                if len(self._jobs) >= MAX_JOBS:
+                    raise Blocked(
+                        "too-many-jobs",
+                        "This helper already measures %d networks on this "
+                        "probe" % len(self._jobs))
+                entry = {"job": job, "result": None, "measured": None}
+                self._jobs[identity] = entry
+            entry["max_age"] = max_age
+            entry["asked"] = now
+            answer = self._answer(entry, now)
+        # A job nobody has measured yet should not wait out the idle sleep.
+        self._wake.set()
+        return answer
+
+    def _answer(self, entry, now):
+        if entry["result"] is None:
+            return {"result": "pending", "code": "not-measured",
+                    "message": "Registered on this probe, waiting for the "
+                               "first measurement",
+                    "timings": {}, "details": {}, "age": None}
+        answer = dict(entry["result"])
+        answer["age"] = round(now - entry["measured"], 1)
+        return answer
+
+    def _due(self):
+        """The job whose result has aged furthest beyond its share.
+
+        Measuring the age against each job's own max_age is what shares
+        the radio out evenly. A job that wants a fresh value every minute
+        and one that is content with five are treated the same relative
+        to what they asked for, and where the radio cannot serve them all
+        they age together instead of one of them starving.
+        """
+        now = time.monotonic()
+        best = None
+        best_ratio = 0.0
+        with self._guard:
+            for identity, entry in list(self._jobs.items()):
+                if now - entry["asked"] > job_ttl(entry["max_age"]):
+                    # Nobody has asked for a long time: the sensor behind
+                    # this job was deleted or paused in PRTG.
+                    del self._jobs[identity]
+                    continue
+                if entry["measured"] is None:
+                    return entry
+                ratio = (now - entry["measured"]) / entry["max_age"]
+                if ratio > best_ratio:
+                    best = entry
+                    best_ratio = ratio
+        return best if best_ratio >= REFRESH_FRACTION else None
+
+    def _measure(self, job):
+        """One measurement, behind the interface lock.
+
+        The lock no longer keeps two sensors apart - nothing else in this
+        process measures. It keeps this thread and a test somebody runs
+        by hand on the probe apart, the one case left where two
+        wpa_supplicant instances could meet on one interface.
+        """
+        handle = None
+        try:
+            handle = lock_interface(job["interface"],
+                                    lock_budget(job["timeout"]))
+            return perform_test(job)
+        except Blocked as blocked:
+            if blocked.code == "iface-busy":
+                # Somebody is testing by hand. Leave the stored result
+                # alone and come back on the next pass: a measurement
+                # that did not happen must not overwrite one that did.
+                return None
+            return {"result": "blocked", "code": blocked.code,
+                    "message": blocked.message, "timings": {}, "details": {}}
+        except Exception:
+            # The exception is never printed - it could carry credentials.
+            return {"result": "blocked", "code": "internal-error",
+                    "message": "The test failed unexpectedly",
+                    "timings": {}, "details": {}}
+        finally:
+            if handle is not None:
+                handle.close()
+
+    def run(self):
+        while True:
+            entry = self._due()
+            if entry is None:
+                self._wake.wait(SCHEDULER_IDLE_SECONDS)
+                self._wake.clear()
+                continue
+            result = self._measure(entry["job"])
+            if result is None:
+                continue
+            with self._guard:
+                entry["result"] = result
+                entry["measured"] = time.monotonic()
+
+
+SCHEDULER = Scheduler()
+
+
+def ping_answer():
+    """Self-test of the permission chain, for the deployment.
+
+    Does the sensor script reach this helper at all, and can the test it
+    would run find its tools? The second half is what a deployment hangs
+    on. It is the one moment where a missing tool can still be reported
+    as a failed deployment that restores the previous state - after that
+    it would only surface as a sensor error on the first scan, hours
+    later and on somebody else's screen.
+    """
+    missing = [name for name in REQUIRED_PROGRAMS
+               if shutil.which(name) is None]
+    if not any(shutil.which(name) for name in DHCP_PROGRAMS):
+        missing.append(" or ".join(DHCP_PROGRAMS))
+    if missing:
+        return {"result": "blocked", "code": "tool-missing",
+                "message": "Not installed on this probe: %s"
+                           % ", ".join(missing),
+                "timings": {}, "details": {}}
+    return {"result": "ok", "code": "ok", "message": "helper reachable",
+            "timings": {}, "details": {}}
+
+
+def handle_request(payload):
+    """One request, one answer. This never raises."""
     try:
-        payload = sys.stdin.read(65536)
         job = json.loads(payload or "{}")
         if not isinstance(job, dict):
             raise ValueError
     except ValueError:
-        emit({"result": "blocked", "code": "bad-request",
-              "message": "The request could not be parsed"})
+        return {"result": "blocked", "code": "bad-request",
+                "message": "The request could not be parsed",
+                "timings": {}, "details": {}}
 
     handle = None
     try:
-        if job.get("action") == "ping":
-            # Self-test of the permission chain: does the sensor script
-            # reach this helper at all, and can the test it would run find
-            # its tools?
-            #
-            # The second half is what a deployment hangs on. It is the one
-            # moment where a missing tool can still be reported as a failed
-            # deployment that restores the previous state - after that it
-            # would only surface as a sensor error on the first scan, hours
-            # later and on somebody else's screen.
-            missing = [name for name in REQUIRED_PROGRAMS
-                       if shutil.which(name) is None]
-            if not any(shutil.which(name) for name in DHCP_PROGRAMS):
-                missing.append(" or ".join(DHCP_PROGRAMS))
-            if missing:
-                emit({"result": "blocked", "code": "tool-missing",
-                      "message": "Not installed on this probe: %s"
-                                 % ", ".join(missing),
-                      "timings": {}, "details": {}})
-            emit({"result": "ok", "code": "ok", "message": "helper reachable",
-                  "timings": {}, "details": {}})
+        action = job.get("action")
+        if action == "ping":
+            return ping_answer()
         job = validate_job(merge_profile(job))
-        handle = lock_interface(job["interface"],
-                                lock_budget(job["timeout"]))
-        emit(perform_test(job))
+        if action == "collect":
+            return SCHEDULER.collect(job, job["max_age"])
+        # "test" measures on the spot. The sensor script never asks for
+        # it; whoever debugs on the probe does, and then wants the radio
+        # used rather than a stored value explained to them.
+        handle = lock_interface(job["interface"], lock_budget(job["timeout"]))
+        return perform_test(job)
     except Blocked as blocked:
-        emit({"result": "blocked", "code": blocked.code,
-              "message": blocked.message, "timings": {}, "details": {}})
+        return {"result": "blocked", "code": blocked.code,
+                "message": blocked.message, "timings": {}, "details": {}}
     except Exception:
-        # The exception is never printed - it could contain credentials.
-        emit({"result": "blocked", "code": "internal-error",
-              "message": "The test failed unexpectedly",
-              "timings": {}, "details": {}})
+        # The exception is never printed - it could carry credentials.
+        return {"result": "blocked", "code": "internal-error",
+                "message": "The test failed unexpectedly",
+                "timings": {}, "details": {}}
     finally:
         if handle is not None:
             handle.close()
+
+
+def listen_socket():
+    """The listening socket systemd handed over, or None.
+
+    sd_listen_fds without the library: systemd puts the number of
+    descriptors in LISTEN_FDS, names the process they belong to in
+    LISTEN_PID, and starts them at descriptor 3. Without them this
+    program is the filter on stdin and stdout it has always been, which
+    is how it is called by hand on the probe.
+    """
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
+        return None
+    try:
+        count = int(os.environ.get("LISTEN_FDS", "0"))
+    except ValueError:
+        return None
+    if count < 1:
+        return None
+    return socket.socket(fileno=3, family=socket.AF_UNIX,
+                         type=socket.SOCK_STREAM)
+
+
+def serve_connection(connection, slots):
+    try:
+        connection.settimeout(CONNECTION_TIMEOUT)
+        payload = bytearray()
+        while len(payload) <= REQUEST_LIMIT:
+            chunk = connection.recv(65536)
+            if not chunk:
+                break
+            payload.extend(chunk)
+        answer = handle_request(payload.decode("utf-8", "replace"))
+        connection.sendall((json.dumps(answer) + "\n").encode("utf-8"))
+    except OSError:
+        # A client that hung up mid-answer is not this service's problem.
+        pass
+    finally:
+        connection.close()
+        slots.release()
+
+
+def serve_forever(listener):
+    """Answer requests while the scheduler measures in the background."""
+    threading.Thread(target=SCHEDULER.run, daemon=True).start()
+    slots = threading.Semaphore(MAX_CONNECTIONS)
+    while True:
+        slots.acquire()
+        try:
+            connection, _ = listener.accept()
+        except OSError:
+            slots.release()
+            continue
+        threading.Thread(target=serve_connection, args=(connection, slots),
+                         daemon=True).start()
+
+
+def main():
+    # The deployment asks which systemd unit shape this helper needs before
+    # it writes one. Answered here because this program is the only thing
+    # that knows: it schedules the radio, so it has to outlive the
+    # connection that asked.
+    if sys.argv[1:] == ["--unit-mode"]:
+        print("daemon")
+        return
+
+    if os.geteuid() != 0:
+        emit({"result": "blocked", "code": "no-privileges",
+              "message": "This helper must run as root"})
+
+    listener = listen_socket()
+    if listener is not None:
+        serve_forever(listener)
+        return
+
+    emit(handle_request(sys.stdin.read(REQUEST_LIMIT)))
 
 
 def emit(result):

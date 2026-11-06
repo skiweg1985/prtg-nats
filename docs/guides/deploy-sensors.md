@@ -165,6 +165,20 @@ for testing. The sensor script in turn only opens an `AF_UNIX` socket - the
 one address family besides IP and netlink that the MPP unit's
 `RestrictAddressFamilies` allows.
 
+**A helper that schedules its own work gets the other shape.** It is asked
+with `--unit-mode` before a unit is written, and an answer of `daemon`
+produces `Accept=no` and a service that keeps running and takes the
+listening socket over itself. `wlan-auth` needs that because a probe has one
+radio and several sensors may watch it, and only the helper sees all of them
+([ADR 0011](../architecture/decisions/0011-the-helper-schedules-the-radio.md)).
+Such a service carries no `RuntimeMaxSec` - the emergency brake of the other
+shape would kill it mid-schedule - and in exchange it carries `LimitCORE=0`,
+because what it keeps between measurements includes credentials.
+
+The program is asked rather than the catalogue metadata telling the rollout:
+the program is the only thing that knows, and a field in the manifest would
+be a second truth about the same file.
+
 The detour has a second benefit: as its own service, the privileged program
 is not subject to the seccomp rules of the MPP unit. A DHCP request needs
 `AF_PACKET`, and the MPP unit does not allow that.

@@ -96,6 +96,18 @@
       "description": "The time budget for the whole test in seconds."
     },
     {
+      "name": "--max-age",
+      "type": "integer",
+      "default": 300,
+      "description": "The oldest measurement this sensor accepts, in seconds."
+    },
+    {
+      "name": "--measure-now",
+      "type": "boolean",
+      "group": "internal",
+      "description": "Measure on the spot instead of collecting the scheduled result."
+    },
+    {
       "name": "--self-check",
       "type": "boolean",
       "group": "internal",

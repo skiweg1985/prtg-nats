@@ -82,6 +82,8 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--hidden` | the SSID is not broadcast |
 | `--stage assoc\|dhcp` | stop after sign-in, or measure through DHCP |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
+| `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
+| `--measure-now` | measure on the spot instead of collecting (diagnosis) |
 
 ### Examples
 
@@ -140,19 +142,32 @@ paths.
 
 | ID | Channel | Unit |
 | --- | --- | --- |
-| 10 | Auth Result | 1 = succeeded, 2 = failed |
+| 10 | Auth Result | 1 = succeeded, 2 = failed, 3 = nothing measured |
 | 11 | Total Time | ms |
 | 12 | Association Time | ms |
 | 13 | Auth Time | ms |
 | 14 | DHCP Time | ms, only with `--stage dhcp` |
 | 15 | Signal | dBm |
 | 16 | Frequency | MHz |
+| 17 | Measurement Age | s |
 | 18 | Failure Code | see the table below |
 
 **Auth Result** works well as the primary channel; it can be set in the
 sensor settings. A failed sign-in does not set the sensor to *Down*; it sets
 this channel — that keeps the history of the timing channels readable. The
 alarm is set up through a limit on the channel.
+
+The third value is neither: `3` means nothing was measured, either because
+the job was only just registered or because the last measurement is older
+than `--max-age`. It uses the standard lookup
+`prtg.standardlookups.netapp.nichealth`, whose `3` alarms on nothing — a
+value that does not exist must not read as a failed sign-in, and must not
+read as a successful one either.
+
+**Measurement Age** says how old the reported measurement is. It is the
+channel that shows whether the radio keeps up with what the sensors ask of
+it, and a limit on it is the alarm for that. It exists from the first scan,
+reading zero until something has been measured.
 
 If the sign-in fails, the association time is still kept. That makes it
 possible to tell whether the radio link stood and only the authentication
@@ -173,6 +188,8 @@ was rejected.
 | `dhcp-timeout` | 8 | no DHCP answer |
 | `auth-timeout` | 9 | key negotiation not completed |
 | `assoc-lost` | 10 | the link changed while DHCP was running |
+| `not-measured` | 11 | registered, not measured yet |
+| `result-stale` | 12 | the last measurement is older than `--max-age` |
 
 The message line names the network, the access point behind it and the
 address that was offered — in a list of sensors that is everything visible
@@ -207,13 +224,17 @@ state says nothing about the Wi-Fi.
 1. Add a **Script v2 sensor** on the probe's device.
 2. Select `wlan-auth.py` as the script.
 3. Enter the parameters, see above.
-4. Set the scanning interval to 5 minutes.
-5. Set the timeout to at least `--timeout` plus 20 seconds, so 65 seconds
-   with the defaults.
+4. Set the scanning interval to one minute. The sensor collects a stored
+   result, so asking often costs the radio nothing.
+5. Leave the timeout at its default. Collecting needs no patience — the
+   script gives up after 30 seconds of its own.
+6. Set `--max-age` to the freshness this network needs, and put a limit on
+   the **Measurement Age** channel a little above it.
 
 One sensor checks exactly one network. For several SSIDs, create several
-sensors; on the same interface they run one after another, since the sensor
-prevents parallel runs on one interface.
+sensors, on the same interface too: they no longer compete for the radio,
+because one service measures for all of them. What they do compete for is
+time — see [what the radio can deliver](#what-the-radio-can-deliver).
 
 ## Check without PRTG
 
@@ -222,8 +243,13 @@ the script: as the service user and with its hardening. A plain
 `sudo -u paessler_mpprobe` is **not** enough — it would have more privileges
 than the service and mask failures.
 
+The script collects what the service measured, so a hand-run invocation
+needs `--measure-now` to use the radio. That switch is for diagnosis and
+does not belong in a PRTG sensor, where it would bring back exactly the
+competition for the radio that the service exists to prevent.
+
 ```bash
-echo '--interface wlan0 --ssid Guestnet --auth psk --psk secretpassphrase' | systemd-run --pipe --quiet --collect --wait --uid=paessler_mpprobe --gid=paessler_mpprobe --property=NoNewPrivileges=yes --property=RestrictAddressFamilies="AF_INET AF_INET6 AF_UNIX AF_NETLINK" --property=ProtectSystem=full -- /opt/paessler/share/scripts/wlan-auth.py
+echo '--interface wlan0 --ssid Guestnet --auth psk --psk secretpassphrase --measure-now' | systemd-run --pipe --quiet --collect --wait --uid=paessler_mpprobe --gid=paessler_mpprobe --property=NoNewPrivileges=yes --property=RestrictAddressFamilies="AF_INET AF_INET6 AF_UNIX AF_NETLINK" --property=ProtectSystem=full -- /opt/paessler/share/scripts/wlan-auth.py
 ```
 
 Check only the ability to run, without radio traffic — the same thing
@@ -233,24 +259,57 @@ deployment does after installation:
 echo '--self-check' | systemd-run --pipe --quiet --collect --wait --uid=paessler_mpprobe --gid=paessler_mpprobe --property=NoNewPrivileges=yes -- /opt/paessler/share/scripts/wlan-auth.py
 ```
 
-Is the privileged service reachable?
+Is the privileged service reachable, and is it running?
 
 ```bash
-systemctl status prtg-sensor-wlan-auth.socket
+systemctl status prtg-sensor-wlan-auth.socket prtg-sensor-wlan-auth.service
 ```
+
+The service runs permanently, unlike the helpers of the other sensors: it
+schedules the radio, so it has to outlive the request that asked. A restart
+empties its memory — the jobs and the credentials with them — and the next
+scan of each sensor registers it again.
 
 ## How the test runs
 
-The sensor script itself must not configure any Wi-Fi. It sends its task as
-JSON to `/run/prtg-sensor-wlan-auth.sock`; a dedicated systemd service with
-root privileges receives it there. Passwords therefore never appear in the
-process list. Why no sudo: see
+The sensor script itself must not configure any Wi-Fi — and it does not
+measure either. It asks for the last measurement of its network over
+`/run/prtg-sensor-wlan-auth.sock`, where a systemd service with root
+privileges answers and schedules the measurements itself. Passwords
+therefore never appear in the process list. Why no sudo: see
 [the sensor guide](../../docs/guides/deploy-sensors.md#how-a-sensor-gets-root-privileges).
 
+Why the service decides when to measure and not the sensor: a probe has one
+radio, and PRTG knows one scanning interval per sensor and nothing about the
+other sensors on the same device. Two sensors would take the link from each
+other, and the one that lost would report a failure about a network that is
+perfectly healthy. The service is the only place that sees every job, so it
+is the place where the order is decided. See
+[ADR 0011](../../docs/architecture/decisions/0011-the-helper-schedules-the-radio.md).
+
+A sensor registers by asking, and nothing else:
+
+1. The first request registers the job and is answered with "not measured
+   yet" — `Auth Result` reads 3, which alarms on nothing.
+2. The service measures it as soon as the radio is free.
+3. Every further request is answered with that measurement and its age. The
+   service renews it before it reaches `--max-age`.
+4. A job nobody asks for any more expires, after three times `--max-age` and
+   at least five minutes. Deleting or pausing the sensor in PRTG therefore
+   ends the measuring, and leaves nothing to clean up on the probe.
+
+The credentials live in the memory of that service and nowhere else. They
+are part of what identifies a job, so a changed password is a different job:
+the old one stops being asked for and expires, instead of the radio going on
+measuring with credentials nobody uses any more.
+
+One measurement then runs like this:
+
 1. The target interface is checked: present, a radio interface, reserved,
-   without a default route. A lock file keeps parallel runs apart; a run
-   that meets a busy interface waits up to 15 seconds for it before it
-   reports `iface-busy`.
+   without a default route. A lock file keeps parallel runs apart. Two
+   sensors no longer meet there — the service measures for both — but a
+   hand-run `--measure-now` does, and it waits for the radio for half of
+   its own time budget, at most 15 seconds.
 2. Behind the lock the interface is taken back: a supplicant or a `dhcpcd`
    left by a run that never finished is ended, stale work directories go,
    address and route are flushed. NetworkManager's own supplicant is left
@@ -262,26 +321,30 @@ process list. Why no sudo: see
    with timestamps, plus signal and frequency.
 5. With `--stage dhcp`, a complete DHCP cycle follows in test mode.
 6. Before the address is believed, the link is checked against the one
-   that was measured — same cell, still connected. On a probe where two
-   sensors share one radio, a lease collected after the link changed
-   belongs to the other run; it is reported as `assoc-lost` rather than
-   as an address.
+   that was measured — same cell, still connected. A lease collected after
+   the link changed belongs to another association, so it is reported as
+   `assoc-lost` rather than as an address.
 7. Cleanup always happens: end the instance, power the interface down,
    delete generated files — even on timeout or abort.
 
-The scan interval in PRTG has to stay above the time budget of a run.
-A failing test uses its budget in full — `--timeout` seconds, 45 by
-default — so an interval below that starts the next run while the previous
-one still holds the radio. A run waits for the interface for half of its
-own time budget, at most 15 seconds — what it waits for is another run of
-the same kind, bounded by the same budget, so a fixed number would be
-wrong for a 10-second test and for a 300-second one alike. The ceiling
-comes from the script, which gives the helper `--timeout` plus 20 seconds
-on the socket: waiting longer would time the script out while the helper
-is still measuring. That absorbs an
-overlap, not a permanent one: beyond it the sensor reports `iface-busy`
-instead of measuring. A budget of 45 seconds and an interval of 120 leaves room
-for both.
+### What the radio can deliver
+
+The interval in PRTG no longer decides when the radio is used. It decides
+how often a sensor asks, and asking is free. What a sensor needs is
+`--max-age`, and whether the radio can hold that is arithmetic: a failing
+test uses its budget in full — `--timeout` seconds, 45 by default — so two
+networks need 90 seconds of radio time per round and three need 135.
+
+Where the jobs do not fit into their `--max-age`, the service shares the
+radio out evenly and all of them age together, instead of one network
+starving while another stays fresh. That shows on the **Measurement Age**
+channel of every affected sensor at once, which is why the limit belongs on
+that channel. Past `--max-age` the sensor stops offering the old value as a
+result at all: `Auth Result` goes to 3 and the failure code to 12.
+
+So a sensor asking for a 45-second check to be no older than a minute, next
+to a second one of its kind, cannot be satisfied — and says that, instead of
+reporting a failure about the Wi-Fi.
 
 All variable values go into the `wpa_supplicant` configuration as hex
 strings. Quotation marks or line breaks in an SSID or a password therefore

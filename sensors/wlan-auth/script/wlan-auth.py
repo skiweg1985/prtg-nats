@@ -30,6 +30,10 @@ from typing import Any, NoReturn
 
 HELPER_SOCKET = "/run/prtg-sensor-wlan-auth.sock"
 
+# Patience for collecting a result. The helper answers out of memory, so
+# this covers a service under load, not a measurement.
+COLLECT_TIMEOUT = 30
+
 # Stable numbers for the "Failure Code" channel. They allow targeted
 # alerting on a specific cause without parsing the message text.
 FAILURE_CODES = {
@@ -44,6 +48,8 @@ FAILURE_CODES = {
     "dhcp-timeout": 8,
     "auth-timeout": 9,
     "assoc-lost": 10,
+    "not-measured": 11,
+    "result-stale": 12,
 }
 
 
@@ -84,6 +90,10 @@ def setup():
                            help="Stop after authentication or after DHCP.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
+    argparser.add_argument("--max-age", type=int, default=300,
+                           help="The oldest measurement this sensor accepts, in seconds.")
+    argparser.add_argument("--measure-now", action="store_true",
+                           help="Measure on the spot instead of collecting the scheduled result.")
     argparser.add_argument("--self-check", action="store_true",
                            help="Only verify that the privileged helper is reachable.")
     try:
@@ -172,10 +182,26 @@ def call_helper(job: dict[str, Any], timeout: int) -> dict[str, Any]:
 LOOKUP_YES = 1
 LOOKUP_NO = 2
 
+# prtg.standardlookups.netapp.nichealth knows a third value: 3 = Not
+# Available with state "None", which alarms on nothing. That is what
+# "registered, not measured yet" and "older than --max-age" need - neither
+# an alarm nor a silent success. Values 1 and 2 are the same as in the
+# yes/no lookup above, so a channel that used to carry it keeps its
+# history. aruba-uplink reports an unused uplink through the same lookup.
+LOOKUP_NONE = 3
+RESULT_LOOKUP = "prtg.standardlookups.netapp.nichealth"
+
 
 def lookup_value(condition) -> int:
     """Translate a yes/no into the values PRTG understands."""
     return LOOKUP_YES if condition else LOOKUP_NO
+
+
+def age_suffix(age) -> str:
+    """How long ago this was measured, where there is an age at all."""
+    if age is None:
+        return ""
+    return ", measured %d s ago" % int(age)
 
 
 def channel(identifier: int, name: str, value: int, **extra) -> dict[str, Any]:
@@ -223,7 +249,17 @@ def work(args: dict[str, Any]):
         "stage": args["stage"],
         "timeout": args["timeout"],
     }
-    answer = call_helper(job, args["timeout"] + 20)
+    # Collecting a stored result is a memory read in the helper, so it
+    # needs none of the patience a measurement needs. Measuring on the
+    # spot still does: the helper then waits for the radio and runs the
+    # whole test before it answers.
+    if args["measure_now"]:
+        job["action"] = "test"
+        answer = call_helper(job, args["timeout"] + 20)
+    else:
+        job["action"] = "collect"
+        job["max_age"] = args["max_age"]
+        answer = call_helper(job, COLLECT_TIMEOUT)
 
     # "blocked" means the test never ran - missing interface, missing
     # permissions, wrong parameters. That is a sensor failure, not a
@@ -232,38 +268,56 @@ def work(args: dict[str, Any]):
         fail("Test could not run (%s): %s"
              % (answer.get("code", "unknown"), answer.get("message", "")))
 
-    succeeded = answer.get("result") == "ok"
+    outcome = answer.get("result")
     timings = answer.get("timings") or {}
     details = answer.get("details") or {}
     code = answer.get("code", "ok")
+    age = answer.get("age")
 
+    # A measurement older than this sensor asked for is not a measurement
+    # any more. Serving it anyway would let the sensor stay green on a
+    # sign-in from hours ago - a failure that looks like nothing is wrong,
+    # and therefore worse than one that shows.
+    stale = age is not None and age > args["max_age"]
+    if outcome == "pending":
+        code = "not-measured"
+    elif stale:
+        code = "result-stale"
+
+    measured = outcome in ("ok", "failed") and not stale
+    state = lookup_value(outcome == "ok") if measured else LOOKUP_NONE
+
+    # The channel structure follows the parameters, never the result. A
+    # channel that is missing while nothing has been measured and appears
+    # afterwards tears its history apart in PRTG.
     channels = [
-        channel(10, "Auth Result", lookup_value(succeeded), type="lookup",
-                lookup_name="prtg.standardlookups.yesno.stateyesok"),
+        channel(10, "Auth Result", state, type="lookup",
+                lookup_name=RESULT_LOOKUP),
         channel(11, "Total Time", int(timings.get("total_ms", 0)),
                 kind="time_milliseconds"),
         channel(12, "Association Time", int(timings.get("assoc_ms", 0)),
                 kind="time_milliseconds"),
         channel(13, "Auth Time", int(timings.get("auth_ms", 0)),
                 kind="time_milliseconds"),
+        channel(15, "Signal", int(details.get("signal_dbm") or 0),
+                kind="custom", display_unit="dBm"),
+        channel(16, "Frequency", int(details.get("frequency_mhz") or 0),
+                kind="custom", display_unit="MHz"),
+        channel(17, "Measurement Age", int(age or 0),
+                kind="custom", display_unit="s"),
         channel(18, "Failure Code", FAILURE_CODES.get(code, 99)),
     ]
-    if "dhcp_ms" in timings:
-        channels.append(channel(14, "DHCP Time", int(timings["dhcp_ms"]),
+    if args["stage"] == "dhcp":
+        channels.append(channel(14, "DHCP Time",
+                                int(timings.get("dhcp_ms", 0)),
                                 kind="time_milliseconds"))
-    if details.get("signal_dbm"):
-        channels.append(channel(15, "Signal", int(details["signal_dbm"]),
-                                kind="custom", display_unit="dBm"))
-    if details.get("frequency_mhz"):
-        channels.append(channel(16, "Frequency", int(details["frequency_mhz"]),
-                                kind="custom", display_unit="MHz"))
     # Ascending, so the channel list in PRTG has the same order no matter
-    # which optional values are present.
+    # which parameters are set.
     channels.sort(key=lambda entry: entry["id"])
 
-    # Which network, on which access point, and did it get an address -
-    # that is what the message line has to answer, because in a list of
-    # sensors it is all that is visible without opening one.
+    # Which network, on which access point, did it get an address, and how
+    # old is all of that - in a list of sensors the message line is all
+    # that is visible without opening one.
     #
     # The SSID comes from the helper's reading of the link, so it names
     # the network actually joined. Only a run that never got that far
@@ -271,7 +325,14 @@ def work(args: dict[str, Any]):
     # credentials, the SSID among them, stay on the probe.
     network = details.get("ssid") or args["ssid"] or ""
     quoted = ' on "%s"' % network if network else ""
-    if succeeded:
+    if outcome == "pending":
+        message = ("Registered on this probe%s, waiting for the first "
+                   "measurement" % quoted)
+    elif stale:
+        message = ("The last measurement%s is %d seconds old, past the %d "
+                   "this sensor accepts"
+                   % (quoted, int(age), args["max_age"]))
+    elif outcome == "ok":
         message = "Authentication succeeded%s via %s" % (
             quoted, details.get("bssid") or args["interface"])
         if details.get("ip_address"):
@@ -282,13 +343,15 @@ def work(args: dict[str, Any]):
             # network reads like a healthy result.
             if details.get("dhcp_server"):
                 message += " from %s" % details["dhcp_server"]
+        message += age_suffix(age)
     else:
-        message = "%s%s (%s)" % (
-            answer.get("message", "Authentication failed"), quoted, code)
+        message = "%s%s (%s)%s" % (
+            answer.get("message", "Authentication failed"), quoted, code,
+            age_suffix(age))
 
-    # A failure remains a valid measurement: the sensor keeps delivering
-    # values, the "Auth Result" channel carries the alarm. That keeps the
-    # history of the timing channels readable.
+    # A failed sign-in remains a valid measurement: the sensor keeps
+    # delivering values and the "Auth Result" channel carries the alarm.
+    # That keeps the history of the timing channels readable.
     return {
         "version": 2,
         "status": "ok",
