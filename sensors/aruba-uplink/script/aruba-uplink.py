@@ -155,7 +155,7 @@ BAD_HOST_MESSAGE = (
 )
 SAME_ROLE_MESSAGE = (
     "--primary and --backup cannot both be %s. A site has one main path; "
-    'use "--backup none" if there is no alternative one.'
+    "leave --backup out if there is no alternative one."
 )
 UNKNOWN_KIND_MESSAGE = (
     '%s must be one of %s, not "%s".'
@@ -173,6 +173,19 @@ KIND_ABSENT_MESSAGE = (
 LOOKUP_YES = 1
 LOOKUP_NO = 2
 ALARM_LOOKUP = "prtg.standardlookups.yesno.stateyesok"
+
+# An uplink the site does not use needs a third state, and one that does
+# not alarm: a site on a single line would otherwise either report a
+# permanent error for a path it never had, or lose the channel entirely and
+# with it the history of the day somebody adds one.
+# prtg.standardlookups.netapp.nichealth is the lookup for it - 1 = Healthy
+# (Ok), 2 = Unhealthy (Error), 3 = Not Available (no state at all). Its
+# 1 and 2 are the values the yes/no lookup used before, so the history of
+# an existing channel carries over unbroken.
+STATE_UP = 1
+STATE_DOWN = 2
+STATE_UNUSED = 3
+STATE_LOOKUP = "prtg.standardlookups.netapp.nichealth"
 
 
 class ConfigError(Exception):
@@ -262,9 +275,13 @@ def setup():
     argparser.add_argument("--primary", default=KIND_WIRED,
                            help="Which uplink kind is the main path: wired or "
                                 "cellular.")
-    argparser.add_argument("--backup", default=KIND_CELLULAR,
+    # Default none, so the parameters name the uplinks the site actually
+    # has: "--primary wired --backup cellular" for two, "--primary wired"
+    # for one. A default of cellular would have every single-line site
+    # start out monitoring a path that is not there.
+    argparser.add_argument("--backup", default=KIND_NONE,
                            help="The alternative path: cellular, wired or "
-                                "none.")
+                                "none. Left out there is none.")
     argparser.add_argument("--backup-share", type=int, default=25,
                            help="Percentage of traffic on the backup from "
                                 "which the traffic counts as moved over.")
@@ -828,6 +845,7 @@ def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
     return {
         "primary_up": bool(primary.get("up")),
         "backup_up": bool(backup.get("up")) if backup else False,
+        "backup_used": args["backup"] != KIND_NONE,
         "on_primary": on_primary,
         "backup_share": backup_share,
         "utilisation": float(primary.get("utilisation", 0.0)),
@@ -843,6 +861,19 @@ def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
 def lookup_value(condition) -> int:
     """Translate a yes/no into the values PRTG understands."""
     return LOOKUP_YES if condition else LOOKUP_NO
+
+
+def state_value(up, used: bool = True) -> int:
+    """The state of one uplink: up, down, or not used by this site.
+
+    Not used is deliberately not an outage. A site with one line, or one
+    whose second line is in maintenance, has nothing to report there - and
+    an alarm for it would train whoever reads the sensor to ignore the
+    channel.
+    """
+    if not used:
+        return STATE_UNUSED
+    return STATE_UP if up else STATE_DOWN
 
 
 def channel(identifier: int, name: str, value, **extra) -> dict[str, Any]:
@@ -895,8 +926,8 @@ def present(args: dict[str, Any], summary: dict[str, Any],
         channel(10, "Test Result", lookup_value(succeeded), type="lookup",
                 lookup_name=ALARM_LOOKUP),
         channel(11, "Uplinks Connected", summary["connected"]),
-        channel(12, "Primary Uplink Up", lookup_value(summary["primary_up"]),
-                type="lookup", lookup_name=ALARM_LOOKUP),
+        channel(12, "Primary Uplink State", state_value(summary["primary_up"]),
+                type="lookup", lookup_name=STATE_LOOKUP),
         number(15, "Primary Bandwidth Utilisation", summary["utilisation"],
                kind="percent"),
         channel(16, "Uplink Changes 24h", changes),
@@ -906,13 +937,17 @@ def present(args: dict[str, Any], summary: dict[str, Any],
         channel(20, "On Primary Uplink", lookup_value(summary["on_primary"]),
                 type="lookup", lookup_name=ALARM_LOOKUP),
     ]
-    if has_backup:
-        channels.append(
-            channel(13, "Backup Uplink Up", lookup_value(summary["backup_up"]),
-                    type="lookup", lookup_name=ALARM_LOOKUP))
-        channels.append(
-            number(14, "Traffic on Backup", summary["backup_share"],
-                   kind="percent"))
+    # Present whether or not the site uses a backup. The channel structure
+    # follows the configuration only as far as the kinds of uplink go; a
+    # path the site does not use reports that instead of disappearing, so
+    # the day somebody adds one the history is already there.
+    channels.append(
+        channel(13, "Backup Uplink State",
+                state_value(summary["backup_up"], has_backup),
+                type="lookup", lookup_name=STATE_LOOKUP))
+    channels.append(
+        number(14, "Traffic on Backup", summary["backup_share"],
+               kind="percent"))
     if has_cellular:
         channels.append(number(19, "LTE RSRP", cellular.get("rsrp", 0.0),
                                kind="custom", display_unit="dBm"))
@@ -924,9 +959,9 @@ def present(args: dict[str, Any], summary: dict[str, Any],
 
     channels.extend(quality_channels(PRIMARY_BASE, "Primary",
                                      quality.get(args["primary"], {})))
-    if has_backup:
-        channels.extend(quality_channels(BACKUP_BASE, "Backup",
-                                         quality.get(args["backup"], {})))
+    channels.extend(quality_channels(
+        BACKUP_BASE, "Backup",
+        quality.get(args["backup"], {}) if has_backup else {}))
 
     # Ascending, so the channel list in PRTG has the same order no matter
     # which optional values are present.
@@ -957,7 +992,12 @@ def describe(args: dict[str, Any], summary: dict[str, Any],
     else:
         parts.append("%s carries the traffic" % args["primary"].capitalize())
 
-    if args["backup"] != KIND_NONE and not summary["backup_up"]:
+    if args["backup"] == KIND_NONE:
+        # Without this line the quiet backup channel reads like a healthy
+        # one. Whoever looks at the sensor has to see that nothing is
+        # watching the second path, because nothing was configured.
+        parts.append("no backup uplink configured")
+    elif not summary["backup_up"]:
         # First place after the primary statement: a missing backup is what
         # nobody notices until the day it is needed.
         parts.append("the %s backup is not available" % args["backup"])
@@ -994,7 +1034,8 @@ def failure_result(args: dict[str, Any], code: str,
     """
     if code in SENSOR_FAILURES:
         fail("%s (%s)" % (message, code))
-    empty = {"primary_up": False, "backup_up": False, "on_primary": False,
+    empty = {"primary_up": False, "backup_up": False,
+             "backup_used": args["backup"] != KIND_NONE, "on_primary": False,
              "backup_share": 0.0, "utilisation": 0.0, "connected": 0,
              "data_usage_mb": 0.0, "data_usage_known": False}
     return present(args, empty, {}, {}, 0, 0, code, message)

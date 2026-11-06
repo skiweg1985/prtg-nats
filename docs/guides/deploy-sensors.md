@@ -657,7 +657,7 @@ profiles and remaining reservations stay untouched.
 | `internet-speed` | measure the throughput of the uplink (download, upload, latency) | [README](../../sensors/internet-speed/README.md) |
 | `link-quality` | reachability and quality of the uplink (loss, latency, jitter) | [README](../../sensors/link-quality/README.md) |
 | `iperf-throughput` | the uplink against a self-operated iperf3 endpoint (throughput, loss, jitter, latency) | [README](../../sensors/iperf-throughput/README.md) |
-| `aruba-uplink` | which uplink of an Aruba gateway carries the site (primary and backup, path quality, LTE signal) | [README](../../sensors/aruba-uplink/README.md) |
+| `aruba-uplink` | which uplink of an Aruba gateway carries the site (one or two uplinks, path quality, LTE signal) | [README](../../sensors/aruba-uplink/README.md) |
 
 `internet-speed` and `link-quality` answer two different questions about the
 same line: one asks how much it carries, the other how cleanly it carries.

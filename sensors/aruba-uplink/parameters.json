@@ -34,9 +34,9 @@
     {
       "name": "--backup",
       "type": "choice",
-      "choices": ["cellular", "wired", "none"],
-      "default": "cellular",
-      "description": "The alternative path: cellular, wired or none."
+      "choices": ["none", "cellular", "wired"],
+      "default": "none",
+      "description": "The alternative path: cellular, wired or none. Left out there is none."
     },
     {
       "name": "--backup-share",
