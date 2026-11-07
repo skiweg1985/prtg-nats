@@ -476,6 +476,26 @@ def check_wlan_auth_output():
     check("an unknown parameter reports a sensor error",
           json.loads(completed.stdout).get("status"), "error")
 
+    # Parameters typed on a phone or pasted from a document carry a
+    # typographic dash instead of two hyphens, and on screen the line
+    # looks right while the sensor stays red. Seen on a probe: a sensor
+    # down with "could not parse" because the parameter began with an em
+    # dash. The character is named, the parameters themselves are not -
+    # they carry passwords.
+    completed = run_script(
+        script, "—max-age 60 --ssid Test --auth psk --psk short\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("a typographic dash in the parameters is named",
+          "an em dash" in message, True)
+    check("and so is what belongs there instead",
+          "two plain hyphens" in message, True)
+    completed = run_script(
+        script, "--ssid Test --auth psk --psk short --totally-unknown\n")
+    check("an ordinary mistake is not blamed on a dash",
+          "dash" in json.loads(completed.stdout).get("message", ""), False)
+    check("the parameters are never quoted back",
+          "short" in message, False)
+
     # An invented helper answer, so the output format is checkable
     # without Wi-Fi. This is what a failed sign-in looks like.
     module.call_helper = lambda job, timeout: {

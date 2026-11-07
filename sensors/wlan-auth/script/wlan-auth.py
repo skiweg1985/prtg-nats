@@ -54,6 +54,26 @@ FAILURE_CODES = {
 }
 
 
+# A parameter line typed on a phone, or pasted out of a document, tends
+# to carry a typographic dash where two hyphens belong. The characters
+# are nearly indistinguishable on screen, so the sensor stays red while
+# the line looks right - naming the character is the whole difference.
+TYPOGRAPHIC_DASHES = {
+    "–": "an en dash", "—": "an em dash", "−": "a minus sign",
+    "‑": "a non-breaking hyphen",
+}
+
+
+def parse_failure(text: str) -> str:
+    """Why the parameters could not be read, without quoting them."""
+    message = "Could not parse input parameter. Check configured parameters."
+    named = [name for dash, name in TYPOGRAPHIC_DASHES.items() if dash in text]
+    if named:
+        message += (" The parameters contain %s where a parameter name "
+                    "needs two plain hyphens." % named[0])
+    return message
+
+
 def setup():
     argparser = argparse.ArgumentParser(
         description="The script tests the WLAN authentication of this probe.",
@@ -97,6 +117,7 @@ def setup():
                            help="Measure on the spot instead of collecting the scheduled result.")
     argparser.add_argument("--self-check", action="store_true",
                            help="Only verify that the privileged helper is reachable.")
+    pipestring = ""
     try:
         # Is a terminal?
         if sys.stdin.isatty():
@@ -107,10 +128,10 @@ def setup():
 
     except argparse.ArgumentError:
         # Use helpful message, free of sensitive data.
-        fail("Could not parse input parameter. Check configured parameters.")
+        fail(parse_failure(pipestring))
     except ValueError:
         # shlex.split fails on an unpaired quotation mark.
-        fail("Could not parse input parameter. Check configured parameters.")
+        fail(parse_failure(pipestring))
     except SystemExit as termination:
         # exit_on_error only covers conversion failures. On an unknown
         # parameter, argparse terminates the process itself with code 2 -
@@ -119,7 +140,7 @@ def setup():
         # terminal invocation keeps working.
         if termination.code == 0:
             raise
-        fail("Could not parse input parameter. Check configured parameters.")
+        fail(parse_failure(pipestring))
     return vars(args)
 
 

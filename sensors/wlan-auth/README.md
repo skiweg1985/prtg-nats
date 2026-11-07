@@ -85,6 +85,12 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
 
+Every parameter name starts with two plain hyphens. A line typed on a
+phone or pasted out of a document easily carries an en or em dash instead,
+which looks the same on screen and leaves the sensor down with *"Could not
+parse input parameter"* — so the message names the character when it finds
+one.
+
 ### Examples
 
 WPA2-PSK:
