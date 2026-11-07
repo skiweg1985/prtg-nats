@@ -203,6 +203,8 @@ def setup():
                            help="Stop after authentication or after DHCP.")
     argparser.add_argument("--gateway", default="",
                            help="Address to ping after DHCP, or none to skip the check.")
+    argparser.add_argument("--mac", default="auto",
+                           help="The client address: auto for one per network, permanent for the radio's own, or a fixed address.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
     argparser.add_argument("--max-age", type=int, default=300,
@@ -313,11 +315,9 @@ def lookup_value(condition) -> int:
     return LOOKUP_YES if condition else LOOKUP_NO
 
 
-def age_suffix(age) -> str:
+def age_part(age) -> list[str]:
     """How long ago this was measured, where there is an age at all."""
-    if age is None:
-        return ""
-    return ", measured %d s ago" % int(age)
+    return [] if age is None else ["age %d s" % int(age)]
 
 
 def channel(identifier: int, name: str, value: int, **extra) -> dict[str, Any]:
@@ -364,6 +364,7 @@ def work(args: dict[str, Any]):
         "hidden": args["hidden"],
         "stage": args["stage"],
         "gateway": args["gateway"],
+        "mac": args["mac"],
         "timeout": args["timeout"],
     }
     # Collecting a stored result is a memory read in the helper, so it
@@ -469,63 +470,69 @@ def work(args: dict[str, Any]):
     # which parameters are set.
     channels.sort(key=lambda entry: entry["id"])
 
-    # Which network, on which access point, did it get an address, and how
-    # old is all of that - in a list of sensors the message line is all
-    # that is visible without opening one.
+    # One line, the network and its verdict first: in a list of sensors the
+    # message is all that shows without opening one. The rest are short
+    # parts in a fixed order, and a part without a value is left out rather
+    # than shown empty.
     #
     # The SSID comes from the helper's reading of the link, so it names
     # the network actually joined. Only a run that never got that far
     # falls back to the parameter, and with --profile there is none: the
     # credentials, the SSID among them, stay on the probe.
-    network = details.get("ssid") or args["ssid"] or ""
-    quoted = ' on "%s"' % network if network else ""
-    if outcome == "pending":
-        message = ("Registered on this probe%s, waiting for the first "
-                   "measurement" % quoted)
-    elif stale:
-        message = ("The last measurement%s is %d seconds old, past the %d "
-                   "this sensor accepts"
-                   % (quoted, int(age), args["max_age"]))
-    elif outcome == "ok":
-        message = "Authentication succeeded%s via %s" % (
-            quoted, details.get("bssid") or args["interface"])
+    network = details.get("ssid") or args["ssid"] or "WLAN"
+
+    def link_parts() -> list[str]:
+        parts = []
+        # The address the run signed in with is what to look for in the
+        # gateway's user table and in Central.
+        if details.get("mac"):
+            parts.append("client %s%s" % (
+                details["mac"],
+                " (permanent)" if details.get("mac_kind") == "permanent"
+                else ""))
+        if details.get("bssid"):
+            parts.append("AP %s" % details["bssid"])
+        # The address alone does not say which network answered. Two SSIDs
+        # that should sit in different VLANs are told apart by their DHCP
+        # server, and without it a lease from the wrong network reads like
+        # a healthy result.
         if details.get("ip_address"):
-            message += ", DHCP offered %s" % details["ip_address"]
-            # The address alone does not say which network answered. Two
-            # SSIDs that should sit in different VLANs are told apart by
-            # their DHCP server, and without it a lease from the wrong
-            # network reads like a healthy result.
-            if details.get("dhcp_server"):
-                message += " from %s" % details["dhcp_server"]
+            parts.append("IP %s%s" % (
+                details["ip_address"],
+                " from %s" % details["dhcp_server"]
+                if details.get("dhcp_server") else ""))
+        return parts
+
+    if outcome == "pending":
+        parts = ["%s: waiting for first measurement" % network]
+    elif stale:
+        parts = ["%s: last measurement %d s old, limit %d s"
+                 % (network, int(age), args["max_age"])] + link_parts()[:1]
+    elif outcome == "ok":
+        parts = ["%s: OK" % network] + link_parts()
         # The address says a server answered; this says the network
-        # carries traffic. In a list of sensors it is the difference
-        # between a lease and a connection.
+        # carries traffic. Named once when it is the DHCP server, since
+        # the same address twice reads like two machines.
         if details.get("gateway"):
             took = int(timings.get("gateway_ms", 0))
             if details["gateway"] == details.get("dhcp_server"):
-                # Naming the same address twice in one line reads like two
-                # machines where there is one.
-                message += ", which answered a ping in %d ms" % took
+                parts.append("ping %d ms" % took)
             else:
-                message += ", %s %s answered in %d ms" % (
+                parts.append("%s %s ping %d ms" % (
                     details.get("gateway_kind") or "gateway",
-                    details["gateway"], took)
-        message += age_suffix(age)
+                    details["gateway"], took))
+        parts += age_part(age)
     else:
-        message = "%s%s (%s)%s" % (
-            answer.get("message", "Authentication failed"), quoted, observed,
-            age_suffix(age))
+        parts = ["%s: %s" % (network, answer.get("message") or "failed")]
+        parts += link_parts() + ["code %s" % observed] + age_part(age)
 
     # First in the line, because it is the one thing an operator has to
     # act on: nothing about the schedule improves until the setting fits
     # the radio.
     if unreachable:
-        message = ("Set --max-age to at least %d seconds: a round over the "
-                   "%d %s on this radio takes that long, so %d can never be "
-                   "met. %s"
-                   % (budget, sharing,
-                      "network" if sharing == 1 else "networks",
-                      args["max_age"], message))
+        parts.insert(0, "Set --max-age >= %d s (%d %s on this radio)" % (
+            budget, sharing, "network" if sharing == 1 else "networks"))
+    message = "; ".join(parts)
 
     # A failed sign-in remains a valid measurement: the sensor keeps
     # delivering values and the "Auth Result" channel carries the alarm.

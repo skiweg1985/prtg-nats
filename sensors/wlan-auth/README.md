@@ -82,6 +82,7 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--hidden` | the SSID is not broadcast |
 | `--stage assoc\|dhcp` | stop after sign-in, or measure through DHCP |
 | `--gateway ADDRESS\|none` | which address to ping after DHCP; empty means the one from the lease |
+| `--mac auto\|permanent\|ADDRESS` | client address: one per network (default), the radio's own, or a fixed one |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
 | `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
@@ -208,6 +209,53 @@ outlives the run.
 > a network reports failure code 14 from the next scan on. `none` takes
 > the question away, and channels 19 and 20 with it.
 
+### One address per network
+
+By default the probe signs in to every network under an address of its
+own, derived from the radio's built-in address and the SSID: locally
+administered (`02:…`), the same every time for the same network, different
+for every other network and every other radio. Phones do the same with
+their private address per Wi-Fi network.
+
+The reason is a fault on Aruba gateways under AOS-10, found on two of
+three sites measured: a station that signs in to an 802.1X network and
+then, within the user idle timeout, to a PSK network under the same
+address is given the VLAN of its previous session. A probe that checks an internal and a guest
+network on one radio, a few seconds apart, then measures the guest network
+in the internal VLAN — with a valid lease and a green sensor. Under a
+second address the guest network is measured as itself. The background is
+in [ADR 0012](../../docs/architecture/decisions/0012-one-client-address-per-network.md).
+
+| `--mac` | Signs in under |
+| --- | --- |
+| `auto` (default) | the network's own address |
+| `permanent` | the radio's built-in address, as before this change |
+| `02:00:5e:10:00:01` | exactly this address — for a DHCP reservation or an allowlist |
+
+The address is set before every run and the radio's own is put back
+afterwards. It appears in the message, so the client can be found in the
+gateway's user table and in Central. A radio whose driver refuses a new
+address does not fall back to its own, which would bring the fault back
+unnoticed: the run does not take place and the sensor reports a sensor
+error that names the address and what the kernel said.
+
+A network address that is reused also reuses what the gateway remembers
+about it, and a guest role that blocks private networks can trip over
+that. Measured on Aruba AOS-10 with a guest policy of *permit ICMP to the
+gateway, deny private-networks, permit any*: the first run under a new
+address got its lease, every later one timed out on DHCP. Once the gateway
+knows the client's address, its DHCP answer goes out as unicast to that
+private address and the deny catches it - a rule that permits DHCP only
+*towards* the gateway does not help, because the answer travels the other
+way. What fixed it was `any → any → svc-dhcp → permit` ahead of the deny.
+Real guests need the same rule anyway: a phone renews its lease by unicast
+to the server.
+
+> **Existing sensors sign in under a new address after this update.**
+> Where a DHCP reservation, a MAC allowlist or a rule in Central is tied to
+> the radio's address, set `--mac permanent` or the reserved address with
+> `--mac ADDRESS`.
+
 **Measurement Age** says how old the reported measurement is. It is the
 channel that shows whether the radio keeps up with what the sensors ask of
 it, and a limit on it is the alarm for that. It exists from the first scan,
@@ -237,13 +285,19 @@ was rejected.
 | `max-age-too-low` | 13 | `--max-age` is below what a round over the radio costs |
 | `gateway-unreachable` | 14 | the lease is valid, but the gateway does not answer |
 
-The message line names the network, the access point behind it and the
-address that was offered — in a list of sensors that is everything visible
-without opening one:
+The message line is a row of short parts, the network and its verdict
+first — in a list of sensors it is everything visible without opening one.
+After that, in a fixed order: the client address, the access point, the
+leased address and its DHCP server, the gateway ping, on failure the code,
+and the age of the measurement. A part without a value is left out.
 
 ```text
-Authentication succeeded on "Office" via 1c:30:03:12:46:f3, DHCP offered 192.0.2.75 from 192.0.2.1
-The access point rejected the association on "Office" (assoc-rejected (status 17))
+Office: OK; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; IP 192.0.2.75 from 192.0.2.1; ping 7 ms; age 12 s
+Office: OK; client 02:91:0b:7e:12:c4; AP 00:00:5e:00:53:c0; IP 198.51.100.26 from 198.51.100.1; router 198.51.100.254 ping 4 ms; age 31 s
+Office: no DHCP answer; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; code dhcp-timeout; age 20 s
+Office: association rejected by AP (status 17); client 02:3f:a1:9c:44:e7; code assoc-rejected; age 9 s
+Office: waiting for first measurement
+Set --max-age >= 120 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
 ```
 
 The DHCP server is named alongside the address because the address alone

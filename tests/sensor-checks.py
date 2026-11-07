@@ -551,7 +551,7 @@ def check_wlan_auth_output():
         "ca_cert": None, "domain_suffix_match": None, "no_verify_server": True,
         "client_cert": None, "private_key": None, "private_key_passwd": None,
         "bssid": None, "hidden": False, "stage": "dhcp", "timeout": 45,
-        "max_age": 300, "measure_now": False, "gateway": "",
+        "max_age": 300, "measure_now": False, "gateway": "", "mac": "auto",
     }
     result = module.work(arguments)
     channels = {entry["id"]: entry for entry in result["channels"]}
@@ -625,7 +625,7 @@ def check_wlan_auth_output():
           "prtg.standardlookups.netapp.nichealth")
     check("the answer time is reported", channels[20]["value"], 4)
     check("the message says the network carries traffic",
-          "router 198.51.100.254 answered in 4 ms" in result["message"], True)
+          "router 198.51.100.254 ping 4 ms" in result["message"], True)
 
     # Where the lease names no router, the server that offered it is the
     # target - and then the same address must not appear twice in one line.
@@ -639,9 +639,9 @@ def check_wlan_auth_output():
     }
     message = module.work(dict(arguments))["message"]
     check("one machine is named once",
-          "dhcp server 198.51.100.1 answered" in message, False)
-    check("and the ping is still reported",
-          "which answered a ping in 6 ms" in message, True)
+          message.count("198.51.100.1;") + message.count("198.51.100.1 ping"),
+          1)
+    check("and the ping is still reported", "; ping 6 ms" in message, True)
 
     # The check runs without being asked for, because an address that
     # carries no traffic is the failure worth catching. A network that
@@ -675,7 +675,7 @@ def check_wlan_auth_output():
     # for: the sign-in worked, the address arrived, and nothing moves.
     module.call_helper = lambda job, timeout: {
         "result": "failed", "code": "gateway-unreachable",
-        "message": "The lease is valid but 198.51.100.1 does not answer",
+        "message": "gateway 198.51.100.1 no reply",
         "timings": {"total_ms": 9000, "assoc_ms": 900, "dhcp_ms": 700},
         "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
                     "gateway": "198.51.100.1"},
@@ -687,7 +687,7 @@ def check_wlan_auth_output():
           2)
     check("and has its own failure code", channels[18]["value"], 14)
     check("the message keeps the address apart from the reachability",
-          "does not answer" in result["message"], True)
+          "gateway 198.51.100.1 no reply" in result["message"], True)
 
     # A job the scheduler has not reached yet is not a failure. It gets the
     # third lookup state, which alarms on nothing, and says so in the
@@ -709,7 +709,7 @@ def check_wlan_auth_output():
     check("and reads zero until something was measured",
           channels[17]["value"], 0)
     check("the message says what it is waiting for",
-          "waiting for the first measurement" in result["message"], True)
+          "waiting for first measurement" in result["message"], True)
 
     # A measurement older than the sensor asked for is not a measurement.
     # Serving it would keep the sensor green on a sign-in from hours ago.
@@ -726,7 +726,7 @@ def check_wlan_auth_output():
           channels[18]["value"], 12)
     check("the age channel carries the age", channels[17]["value"], 901)
     check("and the message names it",
-          "901 seconds old" in result["message"], True)
+          "901 s old, limit 900 s" in result["message"], True)
 
     # A freshness below what a round over the radio costs is a setting no
     # schedule can meet. Left alone it shows up as a sensor that goes red
@@ -744,9 +744,9 @@ def check_wlan_auth_output():
           channels[18]["value"], 13)
     check("the fresh measurement still counts", channels[10]["value"], 1)
     check("the message says what to set",
-          "at least 120 seconds" in result["message"], True)
+          "Set --max-age >= 120 s" in result["message"], True)
     check("and how many networks share the radio",
-          "the 2 networks on this radio" in result["message"], True)
+          "(2 networks on this radio)" in result["message"], True)
 
     # The same answer with a freshness the radio can serve says nothing
     # about it, or every sensor would carry advice it does not need.
@@ -792,7 +792,59 @@ def check_wlan_auth_output():
     check("a fresh result is a result", channels[10]["value"], 1)
     check("the age is reported in seconds", channels[17]["value"], 42)
     check("the message says how old the reading is",
-          "measured 42 s ago" in result["message"], True)
+          "; age 42 s" in result["message"], True)
+
+    # The message is a line of short parts, network and verdict first, so
+    # it stays readable in a list of sensors. The client address is in it
+    # because it is what to look for in the gateway's user table - two
+    # networks on one radio sign in under different addresses (ADR 0012).
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK",
+        "timings": {"total_ms": 3100, "dhcp_ms": 700, "gateway_ms": 7},
+        "details": {"ssid": "Guest", "bssid": "00:00:5e:00:53:c2",
+                    "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1", "gateway": "198.51.100.1",
+                    "gateway_kind": "dhcp server",
+                    "mac": "02:3f:a1:9c:44:e7", "mac_kind": "auto"},
+        "age": 12.0,
+    }
+    message = module.work(dict(arguments))["message"]
+    check("a successful run reads as short parts", message,
+          "Guest: OK; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; "
+          "IP 198.51.100.19 from 198.51.100.1; ping 7 ms; age 12 s")
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK", "timings": {},
+        "details": {"ssid": "Guest", "mac": "00:00:5e:00:53:01",
+                    "mac_kind": "permanent"}, "age": 5.0,
+    }
+    check("the radio's own address says so",
+          "client 00:00:5e:00:53:01 (permanent)"
+          in module.work(dict(arguments, mac="permanent"))["message"], True)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest",
+                                   "mac": "02:3f:a1:9c:44:e7",
+                                   "mac_kind": "auto"}, "age": 20.0,
+    }
+    check("a failure names the client too",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; "
+          "code dhcp-timeout; age 20 s")
+    asked = {}
+
+    def remember_mac(job, timeout):
+        asked.update(job)
+        return {"result": "ok", "code": "ok", "message": "OK",
+                "timings": {}, "details": {}, "age": 1.0}
+
+    keep = module.call_helper
+    module.call_helper = remember_mac
+    module.work(dict(arguments))
+    check("the per-network address is the default", asked.get("mac"), "auto")
+    module.work(dict(arguments, mac="02:00:00:00:00:01"))
+    check("a fixed address reaches the helper", asked.get("mac"),
+          "02:00:00:00:00:01")
+    module.call_helper = keep
 
     # What the script asks for decides whether the radio is used. PRTG
     # collects; only a hand-run diagnosis measures on the spot, and only
@@ -875,6 +927,65 @@ def check_wlan_auth_scheduler():
     check("an address is", refused("198.51.100.1"), "accepted")
     check("and so is none", refused("none"), "accepted")
     check("empty means the lease decides", refused(""), "accepted")
+
+    # One address per network, derived from the radio's own. Seen on three
+    # sites: a gateway that carries the VLAN of a station's last session
+    # over to its next one on another SSID, so a probe checking an internal
+    # and a guest network with one address measured the guest network in
+    # the internal VLAN (ADR 0012). The address has to stay the same per
+    # network - one lease, one entry in the gateway - and differ between
+    # networks and between radios.
+    radio = "00:00:5e:00:53:01"
+    guest = module.network_mac(radio, "Guest")
+    check("the per-network address is stable",
+          module.network_mac(radio, "Guest"), guest)
+    check("it differs between networks",
+          guest != module.network_mac(radio, "Corporate"), True)
+    check("and between radios",
+          guest != module.network_mac("00:00:5e:00:53:02", "Guest"), True)
+    check("it is locally administered and unicast", guest[:3], "02:")
+    check("and a well-formed address", bool(module.MAC_ADDRESS.match(guest)),
+          True)
+
+    def mac_for(choice, permanent=radio):
+        job = module.validate_job({"interface": "wlan0", "ssid": "Guest",
+                                   "auth": "psk", "psk": "passphrase123",
+                                   "mac": choice})
+        try:
+            return module.client_mac(job, permanent)
+        except module.Blocked as blocked:
+            return blocked.code
+
+    check("auto signs in under the network's address", mac_for("auto"),
+          (guest, "auto"))
+    check("and is what an empty parameter means", mac_for(""),
+          (guest, "auto"))
+    check("permanent keeps the radio's own", mac_for("permanent"),
+          (radio, "permanent"))
+    check("a fixed address is taken as given, in one spelling",
+          mac_for("02-00-00-00-00-0A"), ("02:00:00:00:00:0a", "fixed"))
+    # Without the radio's own address there is nothing to derive from, and
+    # quietly signing in under whatever the interface carries would bring
+    # back the carry-over unnoticed.
+    check("an unreadable radio address stops the run, not the sensor",
+          mac_for("auto", permanent=""), "mac-not-settable")
+
+    def mac_refused(value):
+        try:
+            module.validate_job({"interface": "wlan0", "ssid": "Guest",
+                                 "auth": "psk", "psk": "passphrase123",
+                                 "mac": value})
+        except module.Blocked as blocked:
+            return blocked.code
+        return "accepted"
+
+    check("a malformed address is refused", mac_refused("02:00:00:00:00"),
+          "bad-request")
+    check("so is a multicast one", mac_refused("01:00:5e:00:00:01"),
+          "bad-request")
+    check("the address is part of the job",
+          module.job_identity(dict(job, mac="auto"))
+          != module.job_identity(dict(job, mac="permanent")), True)
 
     # Whom to ask whether the network carries traffic: the router the
     # lease names, and where there is none - udhcpc reports no router on

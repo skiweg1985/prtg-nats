@@ -95,6 +95,12 @@
       "description": "Address to ping after DHCP, or none to skip the check."
     },
     {
+      "name": "--mac",
+      "type": "string",
+      "default": "auto",
+      "description": "The client address: auto for one per network, permanent for the radio's own, or a fixed address."
+    },
+    {
       "name": "--timeout",
       "type": "integer",
       "default": 45,
