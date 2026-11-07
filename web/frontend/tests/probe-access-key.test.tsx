@@ -192,3 +192,41 @@ describe('the access key on the probe detail', () => {
     expect(screen.queryByRole('button', { name: 'Reveal' })).not.toBeInTheDocument()
   })
 })
+
+describe('the NATS account on the probe detail', () => {
+  it('is managed where the probe is, not in a list of its own', async () => {
+    await changeLanguage('en')
+    permissions = ['probe.read', 'credential.read', 'credential.rotate']
+    let passwordRequests = 0
+    server.use(
+      http.get('/api/v1/credentials/mpp-berlin-01/reveal', () => {
+        passwordRequests += 1
+        return HttpResponse.json({ username: 'mpp-berlin-01', password: 'n4ts-s3cret' })
+      }),
+    )
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('Hidden')
+    expect(screen.queryByText('n4ts-s3cret')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }))
+    expect(await screen.findByText('n4ts-s3cret')).toBeInTheDocument()
+    expect(passwordRequests).toBe(1)
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText('n4ts-s3cret')).not.toBeInTheDocument()
+
+    // Rotation asks first, the same way the account list does.
+    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('offers nothing to somebody who may not rotate credentials', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    await screen.findByText('Hidden')
+    expect(screen.queryByRole('button', { name: 'Show password' })).not.toBeInTheDocument()
+  })
+})

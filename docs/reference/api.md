@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-08-30
+updated: 2026-11-07
 ---
 
 # REST API
@@ -246,9 +246,14 @@ The token is in the creation response and nowhere else - only its SHA-256 is
 stored, the same way sessions are kept. One open invitation per account:
 minting a second one for the same `nats_username` is refused with a conflict
 until the first is revoked or expires, because two of them redeemed on two
-hosts would overwrite each other's inventory under one name. `expected_host` is optional: without
-it the address the host reports from is used, which is right on a flat network
-and wrong behind NAT. Either way an address that another probe already claims
+hosts would overwrite each other's inventory under one name.
+
+`expected_host` is optional, and the interface no longer sends it: without it
+the address the host reports from is used, and a probe on the overlay corrects
+it on its next contact
+([ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md)).
+The interface sends the account name as `probe_name` unless a different PRTG
+name is given. Either way an address that another probe already claims
 is refused with `probe.host_already_enrolled`, because the management access
 belongs to the host and retiring one entry would revoke it for both.
 

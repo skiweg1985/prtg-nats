@@ -61,10 +61,6 @@ export function EnrollWizard() {
   const { can, isLoading } = useAuth()
 
   const accounts = useNatsAccounts()
-  // For the address check below. The server refuses a second entry for an
-  // address that is already enrolled; knowing the list here means saying so
-  // while the operator is still typing.
-  const probes = useProbes()
   const open = useInvitations(can('probe.create'))
   const createInvitation = useCreateInvitation()
   const revokeInvitation = useRevokeInvitation()
@@ -72,7 +68,7 @@ export function EnrollWizard() {
   const [issued, setIssued] = useState<IssuedInvitation | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   // The last request survives the invitation: an expired one used to mean
-  // typing account, name and address a second time.
+  // typing the name a second time.
   const [lastRequest, setLastRequest] = useState<InvitationRequest | null>(null)
 
   // Only while an invitation is out and has not started a job yet. Once the
@@ -133,10 +129,6 @@ export function EnrollWizard() {
           />
           <InvitationForm
             accounts={accounts.data ?? []}
-            enrolledHosts={(probes.data ?? []).map((probe) => ({
-              host: probe.host,
-              username: probe.nats_username,
-            }))}
             initial={lastRequest}
             pending={createInvitation.isPending}
             error={createInvitation.error}
@@ -270,7 +262,6 @@ const TTL_CHOICES = [15, 60, 240, 1440] as const
 
 function InvitationForm({
   accounts,
-  enrolledHosts,
   initial,
   pending,
   error,
@@ -278,7 +269,6 @@ function InvitationForm({
   onCancel,
 }: {
   accounts: NatsAccount[]
-  enrolledHosts: { host: string; username: string }[]
   /** The previous request, so an expired invitation costs a click, not a form. */
   initial: InvitationRequest | null
   pending: boolean
@@ -288,8 +278,14 @@ function InvitationForm({
 }) {
   const { t } = useTranslation()
   const [username, setUsername] = useState(initial?.nats_username ?? '')
-  const [probeName, setProbeName] = useState(initial?.probe_name ?? '')
-  const [host, setHost] = useState(initial?.expected_host ?? '')
+  // Empty means "the same as the name". One name for the account, the probe
+  // and PRTG is what an operator expects; a different PRTG name is the
+  // exception and sits under the further options.
+  const [probeName, setProbeName] = useState(
+    initial?.probe_name && initial.probe_name !== initial.nats_username
+      ? initial.probe_name
+      : '',
+  )
   const [installPackage, setInstallPackage] = useState(
     initial?.install_package ?? true,
   )
@@ -316,16 +312,7 @@ function InvitationForm({
   const usernameOk = /^[a-z0-9][a-z0-9-]{1,63}$/.test(username)
   const probeNameOk = probeName === '' || /^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$/.test(probeName)
 
-  // A second entry for one address would share the management access that
-  // lives on the host, and retiring either would revoke it for both. The
-  // server refuses it; saying so here saves the walk to a console.
-  const claimedBy = enrolledHosts.find(
-    (entry) =>
-      entry.host.trim().toLowerCase() === host.trim().toLowerCase() &&
-      entry.username !== username,
-  )
-  const hostOk = host === '' || claimedBy === undefined
-  const canSubmit = usernameOk && !taken && probeNameOk && hostOk && !pending
+  const canSubmit = usernameOk && !taken && probeNameOk && !pending
 
   return (
     <Card title={t('probes.enroll.step1.title')}>
@@ -336,8 +323,11 @@ function InvitationForm({
           if (!canSubmit) return
           onSubmit({
             nats_username: username,
-            probe_name: probeName || null,
-            expected_host: host || null,
+            probe_name: probeName || username,
+            // Not asked for any more: the probe reports where it calls from,
+            // and the address is kept current on every contact after that -
+            // see ADR 0011.
+            expected_host: null,
             install_package: installPackage,
             overlay_bootstrap: overlayEnabled && overlayBootstrap,
             ttl_minutes: ttl,
@@ -367,43 +357,54 @@ function InvitationForm({
           />
         </Field>
 
-        <Field
-          label={t('probes.enroll.fields.probeName')}
-          hint={t('probes.enroll.fields.probeNameHint')}
-          error={probeNameOk ? undefined : t('probes.enroll.errors.probeNameShape')}
-        >
-          <Input
-            value={probeName}
-            onChange={(event) => setProbeName(event.target.value)}
-            placeholder="multi-platform-probe@berlin"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-
-        <Field
-          label={t('probes.enroll.fields.host')}
-          hint={t('probes.enroll.fields.hostHint')}
-          error={
-            claimedBy
-              ? t('probes.enroll.errors.hostTaken', { probe: claimedBy.username })
-              : undefined
-          }
-        >
-          <Input
-            value={host}
-            onChange={(event) => setHost(event.target.value.trim())}
-            placeholder="probe.example.com"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </Field>
-
         {reenrolling && (
           <Banner tone="warn" title={t('probes.enroll.reenroll.title')}>
             {t('probes.enroll.reenroll.body')}
           </Banner>
         )}
+
+        {overlayEnabled ? (
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={overlayBootstrap}
+              onChange={(event) => setOverlayBootstrap(event.target.checked)}
+            />
+            <span>
+              <span className="text-ink">
+                {t('probes.enroll.fields.overlayBootstrap')}
+              </span>
+              <span className="text-ink-3 block text-xs">
+                {t('probes.enroll.fields.overlayBootstrapHint')}
+              </span>
+            </span>
+          </label>
+        ) : null}
+        {overlayEnabled && overlayBootstrap ? (
+          <Banner tone="warn">
+            {t('probes.enroll.fields.overlayBootstrapWarning')}
+          </Banner>
+        ) : null}
+
+        <details className="border-rule-2 rounded-card border p-3">
+          <summary className="text-ink cursor-pointer text-sm font-medium">
+            {t('probes.enroll.moreOptions')}
+          </summary>
+          <div className="mt-3 space-y-4">
+            <Field
+              label={t('probes.enroll.fields.probeName')}
+              hint={t('probes.enroll.fields.probeNameHint')}
+              error={probeNameOk ? undefined : t('probes.enroll.errors.probeNameShape')}
+            >
+              <Input
+                value={probeName}
+                onChange={(event) => setProbeName(event.target.value)}
+                placeholder={username || undefined}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </Field>
 
         <Field
           label={t('probes.enroll.fields.ttl')}
@@ -431,29 +432,8 @@ function InvitationForm({
             onChange={(checked) => setInstallPackage(checked)}
           />
 
-        {overlayEnabled ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={overlayBootstrap}
-              onChange={(event) => setOverlayBootstrap(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">
-                {t('probes.enroll.fields.overlayBootstrap')}
-              </span>
-              <span className="text-ink-3 block text-xs">
-                {t('probes.enroll.fields.overlayBootstrapHint')}
-              </span>
-            </span>
-          </label>
-        ) : null}
-        {overlayEnabled && overlayBootstrap ? (
-          <Banner tone="warn">
-            {t('probes.enroll.fields.overlayBootstrapWarning')}
-          </Banner>
-        ) : null}
+          </div>
+        </details>
 
         {error != null && <ErrorDetails error={error} />}
 

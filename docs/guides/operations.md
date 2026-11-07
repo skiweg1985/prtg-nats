@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-08-29
+updated: 2026-11-07
 ---
 
 # Operations and maintenance
@@ -242,8 +242,8 @@ sudo ./prtg-nats probe enroll \
   root@probe-01.example.com
 ```
 
-Then rotate server and probe together - on the credentials page of the web
-interface, or from the shell:
+Then rotate server and probe together - with **Change password** next to the
+NATS account on the probe's page in the web interface, or from the shell:
 
 ```bash
 sudo ./prtg-nats user rotate mpp-probe-01

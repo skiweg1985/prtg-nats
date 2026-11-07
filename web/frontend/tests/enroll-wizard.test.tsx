@@ -178,10 +178,8 @@ describe('EnrollWizard', () => {
     wrap()
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
-    await user.type(
-      screen.getByPlaceholderText('multi-platform-probe@berlin'),
-      'Testprobe 191',
-    )
+    await user.click(screen.getByText(/more options/i))
+    await user.type(screen.getByLabelText(/different name in prtg/i), 'Testprobe 191')
 
     // The space is the whole point: on a real installation this reached the
     // job and failed after five successful steps.
@@ -265,20 +263,38 @@ describe('EnrollWizard', () => {
     expect(await screen.findByText(/treat the command as a secret/i)).toBeInTheDocument()
   })
 
-  it('refuses an address another probe already claims', async () => {
+  it('asks for one name and uses it for PRTG too', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
     wrap()
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
-    await user.type(screen.getByPlaceholderText('probe.example.com'), '192.0.2.10')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    await screen.findByText(ISSUED.command)
 
-    // Two entries for one address share the management access that lives on
-    // the host; retiring either revokes it for both. Observed on a real
-    // installation as a probe that was connected to NATS and unreachable.
-    expect(await screen.findByText(/already enrolled as "mpp-hamburg"/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /create the command/i })).toBeDisabled()
-    expect(createdBodies).toHaveLength(0)
+    // The account, the probe here and the probe in PRTG used to be three
+    // fields. The address is not asked for at all any more: the probe reports
+    // where it calls from, and ADR 0011 keeps it current after that.
+    expect(createdBodies[0]).toMatchObject({
+      nats_username: 'mpp-berlin',
+      probe_name: 'mpp-berlin',
+      expected_host: null,
+    })
+    expect(screen.queryByPlaceholderText('probe.example.com')).not.toBeInTheDocument()
+  })
+
+  it('takes a different PRTG name only where one is given', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(screen.getByText(/more options/i))
+    await user.type(screen.getByLabelText(/different name in prtg/i), 'berlin-office')
+    await user.click(screen.getByRole('button', { name: /create the command/i }))
+    await screen.findByText(ISSUED.command)
+
+    expect(createdBodies[0]).toMatchObject({ probe_name: 'berlin-office' })
   })
 
   /**
@@ -482,6 +498,7 @@ describe('EnrollWizard', () => {
     wrap()
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
+    await user.click(screen.getByText(/more options/i))
     await user.selectOptions(screen.getByLabelText(/valid for/i), '240')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
 

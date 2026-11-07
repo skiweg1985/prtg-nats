@@ -127,6 +127,7 @@ export function AuditPage() {
 
 export function NatsPage() {
   const { t } = useTranslation()
+  const { can } = useAuth()
   const { data, isLoading, error, refetch } = useSystemStatus()
 
   if (isLoading) return <Skeleton className="h-64" />
@@ -137,7 +138,22 @@ export function NatsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('infrastructure.natsTitle')} />
+      {/* The accounts that belong to no probe live off this page now: a
+          probe's own account is on the probe, and the Core account is a NATS
+          matter, not a menu entry of its own. */}
+      <PageHeader
+        title={t('infrastructure.natsTitle')}
+        action={
+          can('credential.read') ? (
+            <Link
+              to="/infrastructure/credentials"
+              className="text-accent text-sm hover:underline"
+            >
+              {t('credentials.title')}
+            </Link>
+          ) : undefined
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('dashboard.natsServer')}>

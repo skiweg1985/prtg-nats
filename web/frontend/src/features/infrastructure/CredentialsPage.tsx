@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -7,7 +6,6 @@ import {
   useDeleteNatsAccount,
   useNatsAccounts,
   useRevealNatsPassword,
-  useRotateNatsAccount,
 } from '@/api/hooks'
 import type { NatsAccount } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
@@ -23,10 +21,13 @@ import {
   Mono,
   PageHeader,
 } from '@/components/ui/primitives'
-import { CopyButton } from '@/components/ui/CopyBlock'
+
+import { RevealPasswordDialog, RotateAccountDialog } from './NatsAccountDialogs'
 
 /**
- * NATS account management - what `prtg-nats user …` used to be.
+ * NATS accounts that belong to no probe: the Core's shared account, and
+ * accounts created by hand or left behind by a retired probe. A probe's own
+ * account is shown and rotated on the probe's page, where it is looked for.
  *
  * The dangerous parts keep their friction: rotation runs as a job that also
  * reconfigures the enrolled probe, deletion is refused server-side while a
@@ -35,10 +36,8 @@ import { CopyButton } from '@/components/ui/CopyBlock'
  */
 export function CredentialsPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useNatsAccounts()
   const create = useCreateNatsAccount()
-  const rotate = useRotateNatsAccount()
   const remove = useDeleteNatsAccount()
   const reveal = useRevealNatsPassword()
 
@@ -132,7 +131,7 @@ export function CredentialsPage() {
       <p className="text-ink-3 text-xs">{t('credentials.autoHint')}</p>
 
       <DataTable
-        rows={data}
+        rows={data?.filter((account) => !account.probe_enrolled)}
         columns={columns}
         rowKey={(row) => row.username}
         isLoading={isLoading}
@@ -164,57 +163,19 @@ export function CredentialsPage() {
       {reveal.error && <ErrorDetails error={reveal.error} />}
 
       {revealed && (
-        <Dialog
-          title={t('credentials.revealTitle', { account: revealed.username })}
+        <RevealPasswordDialog
+          username={revealed.username}
+          password={revealed.password}
           onClose={() => setRevealed(null)}
-          size="md"
-        >
-          <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
-          <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
-            <Mono className="min-w-0 flex-1 break-all">{revealed.password}</Mono>
-            <CopyButton value={revealed.password} />
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={() => setRevealed(null)}>{t('common.close')}</Button>
-          </div>
-        </Dialog>
+        />
       )}
 
       {confirmRotate && (
-        <Dialog title={t('confirm.title')} onClose={() => setConfirmRotate(null)}>
-          <p className="text-ink-2 text-sm">
-            {t('credentials.rotateWarning', { account: confirmRotate.username })}
-          </p>
-          {confirmRotate.probe_enrolled && (
-            <p className="text-ink-2 mt-2 text-sm">
-              {t('credentials.rotateProbeHint')}
-            </p>
-          )}
-          {rotate.error && (
-            <div className="mt-3">
-              <ErrorDetails error={rotate.error} />
-            </div>
-          )}
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirmRotate(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() =>
-                rotate.mutate(confirmRotate.username, {
-                  onSuccess: (accepted) => {
-                    setConfirmRotate(null)
-                    navigate(`/jobs/${accepted.job_id}`)
-                  },
-                })
-              }
-              disabled={rotate.isPending}
-            >
-              {t('credentials.rotate')}
-            </Button>
-          </div>
-        </Dialog>
+        <RotateAccountDialog
+          username={confirmRotate.username}
+          probeEnrolled={confirmRotate.probe_enrolled}
+          onClose={() => setConfirmRotate(null)}
+        />
       )}
 
       {confirmDelete && (

@@ -13,7 +13,6 @@
     "nats": "NATS",
     "iperf": "iperf endpoints",
     "certificates": "Certificates",
-    "credentials": "NATS accounts",
     "audit": "Audit",
     "settings": "Settings",
     "updates": "Updates",
@@ -239,11 +238,9 @@
       },
       "fields": {
         "account": "Name",
-        "accountHint": "Lower-case letters, digits and hyphens. Also becomes the name of the NATS account the probe gets automatically.",
-        "probeName": "Probe name (optional)",
-        "probeNameHint": "What PRTG shows. Derived from the host name if left empty. No spaces.",
-        "host": "Address (optional)",
-        "hostHint": "How the platform reaches the probe afterwards. Left empty, the address the host reports from is used - which is wrong if it sits behind NAT.",
+        "accountHint": "Lower-case letters, digits and hyphens. The probe appears under this name here and in PRTG, and its NATS account is named the same.",
+        "probeName": "Different name in PRTG",
+        "probeNameHint": "Only fill in if the probe should be called something else in PRTG. No spaces.",
         "installPackage": "Install the prtgmpprobe package",
         "installPackageHint": "Leave this on unless the package is already installed and managed elsewhere.",
         "overlayBootstrap": "This probe cannot reach the platform directly",
@@ -259,8 +256,7 @@
       "errors": {
         "accountTaken": "This account already exists. Pick another name, or enroll the probe that uses it again.",
         "accountShape": "Lower-case letters, digits and hyphens only, at least two characters.",
-        "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces.",
-        "hostTaken": "This address is already enrolled as \"{{probe}}\". Enroll it again under that account, or remove it first to give it a different one."
+        "probeNameShape": "Letters, digits, dot, underscore, at-sign and hyphen - and no spaces."
       },
       "open": {
         "title": "Open invitations",
@@ -274,7 +270,8 @@
         "body": "This account belongs to an enrolled probe. Enrolling again keeps the probe id and the access key - PRTG sees the same probe, nothing needs re-entering there."
       },
       "noPermissionTitle": "No permission",
-      "noPermission": "Enrolling a probe needs the probe.create permission."
+      "noPermission": "Enrolling a probe needs the probe.create permission.",
+      "moreOptions": "More options"
     },
     "interfaces": {
       "title": "Radio interfaces",
@@ -345,6 +342,9 @@
       "endpoints": "iperf endpoints",
       "none": "none",
       "manage": "Manage →"
+    },
+    "account": {
+      "showPassword": "Show password"
     }
   },
   "sensors": {
@@ -1273,8 +1273,8 @@
     "certificate.mismatched": "The {{certificate}} certificate does not match its key"
   },
   "credentials": {
-    "title": "NATS accounts",
-    "subtitle": "The credentials probes and the PRTG core sign in with",
+    "title": "Accounts without a probe",
+    "subtitle": "The credentials the PRTG core signs in with, and accounts without a probe",
     "empty": "No account exists yet.",
     "columns": {
       "account": "Account",
@@ -1295,7 +1295,7 @@
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
     "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog.",
-    "autoHint": "Accounts of enrolled probes come and go with the probe. This page manages what goes beyond that - the PRTG core account, for instance."
+    "autoHint": "The PRTG core account and accounts no probe uses. A probe's own account is on its page."
   },
   "updates": {
     "title": "Updates",

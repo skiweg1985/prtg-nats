@@ -41,11 +41,6 @@ const INFRASTRUCTURE: NavEntry[] = [
     labelKey: 'nav.overlay',
     permission: 'overlay.read',
   },
-  {
-    to: '/infrastructure/credentials',
-    labelKey: 'nav.credentials',
-    permission: 'credential.read',
-  },
   { to: '/infrastructure/system', labelKey: 'nav.system', permission: 'system.read' },
 ]
 

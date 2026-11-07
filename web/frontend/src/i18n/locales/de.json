@@ -13,7 +13,6 @@
     "nats": "NATS",
     "iperf": "Messpunkte",
     "certificates": "Zertifikate",
-    "credentials": "NATS-Konten",
     "audit": "Audit",
     "settings": "Einstellungen",
     "updates": "Updates",
@@ -239,11 +238,9 @@
       },
       "fields": {
         "account": "Name",
-        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Wird auch der Name des NATS-Kontos, das die Probe automatisch bekommt.",
-        "probeName": "Probenname (optional)",
-        "probeNameHint": "Was PRTG anzeigt. Wird aus dem Hostnamen abgeleitet, wenn leer. Keine Leerzeichen.",
-        "host": "Adresse (optional)",
-        "hostHint": "Worüber die Plattform die Probe danach erreicht. Bleibt das Feld leer, wird die Adresse verwendet, von der aus der Host sich meldet - die ist hinter NAT falsch.",
+        "accountHint": "Kleinbuchstaben, Ziffern und Bindestriche. Unter diesem Namen erscheint die Probe hier und in PRTG, und so heißt auch ihr NATS-Konto.",
+        "probeName": "Anderer Name in PRTG",
+        "probeNameHint": "Nur ausfüllen, wenn die Probe in PRTG anders heißen soll. Keine Leerzeichen.",
         "installPackage": "Paket prtgmpprobe installieren",
         "installPackageHint": "Eingeschaltet lassen, außer das Paket ist bereits installiert und wird anderweitig gepflegt.",
         "overlayBootstrap": "Diese Probe erreicht die Plattform nicht direkt",
@@ -259,8 +256,7 @@
       "errors": {
         "accountTaken": "Dieses Konto gibt es bereits. Wähle einen anderen Namen, oder binde die Probe erneut ein, die es benutzt.",
         "accountShape": "Nur Kleinbuchstaben, Ziffern und Bindestriche, mindestens zwei Zeichen.",
-        "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen.",
-        "hostTaken": "Diese Adresse ist bereits als „{{probe}}“ eingebunden. Binde sie erneut unter diesem Konto ein, oder entferne sie zuerst."
+        "probeNameShape": "Buchstaben, Ziffern, Punkt, Unterstrich, At-Zeichen und Bindestrich - und keine Leerzeichen."
       },
       "open": {
         "title": "Offene Einladungen",
@@ -274,7 +270,8 @@
         "body": "Dieses Konto gehört zu einer eingebundenen Probe. Beim erneuten Einbinden bleiben Probe-ID und Access Key erhalten - PRTG sieht dieselbe Probe."
       },
       "noPermissionTitle": "Keine Berechtigung",
-      "noPermission": "Zum Anmelden einer Probe fehlt die Berechtigung probe.create."
+      "noPermission": "Zum Einbinden einer Probe fehlt die Berechtigung probe.create.",
+      "moreOptions": "Weitere Optionen"
     },
     "interfaces": {
       "title": "Funk-Interfaces",
@@ -345,6 +342,9 @@
       "endpoints": "Messpunkte",
       "none": "keine",
       "manage": "Verwalten →"
+    },
+    "account": {
+      "showPassword": "Passwort anzeigen"
     }
   },
   "sensors": {
@@ -1273,8 +1273,8 @@
     "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel"
   },
   "credentials": {
-    "title": "NATS-Konten",
-    "subtitle": "Die Zugangsdaten, mit denen sich Probes und der PRTG Core anmelden",
+    "title": "Konten ohne Probe",
+    "subtitle": "Die Zugangsdaten, mit denen sich der PRTG Core anmeldet, und Konten ohne Probe",
     "empty": "Es existiert noch kein Konto.",
     "columns": {
       "account": "Konto",
@@ -1295,7 +1295,7 @@
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Passwort für {{account}}",
     "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen.",
-    "autoHint": "Konten eingebundener Probes entstehen und verschwinden mit der Probe. Hier verwaltest du nur, was darüber hinausgeht - etwa das Konto des PRTG-Core."
+    "autoHint": "Das Konto des PRTG Core sowie Konten, die keine Probe benutzt. Das Konto einer Probe findest du auf ihrer Seite."
   },
   "updates": {
     "title": "Updates",

@@ -97,11 +97,21 @@ function wrap(page: 'credentials' | 'iperf') {
 }
 
 describe('changing the password of a NATS account', () => {
+  it('lists only accounts that belong to no probe', async () => {
+    await changeLanguage('en')
+    wrap('credentials')
+
+    // A probe's account is managed on the probe's page; listing it here as
+    // well was a second place to look and a second place to delete it from.
+    expect(await screen.findByText('mpp-spare')).toBeInTheDocument()
+    expect(screen.queryByText('mpp-berlin-01')).not.toBeInTheDocument()
+  })
+
   it('asks before it starts, and names the account', async () => {
     await changeLanguage('en')
     let called = 0
     server.use(
-      http.post('/api/v1/credentials/mpp-berlin-01/rotate', () => {
+      http.post('/api/v1/credentials/mpp-spare/rotate', () => {
         called += 1
         return HttpResponse.json({ job_id: 'J1', status: 'queued' }, { status: 202 })
       }),
@@ -113,7 +123,7 @@ describe('changing the password of a NATS account', () => {
     await user.click(rows[0])
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/mpp-berlin-01/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/mpp-spare/)).toBeInTheDocument()
     // Nothing has been sent while the question is on screen.
     expect(called).toBe(0)
 
@@ -124,7 +134,7 @@ describe('changing the password of a NATS account', () => {
   it('follows the job once the question is answered', async () => {
     await changeLanguage('en')
     server.use(
-      http.post('/api/v1/credentials/mpp-berlin-01/rotate', () =>
+      http.post('/api/v1/credentials/mpp-spare/rotate', () =>
         HttpResponse.json({ job_id: 'J1', status: 'queued' }, { status: 202 }),
       ),
     )
