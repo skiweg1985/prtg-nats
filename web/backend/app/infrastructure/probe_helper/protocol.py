@@ -85,7 +85,7 @@ FIELD_SEPARATOR = "\t"
 # unknown and omits the fields, which reads as the helper being behind. It is
 # also the version that makes putting a probe on the overlay possible at all,
 # so the platform offers the update before it tries.
-CURRENT_HELPER_VERSION = 9
+CURRENT_HELPER_VERSION = 10
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
@@ -284,6 +284,18 @@ def _parse_record(line: str) -> dict[str, str]:
         key, _, value = column.partition("=")
         record[key.strip()] = value.strip()
     return record
+
+
+def reported_addresses(response: HelperResponse) -> tuple[str, ...]:
+    """The site addresses a probe-info answer names - ADR 0011.
+
+    Empty for a helper too old to report them, and for the literal ``none``
+    a probe without a site address writes.
+    """
+    value = normalise_optional(response.value("addresses"))
+    if value is None:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 def normalise_optional(value: str | None) -> str | None:

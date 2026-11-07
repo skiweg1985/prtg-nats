@@ -18,7 +18,8 @@ from app.core.errors import AuthenticationRequiredError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
-from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTransport
+from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.probe_helper.management_transport import management_transport
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.session import get_db_session
@@ -54,11 +55,7 @@ def get_docker_adapter(settings: SettingsDep) -> DockerAdapter:
 
 
 def get_probe_helper(settings: SettingsDep) -> ProbeHelperClient:
-    transport = SshHelperTransport(
-        key_path=settings.ssh_key_path,
-        known_hosts_path=settings.ssh_known_hosts_path,
-        connect_timeout=settings.ssh_connect_timeout_seconds,
-    )
+    transport = management_transport(settings)
     return ProbeHelperClient(
         transport, default_timeout=settings.ssh_command_timeout_seconds
     )

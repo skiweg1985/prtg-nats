@@ -311,14 +311,13 @@ def _interface_state(up: bool | None) -> str:
 
 
 def _helper_client(settings: Settings) -> ProbeHelperClient:
-    from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTransport
+    from app.infrastructure.probe_helper import ProbeHelperClient
+    from app.infrastructure.probe_helper.management_transport import (
+        management_transport,
+    )
 
     return ProbeHelperClient(
-        SshHelperTransport(
-            key_path=settings.ssh_key_path,
-            known_hosts_path=settings.ssh_known_hosts_path,
-            connect_timeout=settings.ssh_connect_timeout_seconds,
-        ),
+        management_transport(settings),
         default_timeout=settings.ssh_command_timeout_seconds,
     )
 

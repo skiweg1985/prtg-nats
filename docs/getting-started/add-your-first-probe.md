@@ -1,7 +1,7 @@
 ---
 title: Add your first probe
 role: deployer
-updated: 2026-08-29
+updated: 2026-11-07
 ---
 
 # Add your first probe
@@ -35,12 +35,16 @@ distribution or release, check the currently supported targets in the
 
 1. Sign in to the web interface.
 2. Open **Probes** and choose **Add probe**.
-3. Enter a dedicated NATS account such as `mpp-berlin-01`.
-4. Optionally enter the name PRTG should show and the address the platform
-   should use for later management.
-5. Leave **Install the prtgmpprobe package** enabled unless another process
-   already manages that package.
-6. Choose **Create the command**.
+3. Enter a name such as `mpp-berlin-01`. The probe appears under it here and
+   in PRTG, and its NATS account gets the same name.
+4. Choose **Create the command**.
+
+**More options** holds what rarely needs changing: a different name for PRTG,
+how long the command stays valid, and whether the `prtgmpprobe` package is
+installed - leave that on unless another process already manages the package.
+The address is not asked for. The platform takes the one the host reports
+from, and a probe on the overlay keeps it current on its own - see
+[ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md).
 
 Creating the invitation does not contact the host and does not create the NATS
 account. An unused invitation therefore leaves no account or inventory behind.

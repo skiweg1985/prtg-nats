@@ -1,7 +1,7 @@
 ---
 title: Architecture overview
 role: developer
-updated: 2026-08-30
+updated: 2026-11-07
 ---
 
 # Architecture overview
@@ -99,7 +99,11 @@ disturbing it. Off by default -
 [ADR 0009](decisions/0009-a-wireguard-overlay-to-the-probes.md). A site with
 no path to the platform at all enrols over the tunnel itself, which is the one
 case where the platform generates the probe's key instead of the probe -
-[ADR 0010](decisions/0010-enrolling-a-probe-over-the-tunnel.md).
+[ADR 0010](decisions/0010-enrolling-a-probe-over-the-tunnel.md). A probe is
+reached by its identity rather than by one address: the host key is pinned
+under the probe's name, the overlay address is tried first, and a probe that
+moved brings its new site address along on the next contact -
+[ADR 0011](decisions/0011-a-probe-is-reached-by-identity-not-by-address.md).
 
 **Sensor-owned native tools follow an explicit platform contract.** The
 platform selects a signed release artifact from the probe's userspace ABI. If

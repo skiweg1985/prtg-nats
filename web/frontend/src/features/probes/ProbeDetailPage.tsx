@@ -15,6 +15,7 @@ import {
   useRemoveSensorFromProbe,
   useReserveInterface,
   useRevealAccessKey,
+  useRevealNatsPassword,
   useSensorProfiles,
   useSensors,
   useUpdateProbe,
@@ -29,6 +30,10 @@ import type {
   SensorState,
   WirelessInterface,
 } from '@/api/types'
+import {
+  RevealPasswordDialog,
+  RotateAccountDialog,
+} from '@/features/infrastructure/NatsAccountDialogs'
 import { pathTone } from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
@@ -387,6 +392,9 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
   // A mutation, not a query: nothing refetches it, and closing the dialog
   // drops the value out of both this state and the mutation's own.
   const [accessKey, setAccessKey] = useState<string | null>(null)
+  const revealPassword = useRevealNatsPassword()
+  const [password, setPassword] = useState<string | null>(null)
+  const [rotating, setRotating] = useState(false)
   const probeName = observed?.probe_name ?? inventory.probe_name
 
   function hideAccessKey() {
@@ -399,15 +407,28 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('probes.identity')}>
           <dl>
+            {/* The account belongs to this probe and nothing else, so it is
+                managed here rather than in a list of its own. */}
             <DetailRow label={t('probes.natsUser')}>
-              <span className="flex items-center gap-3">
+              <span className="flex items-center gap-2">
                 <Mono>{summary.nats_username}</Mono>
-                <Link
-                  to="/infrastructure/credentials"
-                  className="text-accent text-xs hover:underline"
-                >
-                  {t('probes.atAGlance.manage')}
-                </Link>
+                <PermissionGate permission="credential.rotate">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      revealPassword.mutate(summary.nats_username, {
+                        onSuccess: (data) => setPassword(data.password),
+                      })
+                    }
+                    disabled={revealPassword.isPending}
+                  >
+                    {t('probes.account.showPassword')}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setRotating(true)}>
+                    {t('credentials.rotate')}
+                  </Button>
+                </PermissionGate>
               </span>
             </DetailRow>
             <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
@@ -530,6 +551,25 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
           </dl>
         </Card>
       </div>
+
+      {password !== null && (
+        <RevealPasswordDialog
+          username={summary.nats_username}
+          password={password}
+          onClose={() => {
+            setPassword(null)
+            revealPassword.reset()
+          }}
+        />
+      )}
+      {rotating && (
+        <RotateAccountDialog
+          username={summary.nats_username}
+          probeEnrolled
+          onClose={() => setRotating(false)}
+        />
+      )}
+      {revealPassword.error && <ErrorDetails error={revealPassword.error} />}
 
       {accessKey !== null && (
         <Dialog

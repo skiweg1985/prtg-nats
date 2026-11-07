@@ -83,6 +83,8 @@ write_inventory() {
   local probe_id=""
   local access_key=""
   local probe_name=""
+  local carried_key=""
+  local carried_value=""
 
   destination="$(probe_path "${username}")"
   probe_id="${PROBE_ID_OVERRIDE:-$(read_optional_env_value "${destination}" PROBE_ID)}"
@@ -97,6 +99,17 @@ write_inventory() {
     printf 'PROBE_ID=%s\n' "${probe_id}"
     printf 'ACCESS_KEY=%s\n' "${access_key}"
     printf 'PROBE_NAME=%s\n' "${probe_name}"
+    # Written by other paths - the overlay peer by its own job, the host
+    # override at enrolment - and lost by a rewrite that does not carry them.
+    # The web platform's _carried_lines() keeps the same keys for the same
+    # reason; dropping the overlay address here would strand the probe behind
+    # its own tunnel, and with ADR 0011 it is also the first management route.
+    for carried_key in OVERLAY_ADDRESS OVERLAY_PUBLIC_KEY OVERLAY_MODE \
+      OVERLAY_LAST_STATE NATS_HOST_OVERRIDE; do
+      carried_value="$(read_optional_env_value "${destination}" "${carried_key}")"
+      [[ -z "${carried_value}" ]] ||
+        printf '%s=%s\n' "${carried_key}" "${carried_value}"
+    done
   } > "${temporary}"
   chmod 600 "${temporary}"
   mv "${temporary}" "${destination}"
@@ -113,7 +126,7 @@ inventory_host() {
 # Queries the restricted management access without failing when the package or
 # the configuration on the probe is still missing.
 probe_info() {
-  printf 'probe-info\n' | managed_ssh "$1"
+  managed_request "$1" probe-info
 }
 
 probe_info_value() {
@@ -140,12 +153,18 @@ probe_reachable() {
   probe_info "${username}" >/dev/null 2>&1
 }
 
+# Pins the key twice: under the address, for the bootstrap that reaches the
+# probe there right now, and under the probe's identity, for every management
+# call after it. Only the second survives the probe moving - see ADR 0011.
 confirm_and_pin_host_key() {
   local host="$1"
+  local username="$2"
   local scanned=""
+  local confirmation=""
 
   if ssh-keygen -F "${host}" -f "${SSH_KNOWN_HOSTS}" >/dev/null 2>&1; then
     printf 'SSH host key for %s is already pinned; keeping it.\n' "${host}"
+    pin_host_key_alias "${username}" "${host}"
     return 0
   fi
   scanned="$(mktemp "${SSH_PRIVATE_DIR}/host-key.XXXXXX")"
@@ -163,6 +182,7 @@ confirm_and_pin_host_key() {
   cat "${scanned}" >> "${SSH_KNOWN_HOSTS}"
   chmod 600 "${SSH_KNOWN_HOSTS}"
   rm -f -- "${scanned}"
+  pin_host_key_alias "${username}" "${host}"
 }
 
 enroll_probe() {
@@ -191,7 +211,7 @@ enroll_probe() {
 
   ensure_management_ssh_key
   ensure_helper_signing_key
-  confirm_and_pin_host_key "${host}"
+  confirm_and_pin_host_key "${host}" "${username}"
   # Every call below runs with BatchMode=yes, so none of them can ask for a
   # password. Called from install-mpp the session is already open and inherited
   # through the environment; called directly this is the only place that can
@@ -281,15 +301,17 @@ list_probes() {
   inventories=("${PROBE_DIR}"/*.env)
   shopt -u nullglob
   printf '%-24s %-32s %-32s %s\n' \
-    "NATS USER" "SSH TARGET" "PROBE NAME" "PENDING"
+    "NATS USER" "ROUTES" "PROBE NAME" "PENDING"
   for inventory in "${inventories[@]}"; do
     username="$(read_env_value "${inventory}" NATS_USERNAME)"
-    host="$(read_env_value "${inventory}" SSH_HOST)"
+    # Every route in the order they are tried, so a probe reached over the
+    # overlay shows that its site address is only the fallback.
+    host="$(probe_management_hosts "${username}" | paste -sd, -)"
     pending="$(read_env_value "${inventory}" PENDING_TRANSACTION || true)"
     probe_name="$(read_optional_env_value "${inventory}" PROBE_NAME)"
     printf '%-24s %-32s %-32s %s\n' \
       "${username}" \
-      "prtg-nats-admin@${host}" \
+      "${host:--}" \
       "${probe_name:--}" \
       "${pending:--}"
   done
@@ -297,7 +319,7 @@ list_probes() {
 
 status_probe() {
   local username="$1"
-  printf 'status\n' | managed_ssh "${username}"
+  managed_request "${username}" status
 }
 
 # The state of one probe for the fleet overview. Deliberately never fails: a
@@ -311,7 +333,6 @@ collect_probe_state() {
   local information=""
 
   inventory="$(probe_path "${username}")"
-  OVERVIEW_HOST="$(read_env_value "${inventory}" SSH_HOST)"
   OVERVIEW_SERVICE="-"
   OVERVIEW_PACKAGE="-"
   OVERVIEW_CA="-"
@@ -320,9 +341,13 @@ collect_probe_state() {
   OVERVIEW_NOTE=""
 
   if ! information="$(probe_info "${username}" 2>/dev/null)"; then
+    OVERVIEW_HOST="$(read_env_value "${inventory}" SSH_HOST)"
     OVERVIEW_NOTE="unreachable"
     return 0
   fi
+  # Read after the call: a probe that answered over the overlay may have
+  # reported a new site address, and the overview shows where it is now.
+  OVERVIEW_HOST="$(read_env_value "${inventory}" SSH_HOST)"
 
   OVERVIEW_REACHABLE="true"
   OVERVIEW_SERVICE="$(probe_info_value "${information}" service)"
@@ -680,8 +705,8 @@ show_probe() {
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
   printf 'NATS user:    %s\n' "${username}"
-  printf 'SSH target:   prtg-nats-admin@%s\n' \
-    "$(read_env_value "${inventory}" SSH_HOST)"
+  printf 'Routes:       %s\n' \
+    "$(probe_management_hosts "${username}" | paste -sd, -)"
   printf 'Probe name:   %s\n' \
     "$(read_optional_env_value "${inventory}" PROBE_NAME)"
   printf 'Probe id:     %s\n' \
@@ -780,7 +805,7 @@ carried_sensors() {
   {
     [[ ! -f "${assignment}" ]] ||
       grep -E -v '^[[:space:]]*(#.*)?$' "${assignment}" || true
-    listed="$(printf 'sensor-list\n' | managed_ssh "${username}" || true)"
+    listed="$(managed_request "${username}" sensor-list || true)"
     [[ -z "${listed}" ]] ||
       printf '%s\n' "${listed}" | sed -n 's/^\([A-Za-z0-9][A-Za-z0-9._-]*\)\t.*/\1/p'
   } | sort -u

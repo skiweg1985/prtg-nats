@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=9
+HELPER_VERSION=10
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -588,6 +588,28 @@ status_probe() {
   printf 'OK active config=%s\n' "${config_path}"
 }
 
+# The addresses this probe holds on its own networks, comma separated, for
+# the platform to find it at after a DHCP change - see ADR 0011. The overlay
+# interface is left out: its address is assigned by the platform, which
+# already knows it, and reporting it as a site address would make the tunnel
+# look like the probe's own network.
+own_addresses() {
+  local site_addresses=""
+
+  command -v ip >/dev/null 2>&1 || {
+    printf 'none'
+    return 0
+  }
+  site_addresses="$(
+    ip -4 -o address show scope global 2>/dev/null |
+      awk -v overlay="${OVERLAY_INTERFACE}" '$2 != overlay {
+        split($4, address, "/"); print address[1]
+      }' |
+      paste -sd, -
+  )"
+  printf '%s' "${site_addresses:-none}"
+}
+
 # Reachability and inventory report. It deliberately does not fail while
 # package or configuration are still missing, so it can serve as a
 # connection test right after enrollment. The NATS password is never
@@ -620,6 +642,7 @@ probe_info() {
     printf 'ca_sha256=none\n'
   fi
   print_overlay_fields
+  printf 'addresses=%s\n' "$(own_addresses)"
   if [[ -f "${TOML_CONFIG}" ]]; then
     printf 'config=%s\n' "${TOML_CONFIG}"
     return 0

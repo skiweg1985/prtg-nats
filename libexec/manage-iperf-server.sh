@@ -505,7 +505,7 @@ installed_iperf_sensors() {
   local reported=""
   local sensor=""
 
-  reported="$(printf 'sensor-list\n' | managed_ssh "${username}")" || return 1
+  reported="$(managed_request "${username}" sensor-list)" || return 1
   while read -r sensor; do
     printf '%s\n' "${reported}" | grep -q -E "^${sensor}"$'\t' &&
       printf '%s\n' "${sensor}"

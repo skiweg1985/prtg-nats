@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-08-27
+updated: 2026-11-07
 ---
 
 # Configuration reference
@@ -209,7 +209,7 @@ one of them is a backup that cannot manage the fleet afterwards.
 | --- | --- |
 | `ca-key.pem` | the CA that signs the NATS server and client certificates |
 | `ssh/prtg-nats-mpp-admin` | the management key that opens the probe channel |
-| `ssh/known_hosts` | the pinned host keys of every enrolled probe |
+| `ssh/known_hosts` | the pinned host keys of every enrolled probe, filed under the address it was enrolled at and under `prtg-nats-probe-USER`, which is what management calls verify against ([ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md)) |
 | `helper-signing-key.pem` | signs the probe helper before it is sent over the channel |
 | `helper-signing.pub` | the public half, installed on a probe during enrollment |
 

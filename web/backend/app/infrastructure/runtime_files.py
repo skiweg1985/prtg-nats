@@ -27,6 +27,7 @@ from app.core.errors import (
     ValidationFailedError,
 )
 from app.core.logging import get_logger
+from app.domain.probe_config import NATS_HOST_PATTERN
 
 logger = get_logger(__name__)
 
@@ -585,6 +586,43 @@ class RuntimeFileStore:
                 "OVERLAY_LAST_STATE": "",
             },
         )
+
+    def adopt_reported_address(
+        self,
+        nats_username: str,
+        answered_host: str,
+        reported: tuple[str, ...],
+    ) -> str | None:
+        """Take the site address a probe reports as its new fallback route.
+
+        ADR 0011. Only when the answer came over the overlay - an answer over
+        the cached address proves that address works, even if the probe
+        reports another: behind NAT it sees its private address while this
+        platform reaches the public one. And only with a single candidate; a
+        probe on two site networks gives no way to tell which one is reachable
+        from here. The shell tooling applies the same rule in
+        adopt_reported_address().
+
+        Returns the address taken, or None when nothing changed.
+        """
+        inventory = self.read_probe(nats_username)
+        if not inventory.overlay_address or answered_host != inventory.overlay_address:
+            return None
+        if len(reported) != 1:
+            return None
+        (address,) = reported
+        if address == inventory.ssh_host or not NATS_HOST_PATTERN.match(address):
+            return None
+        self._update_probe_values(nats_username, {"SSH_HOST": address})
+        logger.info(
+            "probe reports a new site address",
+            extra={
+                "probe": nats_username,
+                "address": address,
+                "previous": inventory.ssh_host,
+            },
+        )
+        return address
 
     def _update_probe_values(
         self, nats_username: str, updates: Mapping[str, str]

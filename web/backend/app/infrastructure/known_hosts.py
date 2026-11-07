@@ -184,6 +184,37 @@ def pin(
     return keys
 
 
+def probe_host_key_alias(nats_username: str) -> str:
+    """What a probe's key is filed under besides its address - ADR 0011.
+
+    A probe keeps its host key when DHCP gives it another address, so a key
+    filed only under the address is lost along with the route. The NATS user
+    name is what the inventory is named after, the one name that does not
+    move. The shell tooling spells it the same way in probe_host_key_alias().
+    """
+    return f"prtg-nats-probe-{nats_username}"
+
+
+def carry_to_alias(path: Path, alias: str, host: str, port: int) -> tuple[HostKey, ...]:
+    """File the keys pinned under `host` a second time, under `alias`.
+
+    The bridge for a probe enrolled before the alias existed, and for the
+    first contact after enrolment. Copied, never fetched: asking the host
+    again would be a new trust decision taken without anyone confirming it.
+
+    An alias that already holds a key is left alone, whatever is pinned under
+    the address being tried. That is the moved probe: the alias carries the
+    confirmed key, and merging in what some other address has would let any
+    entry in this file vouch for the probe.
+    """
+    if read_pinned(path, alias, port):
+        return ()
+    keys = read_pinned(path, host, port)
+    if not keys:
+        return ()
+    return pin(path, alias, port, keys)
+
+
 def forget(path: Path, host: str, port: int) -> int:
     """Drop every entry for this host. Returns how many lines went.
 

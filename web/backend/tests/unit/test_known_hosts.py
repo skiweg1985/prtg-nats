@@ -159,3 +159,55 @@ def test_a_malformed_line_is_ignored_rather_than_crashing(tmp_path: Path) -> Non
     )
 
     assert kh.read_pinned(path, "probe.example.test", 22) == (KEY_A,)
+
+
+# ADR 0011: a probe keeps its key when it changes address, so the key is also
+# filed under the probe's identity. Carried over from the address, never
+# fetched again - that would be a new trust decision made silently.
+
+
+def test_the_alias_names_the_probe_not_an_address() -> None:
+    assert kh.probe_host_key_alias("mpp-probe-01") == "prtg-nats-probe-mpp-probe-01"
+
+
+def test_a_key_pinned_under_the_address_is_carried_to_the_alias(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "known_hosts"
+    kh.pin(path, "198.51.100.29", 22, (KEY_A,))
+
+    carried = kh.carry_to_alias(path, "prtg-nats-probe-a", "198.51.100.29", 22)
+
+    assert carried == (KEY_A,)
+    assert kh.read_pinned(path, "prtg-nats-probe-a", 22) == (KEY_A,)
+
+
+def test_carrying_twice_writes_once(tmp_path: Path) -> None:
+    path = tmp_path / "known_hosts"
+    kh.pin(path, "198.51.100.29", 22, (KEY_A,))
+    kh.carry_to_alias(path, "prtg-nats-probe-a", "198.51.100.29", 22)
+
+    assert kh.carry_to_alias(path, "prtg-nats-probe-a", "198.51.100.29", 22) == ()
+    entries = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+    assert len(entries) == 2
+
+
+def test_an_alias_already_pinned_is_not_touched_by_another_address(
+    tmp_path: Path,
+) -> None:
+    """A moved probe: the alias holds the confirmed key, and whatever is pinned
+    under some other address must not be merged into it."""
+    path = tmp_path / "known_hosts"
+    kh.pin(path, "prtg-nats-probe-a", 22, (KEY_A,))
+    kh.pin(path, "198.51.100.40", 22, (KEY_B,))
+
+    assert kh.carry_to_alias(path, "prtg-nats-probe-a", "198.51.100.40", 22) == ()
+    assert kh.read_pinned(path, "prtg-nats-probe-a", 22) == (KEY_A,)
+
+
+def test_an_address_with_nothing_pinned_gives_the_alias_nothing(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "known_hosts"
+    assert kh.carry_to_alias(path, "prtg-nats-probe-a", "198.51.100.29", 22) == ()
+    assert not path.exists()

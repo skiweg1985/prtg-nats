@@ -27,7 +27,8 @@ from app.core.errors import (
 from app.core.logging import configure_logging, get_logger, set_correlation_id
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
-from app.infrastructure.probe_helper import ProbeHelperClient, SshHelperTransport
+from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.probe_helper.management_transport import management_transport
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.schema import ensure_schema
@@ -89,11 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("could not issue the interface certificate")
     helper = ProbeHelperClient(
-        SshHelperTransport(
-            key_path=settings.ssh_key_path,
-            known_hosts_path=settings.ssh_known_hosts_path,
-            connect_timeout=settings.ssh_connect_timeout_seconds,
-        ),
+        management_transport(settings),
         default_timeout=settings.ssh_command_timeout_seconds,
     )
     broadcaster = get_broadcaster()

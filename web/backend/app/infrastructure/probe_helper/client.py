@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -29,6 +30,7 @@ from app.core.errors import (
     RuntimeStateError,
 )
 from app.core.logging import get_logger
+from app.infrastructure import known_hosts
 from app.infrastructure.probe_helper.protocol import (
     UNSUPPORTED_REQUEST_MESSAGE,
     HelperCommand,
@@ -144,6 +146,17 @@ class ProbeConnection:
     def label(self) -> str:
         return self.nats_username
 
+    @property
+    def host_key_alias(self) -> str:
+        """What the key is verified against, whichever route answers - ADR 0011."""
+        return known_hosts.probe_host_key_alias(self.nats_username)
+
+
+AnswerObserver = Callable[["HelperTarget", str, HelperRequest, str], None]
+"""Called with the target, the address that answered, the request and its
+output, after every successful call. How a moved probe's new address reaches
+the inventory without the transport knowing about inventories."""
+
 
 class HelperTransport(Protocol):
     """Seam for tests: the whole SSH layer behind one method."""
@@ -161,11 +174,13 @@ class SshHelperTransport:
         known_hosts_path: Path,
         connect_timeout: int = 10,
         username: str = MANAGEMENT_USER,
+        on_answer: AnswerObserver | None = None,
     ) -> None:
         self._key_path = key_path
         self._known_hosts_path = known_hosts_path
         self._connect_timeout = connect_timeout
         self._username = username
+        self._on_answer = on_answer
 
     async def run(
         self, connection: HelperTarget, request: HelperRequest, timeout: int
@@ -178,7 +193,8 @@ class SshHelperTransport:
 
         fallback = getattr(connection, "fallback_host", None)
         try:
-            return await self._run_against(
+            answered = connection.host
+            output = await self._run_against(
                 connection, connection.host, request, timeout
             )
         except ProbeUnreachableError:
@@ -191,7 +207,30 @@ class SshHelperTransport:
                 "probe did not answer on its first address, trying the other",
                 extra={"probe": connection.label, "fallback": fallback},
             )
-        return await self._run_against(connection, fallback, request, timeout)
+            answered = fallback
+            output = await self._run_against(connection, fallback, request, timeout)
+        self._report_answer(connection, answered, request, output)
+        return output
+
+    def _report_answer(
+        self,
+        connection: HelperTarget,
+        answered: str,
+        request: HelperRequest,
+        output: str,
+    ) -> None:
+        """Tell the observer which route answered. Never fails the request:
+        the answer is already in hand, and losing it over bookkeeping would
+        turn a working probe into a failed job."""
+        if self._on_answer is None:
+            return
+        try:
+            self._on_answer(connection, answered, request, output)
+        except Exception:
+            logger.exception(
+                "could not record which route the probe answered on",
+                extra={"probe": connection.label, "host": answered},
+            )
 
     async def _run_against(
         self,
@@ -203,6 +242,20 @@ class SshHelperTransport:
         # Host keys stay pinned in the file the shell tooling maintains.
         # Accepting an unknown host here would silently undo the fingerprint
         # confirmation that enrollment insists on.
+        #
+        # A probe is verified against its identity rather than the address
+        # being tried (ADR 0011), so it keeps its key when it moves. The iperf
+        # endpoints share this transport and have no such alias; they stay
+        # pinned by address.
+        alias: str | None = getattr(connection, "host_key_alias", None)
+        if alias:
+            await asyncio.to_thread(
+                known_hosts.carry_to_alias,
+                self._known_hosts_path,
+                alias,
+                host,
+                connection.port,
+            )
         try:
             async with asyncssh.connect(
                 host,
@@ -210,6 +263,7 @@ class SshHelperTransport:
                 username=self._username,
                 client_keys=[str(self._key_path)],
                 known_hosts=str(self._known_hosts_path),
+                host_key_alias=alias,
                 connect_timeout=self._connect_timeout,
                 keepalive_interval=5,
                 keepalive_count_max=3,

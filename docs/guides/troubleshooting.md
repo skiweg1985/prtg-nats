@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 role: everyone
-updated: 2026-08-30
+updated: 2026-11-07
 ---
 
 # Troubleshooting
@@ -36,6 +36,7 @@ the probe's own words behind a disclosure control. See
 | `active_transaction=TRANSACTION` after a sensor activation refusal | an earlier sensor job stopped after activation and left its guarded snapshot | use the exact transaction-bound command from the failed job; see [Recover an interrupted transaction](deploy-sensors.md#recover-an-interrupted-transaction) |
 | `probe.package_missing`, or `Unit prtg.mpprobe.service not found` while configuring | the probe carries no `prtgmpprobe`, usually after an unenrollment with `--uninstall-mpp` | [Re-enrolling a probe whose package was removed](#re-enrolling-a-probe-whose-package-was-removed) |
 | `Sensor NAME was modified on the probe`, and redeploying does not clear it | a probe helper older than version 2 reports the digest of the rewritten shebang | [A sensor reports as modified right after deployment](#a-sensor-reports-as-modified-right-after-deployment) |
+| A probe is green in PRTG but unreachable for management after a power cut | DHCP gave it another address; the measurement path never depended on one | nothing on the overlay - the next call reaches it there and takes the new address. Without the overlay, `./prtg-nats probe list` shows the stale route; re-enrol or reserve the address |
 | `bind: address already in use` after an update, and the proxy restarts in a loop | a container from an older checkout still holds the port | [A container from an older checkout holds a port](#a-container-from-an-older-checkout-holds-a-port) |
 
 The official installation and wizard details are in the
