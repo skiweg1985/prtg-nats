@@ -36,10 +36,10 @@ The paths that exist today do not fit:
   is optional. A channel that only works through it leaves every probe with
   a direct route without logs.
 
-Measured from one site probe on 2026-11-07: the platform host answered on
-every port it listens on, both directly and through the tunnel, and
-refused the others rather than timing out. A dedicated port is reachable
-there without any change to a firewall in between.
+Measured on 2026-11-07 with a temporary listener on `8443/tcp` of the
+platform host: three site probes reached it, two directly and through the
+tunnel, one with the tunnel as its only route. No firewall in between had
+to change.
 
 ## Decision
 
