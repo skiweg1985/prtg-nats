@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 
 import {
   useOverlay,
+  useOverlayAttach,
+  useOverlayMode,
   useConfigureProbe,
   useExecuteReconcile,
   useIperfEndpoints,
@@ -34,7 +36,11 @@ import {
   RevealPasswordDialog,
   RotateAccountDialog,
 } from '@/features/infrastructure/NatsAccountDialogs'
-import { pathTone } from '@/features/infrastructure/overlayMode'
+import {
+  OverlayAttachDialog,
+  OverlayModeDialog,
+  pathTone,
+} from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -440,7 +446,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 {inventory.ssh_host}:{inventory.ssh_port}
               </Mono>
             </DetailRow>
-            <OverlayRow username={summary.nats_username} />
+            <OverlayRow probeId={summary.id} username={summary.nats_username} />
             <DetailRow label={t('probes.accessKey')}>
               {/* Presence only. The value is behind an audited, explicit reveal. */}
               {inventory.access_key_present ? (
@@ -1335,16 +1341,47 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
  * that list is about. A probe that is not on it says so in one line instead
  * of taking up a panel to say nothing.
  */
-function OverlayRow({ username }: { username: string }) {
+/**
+ * The overlay mode of this one probe, and the switch for it.
+ *
+ * The switch starts the overlay area's own job through its own confirmation:
+ * a second way of changing the mode would be a second set of rules about when
+ * it is safe. The hub stays in the overlay area.
+ */
+function OverlayRow({ probeId, username }: { probeId: string; username: string }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { data } = useOverlay()
+  const attach = useOverlayAttach()
+  const changeMode = useOverlayMode()
+  const [dialog, setDialog] = useState<'add' | 'mode' | null>(null)
   const peer = data?.peers.find((entry) => entry.nats_username === username)
 
   if (!data?.enabled) return null
+  const toJob = {
+    onSuccess: (job: { job_id: string }) => navigate(`/jobs/${job.job_id}`),
+  }
   if (!peer) {
     return (
       <DetailRow label={t('probes.overlay')}>
-        <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
+        <span className="flex flex-wrap items-center gap-2">
+          <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
+          <PermissionGate permission="overlay.manage">
+            <Button size="sm" variant="ghost" onClick={() => setDialog('add')}>
+              {t('probes.overlayAdd')}
+            </Button>
+          </PermissionGate>
+        </span>
+        {dialog === 'add' && (
+          <OverlayAttachDialog
+            title={t('probes.overlayAddTitle')}
+            initial={data.default_mode}
+            pending={attach.isPending}
+            onConfirm={(mode) => attach.mutate({ probe_ids: [probeId], mode }, toJob)}
+            onClose={() => setDialog(null)}
+          />
+        )}
+        {attach.error && <ErrorDetails error={attach.error} />}
       </DetailRow>
     )
   }
@@ -1359,6 +1396,11 @@ function OverlayRow({ username }: { username: string }) {
         <Badge tone={pathTone(peer.mode, state)}>
           {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
         </Badge>
+        <PermissionGate permission="overlay.manage">
+          <Button size="sm" variant="ghost" onClick={() => setDialog('mode')}>
+            {t('infrastructure.overlay.actions.mode')}
+          </Button>
+        </PermissionGate>
         <Link
           to="/infrastructure/overlay"
           className="text-accent text-xs hover:underline"
@@ -1366,6 +1408,15 @@ function OverlayRow({ username }: { username: string }) {
           {t('probes.atAGlance.manage')}
         </Link>
       </span>
+      {dialog === 'mode' && (
+        <OverlayModeDialog
+          initial={peer.mode}
+          pending={changeMode.isPending}
+          onApply={(mode) => changeMode.mutate({ probe_ids: [probeId], mode }, toJob)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {changeMode.error && <ErrorDetails error={changeMode.error} />}
     </DetailRow>
   )
 }
