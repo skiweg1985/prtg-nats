@@ -363,7 +363,7 @@
     "prtgName": {
       "label": "Name in PRTG",
       "differs": "Weicht vom Namen bei der Einbindung ab",
-      "objectId": "PRTG-Objekt-Id {{id}}",
+      "objectId": "Objekt-Id {{id}}",
       "link": "Verknüpfen",
       "relink": "Verknüpfung ändern",
       "unlink": "Verknüpfung lösen",
@@ -376,7 +376,7 @@
       "manual": "Objekt-Id",
       "manualHint": "Oder trag sie von Hand ein: Öffne die Probe in PRTG, ihre Adresse endet auf id=<Zahl>.",
       "reasons": {
-        "not_configured": "Nicht abgefragt: Es ist kein PRTG-API-Token eingerichtet.",
+        "not_configured": "Nicht abgefragt: Core-Adresse oder API-Token für PRTG fehlen.",
         "not_linked": "Noch nicht mit einer Probe in PRTG verknüpft.",
         "unreachable": "PRTG ist gerade nicht erreichbar.",
         "rejected": "PRTG hat das API-Token abgelehnt.",

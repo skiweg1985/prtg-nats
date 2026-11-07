@@ -2472,7 +2472,7 @@ check "the route that answered is named as the tunnel" \
   "$(request_with moved answered_route mpp-d)" "tunnel (10.99.0.2)"
 check "the route that answered is named as the site address" \
   "$(request_with overlay-down answered_route mpp-d)" \
-  "site address (198.51.100.40)"
+  "site (198.51.100.40)"
 refused_status=0
 request_with refused managed_request mpp-d status >/dev/null 2>&1 ||
   refused_status=$?
@@ -2563,6 +2563,7 @@ names_runtime="$(mktemp -d)"
 mkdir -p "${names_runtime}/probes" "${names_runtime}/private/ssh"
 printf '%s\n' NATS_USERNAME=mpp-e SSH_HOST=127.0.0.1 SSH_PORT=1 \
   PROBE_NAME=berlin-01 PROBE_ID=11111111-2222-3333-4444-555555555555 \
+  PRTG_OBJECT_ID=2041 \
   > "${names_runtime}/probes/mpp-e.env"
 in_names_runtime() {
   PRTG_NATS_RUNTIME_DIR="${names_runtime}" \
@@ -2584,6 +2585,12 @@ if command -v ssh >/dev/null 2>&1 && command -v ssh-keygen >/dev/null 2>&1; then
     "$(printf '%s\n' "${names_show}" |
       grep -c 'PRTG may call it something else; the probe id identifies it')" \
     "1"
+  check "probe show names the PRTG object the probe is linked to" \
+    "$(printf '%s\n' "${names_show}" | grep -c '^PRTG object id: *2041$')" "1"
+  check "probe show leaves no answer file behind" \
+    "$(TMPDIR="${names_runtime}" in_names_runtime show mpp-e >/dev/null
+      find "${names_runtime}" -mindepth 1 -maxdepth 1 -name 'tmp.*' | wc -l | tr -d ' ')" \
+    "0"
   check "neither calls it the probe name" \
     "$(printf '%s\n%s\n' "${names_list}" "${names_show}" |
       grep -ci 'probe name' || true)" "0"

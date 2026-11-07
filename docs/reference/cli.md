@@ -175,8 +175,10 @@ sudo ./prtg-nats probe helper-update --all
 ```
 
 `probe show USER` reports what a probe carries, and under `Answered on` which
-route the answer came over: `tunnel` for the overlay address, `site address`
-for any other. Two answers mean the same command does not help yet:
+route the answer came over: `tunnel` for the overlay address, `site` for any
+other - the words the API uses. A probe linked to its PRTG object in the web
+interface shows the `PRTG object id`; the shell does not ask PRTG for the name.
+Two answers mean the same command does not help yet:
 
 | What the probe says | What it needs |
 | --- | --- |

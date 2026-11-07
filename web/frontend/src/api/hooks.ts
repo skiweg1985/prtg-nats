@@ -3,9 +3,9 @@ import {
   useQuery,
   useQueryClient,
   type UseQueryOptions,
-} from "@tanstack/react-query";
+} from '@tanstack/react-query'
 
-import { api } from "./client";
+import { api } from './client'
 import type {
   AuditEvent,
   AuthState,
@@ -50,67 +50,64 @@ import type {
   SystemStatus,
   WebUser,
   WirelessInterface,
-} from "./types";
+} from './types'
 
 /** One place that names every cache entry, so invalidation cannot go stale. */
 export const keys = {
-  auth: ["auth"] as const,
-  capabilities: ["capabilities"] as const,
-  dashboard: ["dashboard"] as const,
-  system: ["system"] as const,
-  stackVersion: ["system", "update"] as const,
-  probes: ["probes"] as const,
-  probe: (id: string) => ["probes", id] as const,
-  probePlan: (id: string) => ["probes", id, "plan"] as const,
-  probeInterfaces: (id: string) =>
-    ["probes", id, "wireless-interfaces"] as const,
-  sensors: ["sensors"] as const,
-  sensor: (name: string) => ["sensors", name] as const,
-  sensorProfiles: (name: string) => ["sensors", name, "profiles"] as const,
+  auth: ['auth'] as const,
+  capabilities: ['capabilities'] as const,
+  dashboard: ['dashboard'] as const,
+  system: ['system'] as const,
+  stackVersion: ['system', 'update'] as const,
+  probes: ['probes'] as const,
+  probe: (id: string) => ['probes', id] as const,
+  probePlan: (id: string) => ['probes', id, 'plan'] as const,
+  probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
+  sensors: ['sensors'] as const,
+  sensor: (name: string) => ['sensors', name] as const,
+  sensorProfiles: (name: string) => ['sensors', name, 'profiles'] as const,
   sensorProfile: (name: string, profile: string) =>
-    ["sensors", name, "profiles", profile] as const,
-  deployments: ["deployments"] as const,
-  deployment: (id: string) => ["deployments", id] as const,
-  jobs: (filters?: Record<string, unknown>) => ["jobs", filters ?? {}] as const,
-  job: (id: string) => ["jobs", id] as const,
-  jobLog: (id: string) => ["jobs", id, "log"] as const,
-  audit: (filters?: Record<string, unknown>) =>
-    ["audit", filters ?? {}] as const,
-  certificates: ["certificates"] as const,
-  backups: ["system", "backups"] as const,
-  credentials: ["credentials"] as const,
-  invitations: ["probes", "invitations"] as const,
-  invitation: (id: string) => ["probes", "invitations", id] as const,
-  iperf: ["iperf"] as const,
-  iperfInvitations: ["iperf-invitations"] as const,
-  overlay: ["overlay"] as const,
-  prtgSettings: ["prtg", "settings"] as const,
-  prtgNames: ["prtg", "probe-names"] as const,
-  probePrtgName: (id: string) => ["probes", id, "prtg-name"] as const,
-  probePrtgCandidates: (id: string) =>
-    ["probes", id, "prtg-candidates"] as const,
-  users: ["users"] as const,
-};
+    ['sensors', name, 'profiles', profile] as const,
+  deployments: ['deployments'] as const,
+  deployment: (id: string) => ['deployments', id] as const,
+  jobs: (filters?: Record<string, unknown>) => ['jobs', filters ?? {}] as const,
+  job: (id: string) => ['jobs', id] as const,
+  jobLog: (id: string) => ['jobs', id, 'log'] as const,
+  audit: (filters?: Record<string, unknown>) => ['audit', filters ?? {}] as const,
+  certificates: ['certificates'] as const,
+  backups: ['system', 'backups'] as const,
+  credentials: ['credentials'] as const,
+  invitations: ['probes', 'invitations'] as const,
+  invitation: (id: string) => ['probes', 'invitations', id] as const,
+  iperf: ['iperf'] as const,
+  iperfInvitations: ['iperf-invitations'] as const,
+  overlay: ['overlay'] as const,
+  prtgSettings: ['prtg', 'settings'] as const,
+  prtgNames: ['prtg', 'probe-names'] as const,
+  probePrtgName: (id: string) => ['probes', id, 'prtg-name'] as const,
+  probePrtgCandidates: (id: string) => ['probes', id, 'prtg-candidates'] as const,
+  users: ['users'] as const,
+}
 
 // Jobs move; a dashboard that only updates on reload is a dashboard nobody
 // trusts. Everything else is invalidated by the mutation that changed it.
-const LIVE_REFETCH_MS = 15_000;
+const LIVE_REFETCH_MS = 15_000
 
 export function useAuthState() {
   return useQuery({
     queryKey: keys.auth,
-    queryFn: () => api.get<AuthState>("/auth/state"),
+    queryFn: () => api.get<AuthState>('/auth/state'),
     staleTime: 30_000,
     retry: false,
-  });
+  })
 }
 
 export function useCapabilities() {
   return useQuery({
     queryKey: keys.capabilities,
-    queryFn: () => api.get<Capabilities>("/system/capabilities"),
+    queryFn: () => api.get<Capabilities>('/system/capabilities'),
     staleTime: 5 * 60_000,
-  });
+  })
 }
 
 /**
@@ -122,21 +119,21 @@ export function useCapabilities() {
 export function useStackVersion() {
   return useQuery({
     queryKey: keys.stackVersion,
-    queryFn: () => api.get<StackVersion>("/system/update"),
+    queryFn: () => api.get<StackVersion>('/system/update'),
     staleTime: 60_000,
-  });
+  })
 }
 
 /** Ask the repository right now instead of waiting for the next pass. */
 export function useCheckForUpdate() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<StackVersion>("/system/update/check", {}),
+    mutationFn: () => api.post<StackVersion>('/system/update/check', {}),
     onSuccess: (data) => {
-      client.setQueryData(keys.stackVersion, data);
-      void client.invalidateQueries({ queryKey: keys.capabilities });
+      client.setQueryData(keys.stackVersion, data)
+      void client.invalidateQueries({ queryKey: keys.capabilities })
     },
-  });
+  })
 }
 
 /**
@@ -146,38 +143,38 @@ export function useCheckForUpdate() {
  * is there, the image is not built from it. Same job, two steps fewer.
  */
 export function useStartUpdate() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (mode: "update" | "rebuild" = "update") =>
-      api.post<JobAccepted>("/system/update", { mode }),
+    mutationFn: (mode: 'update' | 'rebuild' = 'update') =>
+      api.post<JobAccepted>('/system/update', { mode }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.jobs() });
+      void client.invalidateQueries({ queryKey: keys.jobs() })
     },
-  });
+  })
 }
 
 export function useDashboard() {
   return useQuery({
     queryKey: keys.dashboard,
-    queryFn: () => api.get<Dashboard>("/dashboard"),
+    queryFn: () => api.get<Dashboard>('/dashboard'),
     refetchInterval: LIVE_REFETCH_MS,
-  });
+  })
 }
 
 export function useSystemStatus() {
   return useQuery({
     queryKey: keys.system,
-    queryFn: () => api.get<SystemStatus>("/system"),
+    queryFn: () => api.get<SystemStatus>('/system'),
     refetchInterval: LIVE_REFETCH_MS,
-  });
+  })
 }
 
 export function useProbes() {
   return useQuery({
     queryKey: keys.probes,
-    queryFn: () => api.get<ProbeSummary[]>("/probes"),
+    queryFn: () => api.get<ProbeSummary[]>('/probes'),
     refetchInterval: LIVE_REFETCH_MS,
-  });
+  })
 }
 
 /**
@@ -189,78 +186,74 @@ export function useProbes() {
  * and got it back, which is the whole reason this exists.
  */
 export function probeRefetchInterval(detail: ProbeDetail | undefined) {
-  return detail?.summary.running_job_id ? LIVE_REFETCH_MS : (false as const);
+  return detail?.summary.running_job_id ? LIVE_REFETCH_MS : (false as const)
 }
 
 export function useProbe(id: string | undefined) {
   return useQuery({
-    queryKey: keys.probe(id ?? ""),
+    queryKey: keys.probe(id ?? ''),
     queryFn: () => api.get<ProbeDetail>(`/probes/${id}`),
     enabled: Boolean(id),
     refetchInterval: (query) => probeRefetchInterval(query.state.data),
-  });
+  })
 }
 
 export function useProbePlan(id: string | undefined, enabled = false) {
   return useQuery({
-    queryKey: keys.probePlan(id ?? ""),
-    queryFn: () =>
-      api.post<ReconciliationPlan>(`/probes/${id}/reconcile?dry_run=true`),
+    queryKey: keys.probePlan(id ?? ''),
+    queryFn: () => api.post<ReconciliationPlan>(`/probes/${id}/reconcile?dry_run=true`),
     enabled: Boolean(id) && enabled,
-  });
+  })
 }
 
 export function useRefreshProbe() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      api.post<ObservedState>(`/probes/${id}/refresh`),
+    mutationFn: (id: string) => api.post<ObservedState>(`/probes/${id}/refresh`),
     onSuccess: (_, id) => {
-      void client.invalidateQueries({ queryKey: keys.probe(id) });
-      void client.invalidateQueries({ queryKey: keys.probes });
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+      void client.invalidateQueries({ queryKey: keys.probes })
     },
-  });
+  })
 }
 
 export function useUpdateProbe() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
       api.patch<ProbeDetail>(`/probes/${id}`, body),
     onSuccess: (_, variables) => {
-      void client.invalidateQueries({ queryKey: keys.probe(variables.id) });
-      void client.invalidateQueries({ queryKey: keys.probes });
+      void client.invalidateQueries({ queryKey: keys.probe(variables.id) })
+      void client.invalidateQueries({ queryKey: keys.probes })
     },
-  });
+  })
 }
 
-export function useProbeAction(
-  action: "install-ca" | "validate" | "helper-update",
-) {
-  const client = useQueryClient();
+export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-update') {
+  const client = useQueryClient()
   return useMutation({
     // The fleet route with a one-probe selection: the per-probe twins did the
     // same thing under a second path, and both had to be kept working.
     mutationFn: (id: string) =>
       api.post<JobAccepted>(`/probes/actions/${action}`, { probe_ids: [id] }),
     onSuccess: (_, id) => {
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: ['jobs'] })
       // The probe now holds a job, and its detail decides by that whether to
       // keep itself current. Without this the page would wait for the next
       // load to find out that anything started.
-      void client.invalidateQueries({ queryKey: keys.probe(id) });
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
     },
-  });
+  })
 }
 
 /** The actions a selection of probes can be asked for in one go. */
 export type FleetAction =
-  | "refresh"
-  | "validate"
-  | "install-ca"
-  | "helper-update"
-  | "configure"
-  | "reconcile";
+  | 'refresh'
+  | 'validate'
+  | 'install-ca'
+  | 'helper-update'
+  | 'configure'
+  | 'reconcile'
 
 /**
  * One action over a selection: one job, one lock per probe.
@@ -274,55 +267,45 @@ export type FleetAction =
  * exactly what it has to render.
  */
 export function useFleetAction() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      action,
-      probeIds,
-    }: {
-      action: FleetAction;
-      probeIds: string[];
-    }) =>
-      api.post<JobAccepted>(`/probes/actions/${action}`, {
-        probe_ids: probeIds,
-      }),
+    mutationFn: ({ action, probeIds }: { action: FleetAction; probeIds: string[] }) =>
+      api.post<JobAccepted>(`/probes/actions/${action}`, { probe_ids: probeIds }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["jobs"] });
-      void client.invalidateQueries({ queryKey: keys.probes });
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+      void client.invalidateQueries({ queryKey: keys.probes })
     },
-  });
+  })
 }
 
 export function useSensors() {
   return useQuery({
     queryKey: keys.sensors,
-    queryFn: () => api.get<SensorSummary[]>("/sensors"),
-  });
+    queryFn: () => api.get<SensorSummary[]>('/sensors'),
+  })
 }
 
 export function useSensor(name: string | undefined) {
   return useQuery({
-    queryKey: keys.sensor(name ?? ""),
+    queryKey: keys.sensor(name ?? ''),
     queryFn: () => api.get<SensorDetail>(`/sensors/${name}`),
     enabled: Boolean(name),
-  });
+  })
 }
 
 export function useRenderParameters(name: string) {
   return useMutation({
     mutationFn: (values: Record<string, unknown>) =>
-      api.post<{ parameters: string }>(`/sensors/${name}/render-parameters`, {
-        values,
-      }),
-  });
+      api.post<{ parameters: string }>(`/sensors/${name}/render-parameters`, { values }),
+  })
 }
 
 export function useSensorProfiles(name: string | undefined, enabled = true) {
   return useQuery({
-    queryKey: keys.sensorProfiles(name ?? ""),
+    queryKey: keys.sensorProfiles(name ?? ''),
     queryFn: () => api.get<SensorProfile[]>(`/sensors/${name}/profiles`),
     enabled: Boolean(name) && enabled,
-  });
+  })
 }
 
 export function useSensorProfile(
@@ -330,11 +313,11 @@ export function useSensorProfile(
   profile: string | undefined,
 ) {
   return useQuery({
-    queryKey: keys.sensorProfile(name ?? "", profile ?? ""),
+    queryKey: keys.sensorProfile(name ?? '', profile ?? ''),
     queryFn: () =>
       api.get<SensorProfileDetail>(`/sensors/${name}/profiles/${profile}`),
     enabled: Boolean(name && profile),
-  });
+  })
 }
 
 /**
@@ -345,7 +328,7 @@ export function useSensorProfile(
  * points at a file the probe has not seen yet.
  */
 export function useWriteSensorProfile(name: string) {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: async ({
       profile,
@@ -353,78 +336,75 @@ export function useWriteSensorProfile(name: string) {
       probeIds,
       files,
     }: {
-      profile: string;
-      values: Record<string, string>;
-      probeIds: string[];
-      files: { key: string; contentBase64: string }[];
+      profile: string
+      values: Record<string, string>
+      probeIds: string[]
+      files: { key: string; contentBase64: string }[]
     }) => {
       for (const file of files) {
         await api.put<SensorProfileFile>(
           `/sensors/${name}/profiles/${profile}/files/${file.key}`,
           { content_base64: file.contentBase64 },
-        );
+        )
       }
       return api.put<JobAccepted>(`/sensors/${name}/profiles/${profile}`, {
         values,
         probes: probeIds,
-      });
+      })
     },
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useDeleteSensorProfile(name: string) {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (profile: string) =>
       api.delete<JobAccepted>(`/sensors/${name}/profiles/${profile}`),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.sensorProfiles(name) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useDeployments() {
   return useQuery({
     queryKey: keys.deployments,
-    queryFn: () => api.get<Deployment[]>("/deployments"),
+    queryFn: () => api.get<Deployment[]>('/deployments'),
     refetchInterval: LIVE_REFETCH_MS,
-  });
+  })
 }
 
 export function useDeployment(id: string | undefined) {
   return useQuery({
-    queryKey: keys.deployment(id ?? ""),
+    queryKey: keys.deployment(id ?? ''),
     queryFn: () => api.get<Deployment>(`/deployments/${id}`),
     enabled: Boolean(id),
-  });
+  })
 }
 
 export function useCreateDeployment() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (body: {
-      sensor: string;
-      probe_ids: string[];
-      dry_run: boolean;
-    }) => api.post<Deployment>("/deployments", body),
+    mutationFn: (body: { sensor: string; probe_ids: string[]; dry_run: boolean }) =>
+      api.post<Deployment>('/deployments', body),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.deployments });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.deployments })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useJobs(filters: Record<string, string | undefined> = {}) {
   return useQuery({
     queryKey: keys.jobs(filters),
-    queryFn: () => api.get<JobSummary[]>("/jobs", filters),
+    queryFn: () => api.get<JobSummary[]>('/jobs', filters),
     refetchInterval: LIVE_REFETCH_MS,
-  });
+  })
 }
 
 export function useJob(
@@ -432,58 +412,56 @@ export function useJob(
   options?: Partial<UseQueryOptions<JobDetail>>,
 ) {
   return useQuery({
-    queryKey: keys.job(id ?? ""),
+    queryKey: keys.job(id ?? ''),
     queryFn: () => api.get<JobDetail>(`/jobs/${id}`),
     enabled: Boolean(id),
     ...options,
-  });
+  })
 }
 
 export function useJobLog(id: string | undefined) {
   return useQuery({
-    queryKey: keys.jobLog(id ?? ""),
+    queryKey: keys.jobLog(id ?? ''),
     queryFn: () => api.get<JobEvent[]>(`/jobs/${id}/log`),
     enabled: Boolean(id),
-  });
+  })
 }
 
 export function useRetryJob() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.post<JobAccepted>(`/jobs/${id}/retry`),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export function useCancelJob() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.post<JobSummary>(`/jobs/${id}/cancel`),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
-export function useAuditEvents(
-  filters: Record<string, string | undefined> = {},
-) {
+export function useAuditEvents(filters: Record<string, string | undefined> = {}) {
   return useQuery({
     queryKey: keys.audit(filters),
-    queryFn: () => api.get<AuditEvent[]>("/audit-events", filters),
-  });
+    queryFn: () => api.get<AuditEvent[]>('/audit-events', filters),
+  })
 }
 
 export function useCertificates() {
   return useQuery({
     queryKey: keys.certificates,
-    queryFn: () => api.get<Certificate[]>("/certificates"),
-  });
+    queryFn: () => api.get<Certificate[]>('/certificates'),
+  })
 }
 
 export function useOverlay() {
   return useQuery({
     queryKey: keys.overlay,
-    queryFn: () => api.get<Overlay>("/overlay"),
-  });
+    queryFn: () => api.get<Overlay>('/overlay'),
+  })
 }
 
 /**
@@ -501,80 +479,80 @@ export function useOverlay() {
  * from - are worth refusing in front of the person typing.
  */
 export function useOverlayEnable() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: {
-      endpoint_host: string;
-      port?: number;
-      subnet?: string;
-      default_mode?: OverlayMode;
-    }) => api.post<Overlay>("/overlay/enable", request),
+      endpoint_host: string
+      port?: number
+      subnet?: string
+      default_mode?: OverlayMode
+    }) => api.post<Overlay>('/overlay/enable', request),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 export function useOverlayDisable() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<Overlay>("/overlay/disable", {}),
+    mutationFn: () => api.post<Overlay>('/overlay/disable', {}),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 export function useOverlayAttach() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: { probe_ids: string[]; mode?: OverlayMode }) =>
-      api.post<JobAccepted>("/overlay/peers", request),
+      api.post<JobAccepted>('/overlay/peers', request),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 export function useOverlayMode() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: {
-      probe_ids: string[];
-      mode: OverlayMode;
-      force?: boolean;
-    }) => api.post<JobAccepted>("/overlay/peers/mode", request),
+      probe_ids: string[]
+      mode: OverlayMode
+      force?: boolean
+    }) => api.post<JobAccepted>('/overlay/peers/mode', request),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 export function useOverlayDetach() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: { probe_ids: string[]; force?: boolean }) =>
-      api.post<JobAccepted>("/overlay/peers/remove", request),
+      api.post<JobAccepted>('/overlay/peers/remove', request),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 export function useOverlayRefresh() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: { probe_ids: string[] }) =>
-      api.post<JobAccepted>("/overlay/peers/refresh", request),
+      api.post<JobAccepted>('/overlay/peers/refresh', request),
     onSuccess: () => invalidateOverlay(client),
-  });
+  })
 }
 
 function invalidateOverlay(client: ReturnType<typeof useQueryClient>) {
-  void client.invalidateQueries({ queryKey: keys.overlay });
-  void client.invalidateQueries({ queryKey: keys.probes });
-  void client.invalidateQueries({ queryKey: ["jobs"] });
+  void client.invalidateQueries({ queryKey: keys.overlay })
+  void client.invalidateQueries({ queryKey: keys.probes })
+  void client.invalidateQueries({ queryKey: ['jobs'] })
 }
 
 export function useIperfEndpoints(enabled = true) {
   return useQuery({
     queryKey: keys.iperf,
-    queryFn: () => api.get<IperfEndpoint[]>("/iperf-endpoints"),
+    queryFn: () => api.get<IperfEndpoint[]>('/iperf-endpoints'),
     // The argument is for callers that only sometimes need the list - the
     // rollout dialog asks only for a sensor that measures against an endpoint,
     // and only when the reader may see them at all.
     enabled,
-  });
+  })
 }
 
 export function useIperfEndpoint(name: string | undefined) {
@@ -582,7 +560,7 @@ export function useIperfEndpoint(name: string | undefined) {
     queryKey: [...keys.iperf, name],
     queryFn: () => api.get<IperfEndpoint>(`/iperf-endpoints/${name}`),
     enabled: Boolean(name),
-  });
+  })
 }
 
 /** Read a host's SSH keys without signing in, so a person can accept them
@@ -590,55 +568,53 @@ export function useIperfEndpoint(name: string | undefined) {
 export function useScanHostKeys() {
   return useMutation({
     mutationFn: (body: { host: string; ssh_port?: number }) =>
-      api.post<HostKeyScan>("/iperf-endpoints/host-keys", body),
-  });
+      api.post<HostKeyScan>('/iperf-endpoints/host-keys', body),
+  })
 }
 
 export function useProvisionEndpoint() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: ProvisionEndpointRequest) =>
-      api.post<JobAccepted>("/iperf-endpoints", request),
+      api.post<JobAccepted>('/iperf-endpoints', request),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.iperf });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useRegisterEndpoint() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: RegisterEndpointRequest) =>
-      api.post<IperfEndpoint>("/iperf-endpoints/register", request),
+      api.post<IperfEndpoint>('/iperf-endpoints/register', request),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.iperf }),
-  });
+  })
 }
 
 export function useRotateEndpoint() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (name: string) =>
       api.post<JobAccepted>(`/iperf-endpoints/${name}/rotate`),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.iperf });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useUpdateForeignEndpointCredentials() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ name, password }: { name: string; password: string }) =>
-      api.put<JobAccepted>(`/iperf-endpoints/${name}/credentials`, {
-        password,
-      }),
+      api.put<JobAccepted>(`/iperf-endpoints/${name}/credentials`, { password }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.iperf });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 /**
@@ -649,37 +625,31 @@ export function useUpdateForeignEndpointCredentials() {
  * meant a terminal. Both directions are the same shape, so they are one hook
  * with the verb as an argument.
  */
-export function useEndpointDeployment(action: "deploy" | "revoke") {
-  const client = useQueryClient();
+export function useEndpointDeployment(action: 'deploy' | 'revoke') {
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ name, probes }: { name: string; probes: string[] }) =>
       api.post<JobAccepted>(`/iperf-endpoints/${name}/${action}`, { probes }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.iperf });
-      void client.invalidateQueries({ queryKey: keys.probes });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: keys.probes })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useRemoveEndpoint() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      name,
-      keepService,
-    }: {
-      name: string;
-      keepService: boolean;
-    }) =>
+    mutationFn: ({ name, keepService }: { name: string; keepService: boolean }) =>
       api.delete<JobAccepted>(
-        `/iperf-endpoints/${name}${keepService ? "?keep_service=true" : ""}`,
+        `/iperf-endpoints/${name}${keepService ? '?keep_service=true' : ''}`,
       ),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.iperf });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.iperf })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 // --- Maintenance -------------------------------------------------------------
@@ -687,99 +657,96 @@ export function useRemoveEndpoint() {
 export function useBackups(enabled = true) {
   return useQuery({
     queryKey: keys.backups,
-    queryFn: () => api.get<BackupFile[]>("/system/backups"),
+    queryFn: () => api.get<BackupFile[]>('/system/backups'),
     enabled,
-  });
+  })
 }
 
 export function useVerifySystem() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/system/verify"),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    mutationFn: () => api.post<JobAccepted>('/system/verify'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export function useCreateBackup() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/system/backup"),
+    mutationFn: () => api.post<JobAccepted>('/system/backup'),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.backups });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.backups })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useExportRuntime() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/system/export"),
+    mutationFn: () => api.post<JobAccepted>('/system/export'),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.backups });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.backups })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useRestartNats() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/system/restart"),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    mutationFn: () => api.post<JobAccepted>('/system/restart'),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export function useRenewServerCertificate() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/certificates/server/renew"),
+    mutationFn: () => api.post<JobAccepted>('/certificates/server/renew'),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.certificates });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.certificates })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useUsers() {
   return useQuery({
     queryKey: keys.users,
-    queryFn: () => api.get<WebUser[]>("/users"),
-  });
+    queryFn: () => api.get<WebUser[]>('/users'),
+  })
 }
 
 export function useLogin() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (body: { username: string; password: string }) =>
-      api.post<AuthState>("/auth/login", body),
+      api.post<AuthState>('/auth/login', body),
     onSuccess: (state) => {
-      client.setQueryData(keys.auth, state);
-      void client.invalidateQueries();
+      client.setQueryData(keys.auth, state)
+      void client.invalidateQueries()
     },
-  });
+  })
 }
 
 export function useSetup() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (body: {
-      username: string;
-      password: string;
-      display_name: string;
-    }) => api.post<AuthState>("/auth/setup", body),
+    mutationFn: (body: { username: string; password: string; display_name: string }) =>
+      api.post<AuthState>('/auth/setup', body),
     onSuccess: (state) => client.setQueryData(keys.auth, state),
-  });
+  })
 }
 
 export function useLogout() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<void>("/auth/logout"),
+    mutationFn: () => api.post<void>('/auth/logout'),
     onSuccess: () => {
-      client.clear();
+      client.clear()
     },
-  });
+  })
 }
 
 /**
@@ -796,11 +763,11 @@ export function useInvitation(
   options?: { refetchInterval?: number | false },
 ) {
   return useQuery({
-    queryKey: keys.invitation(id ?? ""),
+    queryKey: keys.invitation(id ?? ''),
     queryFn: () => api.get<Invitation>(`/probes/enrollment/tokens/${id}`),
     enabled: id !== null,
     refetchInterval: options?.refetchInterval ?? false,
-  });
+  })
 }
 
 /**
@@ -811,18 +778,17 @@ export function useInvitation(
 export function useInvitations(enabled = true) {
   return useQuery({
     queryKey: keys.invitations,
-    queryFn: () => api.get<Invitation[]>("/probes/enrollment/tokens"),
+    queryFn: () => api.get<Invitation[]>('/probes/enrollment/tokens'),
     enabled,
-  });
+  })
 }
 
 export function useIperfInvitations(enabled = true) {
   return useQuery({
     queryKey: keys.iperfInvitations,
-    queryFn: () =>
-      api.get<IperfInvitation[]>("/iperf-endpoints/enrollment/tokens"),
+    queryFn: () => api.get<IperfInvitation[]>('/iperf-endpoints/enrollment/tokens'),
     enabled,
-  });
+  })
 }
 
 /** Watched by id while the dialog waits - redemption removes the record from
@@ -833,93 +799,84 @@ export function useIperfInvitation(
 ) {
   return useQuery({
     queryKey: [...keys.iperfInvitations, id],
-    queryFn: () =>
-      api.get<IperfInvitation>(`/iperf-endpoints/enrollment/tokens/${id}`),
+    queryFn: () => api.get<IperfInvitation>(`/iperf-endpoints/enrollment/tokens/${id}`),
     enabled: id !== null,
     refetchInterval: options?.refetchInterval ?? false,
-  });
+  })
 }
 
 export function useCreateIperfInvitation() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: IperfInvitationRequest) =>
-      api.post<IssuedIperfInvitation>(
-        "/iperf-endpoints/enrollment/tokens",
-        request,
-      ),
+      api.post<IssuedIperfInvitation>('/iperf-endpoints/enrollment/tokens', request),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: keys.iperfInvitations }),
-  });
+  })
 }
 
 export function useRevokeIperfInvitation() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
       api.delete<void>(`/iperf-endpoints/enrollment/tokens/${id}`),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: keys.iperfInvitations }),
-  });
+  })
 }
 
 export function useCreateInvitation() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (request: InvitationRequest) =>
-      api.post<IssuedInvitation>("/probes/enrollment/tokens", request),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: keys.invitations }),
-  });
+      api.post<IssuedInvitation>('/probes/enrollment/tokens', request),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.invitations }),
+  })
 }
 
 export function useRevokeInvitation() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
       api.delete<void>(`/probes/enrollment/tokens/${id}`),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: keys.invitations }),
-  });
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.invitations }),
+  })
 }
 
 export function useNatsAccounts() {
   return useQuery({
     queryKey: keys.credentials,
-    queryFn: () => api.get<NatsAccount[]>("/credentials"),
-  });
+    queryFn: () => api.get<NatsAccount[]>('/credentials'),
+  })
 }
 
 export function useCreateNatsAccount() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (username: string) =>
-      api.post<NatsAccount>("/credentials", { username }),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: keys.credentials }),
-  });
+      api.post<NatsAccount>('/credentials', { username }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.credentials }),
+  })
 }
 
 export function useRotateNatsAccount() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (username: string) =>
       api.post<JobAccepted>(`/credentials/${username}/rotate`),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.credentials });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.credentials })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useDeleteNatsAccount() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (username: string) =>
-      api.delete<void>(`/credentials/${username}`),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: keys.credentials }),
-  });
+    mutationFn: (username: string) => api.delete<void>(`/credentials/${username}`),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.credentials }),
+  })
 }
 
 export function useRevealNatsPassword() {
@@ -928,239 +885,231 @@ export function useRevealNatsPassword() {
       api.get<{ username: string; password: string }>(
         `/credentials/${username}/reveal`,
       ),
-  });
+  })
 }
 
 export function useRevealAccessKey() {
   return useMutation({
-    mutationFn: (id: string) =>
-      api.get<RevealedAccessKey>(`/probes/${id}/access-key`),
-  });
+    mutationFn: (id: string) => api.get<RevealedAccessKey>(`/probes/${id}/access-key`),
+  })
 }
 
 export function useConfigureProbe() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      api.post<JobAccepted>("/probes/actions/configure", { probe_ids: [id] }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+      api.post<JobAccepted>('/probes/actions/configure', { probe_ids: [id] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export function useExecuteReconcile() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
       api.post<JobAccepted>(`/probes/${id}/reconcile?dry_run=false`),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export type UnenrollOptions = {
-  removeSensors?: boolean;
-  uninstallMpp?: boolean;
-};
+  removeSensors?: boolean
+  uninstallMpp?: boolean
+}
 
 export function useUnenrollProbe() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...options }: UnenrollOptions & { id: string }) => {
       const query = new URLSearchParams({
         remove_sensors: String(options.removeSensors ?? false),
         uninstall_mpp: String(options.uninstallMpp ?? false),
-      });
-      return api.delete<JobAccepted>(`/probes/${id}?${query.toString()}`);
+      })
+      return api.delete<JobAccepted>(`/probes/${id}?${query.toString()}`)
     },
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.probes });
-      void client.invalidateQueries({ queryKey: keys.credentials });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.probes })
+      void client.invalidateQueries({ queryKey: keys.credentials })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useRemoveSensorFromProbe() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ probeId, sensor }: { probeId: string; sensor: string }) =>
       api.post<JobAccepted>(`/probes/${probeId}/sensors/${sensor}/remove`),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["jobs"] }),
-  });
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
+  })
 }
 
 export function useWirelessInterfaces(id: string | undefined, enabled = true) {
   return useQuery({
-    queryKey: keys.probeInterfaces(id ?? ""),
-    queryFn: () =>
-      api.get<WirelessInterface[]>(`/probes/${id}/wireless-interfaces`),
+    queryKey: keys.probeInterfaces(id ?? ''),
+    queryFn: () => api.get<WirelessInterface[]>(`/probes/${id}/wireless-interfaces`),
     enabled: Boolean(id) && enabled,
     // Asked live rather than served from the observed-state cache: the answer
     // decides which interface somebody hands over, and a stale one would offer
     // an interface that has since been given a connection.
     staleTime: 0,
-  });
+  })
 }
 
 export function useReserveInterface() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({
       probeId,
       sensor,
       iface,
     }: {
-      probeId: string;
-      sensor: string;
-      iface: string;
+      probeId: string
+      sensor: string
+      iface: string
     }) =>
       api.post<JobAccepted>(
         `/probes/${probeId}/sensors/${sensor}/interfaces/${iface}/reserve`,
       ),
     onSuccess: (_result, variables) => {
-      void client.invalidateQueries({
-        queryKey: keys.probeInterfaces(variables.probeId),
-      });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.probeInterfaces(variables.probeId) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useReleaseInterface() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({
       probeId,
       sensor,
       iface,
     }: {
-      probeId: string;
-      sensor: string;
-      iface: string;
+      probeId: string
+      sensor: string
+      iface: string
     }) =>
       api.post<JobAccepted>(
         `/probes/${probeId}/sensors/${sensor}/interfaces/${iface}/release`,
       ),
     onSuccess: (_result, variables) => {
-      void client.invalidateQueries({
-        queryKey: keys.probeInterfaces(variables.probeId),
-      });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.probeInterfaces(variables.probeId) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useSetupStack() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<JobAccepted>("/system/setup"),
+    mutationFn: () => api.post<JobAccepted>('/system/setup'),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.capabilities });
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: keys.capabilities })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
     },
-  });
+  })
 }
 
 export function useCreateUser() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (body: {
-      username: string;
-      password: string;
-      display_name: string;
-      roles: string[];
-      must_change_password: boolean;
-    }) => api.post<WebUser>("/users", body),
+      username: string
+      password: string
+      display_name: string
+      roles: string[]
+      must_change_password: boolean
+    }) => api.post<WebUser>('/users', body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.users }),
-  });
+  })
 }
 
 export function useUpdateUser() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
       api.patch<WebUser>(`/users/${id}`, body),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.users }),
-  });
+  })
 }
 
 export function useDeleteUser() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/users/${id}`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.users }),
-  });
+  })
 }
 
-// --- The name in PRTG ---------------------------------------------------------
+// --- The name in PRTG -------------------------------------------------------
 // Asked separately from the probe list and the probe page, so a slow PRTG core
 // delays one value and never the page around it.
 
 export function usePrtgSettings() {
   return useQuery({
     queryKey: keys.prtgSettings,
-    queryFn: () => api.get<PrtgSettings>("/prtg/settings"),
-  });
+    queryFn: () => api.get<PrtgSettings>('/prtg/settings'),
+  })
 }
 
 export function useSavePrtgSettings() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
-    mutationFn: (body: PrtgSettingsUpdate) =>
-      api.put<PrtgSettings>("/prtg/settings", body),
+    mutationFn: (body: PrtgSettingsUpdate) => api.put<PrtgSettings>('/prtg/settings', body),
     onSuccess: (data) => {
-      client.setQueryData(keys.prtgSettings, data);
-      void client.invalidateQueries({ queryKey: ["prtg"] });
-      void client.invalidateQueries({ queryKey: keys.probes });
+      client.setQueryData(keys.prtgSettings, data)
+      void client.invalidateQueries({ queryKey: ['prtg'] })
+      void client.invalidateQueries({ queryKey: keys.probes })
     },
-  });
+  })
 }
 
 export function usePrtgProbeNames() {
   return useQuery({
     queryKey: keys.prtgNames,
-    queryFn: () => api.get<PrtgNames>("/prtg/probe-names"),
+    queryFn: () => api.get<PrtgNames>('/prtg/probe-names'),
     staleTime: 60_000,
-  });
+  })
 }
 
 export function useProbePrtgName(id: string | undefined) {
   return useQuery({
-    queryKey: keys.probePrtgName(id ?? ""),
+    queryKey: keys.probePrtgName(id ?? ''),
     queryFn: () => api.get<PrtgName>(`/probes/${id}/prtg-name`),
     enabled: Boolean(id),
     staleTime: 60_000,
-  });
+  })
 }
 
 export function usePrtgLinkCandidates(id: string, enabled: boolean) {
   return useQuery({
     queryKey: keys.probePrtgCandidates(id),
-    queryFn: () =>
-      api.get<PrtgCandidates>(`/probes/${id}/prtg-link/candidates`),
+    queryFn: () => api.get<PrtgCandidates>(`/probes/${id}/prtg-link/candidates`),
     enabled,
     staleTime: 0,
-  });
+  })
 }
 
 export function useLinkPrtgObject() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, objectId }: { id: string; objectId: string }) =>
       api.put<PrtgName>(`/probes/${id}/prtg-link`, { object_id: objectId }),
     onSuccess: (_, { id }) => {
-      void client.invalidateQueries({ queryKey: keys.probe(id) });
-      void client.invalidateQueries({ queryKey: keys.prtgNames });
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+      void client.invalidateQueries({ queryKey: keys.prtgNames })
     },
-  });
+  })
 }
 
 export function useUnlinkPrtgObject() {
-  const client = useQueryClient();
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/probes/${id}/prtg-link`),
     onSuccess: (_, id) => {
-      void client.invalidateQueries({ queryKey: keys.probe(id) });
-      void client.invalidateQueries({ queryKey: keys.prtgNames });
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+      void client.invalidateQueries({ queryKey: keys.prtgNames })
     },
-  });
+  })
 }

@@ -36,8 +36,13 @@ does not settle, settle it here first.
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
 | name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
-| PRTG's number for a probe object | Objekt-Id / PRTG-Objekt-Id | object id / PRTG object id | GID, GUID |
+| PRTG's number for a probe object | Objekt-Id | object id | GID, GUID, PRTG-Objekt-Id, PRTG object id |
 | connecting a probe to its PRTG object | verknüpfen / Verknüpfung | link | — |
+| the way management reaches a probe | Management über | management via | — |
+| the way NATS traffic reaches the server | NATS über | NATS via | — |
+| route over the overlay | Tunnel | tunnel | — |
+| route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
+| NATS traffic outside the overlay | direkt | direct | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
@@ -57,6 +62,13 @@ PRTG has no GID to look the probe id up by, so the name in PRTG is read by the
 **Objekt-Id** / **object id**, the number PRTG shows in the probe's address.
 A probe is **verknüpft** / **linked** to its PRTG object once, by a person. A
 difference between the two names is a note, never a warning.
+
+A probe has two routes, and the interface names the one in use. Management
+goes **über den Tunnel** / **via the tunnel** - the overlay address - or
+**über die Standortadresse** / **via the site address**, the probe's address
+on its own network. The API and the shell spell the second one `site`.
+NATS traffic goes through the tunnel or **direkt** / **direct**; "site"
+is not used for NATS, because NATS does not connect to the probe.
 
 ## Register (German)
 

@@ -20,12 +20,7 @@ from app.core.errors import (
     PrtgRejectedError,
     PrtgUnreachableError,
 )
-from app.infrastructure.prtg_core import (
-    PrtgCoreClient,
-    PrtgCoreStore,
-    PrtgProbe,
-    validate_object_id,
-)
+from app.infrastructure.prtg_core import PrtgCoreClient, PrtgCoreStore, PrtgProbe
 from app.infrastructure.runtime_files import ProbeInventory, RuntimeFileStore
 
 NameState = Literal[
@@ -148,22 +143,27 @@ class PrtgNameService:
         )
         return LinkCandidates(suggested, tuple(probes))
 
-    async def link(self, inventory: ProbeInventory, object_id: str) -> PrtgProbe:
-        """Check the id against PRTG and against the other links, then store it."""
-        object_id = validate_object_id(object_id)
-        owner = self._linked_elsewhere(inventory.nats_username).get(object_id)
-        if owner is not None:
-            raise PrtgObjectIdTakenError(
-                params={"object_id": object_id, "probe": owner},
-                fields=["object_id"],
-            )
+    async def link(self, inventory: ProbeInventory, object_id: str) -> PrtgName:
+        """Check the id against PRTG and against the other links, then store it.
+
+        PRTG is asked first, outside the lock: the request may take seconds,
+        and the uniqueness check is only worth something when it is made
+        together with the write.
+        """
         probe = await self._require_client().get_probe(object_id)
         if probe is None:
             raise PrtgObjectNotFoundError(
-                params={"object_id": object_id}, fields=["object_id"]
+                params={"object_id": object_id.strip()}, fields=["object_id"]
             )
-        self._runtime.write_probe_prtg_object_id(inventory.nats_username, object_id)
-        return probe
+        owner = self._runtime.claim_probe_prtg_object_id(
+            inventory.nats_username, probe.object_id
+        )
+        if owner is not None:
+            raise PrtgObjectIdTakenError(
+                params={"object_id": probe.object_id, "probe": owner},
+                fields=["object_id"],
+            )
+        return PrtgName("ok", probe.object_id, inventory.probe_name, probe.name)
 
     def unlink(self, inventory: ProbeInventory) -> None:
         self._runtime.write_probe_prtg_object_id(inventory.nats_username, "")

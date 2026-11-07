@@ -363,7 +363,7 @@
     "prtgName": {
       "label": "Name in PRTG",
       "differs": "Differs from the enrollment name",
-      "objectId": "PRTG object id {{id}}",
+      "objectId": "Object id {{id}}",
       "link": "Link",
       "relink": "Change link",
       "unlink": "Remove link",
@@ -376,7 +376,7 @@
       "manual": "Object id",
       "manualHint": "Or enter it by hand: open the probe in PRTG, its address ends in id=<number>.",
       "reasons": {
-        "not_configured": "Not read: no PRTG API token is set up.",
+        "not_configured": "Not read: the PRTG core URL or API token is missing.",
         "not_linked": "Not linked to a probe in PRTG yet.",
         "unreachable": "PRTG cannot be reached right now.",
         "rejected": "PRTG refused the API token.",
