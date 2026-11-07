@@ -476,6 +476,65 @@ def check_wlan_auth_output():
     check("an unknown parameter reports a sensor error",
           json.loads(completed.stdout).get("status"), "error")
 
+    # Parameters typed on a phone or pasted from a document carry a
+    # typographic dash instead of two hyphens, and on screen the line
+    # looks right while the sensor stays red. Seen on a probe: a sensor
+    # down with "could not parse" because the parameter began with an em
+    # dash. The character is named, the parameters themselves are not -
+    # they carry passwords.
+    completed = run_script(
+        script, "—max-age 60 --ssid Test --auth psk --psk short\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("a typographic dash in the parameters is named",
+          "an em dash" in message, True)
+    check("and so is what belongs there instead",
+          "two plain hyphens" in message, True)
+    completed = run_script(
+        script, "--ssid Test --auth psk --psk short --totally-unknown\n")
+    check("an ordinary mistake is not blamed on a dash",
+          "dash" in json.loads(completed.stdout).get("message", ""), False)
+    check("the parameters are never quoted back",
+          "short" in message, False)
+
+    # A value outside the choices is the other way a parameter line goes
+    # wrong, and it happened here: --stage gateway, left over from a
+    # draft where the ping was a stage of its own. PRTG then shows only
+    # "could not parse", which says nothing about which parameter or
+    # what it would accept. Both come out of the parser, so they stay
+    # right when a choice is added.
+    base = "--ssid Test --auth psk --psk short"
+    completed = run_script(script, base + " --stage gateway\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("a value outside the choices names the parameter",
+          "--stage" in message, True)
+    check("and the values it does accept",
+          "assoc or dhcp" in message, True)
+    check("without repeating the one that was given",
+          "gateway" in message, False)
+    completed = run_script(script, base.replace("psk", "wpa3", 1) + "\n")
+    check("three choices read as a list",
+          "psk, peap or eap-tls" in json.loads(completed.stdout)["message"],
+          True)
+    completed = run_script(script, base + " --timeout abc\n")
+    check("a number that is not one says so",
+          "--timeout needs a whole number."
+          in json.loads(completed.stdout)["message"], True)
+    completed = run_script(script, base + " --max-age\n")
+    check("a parameter without its value says so",
+          "--max-age was given without a value."
+          in json.loads(completed.stdout)["message"], True)
+    completed = run_script(script, base + " --stagee dhcp\n")
+    check("a misspelt name points at the one that was meant",
+          "Did you mean --stage?"
+          in json.loads(completed.stdout)["message"], True)
+    # A passphrase typed where a name belongs is still a passphrase, so
+    # the unknown name itself is never spoken - only a known one.
+    completed = run_script(script, base + " --Sommer2024 1\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("an unknown name is not quoted back", "Sommer2024" in message, False)
+    check("but the sensor says that is what it is",
+          "no parameter by one of the names given" in message, True)
+
     # An invented helper answer, so the output format is checkable
     # without Wi-Fi. This is what a failed sign-in looks like.
     module.call_helper = lambda job, timeout: {
@@ -492,6 +551,7 @@ def check_wlan_auth_output():
         "ca_cert": None, "domain_suffix_match": None, "no_verify_server": True,
         "client_cert": None, "private_key": None, "private_key_passwd": None,
         "bssid": None, "hidden": False, "stage": "dhcp", "timeout": 45,
+        "max_age": 300, "measure_now": False, "gateway": "",
     }
     result = module.work(arguments)
     channels = {entry["id"]: entry for entry in result["channels"]}
@@ -503,16 +563,458 @@ def check_wlan_auth_output():
     check("the success channel says no", channels[10]["value"], 2)
     check("the success channel uses a standard lookup",
           channels[10]["lookup_name"],
-          "prtg.standardlookups.yesno.stateyesok")
+          "prtg.standardlookups.netapp.nichealth")
     check("the association time survives a failure",
           channels[12]["value"], 2700)
     check("the failure cause is machine-readable", channels[18]["value"], 3)
-    check("without a DHCP stage the DHCP channel is absent", 14 in channels, False)
+    # The channel structure follows the parameters, never the answer: with
+    # --stage dhcp the channel is there even when this run never got an
+    # address, because a channel that comes and goes tears its history
+    # apart in PRTG.
+    check("with a DHCP stage the DHCP channel is present", 14 in channels, True)
+    check("and reads zero where nothing was measured",
+          channels[14]["value"], 0)
+    assoc_only = {entry["id"]: entry for entry
+                  in module.work(dict(arguments, stage="assoc"))["channels"]}
+    check("without a DHCP stage it is absent", 14 in assoc_only, False)
     check("channels are sorted ascending",
           [entry["id"] for entry in result["channels"]],
           sorted(entry["id"] for entry in result["channels"]))
     check("the message names the cause",
           "auth-failed-eap" in result["message"], True)
+
+    # A lease says nothing about which network handed it out. Two SSIDs
+    # that belong in different VLANs are told apart by their DHCP server,
+    # and without it a lease from the wrong network reads like success.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok",
+        "code": "ok",
+        "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300,
+                    "dhcp_ms": 700},
+        "details": {"ssid": "Guest", "bssid": "00:00:5e:00:53:c2",
+                    "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "signal_dbm": -58, "frequency_mhz": 5220},
+    }
+    result = module.work(dict(arguments, ssid="Guest", auth="psk",
+                              psk="passphrase123", identity=None,
+                              password=None))
+    check("the message names the address", "198.51.100.19" in result["message"],
+          True)
+    check("and the server that handed it out",
+          "from 198.51.100.1" in result["message"], True)
+
+    # An address proves that a DHCP server answered, nothing more. Seen on
+    # a probe: a guest network that handed out addresses of the internal
+    # one and then dropped every packet - the sensor reported "ok" for
+    # minutes while the client could not reach its own gateway.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300,
+                    "dhcp_ms": 700, "gateway_ms": 4},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.254", "gateway_kind": "router"},
+        "age": 3.0,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a reachable gateway is its own channel", channels[19]["value"], 1)
+    check("and carries the standard lookup", channels[19]["lookup_name"],
+          "prtg.standardlookups.netapp.nichealth")
+    check("the answer time is reported", channels[20]["value"], 4)
+    check("the message says the network carries traffic",
+          "router 198.51.100.254 answered in 4 ms" in result["message"], True)
+
+    # Where the lease names no router, the server that offered it is the
+    # target - and then the same address must not appear twice in one line.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "dhcp_ms": 700, "gateway_ms": 6},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.1", "gateway_kind": "dhcp server"},
+        "age": 3.0,
+    }
+    message = module.work(dict(arguments))["message"]
+    check("one machine is named once",
+          "dhcp server 198.51.100.1 answered" in message, False)
+    check("and the ping is still reported",
+          "which answered a ping in 6 ms" in message, True)
+
+    # The check runs without being asked for, because an address that
+    # carries no traffic is the failure worth catching. A network that
+    # drops ICMP has no answer to give, and there --gateway none takes
+    # the channels away with the question.
+    off = {entry["id"] for entry in
+           module.work(dict(arguments, gateway="none"))["channels"]}
+    check("--gateway none removes the channel", 19 in off, False)
+    check("and its time with it", 20 in off, False)
+    check("the other channels stay", 14 in off, True)
+
+    # A fixed address overrides what the lease says, for a network whose
+    # router does not answer or does not exist in the lease at all.
+    asked = {}
+
+    def remember_gateway(job, timeout):
+        asked.update(job)
+        return {"result": "ok", "code": "ok", "message": "ok",
+                "timings": {}, "details": {}, "age": 1.0}
+
+    keep = module.call_helper
+    module.call_helper = remember_gateway
+    module.work(dict(arguments, gateway="198.51.100.254"))
+    check("a fixed gateway reaches the helper", asked.get("gateway"),
+          "198.51.100.254")
+    module.work(dict(arguments))
+    check("and by default the lease decides", asked.get("gateway"), "")
+    module.call_helper = keep
+
+    # A lease without a reachable gateway is the case this stage exists
+    # for: the sign-in worked, the address arrived, and nothing moves.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "gateway-unreachable",
+        "message": "The lease is valid but 198.51.100.1 does not answer",
+        "timings": {"total_ms": 9000, "assoc_ms": 900, "dhcp_ms": 700},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "gateway": "198.51.100.1"},
+        "age": 3.0,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("an unreachable gateway reads as a failure", channels[19]["value"],
+          2)
+    check("and has its own failure code", channels[18]["value"], 14)
+    check("the message keeps the address apart from the reachability",
+          "does not answer" in result["message"], True)
+
+    # A job the scheduler has not reached yet is not a failure. It gets the
+    # third lookup state, which alarms on nothing, and says so in the
+    # message - a sensor error here would blame the Wi-Fi for a radio that
+    # is simply still busy.
+    module.call_helper = lambda job, timeout: {
+        "result": "pending",
+        "code": "not-measured",
+        "message": "Registered on this probe, waiting for the first "
+                   "measurement",
+        "timings": {}, "details": {}, "age": None,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a job without a measurement is neither green nor red",
+          channels[10]["value"], 3)
+    check("it has its own failure code", channels[18]["value"], 11)
+    check("the age channel exists from the first scan", 17 in channels, True)
+    check("and reads zero until something was measured",
+          channels[17]["value"], 0)
+    check("the message says what it is waiting for",
+          "waiting for the first measurement" in result["message"], True)
+
+    # A measurement older than the sensor asked for is not a measurement.
+    # Serving it would keep the sensor green on a sign-in from hours ago.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate"}, "age": 901.0,
+    }
+    result = module.work(dict(arguments, max_age=900))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a result past its freshness stops counting as a result",
+          channels[10]["value"], 3)
+    check("a stale result has its own failure code",
+          channels[18]["value"], 12)
+    check("the age channel carries the age", channels[17]["value"], 901)
+    check("and the message names it",
+          "901 seconds old" in result["message"], True)
+
+    # A freshness below what a round over the radio costs is a setting no
+    # schedule can meet. Left alone it shows up as a sensor that goes red
+    # every few scans for no reason an operator can see, so the cause is
+    # named instead - and the measurement that did arrive keeps counting.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate"}, "age": 30.0,
+        "round_budget": 120, "job_count": 2,
+    }
+    result = module.work(dict(arguments, max_age=60))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a freshness the radio cannot serve has its own failure code",
+          channels[18]["value"], 13)
+    check("the fresh measurement still counts", channels[10]["value"], 1)
+    check("the message says what to set",
+          "at least 120 seconds" in result["message"], True)
+    check("and how many networks share the radio",
+          "the 2 networks on this radio" in result["message"], True)
+
+    # The same answer with a freshness the radio can serve says nothing
+    # about it, or every sensor would carry advice it does not need.
+    result = module.work(dict(arguments, max_age=300))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a freshness the radio can serve is not commented on",
+          channels[18]["value"], 0)
+    check("and the message stays about the Wi-Fi",
+          "--max-age" in result["message"], False)
+
+    # The setting is named without hiding what the radio reported. Both
+    # belong in the message: one says what to fix, the other what broke.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout",
+        "message": "No DHCP offer arrived",
+        "timings": {"total_ms": 45000, "assoc_ms": 900},
+        "details": {"ssid": "Guest"}, "age": 20.0,
+        "round_budget": 120, "job_count": 2,
+    }
+    result = module.work(dict(arguments, max_age=60))
+    check("the advice does not swallow the cause the radio saw",
+          "dhcp-timeout" in result["message"], True)
+    check("and the advice comes first",
+          result["message"].startswith("Set --max-age"), True)
+
+    # A hand-run diagnosis measures on the spot, so no schedule applies
+    # and there is nothing to judge the setting against.
+    result = module.work(dict(arguments, max_age=60, measure_now=True))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("--measure-now is not judged against a round",
+          channels[18]["value"], 8)
+
+    # Within the freshness the age is a reading like any other, and the
+    # message says how old what it reports is.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate", "bssid": "00:00:5e:00:53:c2"},
+        "age": 42.4,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a fresh result is a result", channels[10]["value"], 1)
+    check("the age is reported in seconds", channels[17]["value"], 42)
+    check("the message says how old the reading is",
+          "measured 42 s ago" in result["message"], True)
+
+    # What the script asks for decides whether the radio is used. PRTG
+    # collects; only a hand-run diagnosis measures on the spot, and only
+    # that one needs the patience of a whole test.
+    asked = {}
+
+    def remember(job, timeout):
+        asked.clear()
+        asked.update({"action": job.get("action"),
+                      "max_age": job.get("max_age"), "timeout": timeout})
+        return {"result": "ok", "code": "ok", "message": "ok",
+                "timings": {}, "details": {}, "age": 1.0}
+
+    module.call_helper = remember
+    module.work(dict(arguments))
+    check("the sensor collects instead of measuring", asked["action"],
+          "collect")
+    check("it passes the freshness it needs", asked["max_age"], 300)
+    check("and waits only as long as a memory read takes",
+          asked["timeout"], module.COLLECT_TIMEOUT)
+    module.work(dict(arguments, measure_now=True))
+    check("--measure-now measures on the spot", asked["action"], "test")
+    check("and then waits for a whole test", asked["timeout"], 65)
+
+    # The helper refuses a lease it collected after the link changed. That
+    # has to reach PRTG as its own cause, not as a nameless failure.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed",
+        "code": "assoc-lost",
+        "message": ("The link changed while DHCP was running; the address "
+                    "would belong to another association"),
+        "timings": {"total_ms": 5000, "assoc_ms": 800},
+        "details": {"ssid": "Guest"},
+    }
+    result = module.work(dict(arguments, ssid="Guest"))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a lease from a changed link is its own failure code",
+          channels[18]["value"], 10)
+    check("and never reports an address",
+          "DHCP offered" in result["message"], False)
+
+
+def check_wlan_auth_scheduler():
+    """The radio is shared out by the helper, so the sharing is checked."""
+    print("\n== wlan-auth: the scheduler on the radio ==")
+    wrapper = os.path.join(
+        SENSOR_DIR, "wlan-auth", "privileged", "prtg-sensor-wlan-auth")
+    module = load_module("prtg_sensor_wlan_auth", wrapper)
+
+    job = {"interface": "wlan0", "ssid": "Corporate", "auth": "peap",
+           "identity": "monitor", "password": "secret", "stage": "dhcp",
+           "timeout": 45}
+    check("a changed password is a different job",
+          module.job_identity(job)
+          != module.job_identity(dict(job, password="other")), True)
+    check("a changed SSID is a different job",
+          module.job_identity(job)
+          != module.job_identity(dict(job, ssid="Guest")), True)
+    # Otherwise a sensor whose interval somebody edits would lose the
+    # measurement it already had, and start again at "not measured yet".
+    check("a changed freshness is the same job",
+          module.job_identity(dict(job, max_age=60)),
+          module.job_identity(dict(job, max_age=600)))
+
+    # The gateway is an address or the word that switches the step off. A
+    # name would have to be resolved, and a sensor that cannot reach its
+    # network cannot resolve anything - so it is refused as a parameter
+    # error rather than failing later as a broken network.
+    def refused(value):
+        try:
+            module.validate_job({"interface": "wlan0", "ssid": "Corporate",
+                                 "auth": "psk", "psk": "passphrase123",
+                                 "stage": "dhcp", "gateway": value})
+        except module.Blocked as blocked:
+            return blocked.code
+        return "accepted"
+
+    check("a host name is not a gateway", refused("gateway.example.test"),
+          "bad-request")
+    check("an address is", refused("198.51.100.1"), "accepted")
+    check("and so is none", refused("none"), "accepted")
+    check("empty means the lease decides", refused(""), "accepted")
+
+    # Whom to ask whether the network carries traffic: the router the
+    # lease names, and where there is none - udhcpc reports no router on
+    # its output line - the server that handed the lease out.
+    check("the router of the lease is the target",
+          module.gateway_target({"new_routers": "198.51.100.1 198.51.100.2",
+                                 "new_dhcp_server_identifier": "198.51.100.9"}),
+          ("198.51.100.1", "router"))
+    check("without one the server stands in",
+          module.gateway_target(
+              {"new_dhcp_server_identifier": "198.51.100.9"}),
+          ("198.51.100.9", "dhcp server"))
+    check("a lease that names neither has no target",
+          module.gateway_target({"new_ip_address": "198.51.100.19"}),
+          ("", ""))
+
+    # Three missed requests are not a deleted sensor, and the floor keeps
+    # a sensor asking every half minute from expiring in 90 seconds.
+    check("a job outlives a few missed requests", module.job_ttl(300), 900)
+    check("and never expires faster than the floor", module.job_ttl(30),
+          float(module.JOB_TTL_MINIMUM))
+
+    scheduler = module.Scheduler()
+    now = time.monotonic()
+
+    def entry(max_age, measured, asked=0.0):
+        return {"job": job, "max_age": max_age, "asked": now - asked,
+                "measured": None if measured is None else now - measured,
+                "result": None if measured is None else {"result": "ok"}}
+
+    scheduler._jobs = {"fresh": entry(300, 10), "new": entry(300, None)}
+    check("a job that was never measured goes first",
+          scheduler._due()["measured"], None)
+
+    # Measuring each age against the job's own freshness is what shares
+    # the radio out evenly: the one furthest past its share goes next, not
+    # the one that waited longest in seconds.
+    scheduler._jobs = {"patient": entry(300, 100), "demanding": entry(60, 100)}
+    check("the job furthest past its own freshness goes next",
+          scheduler._due()["max_age"], 60)
+
+    scheduler._jobs = {"fresh": entry(300, 10)}
+    check("a result well inside its freshness is not measured again",
+          scheduler._due(), None)
+    scheduler._jobs = {"ageing": entry(300, 280)}
+    check("one approaching its limit is renewed before it passes it",
+          scheduler._due()["max_age"], 300)
+
+    # The renewal has to start early enough to finish in time, and how
+    # early is the time a round over every job takes - not a fraction.
+    # Measured on a probe: two jobs of 15 seconds with max_age 60 renewed
+    # at 48 under a fixed four fifths and finished at 58. One job more and
+    # the result would have passed max_age and been thrown away, although
+    # the scheduler did everything right.
+    two_short = {"a": dict(entry(60, 0), job=dict(job, timeout=15)),
+                 "b": dict(entry(60, 0), job=dict(job, timeout=15))}
+    # 15 seconds of measuring plus 7.5 of waiting out the lock, twice.
+    check("a round is as long as its jobs can take, waiting included",
+          module.round_budget(two_short), 45.0)
+    check("and the renewal starts a whole round before the limit",
+          module.refresh_threshold(60, two_short), 15.0)
+    scheduler._jobs = two_short
+    scheduler._jobs["a"]["measured"] = now - 16
+    scheduler._jobs["b"]["measured"] = now - 5
+    check("so a result one round short of the limit is renewed",
+          scheduler._due()["job"]["timeout"], 15)
+
+    # Where a round cannot fit into max_age at all, every job is overdue
+    # all the time. Measuring in turn is then correct, and they age
+    # together - which is what the age channel is there to show.
+    crowded = {str(i): dict(entry(60, 10), job=dict(job, timeout=45))
+               for i in range(4)}
+    check("an over-subscribed radio keeps measuring",
+          module.refresh_threshold(60, crowded),
+          module.REFRESH_FLOOR_SECONDS)
+
+    # The snapshot is read by whoever debugs on the probe. It must name
+    # the jobs without handing out what they sign in with.
+    scheduler._jobs = {"only": entry(300, 12)}
+    snapshot = scheduler.snapshot()
+    serialised = json.dumps(snapshot)
+    check("the snapshot names the network", snapshot["jobs"][0]["ssid"],
+          "Corporate")
+    check("and reports the age it holds", snapshot["jobs"][0]["age"], 12.0)
+
+    # Which network answered is what a probe with several SSIDs on one
+    # radio is debugged with. The address alone does not say it: a lease
+    # from the wrong VLAN reads like a healthy result, and only the DHCP
+    # server behind it tells the two apart.
+    scheduler._jobs = {"only": entry(300, 12)}
+    scheduler._jobs["only"]["result"] = {
+        "result": "ok", "code": "ok",
+        "details": {"ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1"}}
+    lease = scheduler.snapshot()["jobs"][0]
+    check("the snapshot names the address it was given", lease["ip"],
+          "198.51.100.19")
+    check("and the server that handed it out", lease["dhcp"],
+          "198.51.100.1")
+    scheduler._jobs = {"only": entry(300, None)}
+    check("a job without a measurement reports no address",
+          scheduler.snapshot()["jobs"][0]["ip"], "")
+    check("the password never leaves the service",
+          "secret" in serialised, False)
+    check("nor does the identity", "monitor" in serialised, False)
+
+    # A sensor sets its own freshness and sees none of the other sensors
+    # on the radio, so every answer carries what a round costs. Only this
+    # side knows it, and without it a setting nobody can serve reaches
+    # PRTG as a sensor that reddens every few scans for no stated reason.
+    sharing = module.Scheduler()
+    sharing.collect(dict(job), 60)
+    answer = sharing.collect(dict(job, ssid="Guest"), 60)
+    check("an answer says what a round over the radio costs",
+          answer["round_budget"], 120.0)
+    check("and how many jobs share it", answer["job_count"], 2)
+    identity = module.job_identity(dict(job, ssid="Guest"))
+    sharing._jobs[identity]["result"] = {"result": "ok", "code": "ok"}
+    sharing._jobs[identity]["measured"] = time.monotonic()
+    answer = sharing.collect(dict(job, ssid="Guest"), 60)
+    check("a measured answer carries the round as well",
+          answer["round_budget"], 120.0)
+
+    scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
+    check("a job nobody asks for any more is dropped", scheduler._due(), None)
+    check("and is gone from the scheduler",
+          "abandoned" in scheduler._jobs, False)
+
+    # The deployment writes a different systemd unit for a helper that
+    # keeps running, and it asks the helper which one. Both halves of that
+    # contract are in this repository, so they are checked together.
+    completed = subprocess.run([sys.executable, wrapper, "--unit-mode"],
+                               capture_output=True, text=True, check=False)
+    check("the helper names the unit shape it needs",
+          completed.stdout.strip(), "daemon")
+    rollout = open(os.path.join(PROJECT_DIR, "libexec",
+                                "prtg-nats-probe-helper"),
+                   encoding="utf-8").read()
+    check("and the rollout asks for exactly that word",
+          '"${mode}" == "daemon"' in rollout, True)
 
 
 def check_wlan_auth_configuration():
@@ -541,6 +1043,58 @@ def check_wlan_auth_configuration():
           len([line for line in lines if line.startswith("network={")]), 1)
     check("the passphrase is not in the configuration in clear text",
           any("passphrase123" in line for line in lines), False)
+
+    # An access point that turns a station away says why. Carrying the
+    # number through is the difference between "rejected" and a cause
+    # somebody can act on.
+    check("the status code of a rejection reaches the message",
+          module.with_status_code(
+              "The access point rejected the association",
+              "CTRL-EVENT-ASSOC-REJECT bssid=00:00:5e:00:53:c2 status_code=17"),
+          "The access point rejected the association (status 17)")
+    check("an event without one is left alone",
+          module.with_status_code("Rejected", "CTRL-EVENT-ASSOC-REJECT"),
+          "Rejected")
+
+    # Two sensors share one radio. A lease collected after the link changed
+    # belongs to the other run, and the fingerprint is what tells them apart.
+    class FakeRun:
+        def __init__(self, *answers):
+            self.answers = list(answers)
+
+        def control(self, *_arguments):
+            return self.answers.pop(0)
+
+    same = FakeRun("bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n",
+                   "bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n")
+    check("the same association yields the same fingerprint",
+          module.link_fingerprint(same), module.link_fingerprint(same))
+    moved = FakeRun("bssid=00:00:5e:00:53:c2\nwpa_state=COMPLETED\n",
+                    "bssid=00:00:5e:00:53:c0\nwpa_state=COMPLETED\n")
+    check("another cell yields another one",
+          module.link_fingerprint(moved) != module.link_fingerprint(moved),
+          True)
+    gone = FakeRun("wpa_state=SCANNING\n")
+    check("a link that no longer stands is not complete",
+          module.link_fingerprint(gone)[1], "SCANNING")
+
+    # Waiting for the radio is bounded by the run's own budget, not by a
+    # number that happens to suit one timeout. Two sensors no longer meet
+    # here - the scheduler measures for both - but a test somebody runs by
+    # hand on the probe still meets the scheduler, and that overlap is
+    # worth waiting out instead of reporting iface-busy.
+    check("a short run waits only a short while",
+          module.lock_budget(10), 5.0)
+    check("a long one stops at the ceiling",
+          module.lock_budget(300), float(module.LOCK_WAIT_CEILING))
+    check("waiting never eats the whole budget",
+          all(module.lock_budget(t) < t for t in (10, 45, 120, 300)), True)
+    # The script gives the helper "--timeout plus 20 seconds" on the
+    # socket, and the measurement itself needs all of --timeout. A longer
+    # wait would time the script out while the helper still works.
+    check("and never outlasts the script's patience",
+          all(module.lock_budget(t) + t <= t + 20 - 5
+              for t in (10, 45, 120, 300)), True)
 
     for description, job, expected in (
         ("a too-short passphrase", {"ssid": "A", "auth": "psk", "psk": "shrt"},
@@ -2498,6 +3052,7 @@ if __name__ == "__main__":
     check_privilege_path()
     check_wlan_auth_output()
     check_wlan_auth_configuration()
+    check_wlan_auth_scheduler()
     check_internet_speed_output()
     check_iperf_throughput_output()
     check_link_quality_output()

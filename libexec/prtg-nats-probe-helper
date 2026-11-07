@@ -1327,19 +1327,37 @@ stage_sensor_tool() {
 # seccomp rules of the MPP unit. Who may reach the socket is decided by its
 # group alone.
 #
-# Accept=yes hands the connection to the program as stdin and stdout. The
-# helper therefore stays an ordinary filter program: JSON in, JSON out -
-# usable on the command line exactly as over the socket.
+# There are two shapes of helper, and the helper itself says which one it
+# needs - it is the only thing that knows, and asking the installed program
+# keeps the answer out of the catalogue metadata, where it would be a
+# second truth about the same file.
+#
+# per-connection: Accept=yes hands the connection to the program as stdin
+# and stdout. The helper stays an ordinary filter program: JSON in, JSON
+# out - usable on the command line exactly as over the socket.
+#
+# daemon: the program keeps running and takes the listening socket over
+# itself, because it schedules work of its own. wlan-auth does that for the
+# one radio a probe owns, see ADR 0011. RuntimeMaxSec is left out for this
+# shape on purpose: it would kill the service mid-schedule, and with it
+# everything it holds in memory.
 write_sensor_units() {
   local name="$1"
   local service_user="$2"
   local service_group=""
+  local mode=""
+  local wrapper=""
   local socket_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}.socket"
-  local service_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}@.service"
+  local instance_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}@.service"
+  local service_unit="${SENSOR_UNIT_DIR}/prtg-sensor-${name}.service"
 
   service_group="$(id -gn "${service_user}")" ||
     die "Could not determine the group of ${service_user}"
   install -d -o root -g root -m 0755 "${SENSOR_UNIT_DIR}"
+
+  wrapper="$(sensor_slot_target "${name}" wrapper)"
+  mode="$("${wrapper}" --unit-mode 2>/dev/null || true)"
+  [[ "${mode}" == "daemon" ]] || mode="per-connection"
 
   {
     printf '# Erzeugt von prtg-nats. Nicht von Hand bearbeiten.\n'
@@ -1351,8 +1369,14 @@ write_sensor_units() {
     printf 'SocketUser=root\n'
     printf 'SocketGroup=%s\n' "${service_group}"
     printf 'SocketMode=0660\n'
-    printf 'Accept=yes\n'
-    printf 'MaxConnections=4\n\n'
+    if [[ "${mode}" == "daemon" ]]; then
+      # The service accepts the connections itself, so systemd passes the
+      # listening socket and starts one instance, not one per connection.
+      printf 'Accept=no\n\n'
+    else
+      printf 'Accept=yes\n'
+      printf 'MaxConnections=4\n\n'
+    fi
     printf '[Install]\n'
     printf 'WantedBy=sockets.target\n'
   } > "${socket_unit}.candidate"
@@ -1366,20 +1390,45 @@ write_sensor_units() {
     printf 'ExecStart=%s/prtg-sensor-%s\n' "${SENSOR_WRAPPER_DIR}" "${name}"
     printf 'User=root\n'
     printf 'Group=root\n'
-    printf 'StandardInput=socket\n'
-    printf 'StandardOutput=socket\n'
-    printf 'StandardError=journal\n'
-    # Emergency brake in case a helper hangs despite its own time budgets.
-    printf 'RuntimeMaxSec=600\n'
+    if [[ "${mode}" == "daemon" ]]; then
+      # It holds the credentials of every network it measures in memory,
+      # so there must be no core dump to read them out of.
+      printf 'LimitCORE=0\n'
+      printf 'ProtectHome=yes\n'
+      printf 'Restart=always\n'
+      printf 'RestartSec=1\n'
+      printf 'StandardError=journal\n'
+    else
+      printf 'StandardInput=socket\n'
+      printf 'StandardOutput=socket\n'
+      printf 'StandardError=journal\n'
+      # Emergency brake in case a helper hangs despite its own time
+      # budgets. A daemon must not carry it - see above.
+      printf 'RuntimeMaxSec=600\n'
+    fi
   } > "${service_unit}.candidate"
 
   chmod 0644 "${socket_unit}.candidate" "${service_unit}.candidate"
   mv "${socket_unit}.candidate" "${socket_unit}"
-  mv "${service_unit}.candidate" "${service_unit}"
+  if [[ "${mode}" == "daemon" ]]; then
+    # A sensor that used to ship the other shape leaves its template unit
+    # behind, and a stale template is a unit systemd would still start.
+    rm -f -- "${instance_unit}"
+    mv "${service_unit}.candidate" "${service_unit}"
+  else
+    rm -f -- "${service_unit}"
+    mv "${service_unit}.candidate" "${instance_unit}"
+  fi
 
   systemctl daemon-reload
   systemctl enable --now "prtg-sensor-${name}.socket" >/dev/null 2>&1 ||
     die "Could not activate the privileged helper socket of ${name}"
+  if [[ "${mode}" == "daemon" ]]; then
+    # An update replaces the program under a running service, and the one
+    # that is running is the old one until it is restarted.
+    systemctl restart "prtg-sensor-${name}.service" >/dev/null 2>&1 ||
+      die "Could not start the privileged helper of ${name}"
+  fi
 
   # Earlier versions of this repository deployed a sudo rule instead. It
   # would be ineffective, but it should not be left lying around either.
@@ -1390,9 +1439,13 @@ remove_sensor_units() {
   local name="$1"
 
   systemctl disable --now "prtg-sensor-${name}.socket" >/dev/null 2>&1 || true
+  # Only the daemon shape has a service of its own to stop; for the other
+  # one this is a unit that never existed, and systemctl says so quietly.
+  systemctl disable --now "prtg-sensor-${name}.service" >/dev/null 2>&1 || true
   rm -f -- \
     "${SENSOR_UNIT_DIR}/prtg-sensor-${name}.socket" \
     "${SENSOR_UNIT_DIR}/prtg-sensor-${name}@.service" \
+    "${SENSOR_UNIT_DIR}/prtg-sensor-${name}.service" \
     "${SENSOR_SUDOERS_DIR}/prtg-sensor-${name}"
   systemctl daemon-reload
 }
@@ -2448,11 +2501,19 @@ sensor_helper_state() {
     printf 'none\n'
     return 0
   }
-  if systemctl is-active --quiet "prtg-sensor-${name}.socket"; then
-    printf 'listening\n'
-  else
+  if ! systemctl is-active --quiet "prtg-sensor-${name}.socket"; then
     printf 'inactive\n'
+    return 0
   fi
+  # A helper of the daemon shape has to be running, not merely reachable.
+  # Its socket stays active while the service behind it is dead, and
+  # "listening" would then promise a helper that answers nothing.
+  if [[ -f "${SENSOR_UNIT_DIR}/prtg-sensor-${name}.service" ]] &&
+    ! systemctl is-active --quiet "prtg-sensor-${name}.service"; then
+    printf 'inactive\n'
+    return 0
+  fi
+  printf 'listening\n'
 }
 
 sensor_interface_list() {

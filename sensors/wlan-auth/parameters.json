@@ -90,10 +90,27 @@
       "description": "Stop after authentication or after DHCP."
     },
     {
+      "name": "--gateway",
+      "type": "string",
+      "description": "Address to ping after DHCP, or none to skip the check."
+    },
+    {
       "name": "--timeout",
       "type": "integer",
       "default": 45,
       "description": "The time budget for the whole test in seconds."
+    },
+    {
+      "name": "--max-age",
+      "type": "integer",
+      "default": 300,
+      "description": "The oldest measurement this sensor accepts, in seconds."
+    },
+    {
+      "name": "--measure-now",
+      "type": "boolean",
+      "group": "internal",
+      "description": "Measure on the spot instead of collecting the scheduled result."
     },
     {
       "name": "--self-check",

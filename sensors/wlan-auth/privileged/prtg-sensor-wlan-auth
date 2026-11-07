@@ -3,10 +3,19 @@
 """Privileged Wi-Fi sign-in test for the "wlan-auth" Script v2 sensor.
 
 The sensor script runs as the probe's service user and must not configure
-any Wi-Fi. This program takes over exactly that step. It is started by
-systemd per connection on /run/prtg-sensor-wlan-auth.sock; stdin and stdout
-are the socket. The task comes in as JSON, the result goes out as JSON -
-credentials thereby never sit in argv and are not readable via /proc.
+any Wi-Fi. This program takes over exactly that step. The task comes in as
+JSON, the result goes out as JSON - credentials thereby never sit in argv
+and are not readable via /proc.
+
+It runs as a service that systemd starts on /run/prtg-sensor-wlan-auth.sock
+and keeps running, because it schedules the radio itself. A probe can carry
+several sensors of this type on the one interface it owns, and PRTG cannot
+keep them off each other: it knows an interval per sensor and nothing about
+the other sensors on the same device. So the sensors ask for the last
+measurement and its age, and this service decides when to measure. See
+ADR 0011. Started without a socket from systemd, it stays the filter
+program it has always been: JSON on stdin, JSON on stdout, one measurement
+on the spot - which is how it is called by hand on the probe.
 
 The route over a socket instead of sudo is necessary because
 prtg.mpprobe.service runs with NoNewPrivileges=yes and the kernel then
@@ -30,6 +39,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -42,8 +52,65 @@ ALLOWED_INTERFACES = os.path.join(CONFIG_DIR, "allowed-interfaces")
 # Shared by the work directories of a run and by the search for the ones
 # a previous run left behind.
 WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
-# How long a run waits for the interface before it gives up on it.
+# How long a run waits for the interface before it gives up on it. Half of
+# its own time budget, because what it is waiting for is another run of the
+# same kind - and that one is bounded by the same budget. A fixed number
+# cannot be right for both a 10-second and a 300-second test, and on a probe
+# where two sensors share one radio it decides whether the second one
+# measures or reports iface-busy.
+#
+# The ceiling is not a round number: the sensor script waits
+# "--timeout plus 20 seconds" on the socket, and this run needs the whole
+# of --timeout for the measurement itself. Waiting longer than those 20
+# seconds would have the script time out while the helper is still working
+# - a sensor error for a measurement that was about to succeed. 15 leaves
+# five seconds for the handover itself.
+LOCK_WAIT_CEILING = 15
 LOCK_WAIT_SECONDS = 15
+
+# How a job's time to live is derived from the freshness it asked for, and
+# the floor under it. See job_ttl.
+JOB_TTL_FACTOR = 3
+JOB_TTL_MINIMUM = 300
+
+# A result renewed exactly at max_age is already too old when the next
+# request arrives, so the renewal has to start early enough to finish in
+# time. How early is not a fraction: it is how long a round over every job
+# on this radio takes, because that is what a job may have to wait through
+# before its turn comes. Measured on a probe with two jobs of 15 seconds
+# and max_age 60, a fixed four fifths renewed at 48 and finished at 58 -
+# one job more and the result would have passed max_age and been thrown
+# away, although the scheduler did everything right.
+#
+# The floor keeps the scheduler measuring where a round cannot fit into
+# max_age at all. Then every job is overdue all the time, they are served
+# in turn, and they age together - which is what the age channel is there
+# to show.
+REFRESH_FLOOR_SECONDS = 1.0
+
+# How long the scheduler sleeps when nothing is due. Short enough that a
+# newly registered job is measured almost at once, long enough to cost
+# nothing while the probe is quiet.
+SCHEDULER_IDLE_SECONDS = 1.0
+
+# Requests served at the same time. Asking is a memory read and returns
+# at once; the limit is there so a client that hangs cannot make this
+# service spawn threads without end.
+MAX_CONNECTIONS = 8
+CONNECTION_TIMEOUT = 10
+REQUEST_LIMIT = 65536
+
+# A probe watches a handful of networks. The limit is there because every
+# entry holds credentials in memory, so a sensor asking with ever-changing
+# parameters must not be able to fill this service with them.
+MAX_JOBS = 16
+
+# What makes up a job's identity. See job_identity.
+IDENTITY_FIELDS = ("interface", "ssid", "auth", "profile", "psk",
+                   "identity", "password", "anonymous_identity", "ca_cert",
+                   "domain_suffix_match", "verify_server", "client_cert",
+                   "private_key", "private_key_passwd", "bssid", "hidden",
+                   "stage", "timeout", "gateway")
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
 # names the programs rather than the packages behind them.
@@ -67,6 +134,7 @@ STRING_FIELDS = (
     "bssid",
     "profile",
     "auth",
+    "gateway",
 )
 
 AUTH_METHODS = ("psk", "peap", "eap-tls")
@@ -88,6 +156,23 @@ FAILURE_EVENTS = (
     ("CTRL-EVENT-NETWORK-NOT-FOUND", None, "ssid-not-found",
      "The SSID was not found during the scan"),
 )
+
+
+# An access point that turns a station away says why in the association
+# response, and wpa_supplicant passes the number straight through. Without
+# it PRTG says only "rejected"; with it the difference between "no capacity
+# left" (17), "come back later" (30) and "denied for a reason outside the
+# standard" (12, typical for MAC filters and client blocks) is readable from
+# the sensor message alone.
+STATUS_CODE = re.compile(r"status_code=(\d+)")
+
+
+def with_status_code(message, line):
+    """The event's own status code, appended where it names one."""
+    found = STATUS_CODE.search(line)
+    if not found:
+        return message
+    return "%s (status %s)" % (message, found.group(1))
 
 
 class Blocked(Exception):
@@ -329,7 +414,7 @@ class SupplicantRun:
         for _, line in snapshot:
             for marker, detail, code, message in FAILURE_EVENTS:
                 if marker in line and (detail is None or detail in line):
-                    return code, message
+                    return code, with_status_code(message, line)
         return None
 
     def control(self, *arguments):
@@ -359,6 +444,18 @@ def parse_status(text):
         if value:
             values[key.strip()] = value.strip()
     return values
+
+
+def link_fingerprint(run):
+    """What identifies this association: which cell, and whether it stands.
+
+    Read before and after the DHCP stage. Two sensors share one radio on a
+    probe, and the lock serialises their runs but not what the network does
+    in between - a lease collected after the link changed belongs to the
+    other run, not to this one.
+    """
+    status = parse_status(run.control("status"))
+    return status.get("bssid", ""), status.get("wpa_state", "")
 
 
 def collect_link_details(run, result):
@@ -407,6 +504,9 @@ UDHCPC_SCRIPT = "/bin/true"
 UDHCPC_LEASE = re.compile(
     r"lease of (?P<address>\S+) obtained from (?P<server>[^,\s]+)")
 
+# "rtt min/avg/max/mdev = 1.234/..." - the average is the reading.
+PING_TIME = re.compile(r"= [\d.]+/([\d.]+)/")
+
 def dhcp_command(interface, seconds):
     """The DHCP client to run, and how to ask it for one lease.
 
@@ -440,7 +540,8 @@ def parse_lease(output):
     lease = {}
     for line in output.splitlines():
         key, _, value = line.strip().partition("=")
-        if key in ("new_ip_address", "new_dhcp_server_identifier"):
+        if key in ("new_ip_address", "new_dhcp_server_identifier",
+                   "new_routers"):
             value = value.strip("'")
             if value:
                 lease[key] = value
@@ -504,6 +605,80 @@ def run_dhcp(interface, budget):
     if "new_ip_address" not in lease:
         raise dhcp_failure(command, process.returncode, output)
     return duration, lease
+
+
+def gateway_target(lease):
+    """Whom to ask whether the network carries traffic at all.
+
+    The router the lease names, where it names one - that is the address
+    a client would send everything else to. udhcpc reports no router on
+    its output line, so the server that offered the lease stands in for
+    it; in a branch network the two are the same box, and either way it
+    is an address inside the network this run was placed in.
+    """
+    routers = lease.get("new_routers", "").split()
+    if routers:
+        return routers[0], "router"
+    server = lease.get("new_dhcp_server_identifier", "")
+    return (server, "dhcp server") if server else ("", "")
+
+
+def reach_gateway(interface, address, target, budget):
+    """Ask the gateway whether it answers, from the address just leased.
+
+    An address alone proves that a DHCP server replied, nothing more. A
+    client that is put in the wrong network can hold a perfectly valid
+    lease and still reach nothing - seen on a probe whose guest network
+    handed out addresses of the internal one and then dropped every
+    packet. This is the step that tells the two apart.
+
+    The lease was taken in test mode, so the interface carries nothing
+    yet. A /32 plus a host route is the smallest thing that lets a packet
+    out, and it needs no netmask - which udhcpc never reports. Both are
+    removed again before this returns.
+    """
+    if not shutil.which("ping"):
+        raise Blocked("ping-missing",
+                      "This probe has no ping, so the gateway cannot be "
+                      "tested; use --gateway none")
+    seconds = max(2, min(10, int(budget)))
+    added_address = added_route = False
+    started = time.monotonic()
+    try:
+        added_address = subprocess.run(
+            ["ip", "addr", "add", "%s/32" % address, "dev", interface],
+            capture_output=True, timeout=10, check=False).returncode == 0
+        added_route = subprocess.run(
+            ["ip", "route", "add", "%s/32" % target, "dev", interface,
+             "src", address],
+            capture_output=True, timeout=10, check=False).returncode == 0
+        if not added_address or not added_route:
+            raise Blocked("internal-error",
+                          "Could not put the leased address on %s"
+                          % interface)
+        done = subprocess.run(
+            ["ping", "-c", "2", "-W", str(seconds), "-I", address, target],
+            capture_output=True, timeout=seconds * 2 + 5, check=False,
+            text=True)
+    except subprocess.TimeoutExpired:
+        raise Failed("gateway-unreachable",
+                     "%s did not answer within the time budget" % target)
+    finally:
+        if added_route:
+            subprocess.run(["ip", "route", "del", "%s/32" % target,
+                            "dev", interface],
+                           capture_output=True, timeout=10, check=False)
+        if added_address:
+            subprocess.run(["ip", "addr", "del", "%s/32" % address,
+                            "dev", interface],
+                           capture_output=True, timeout=10, check=False)
+    if done.returncode != 0:
+        raise Failed("gateway-unreachable",
+                     "The lease is valid but %s does not answer" % target)
+    found = PING_TIME.search(done.stdout)
+    if found:
+        return int(float(found.group(1)))
+    return int((time.monotonic() - started) * 1000)
 
 
 def dhcp_failure(command, returncode, output):
@@ -660,12 +835,41 @@ def perform_test(job):
         collect_link_details(run, result)
 
         if job["stage"] == "dhcp":
+            before = link_fingerprint(run)
             duration, lease = run_dhcp(
                 interface, deadline - time.monotonic())
+            after = link_fingerprint(run)
+            # Reporting an address from a link that is no longer the one we
+            # measured would be worse than reporting none: it reads like a
+            # healthy result for a network this run never reached.
+            if after != before or after[1] != "COMPLETED":
+                raise Failed(
+                    "assoc-lost",
+                    "The link changed while DHCP was running; the address "
+                    "would belong to another association")
             result["timings"]["dhcp_ms"] = duration
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
                 "new_dhcp_server_identifier", "")
+
+            # An address alone is not a working network, so the gateway is
+            # asked by default. "none" is for a network that drops ICMP,
+            # where the question has no answer to give.
+            if job["gateway"] != "none":
+                if job["gateway"]:
+                    target, kind = job["gateway"], "gateway"
+                else:
+                    target, kind = gateway_target(lease)
+                if not target:
+                    raise Failed(
+                        "gateway-unreachable",
+                        "The lease names neither a router nor a server to "
+                        "test")
+                result["details"]["gateway"] = target
+                result["details"]["gateway_kind"] = kind
+                result["timings"]["gateway_ms"] = reach_gateway(
+                    interface, lease["new_ip_address"], target,
+                    deadline - time.monotonic())
 
         result["message"] = "Authentication succeeded"
     except Failed as failure:
@@ -721,13 +925,35 @@ def validate_job(job):
     job["stage"] = job.get("stage") or "dhcp"
     if job["stage"] not in ("assoc", "dhcp"):
         raise Blocked("bad-request", "Unsupported test stage")
+    # Empty means the lease decides, "none" switches the step off. Anything
+    # else has to be an address: a name would have to be resolved first,
+    # and a sensor that cannot reach its network cannot resolve anything.
+    job["gateway"] = (job.get("gateway") or "").strip()
+    if job["gateway"] and job["gateway"] != "none":
+        try:
+            socket.inet_aton(job["gateway"])
+        except OSError:
+            raise Blocked("bad-request",
+                          "--gateway takes an IPv4 address or \"none\"")
     try:
         job["timeout"] = int(job.get("timeout") or 45)
     except (TypeError, ValueError):
         raise Blocked("bad-request", "Invalid timeout")
     if not 5 <= job["timeout"] <= 300:
         raise Blocked("bad-request", "The timeout must be 5 to 300 seconds")
+    try:
+        job["max_age"] = int(job.get("max_age") or 300)
+    except (TypeError, ValueError):
+        raise Blocked("bad-request", "Invalid maximum age")
+    if not 30 <= job["max_age"] <= 3600:
+        raise Blocked("bad-request",
+                      "The maximum age must be 30 to 3600 seconds")
     return job
+
+
+def lock_budget(timeout):
+    """The share of a run's budget it may spend waiting for the radio."""
+    return min(LOCK_WAIT_CEILING, max(1.0, timeout / 2.0))
 
 
 def lock_interface(interface, wait=LOCK_WAIT_SECONDS):
@@ -754,8 +980,8 @@ def lock_interface(interface, wait=LOCK_WAIT_SECONDS):
                 handle.close()
                 raise Blocked(
                     "iface-busy",
-                    "Another test is still running on %s after %d seconds"
-                    % (interface, wait))
+                    "Another test is still running on %s after %.0f "
+                    "seconds" % (interface, wait))
             time.sleep(0.25)
 
 
@@ -821,57 +1047,370 @@ def reclaim_interface(interface):
                        check=False)
 
 
-def main():
-    if os.geteuid() != 0:
-        emit({"result": "blocked", "code": "no-privileges",
-              "message": "This helper must run as root through its sudo rule"})
+def job_ttl(max_age):
+    """How long a job survives without anybody asking for it.
 
+    Three missed requests are not a deleted sensor: a probe that is
+    restarting, or a scan that overran, must not cost a job its
+    registration. Much longer than that and the radio would go on
+    measuring for a sensor somebody removed days ago.
+    """
+    return max(JOB_TTL_MINIMUM, JOB_TTL_FACTOR * max_age)
+
+
+def job_identity(job):
+    """A stable name for a job, derived from everything it does.
+
+    The credentials are part of it on purpose. A changed password is then
+    a different job: the old one stops being asked for and expires,
+    rather than the scheduler going on measuring with credentials nobody
+    uses any more. What is deliberately not part of it is max_age - a
+    sensor may ask for a different freshness without losing its history.
+    """
+    material = json.dumps([job.get(field) for field in IDENTITY_FIELDS],
+                          sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def round_budget(jobs):
+    """The time a round over every job on this radio can take.
+
+    The worst case, deliberately: a failing sign-in uses its whole time
+    budget, and it is the failing ones that have to stay measurable. The
+    waiting counts too - a test run by hand on the probe can hold the
+    radio while the scheduler waits out its lock, and a round that does
+    not allow for it is one a measured age can overrun.
+    """
+    return sum(entry["job"]["timeout"] + lock_budget(entry["job"]["timeout"])
+               for entry in jobs.values())
+
+
+def refresh_threshold(max_age, jobs):
+    """The age at which a result has to be renewed to stay in time."""
+    return max(REFRESH_FLOOR_SECONDS, max_age - round_budget(jobs))
+
+
+class Scheduler:
+    """Measures the registered jobs one after another on the one radio.
+
+    PRTG knows a scanning interval per sensor and nothing about the other
+    sensors on the same device, so it cannot keep two of them off one
+    radio. This is the only place that sees every job, which is why the
+    order is decided here instead of by whoever asked first.
+
+    Everything it knows lives in this object and nowhere else. A restart
+    therefore forgets the jobs and the credentials with them, and the
+    next request registers them again - one cycle lost, nothing to clean
+    up, and no file holding a password.
+    """
+
+    def __init__(self):
+        self._guard = threading.Lock()
+        self._jobs = {}
+        self._wake = threading.Event()
+
+    def collect(self, job, max_age):
+        """Register or renew a job, and answer with what is known now."""
+        identity = job_identity(job)
+        now = time.monotonic()
+        with self._guard:
+            entry = self._jobs.get(identity)
+            if entry is None:
+                if len(self._jobs) >= MAX_JOBS:
+                    raise Blocked(
+                        "too-many-jobs",
+                        "This helper already measures %d networks on this "
+                        "probe" % len(self._jobs))
+                entry = {"job": job, "result": None, "measured": None}
+                self._jobs[identity] = entry
+            entry["max_age"] = max_age
+            entry["asked"] = now
+            answer = self._answer(entry, now)
+        # A job nobody has measured yet should not wait out the idle sleep.
+        self._wake.set()
+        return answer
+
+    def _answer(self, entry, now):
+        # Every answer carries what a round over this radio costs. A
+        # sensor sets its own freshness and cannot see the other sensors
+        # sharing the interface, so a value below the round is one no
+        # schedule can ever meet. This is the only side that knows the
+        # round, which is why it reports it with the result.
+        shared = {"round_budget": round_budget(self._jobs),
+                  "job_count": len(self._jobs)}
+        if entry["result"] is None:
+            answer = {"result": "pending", "code": "not-measured",
+                      "message": "Registered on this probe, waiting for the "
+                                 "first measurement",
+                      "timings": {}, "details": {}, "age": None}
+        else:
+            answer = dict(entry["result"])
+            answer["age"] = round(now - entry["measured"], 1)
+        answer.update(shared)
+        return answer
+
+    def _due(self):
+        """The job whose result has aged furthest beyond its share.
+
+        Measuring the age against each job's own max_age is what shares
+        the radio out evenly. A job that wants a fresh value every minute
+        and one that is content with five are treated the same relative
+        to what they asked for, and where the radio cannot serve them all
+        they age together instead of one of them starving.
+        """
+        now = time.monotonic()
+        best = None
+        best_ratio = 0.0
+        with self._guard:
+            for identity, entry in list(self._jobs.items()):
+                if now - entry["asked"] > job_ttl(entry["max_age"]):
+                    # Nobody has asked for a long time: the sensor behind
+                    # this job was deleted or paused in PRTG.
+                    del self._jobs[identity]
+                    continue
+                if entry["measured"] is None:
+                    return entry
+                threshold = refresh_threshold(entry["max_age"], self._jobs)
+                if threshold <= 0:
+                    continue
+                ratio = (now - entry["measured"]) / threshold
+                if ratio > best_ratio:
+                    best = entry
+                    best_ratio = ratio
+        return best if best_ratio >= 1.0 else None
+
+    def snapshot(self):
+        """What this service is measuring, for diagnosis on the probe.
+
+        Without it nothing about a running schedule is observable: the
+        probe writes no sensor output to the journal, so the only other
+        way to tell a job that expired from one that was never registered
+        is to wait and guess. Credentials are deliberately absent - the
+        truncated identity is enough to tell two jobs apart.
+        """
+        now = time.monotonic()
+        jobs = []
+        with self._guard:
+            budget = round_budget(self._jobs)
+            for identity, entry in sorted(self._jobs.items()):
+                result = entry["result"] or {}
+                age = entry["measured"]
+                jobs.append({
+                    "job": identity[:12],
+                    "interface": entry["job"]["interface"],
+                    "ssid": entry["job"].get("ssid") or "",
+                    "stage": entry["job"]["stage"],
+                    "timeout": entry["job"]["timeout"],
+                    "max_age": entry["max_age"],
+                    "age": None if age is None else round(now - age, 1),
+                    "renew_at": round(
+                        refresh_threshold(entry["max_age"], self._jobs), 1),
+                    "asked_ago": round(now - entry["asked"], 1),
+                    "expires_in": round(
+                        job_ttl(entry["max_age"]) - (now - entry["asked"]), 1),
+                    "result": result.get("result", ""),
+                    "code": result.get("code", ""),
+                    # Which network answered is the question a probe with
+                    # several SSIDs on one radio is debugged with, and the
+                    # address alone does not answer it: a lease can come
+                    # from the wrong VLAN and still look healthy. The
+                    # DHCP server says who handed it out.
+                    "ip": (result.get("details") or {}).get(
+                        "ip_address", ""),
+                    "dhcp": (result.get("details") or {}).get(
+                        "dhcp_server", ""),
+                })
+        return {"result": "ok", "code": "ok",
+                "message": "%d job(s), %d s of radio time per round"
+                           % (len(jobs), budget),
+                "round_budget": budget, "jobs": jobs,
+                "timings": {}, "details": {}}
+
+    def _measure(self, job):
+        """One measurement, behind the interface lock.
+
+        The lock no longer keeps two sensors apart - nothing else in this
+        process measures. It keeps this thread and a test somebody runs
+        by hand on the probe apart, the one case left where two
+        wpa_supplicant instances could meet on one interface.
+        """
+        handle = None
+        try:
+            handle = lock_interface(job["interface"],
+                                    lock_budget(job["timeout"]))
+            return perform_test(job)
+        except Blocked as blocked:
+            if blocked.code == "iface-busy":
+                # Somebody is testing by hand. Leave the stored result
+                # alone and come back on the next pass: a measurement
+                # that did not happen must not overwrite one that did.
+                return None
+            return {"result": "blocked", "code": blocked.code,
+                    "message": blocked.message, "timings": {}, "details": {}}
+        except Exception:
+            # The exception is never printed - it could carry credentials.
+            return {"result": "blocked", "code": "internal-error",
+                    "message": "The test failed unexpectedly",
+                    "timings": {}, "details": {}}
+        finally:
+            if handle is not None:
+                handle.close()
+
+    def run(self):
+        while True:
+            entry = self._due()
+            if entry is None:
+                self._wake.wait(SCHEDULER_IDLE_SECONDS)
+                self._wake.clear()
+                continue
+            result = self._measure(entry["job"])
+            if result is None:
+                continue
+            with self._guard:
+                entry["result"] = result
+                entry["measured"] = time.monotonic()
+
+
+SCHEDULER = Scheduler()
+
+
+def ping_answer():
+    """Self-test of the permission chain, for the deployment.
+
+    Does the sensor script reach this helper at all, and can the test it
+    would run find its tools? The second half is what a deployment hangs
+    on. It is the one moment where a missing tool can still be reported
+    as a failed deployment that restores the previous state - after that
+    it would only surface as a sensor error on the first scan, hours
+    later and on somebody else's screen.
+    """
+    missing = [name for name in REQUIRED_PROGRAMS
+               if shutil.which(name) is None]
+    if not any(shutil.which(name) for name in DHCP_PROGRAMS):
+        missing.append(" or ".join(DHCP_PROGRAMS))
+    if missing:
+        return {"result": "blocked", "code": "tool-missing",
+                "message": "Not installed on this probe: %s"
+                           % ", ".join(missing),
+                "timings": {}, "details": {}}
+    return {"result": "ok", "code": "ok", "message": "helper reachable",
+            "timings": {}, "details": {}}
+
+
+def handle_request(payload):
+    """One request, one answer. This never raises."""
     try:
-        payload = sys.stdin.read(65536)
         job = json.loads(payload or "{}")
         if not isinstance(job, dict):
             raise ValueError
     except ValueError:
-        emit({"result": "blocked", "code": "bad-request",
-              "message": "The request could not be parsed"})
+        return {"result": "blocked", "code": "bad-request",
+                "message": "The request could not be parsed",
+                "timings": {}, "details": {}}
 
     handle = None
     try:
-        if job.get("action") == "ping":
-            # Self-test of the permission chain: does the sensor script
-            # reach this helper at all, and can the test it would run find
-            # its tools?
-            #
-            # The second half is what a deployment hangs on. It is the one
-            # moment where a missing tool can still be reported as a failed
-            # deployment that restores the previous state - after that it
-            # would only surface as a sensor error on the first scan, hours
-            # later and on somebody else's screen.
-            missing = [name for name in REQUIRED_PROGRAMS
-                       if shutil.which(name) is None]
-            if not any(shutil.which(name) for name in DHCP_PROGRAMS):
-                missing.append(" or ".join(DHCP_PROGRAMS))
-            if missing:
-                emit({"result": "blocked", "code": "tool-missing",
-                      "message": "Not installed on this probe: %s"
-                                 % ", ".join(missing),
-                      "timings": {}, "details": {}})
-            emit({"result": "ok", "code": "ok", "message": "helper reachable",
-                  "timings": {}, "details": {}})
+        action = job.get("action")
+        if action == "ping":
+            return ping_answer()
+        if action == "status":
+            # Read-only, and the only window into a running schedule.
+            return SCHEDULER.snapshot()
         job = validate_job(merge_profile(job))
-        handle = lock_interface(job["interface"])
-        emit(perform_test(job))
+        if action == "collect":
+            return SCHEDULER.collect(job, job["max_age"])
+        # "test" measures on the spot. The sensor script never asks for
+        # it; whoever debugs on the probe does, and then wants the radio
+        # used rather than a stored value explained to them.
+        handle = lock_interface(job["interface"], lock_budget(job["timeout"]))
+        return perform_test(job)
     except Blocked as blocked:
-        emit({"result": "blocked", "code": blocked.code,
-              "message": blocked.message, "timings": {}, "details": {}})
+        return {"result": "blocked", "code": blocked.code,
+                "message": blocked.message, "timings": {}, "details": {}}
     except Exception:
-        # The exception is never printed - it could contain credentials.
-        emit({"result": "blocked", "code": "internal-error",
-              "message": "The test failed unexpectedly",
-              "timings": {}, "details": {}})
+        # The exception is never printed - it could carry credentials.
+        return {"result": "blocked", "code": "internal-error",
+                "message": "The test failed unexpectedly",
+                "timings": {}, "details": {}}
     finally:
         if handle is not None:
             handle.close()
+
+
+def listen_socket():
+    """The listening socket systemd handed over, or None.
+
+    sd_listen_fds without the library: systemd puts the number of
+    descriptors in LISTEN_FDS, names the process they belong to in
+    LISTEN_PID, and starts them at descriptor 3. Without them this
+    program is the filter on stdin and stdout it has always been, which
+    is how it is called by hand on the probe.
+    """
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
+        return None
+    try:
+        count = int(os.environ.get("LISTEN_FDS", "0"))
+    except ValueError:
+        return None
+    if count < 1:
+        return None
+    return socket.socket(fileno=3, family=socket.AF_UNIX,
+                         type=socket.SOCK_STREAM)
+
+
+def serve_connection(connection, slots):
+    try:
+        connection.settimeout(CONNECTION_TIMEOUT)
+        payload = bytearray()
+        while len(payload) <= REQUEST_LIMIT:
+            chunk = connection.recv(65536)
+            if not chunk:
+                break
+            payload.extend(chunk)
+        answer = handle_request(payload.decode("utf-8", "replace"))
+        connection.sendall((json.dumps(answer) + "\n").encode("utf-8"))
+    except OSError:
+        # A client that hung up mid-answer is not this service's problem.
+        pass
+    finally:
+        connection.close()
+        slots.release()
+
+
+def serve_forever(listener):
+    """Answer requests while the scheduler measures in the background."""
+    threading.Thread(target=SCHEDULER.run, daemon=True).start()
+    slots = threading.Semaphore(MAX_CONNECTIONS)
+    while True:
+        slots.acquire()
+        try:
+            connection, _ = listener.accept()
+        except OSError:
+            slots.release()
+            continue
+        threading.Thread(target=serve_connection, args=(connection, slots),
+                         daemon=True).start()
+
+
+def main():
+    # The deployment asks which systemd unit shape this helper needs before
+    # it writes one. Answered here because this program is the only thing
+    # that knows: it schedules the radio, so it has to outlive the
+    # connection that asked.
+    if sys.argv[1:] == ["--unit-mode"]:
+        print("daemon")
+        return
+
+    if os.geteuid() != 0:
+        emit({"result": "blocked", "code": "no-privileges",
+              "message": "This helper must run as root"})
+
+    listener = listen_socket()
+    if listener is not None:
+        serve_forever(listener)
+        return
+
+    emit(handle_request(sys.stdin.read(REQUEST_LIMIT)))
 
 
 def emit(result):
