@@ -13,6 +13,7 @@ fields are the ones a real core returns from ``/experimental/probes``.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import stat
@@ -31,8 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1.routes.prtg import get_prtg_transport
 from app.core.config import Settings
+from app.core.errors import PrtgObjectIdTakenError
 from app.core.permissions import RoleName
+from app.infrastructure import prtg_core
+from app.infrastructure.prtg_core import PrtgCoreStore
 from app.infrastructure.runtime_files import RuntimeFileStore
+from app.services.prtg_names import PrtgName, PrtgNameService
 from tests.api.test_probe_access_key import sign_in
 from tests.conftest import write_probe_inventory
 
@@ -78,7 +83,11 @@ class FakePrtg:
             return httpx.Response(401, json={"message": "unauthorized"})
         path = request.url.path
         if path == "/api/v2/experimental/probes":
-            return httpx.Response(200, json=self.probes)
+            # Paged the way PRTG pages: an offset, and a limit it applies
+            # whether or not the caller asked for one.
+            offset = int(request.url.params.get("offset", "0"))
+            limit = int(request.url.params.get("limit", "3000"))
+            return httpx.Response(200, json=self.probes[offset : offset + limit])
         prefix = "/api/v2/probes/"
         if path.startswith(prefix):
             wanted = path.removeprefix(prefix)
@@ -218,6 +227,32 @@ async def test_a_ca_bundle_must_be_a_certificate(
     assert accepted.json()["ca_bundle_configured"] is True
 
 
+async def test_a_refused_ca_bundle_leaves_the_stored_settings_alone(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    """Half a save is worse than none: a new URL with the old CA bundle, or a
+    new token sent to a core the stored bundle cannot verify."""
+    await sign_in(client)
+    await configure(client)
+
+    refused = await client.put(
+        "/api/v1/prtg/settings",
+        json={
+            "core_url": "https://prtg2.example.test:1616",
+            "token": "another-token",
+            "ca_bundle": "not a pem",
+        },
+    )
+    assert refused.status_code == 422, refused.text
+
+    kept = await client.get("/api/v1/prtg/settings")
+    assert kept.json()["core_url"] == CORE_URL
+    token_file = settings.private_dir / "prtg" / "api-token"
+    assert token_file.read_text(encoding="utf-8").strip() == TOKEN
+
+
 async def test_an_operator_may_not_change_the_settings(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -343,6 +378,72 @@ async def test_a_hand_entered_id_is_checked_against_prtg(
         f"/api/v1/probes/{probe_id}/prtg-link", json={"object_id": "../1"}
     )
     assert garbage.status_code == 422, garbage.text
+
+
+@pytest.mark.parametrize("kind", ["group", "device", None])
+async def test_an_id_that_is_not_a_probe_is_refused(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    prtg: FakePrtg,
+    kind: str | None,
+) -> None:
+    """The check rests on the kind PRTG names, not on /probes/{id} refusing
+    other objects - a core that answers for a group there must not get it
+    linked as a probe."""
+    write_probe_inventory(project_dir, PROBE)
+    await sign_in(client)
+    await configure(client)
+    probe_id = (await probe_ids(client))[PROBE]
+    group = prtg_item("3001", "Berlin")
+    if kind is None:
+        del group["kind"]
+    else:
+        group["kind"] = kind
+    prtg.probes.append(group)
+
+    refused = await client.put(
+        f"/api/v1/probes/{probe_id}/prtg-link", json={"object_id": "3001"}
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["error"]["code"] == "prtg.object_not_found"
+
+
+async def test_two_probes_linking_one_id_at_once_cannot_both_win(
+    settings: Settings,
+    prtg: FakePrtg,
+) -> None:
+    """The uniqueness check and the write belong together: checked before
+    PRTG answered and written after, both links would see the id free.
+
+    Called on the service, not through the API: the test database happens to
+    serialise two requests, a deployment with several workers does not.
+    """
+    write_probe_inventory(settings.project_dir, PROBE)
+    write_probe_inventory(settings.project_dir, OTHER)
+    store = PrtgCoreStore(settings)
+    store.write(core_url=CORE_URL, token=TOKEN)
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        # Long enough for the other link to arrive while PRTG is asked.
+        await asyncio.sleep(0.05)
+        return prtg.handler(request)
+
+    runtime = RuntimeFileStore(settings)
+    names = PrtgNameService(store, runtime, httpx.MockTransport(slow))
+    answers = await asyncio.gather(
+        *(names.link(runtime.read_probe(name), "2041") for name in (PROBE, OTHER)),
+        return_exceptions=True,
+    )
+
+    assert sum(isinstance(answer, PrtgName) for answer in answers) == 1
+    assert sum(isinstance(answer, PrtgObjectIdTakenError) for answer in answers) == 1
+    linked = [
+        entry.nats_username
+        for entry in runtime.read_all_probes()
+        if entry.prtg_object_id == "2041"
+    ]
+    assert len(linked) == 1
 
 
 async def test_an_id_linked_to_another_probe_is_refused(
@@ -491,6 +592,35 @@ async def test_an_unreachable_core_is_reported_not_raised(
     assert answer.json()["name_in_prtg"] is None
 
 
+async def test_why_the_core_is_unreachable_stays_in_the_server_log(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    prtg: FakePrtg,
+) -> None:
+    """The exception text names hosts, addresses and paths of the network
+    behind the platform. Clients, jobs and the audit trail get the kind of
+    failure; the text goes to the server log only."""
+    write_probe_inventory(project_dir, PROBE)
+    await sign_in(client)
+    await configure(client)
+    probe_id = (await probe_ids(client))[PROBE]
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(
+            "connect to 192.0.2.77 via internal-proxy.example.test failed",
+            request=request,
+        )
+
+    prtg.fail = refuse
+    answer = await client.get(f"/api/v1/probes/{probe_id}/prtg-link/candidates")
+    assert answer.status_code == 502, answer.text
+    assert answer.json()["error"]["code"] == "prtg.unreachable"
+    assert "ConnectError" in answer.text
+    assert "192.0.2.77" not in answer.text
+    assert "internal-proxy" not in answer.text
+
+
 async def test_a_refused_token_is_its_own_reason(
     client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
@@ -580,3 +710,31 @@ async def test_nothing_is_ever_written_to_prtg(
     assert prtg.requests
     assert {request.method for request in prtg.requests} == {"GET"}
     assert all(TOKEN not in json.dumps(dict(r.url.params)) for r in prtg.requests)
+
+
+async def test_a_large_core_is_read_page_by_page(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    prtg: FakePrtg,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single read stops at PRTG's page limit; a probe beyond it would be
+    missing from the pick list and reported as deleted in the probe list."""
+    monkeypatch.setattr(prtg_core, "PROBE_PAGE_LIMIT", 2)
+    write_probe_inventory(project_dir, PROBE, probe_name="Hamburg Office")
+    await sign_in(client)
+    await configure(client)
+    probe_id = (await probe_ids(client))[PROBE]
+
+    offered = await client.get(f"/api/v1/probes/{probe_id}/prtg-link/candidates")
+    assert {c["object_id"] for c in offered.json()["candidates"]} == {
+        "1",
+        "2041",
+        "2042",
+    }
+    assert offered.json()["suggested_object_id"] == "2042"
+
+    await link(client, probe_id, "2042")
+    names = await client.get("/api/v1/prtg/probe-names")
+    assert names.json()["names"][0]["name_in_prtg"] == "Hamburg Office"

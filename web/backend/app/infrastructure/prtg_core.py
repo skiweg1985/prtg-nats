@@ -52,9 +52,13 @@ logger = get_logger(__name__)
 # URL path: "../1" would otherwise be a request to somewhere else entirely.
 OBJECT_ID_PATTERN = re.compile(r"^[1-9][0-9]{0,9}$")
 API_PREFIX = "/api/v2"
-# One page large enough for any installation this platform serves. PRTG's own
-# default without a limit is 3000; asking explicitly keeps that visible.
+# PRTG's own page size without a limit is 3000. A core with more objects than
+# one page holds is read page by page, so a probe beyond the first page is not
+# missing from the pick list or reported as deleted in the probe list.
 PROBE_PAGE_LIMIT = 3000
+# A core that ignores the offset would hand back the first page forever.
+MAX_PROBE_PAGES = 100
+PROBE_KIND = "probenode"
 TIMEOUT_SECONDS = 10.0
 
 
@@ -165,10 +169,17 @@ class PrtgCoreStore:
 
         The form never shows the stored token, so an empty field means "no
         change" - clearing it is a separate, explicit request.
+
+        Everything is validated before the first file is touched. A refused
+        CA bundle after a written URL would leave a new core paired with the
+        old bundle, and the next read would send the token to it.
         """
+        url = normalise_core_url(core_url) if core_url else ""
+        bundle = (
+            validate_ca_bundle(ca_bundle) if ca_bundle and not clear_ca_bundle else None
+        )
         self.directory.mkdir(parents=True, exist_ok=True)
         self.directory.chmod(0o700)
-        url = normalise_core_url(core_url) if core_url else ""
         _write_private(
             self.settings_path,
             "# Written by prtg-nats. Change it through the interface.\n"
@@ -180,8 +191,8 @@ class PrtgCoreStore:
             _write_private(self.token_path, token.strip() + "\n")
         if clear_ca_bundle:
             self.ca_bundle_path.unlink(missing_ok=True)
-        elif ca_bundle:
-            _write_private(self.ca_bundle_path, validate_ca_bundle(ca_bundle))
+        elif bundle is not None:
+            _write_private(self.ca_bundle_path, bundle)
 
 
 def _write_private(path: Path, content: str) -> None:
@@ -212,18 +223,43 @@ class PrtgCoreClient:
         )
 
     async def list_probes(self) -> list[PrtgProbe]:
-        answer = await self._get(
-            "/experimental/probes", params={"limit": str(PROBE_PAGE_LIMIT)}
-        )
-        if not isinstance(answer, list):
-            raise PrtgUnreachableError(details="the probe list is not a list")
-        return [probe for item in answer if (probe := _probe_from(item)) is not None]
+        """Every probe on the core, read a page at a time."""
+        probes: dict[str, PrtgProbe] = {}
+        for page in range(MAX_PROBE_PAGES):
+            answer = await self._get(
+                "/experimental/probes",
+                params={
+                    "offset": str(page * PROBE_PAGE_LIMIT),
+                    "limit": str(PROBE_PAGE_LIMIT),
+                },
+            )
+            if not isinstance(answer, list):
+                raise PrtgUnreachableError(details="the probe list is not a list")
+            before = len(probes)
+            for item in answer:
+                probe = _probe_from(item)
+                if probe is not None:
+                    probes.setdefault(probe.object_id, probe)
+            # A short page is the last one. A page with nothing new is a core
+            # that ignores the offset; reading on would only repeat it.
+            if len(answer) < PROBE_PAGE_LIMIT or len(probes) == before:
+                break
+        return list(probes.values())
 
     async def get_probe(self, object_id: str) -> PrtgProbe | None:
-        """The probe with this object id, or None where PRTG has none."""
-        validate_object_id(object_id)
+        """The probe with this object id, or None where PRTG has none.
+
+        The one place an object id is checked: it ends up in a URL path, and
+        every caller - a hand-entered link, a stored one - comes through here.
+        """
+        object_id = validate_object_id(object_id)
         answer = await self._get(f"/probes/{object_id}", missing_ok=True)
         if answer is None:
+            return None
+        # Only an object PRTG itself calls a probe. Whether /probes/{id}
+        # answers for a group or a device is PRTG's business, not something
+        # a link may rest on.
+        if not isinstance(answer, dict) or answer.get("kind") != PROBE_KIND:
             return None
         probe = _probe_from(answer)
         if probe is None or probe.object_id != object_id:
@@ -248,10 +284,20 @@ class PrtgCoreClient:
             ) as client:
                 response = await client.get(path, params=params)
         except httpx.HTTPError as exc:
-            # The exception names the URL and the cause, never the headers,
-            # so it is safe to pass on as the technical detail.
-            logger.warning("PRTG core unreachable", extra={"error": type(exc).__name__})
-            raise PrtgUnreachableError(details=f"{type(exc).__name__}: {exc}") from exc
+            # The text of the exception names hosts, addresses and proxies of
+            # the network behind this platform. It stays in the server log;
+            # clients, jobs and the audit trail get the kind of failure.
+            logger.warning(
+                "PRTG core unreachable",
+                extra={
+                    "error": type(exc).__name__,
+                    "reason": str(exc),
+                    "path": path,
+                },
+            )
+            raise PrtgUnreachableError(
+                details=f"the PRTG core did not answer ({type(exc).__name__})"
+            ) from exc
 
         if response.status_code in (
             status.HTTP_401_UNAUTHORIZED,
@@ -275,10 +321,10 @@ def _probe_from(item: Any) -> PrtgProbe | None:
     name = item.get("name")
     if not isinstance(object_id, str | int) or not isinstance(name, str):
         return None
-    # Another kind of object behind a probe's id is not a probe; the list is
-    # probes only, but /probes/{id} is the one place a typo could land.
+    # The list endpoint returns probes only; an item that says otherwise is
+    # left out. get_probe() is stricter and requires the kind to be named.
     kind = item.get("kind")
-    if kind is not None and kind != "probenode":
+    if kind is not None and kind != PROBE_KIND:
         return None
     raw_status = item.get("status")
     return PrtgProbe(

@@ -146,8 +146,10 @@ Nothing is ever written to PRTG.
 
 The token is a secret: it is stored with mode 0600, never returned by the API,
 never logged and never part of a job event or an audit record. An empty token
-field keeps the stored one; removing it is a separate action. Changing the
-settings needs `system.settings`.
+field keeps the stored one; removing it is a separate action. A save is
+checked as a whole before anything is written: a refused URL or CA bundle
+leaves the stored settings as they were. Changing the settings needs
+`system.settings`.
 
 TLS is always verified. A core whose certificate comes from an internal CA
 needs that CA as the bundle, and the URL has to name the host the certificate
@@ -161,7 +163,10 @@ not found"). The probe id this platform knows therefore cannot be looked up in
 PRTG. Instead each probe is linked once to its PRTG object id, the number in
 the probe's PRTG address after `id=`. The probe page suggests the PRTG probe
 whose name equals the enrollment name, and a person confirms it, picks another
-or enters the id by hand; nothing links on its own. The link is stored in the
+or enters the id by hand; nothing links on its own. An id is accepted only
+when PRTG names the object a probe (`probenode`), and only one probe here
+can be linked to it. The list of PRTG probes is read page by page, so a
+large core is read completely. The link is stored in the
 probe inventory as `PRTG_OBJECT_ID`, and both the shell tooling and the web
 platform keep it when they rewrite the inventory.
 

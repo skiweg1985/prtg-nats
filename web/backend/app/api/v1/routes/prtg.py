@@ -26,6 +26,10 @@ from app.api.deps.common import (
 from app.api.schemas.common import ApiModel
 from app.core.permissions import Permission
 from app.infrastructure.prtg_core import PrtgCoreStore
+from app.infrastructure.runtime_files import ProbeInventory, RuntimeFileStore
+from app.persistence.models.inventory import ProbeRecord
+from app.services.audit import AuditWriter
+from app.services.probes import ProbeService
 from app.services.prtg_names import NameState, PrtgName, PrtgNameService
 
 router = APIRouter(prefix="/prtg", tags=["prtg"])
@@ -175,6 +179,14 @@ async def read_prtg_probe_names(
     )
 
 
+async def _probe(
+    probe_id: str, probes: ProbeService, runtime: RuntimeFileStore
+) -> tuple[ProbeRecord, ProbeInventory]:
+    """The probe's record and its inventory, which holds the link."""
+    record = await probes.get_record(probe_id)
+    return record, runtime.read_probe(record.nats_username)
+
+
 @probe_router.get("/{probe_id}/prtg-name", response_model=PrtgNameOut)
 async def read_prtg_name(
     probe_id: str,
@@ -183,8 +195,8 @@ async def read_prtg_name(
     names: PrtgNamesDep,
     _: Annotated[object, Depends(require_permission(Permission.PROBE_READ))],
 ) -> PrtgNameOut:
-    record = await probes.get_record(probe_id)
-    return _name_out(await names.name_for(runtime.read_probe(record.nats_username)))
+    _record, inventory = await _probe(probe_id, probes, runtime)
+    return _name_out(await names.name_for(inventory))
 
 
 # --- Linking ----------------------------------------------------------------
@@ -203,8 +215,25 @@ class PrtgCandidatesOut(ApiModel):
 
 class PrtgLinkIn(ApiModel):
     # A string, not an int: PRTG returns ids as strings, and the shape check
-    # in the service gives one error for "abc" and "../1" alike.
+    # in the PRTG client gives one error for "abc" and "../1" alike.
     object_id: str = Field(min_length=1, max_length=16)
+
+
+def _audit_link(
+    audit: AuditWriter,
+    action: str,
+    record: ProbeRecord,
+    before: str | None,
+    after: str | None,
+) -> None:
+    audit.record(
+        action=action,
+        object_type="probe",
+        object_id=record.id,
+        object_label=record.nats_username,
+        before={"prtg_object_id": before},
+        after={"prtg_object_id": after},
+    )
 
 
 @probe_router.get("/{probe_id}/prtg-link/candidates", response_model=PrtgCandidatesOut)
@@ -215,8 +244,8 @@ async def read_prtg_link_candidates(
     names: PrtgNamesDep,
     _: Annotated[object, Depends(require_permission(Permission.PROBE_UPDATE))],
 ) -> PrtgCandidatesOut:
-    record = await probes.get_record(probe_id)
-    offered = await names.candidates(runtime.read_probe(record.nats_username))
+    _record, inventory = await _probe(probe_id, probes, runtime)
+    offered = await names.candidates(inventory)
     return PrtgCandidatesOut(
         suggested_object_id=offered.suggested_object_id,
         candidates=[
@@ -239,18 +268,12 @@ async def link_prtg_object(
     _: Annotated[PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))],
 ) -> PrtgNameOut:
     """Link the probe to its PRTG object, after PRTG confirmed the id."""
-    record = await probes.get_record(probe_id)
-    inventory = runtime.read_probe(record.nats_username)
-    found = await names.link(inventory, payload.object_id)
-    audit.record(
-        action="probe.prtg_link",
-        object_type="probe",
-        object_id=record.id,
-        object_label=record.nats_username,
-        before={"prtg_object_id": inventory.prtg_object_id},
-        after={"prtg_object_id": found.object_id},
+    record, inventory = await _probe(probe_id, probes, runtime)
+    linked = await names.link(inventory, payload.object_id)
+    _audit_link(
+        audit, "probe.prtg_link", record, inventory.prtg_object_id, linked.object_id
     )
-    return _name_out(PrtgName("ok", found.object_id, inventory.probe_name, found.name))
+    return _name_out(linked)
 
 
 @probe_router.delete("/{probe_id}/prtg-link", status_code=status.HTTP_204_NO_CONTENT)
@@ -262,14 +285,6 @@ async def unlink_prtg_object(
     audit: AuditDep,
     _: Annotated[PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))],
 ) -> None:
-    record = await probes.get_record(probe_id)
-    inventory = runtime.read_probe(record.nats_username)
+    record, inventory = await _probe(probe_id, probes, runtime)
     names.unlink(inventory)
-    audit.record(
-        action="probe.prtg_unlink",
-        object_type="probe",
-        object_id=record.id,
-        object_label=record.nats_username,
-        before={"prtg_object_id": inventory.prtg_object_id},
-        after={"prtg_object_id": None},
-    )
+    _audit_link(audit, "probe.prtg_unlink", record, inventory.prtg_object_id, None)

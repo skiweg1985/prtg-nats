@@ -11,6 +11,7 @@ either use the probe helper or the legacy adapter - never a stray open().
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import ipaddress
 import os
@@ -593,6 +594,32 @@ class RuntimeFileStore:
         is all this path knows about.
         """
         self._update_probe_values(nats_username, {"PRTG_OBJECT_ID": object_id})
+
+    def claim_probe_prtg_object_id(
+        self, nats_username: str, object_id: str
+    ) -> str | None:
+        """Link this probe to a PRTG object no other probe here is linked to.
+
+        Returns the probe that holds the object instead, and writes nothing
+        then. The check and the write sit under one exclusive lock, the way
+        the shared known_hosts file is guarded: two links of the same object,
+        from two requests or two workers, cannot both find it free.
+        """
+        lock_path = self._settings.probe_dir / ".prtg-links.lock"
+        lock_path.touch(mode=0o600, exist_ok=True)
+        with lock_path.open("r", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                for entry in self.read_all_probes():
+                    if (
+                        entry.prtg_object_id == object_id
+                        and entry.nats_username != nats_username
+                    ):
+                        return entry.nats_username
+                self.write_probe_prtg_object_id(nats_username, object_id)
+                return None
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def clear_probe_overlay(self, nats_username: str) -> None:
         self._update_probe_values(
