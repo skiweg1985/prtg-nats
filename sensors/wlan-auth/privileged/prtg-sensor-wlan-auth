@@ -32,6 +32,7 @@ test interface. It leaves no network configuration behind: the DHCP stage
 runs in test mode, and the interface is powered down again afterwards.
 """
 
+import array
 import fcntl
 import hashlib
 import json
@@ -40,6 +41,7 @@ import re
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -110,7 +112,7 @@ IDENTITY_FIELDS = ("interface", "ssid", "auth", "profile", "psk",
                    "identity", "password", "anonymous_identity", "ca_cert",
                    "domain_suffix_match", "verify_server", "client_cert",
                    "private_key", "private_key_passwd", "bssid", "hidden",
-                   "stage", "timeout", "gateway")
+                   "stage", "timeout", "gateway", "mac")
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
 # names the programs rather than the packages behind them.
@@ -135,6 +137,7 @@ STRING_FIELDS = (
     "profile",
     "auth",
     "gateway",
+    "mac",
 )
 
 AUTH_METHODS = ("psk", "peap", "eap-tls")
@@ -144,17 +147,17 @@ AUTH_METHODS = ("psk", "peap", "eap-tls")
 # message does not overwrite the actual cause.
 FAILURE_EVENTS = (
     ("CTRL-EVENT-SSID-TEMP-DISABLED", "WRONG_KEY", "auth-failed-psk",
-     "The access point rejected the pre-shared key"),
+     "PSK rejected"),
     ("CTRL-EVENT-EAP-TLS-CERT-ERROR", None, "server-cert-rejected",
-     "The RADIUS server certificate was rejected"),
+     "RADIUS certificate rejected"),
     ("CTRL-EVENT-EAP-FAILURE", None, "auth-failed-eap",
-     "The RADIUS server rejected the credentials"),
+     "credentials rejected by RADIUS"),
     ("CTRL-EVENT-AUTH-REJECT", None, "auth-rejected",
-     "The access point rejected the authentication"),
+     "authentication rejected by AP"),
     ("CTRL-EVENT-ASSOC-REJECT", None, "assoc-rejected",
-     "The access point rejected the association"),
+     "association rejected by AP"),
     ("CTRL-EVENT-NETWORK-NOT-FOUND", None, "ssid-not-found",
-     "The SSID was not found during the scan"),
+     "SSID not found"),
 )
 
 
@@ -595,7 +598,7 @@ def run_dhcp(interface, budget):
         output = sink.read().decode("utf-8", "replace")
 
     if timed_out:
-        raise Failed("dhcp-timeout", "No DHCP answer within the time budget")
+        raise Failed("dhcp-timeout", "no DHCP answer")
 
     # The lease decides, not the exit status: dhcpcd 9.4.1 on Bookworm
     # prints a complete lease in test mode and then segfaults while
@@ -661,8 +664,7 @@ def reach_gateway(interface, address, target, budget):
             capture_output=True, timeout=seconds * 2 + 5, check=False,
             text=True)
     except subprocess.TimeoutExpired:
-        raise Failed("gateway-unreachable",
-                     "%s did not answer within the time budget" % target)
+        raise Failed("gateway-unreachable", "gateway %s no reply" % target)
     finally:
         if added_route:
             subprocess.run(["ip", "route", "del", "%s/32" % target,
@@ -673,8 +675,7 @@ def reach_gateway(interface, address, target, budget):
                             "dev", interface],
                            capture_output=True, timeout=10, check=False)
     if done.returncode != 0:
-        raise Failed("gateway-unreachable",
-                     "The lease is valid but %s does not answer" % target)
+        raise Failed("gateway-unreachable", "gateway %s no reply" % target)
     found = PING_TIME.search(done.stdout)
     if found:
         return int(float(found.group(1)))
@@ -735,10 +736,8 @@ def wait_for_connection(run, deadline):
     if cause is not None:
         raise Failed(*cause)
     if associated is None:
-        raise Failed("assoc-timeout",
-                     "The interface did not associate within the time budget")
-    raise Failed("auth-timeout",
-                 "The key negotiation did not complete within the time budget")
+        raise Failed("assoc-timeout", "no association")
+    raise Failed("auth-timeout", "key negotiation timed out")
 
 
 def unblock_radio(interface):
@@ -780,6 +779,81 @@ def unblock_radio(interface):
                 % interface)
 
 
+# The radio's burnt-in address, asked of the driver. /sys only knows the
+# address currently set, and after the first run under a network's own
+# address that is no longer the radio's.
+SIOCETHTOOL = 0x8946
+ETHTOOL_GPERMADDR = 0x00000020
+MAC_ADDRESS = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$")
+
+
+def permanent_mac(interface):
+    """The address the radio was built with, or "" where it cannot be read."""
+    request = array.array("B", struct.pack("II", ETHTOOL_GPERMADDR, 32)
+                          + bytes(32))
+    address, _ = request.buffer_info()
+    # struct ifreq: the name, then a pointer, padded to the largest member
+    # of its union. 40 bytes covers both 32- and 64-bit userlands.
+    ifreq = struct.pack("16sP", interface.encode("ascii"), address)
+    ifreq += bytes(40 - len(ifreq))
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            fcntl.ioctl(probe.fileno(), SIOCETHTOOL, ifreq)
+    except OSError:
+        return ""
+    size = struct.unpack_from("I", request, 4)[0]
+    raw = bytes(request[8:8 + min(size, 32)])
+    if len(raw) != 6 or raw == bytes(6):
+        return ""
+    return ":".join("%02x" % byte for byte in raw)
+
+
+def network_mac(permanent, ssid):
+    """The address this radio uses on one network.
+
+    Derived, not random: the same radio gets the same address on the same
+    network every time, so it keeps one DHCP lease and can be found again
+    in the infrastructure. A different network gets a different address,
+    which is the point - some gateways carry the VLAN of a station's last
+    session over to its next one on another SSID (see ADR 0012). 02 marks
+    it as locally administered and unicast, as phones do with their
+    private address per network.
+    """
+    digest = hashlib.sha256(
+        (permanent + "\n" + ssid).encode("utf-8")).digest()
+    return ":".join("%02x" % byte for byte in (0x02,) + tuple(digest[:5]))
+
+
+def client_mac(job, permanent):
+    """The address a run signs in with, and what kind of address it is."""
+    choice = job["mac"]
+    if choice == "permanent":
+        if not permanent:
+            raise Blocked("mac-not-settable",
+                          "%s does not report its own address" % job["interface"])
+        return permanent, "permanent"
+    if choice == "auto":
+        if not permanent:
+            raise Blocked("mac-not-settable",
+                          "%s does not report its own address, so no "
+                          "per-network address can be derived"
+                          % job["interface"])
+        return network_mac(permanent, job["ssid"]), "auto"
+    return choice, "fixed"
+
+
+def set_mac(interface, address):
+    """Give the interface an address; it has to be down for that."""
+    done = subprocess.run(["ip", "link", "set", interface, "address", address],
+                          capture_output=True, text=True, timeout=10,
+                          check=False)
+    if done.returncode != 0:
+        # Falling back to the old address would bring back exactly what
+        # the per-network address exists to avoid, without anyone noticing.
+        raise Blocked("mac-not-settable", "%s refused %s: %s" % (
+            interface, address, done.stderr.strip() or "no reason given"))
+
+
 def read_flag(path):
     try:
         with open(path, "r", encoding="ascii") as handle:
@@ -793,6 +867,7 @@ def perform_test(job):
     check_interface(interface)
 
     reclaim_interface(interface)
+    permanent = permanent_mac(interface)
 
     started = time.monotonic()
     deadline = started + job["timeout"]
@@ -814,6 +889,15 @@ def perform_test(job):
         with open(os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                           0o600), "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
+
+        # Set on every run, the radio's own address included: the
+        # interface keeps whatever the previous run left, and a run under
+        # another network's address would bring back exactly the carry-over
+        # this is about.
+        mac, mac_kind = client_mac(job, permanent)
+        set_mac(interface, mac)
+        result["details"]["mac"] = mac
+        result["details"]["mac_kind"] = mac_kind
 
         unblock_radio(interface)
         powered = subprocess.run(["ip", "link", "set", interface, "up"],
@@ -843,10 +927,7 @@ def perform_test(job):
             # measured would be worse than reporting none: it reads like a
             # healthy result for a network this run never reached.
             if after != before or after[1] != "COMPLETED":
-                raise Failed(
-                    "assoc-lost",
-                    "The link changed while DHCP was running; the address "
-                    "would belong to another association")
+                raise Failed("assoc-lost", "link changed during DHCP")
             result["timings"]["dhcp_ms"] = duration
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
@@ -861,17 +942,15 @@ def perform_test(job):
                 else:
                     target, kind = gateway_target(lease)
                 if not target:
-                    raise Failed(
-                        "gateway-unreachable",
-                        "The lease names neither a router nor a server to "
-                        "test")
+                    raise Failed("gateway-unreachable",
+                                 "lease names no router or server")
                 result["details"]["gateway"] = target
                 result["details"]["gateway_kind"] = kind
                 result["timings"]["gateway_ms"] = reach_gateway(
                     interface, lease["new_ip_address"], target,
                     deadline - time.monotonic())
 
-        result["message"] = "Authentication succeeded"
+        result["message"] = "OK"
     except Failed as failure:
         result["result"] = "failed"
         result["code"] = failure.code
@@ -889,6 +968,11 @@ def perform_test(job):
         run.stop()
         subprocess.run(["ip", "link", "set", interface, "down"],
                        capture_output=True, timeout=10, check=False)
+        # Leave the radio as it was found.
+        if permanent:
+            subprocess.run(["ip", "link", "set", interface, "address",
+                            permanent],
+                           capture_output=True, timeout=10, check=False)
         shutil.rmtree(workdir, ignore_errors=True)
 
     result["timings"]["total_ms"] = int((time.monotonic() - started) * 1000)
@@ -935,6 +1019,18 @@ def validate_job(job):
         except OSError:
             raise Blocked("bad-request",
                           "--gateway takes an IPv4 address or \"none\"")
+    # auto is the default: one address per network, derived from the
+    # radio's own (see network_mac). An explicit address is for networks
+    # that only let in a known one - a DHCP reservation, an allowlist.
+    job["mac"] = (job.get("mac") or "auto").strip().lower().replace("-", ":")
+    if job["mac"] not in ("auto", "permanent"):
+        if not MAC_ADDRESS.match(job["mac"]):
+            raise Blocked("bad-request",
+                          "--mac takes auto, permanent or an address "
+                          "like 02:00:00:00:00:01")
+        if int(job["mac"][:2], 16) & 1:
+            raise Blocked("bad-request",
+                          "--mac %s is a multicast address" % job["mac"])
     try:
         job["timeout"] = int(job.get("timeout") or 45)
     except (TypeError, ValueError):
@@ -1219,6 +1315,9 @@ class Scheduler:
                         "ip_address", ""),
                     "dhcp": (result.get("details") or {}).get(
                         "dhcp_server", ""),
+                    # The address the run signed in with - the key to find
+                    # it in the gateway's user table and in Central.
+                    "mac": (result.get("details") or {}).get("mac", ""),
                 })
         return {"result": "ok", "code": "ok",
                 "message": "%d job(s), %d s of radio time per round"
