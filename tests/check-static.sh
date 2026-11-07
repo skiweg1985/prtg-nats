@@ -2365,6 +2365,133 @@ check "the installer session is not" \
   "$(grep -A2 'open_bootstrap_control_session "${ssh_target}"' prtg-nats |
     grep -c 'UserKnownHostsFile' || true)" "0"
 
+printf '\n== Management routes ==\n'
+
+# ADR 0011: a probe is reached by identity, not by the address it had
+# yesterday. The routes are derived from the inventory, so they are checked
+# against real inventory files in a throwaway runtime.
+routes_runtime="$(mktemp -d)"
+mkdir -p "${routes_runtime}/probes" "${routes_runtime}/private/ssh"
+in_routes_runtime() {
+  (
+    export PRTG_NATS_RUNTIME_DIR="${routes_runtime}"
+    export NATS_FQDN=nats.example.test
+    export NATS_HOST_IP=192.0.2.10
+    # shellcheck disable=SC1091  # sourced for the helper, not for its output
+    source ./libexec/common.sh
+    "$@"
+  )
+}
+routes_of() {
+  in_routes_runtime probe_management_hosts "$1" | tr '\n' ' '
+}
+
+printf 'NATS_USERNAME=mpp-a\nSSH_HOST=198.51.100.29\nSSH_PORT=22\n' \
+  > "${routes_runtime}/probes/mpp-a.env"
+check "a probe without overlay has its address as the only route" \
+  "$(routes_of mpp-a)" "198.51.100.29 "
+
+printf '%s\n' NATS_USERNAME=mpp-b SSH_HOST=198.51.100.30 SSH_PORT=22 \
+  PROBE_NAME=b OVERLAY_ADDRESS=10.99.0.2 OVERLAY_MODE=auto \
+  > "${routes_runtime}/probes/mpp-b.env"
+check "the overlay address comes first while the tunnel is meant to be up" \
+  "$(routes_of mpp-b)" "10.99.0.2 198.51.100.30 "
+
+printf '%s\n' NATS_USERNAME=mpp-c SSH_HOST=198.51.100.31 SSH_PORT=22 \
+  OVERLAY_ADDRESS=10.99.0.3 OVERLAY_MODE=off \
+  > "${routes_runtime}/probes/mpp-c.env"
+check "an overlay switched off is not a route" \
+  "$(routes_of mpp-c)" "198.51.100.31 "
+
+in_routes_runtime remember_management_host mpp-b 198.51.100.32
+check "a probe reached at a new address keeps it" \
+  "$(routes_of mpp-b)" "10.99.0.2 198.51.100.32 "
+check "remembering the address leaves the rest of the inventory alone" \
+  "$(grep -c '^PROBE_NAME=b$\|^OVERLAY_MODE=auto$' \
+    "${routes_runtime}/probes/mpp-b.env")" "2"
+in_routes_runtime remember_management_host mpp-b 10.99.0.2
+check "the overlay address is never written as the probe's own address" \
+  "$(grep -c '^SSH_HOST=198.51.100.32$' "${routes_runtime}/probes/mpp-b.env")" \
+  "1"
+
+# The channel itself is replaced by a fake that answers per address, so the
+# order of attempts and what the answer changes are visible without a probe.
+request_with() {
+  (
+    behaviour="$1"
+    shift
+    export PRTG_NATS_RUNTIME_DIR="${routes_runtime}"
+    export NATS_FQDN=nats.example.test
+    export NATS_HOST_IP=192.0.2.10
+    # shellcheck disable=SC1091  # sourced for the helper, not for its output
+    source ./libexec/common.sh
+    # Replaces the real connection after sourcing; called indirectly.
+    # shellcheck disable=SC2329
+    managed_ssh_at() {
+      cat >/dev/null
+      case "${behaviour}:$2" in
+        overlay-down:10.99.0.2) return 255 ;;
+        overlay-down:*) printf 'OK probe-info\naddresses=203.0.113.20\n' ;;
+        moved:10.99.0.2) printf 'OK probe-info\naddresses=198.51.100.40\n' ;;
+        two:10.99.0.2)
+          printf 'OK probe-info\naddresses=198.51.100.41,198.51.100.42\n'
+          ;;
+        refused:*)
+          printf 'ERR busy\n'
+          return 3
+          ;;
+      esac
+    }
+    "$@"
+  )
+}
+printf '%s\n' NATS_USERNAME=mpp-d SSH_HOST=198.51.100.33 SSH_PORT=22 \
+  OVERLAY_ADDRESS=10.99.0.2 OVERLAY_MODE=auto \
+  > "${routes_runtime}/probes/mpp-d.env"
+check "a dead tunnel falls back to the site address" \
+  "$(request_with overlay-down managed_request mpp-d probe-info |
+    grep -c '^addresses=203.0.113.20$')" "1"
+check "an answer over the site address keeps it, whatever the probe reports" \
+  "$(grep -c '^SSH_HOST=198.51.100.33$' "${routes_runtime}/probes/mpp-d.env")" \
+  "1"
+request_with two managed_request mpp-d probe-info >/dev/null 2>&1
+check "two reported addresses are no reason to guess" \
+  "$(grep -c '^SSH_HOST=198.51.100.33$' "${routes_runtime}/probes/mpp-d.env")" \
+  "1"
+request_with moved managed_request mpp-d probe-info >/dev/null 2>&1
+check "a probe reached over the tunnel brings its new address along" \
+  "$(grep -c '^SSH_HOST=198.51.100.40$' "${routes_runtime}/probes/mpp-d.env")" \
+  "1"
+refused_status=0
+request_with refused managed_request mpp-d status >/dev/null 2>&1 ||
+  refused_status=$?
+check "an answer from the far side is not repeated on the next route" \
+  "${refused_status}" "3"
+
+if command -v ssh-keygen >/dev/null 2>&1; then
+  routes_key="${routes_runtime}/key"
+  ssh-keygen -q -t ed25519 -N '' -f "${routes_key}" >/dev/null
+  printf '198.51.100.29 %s\n' "$(cut -d' ' -f1,2 "${routes_key}.pub")" \
+    > "${routes_runtime}/private/ssh/known_hosts"
+  in_routes_runtime pin_host_key_alias mpp-a 198.51.100.29
+  in_routes_runtime pin_host_key_alias mpp-a 198.51.100.29
+  check "a key pinned under the address is carried to the identity once" \
+    "$(grep -c '^prtg-nats-probe-mpp-a ssh-ed25519 ' \
+      "${routes_runtime}/private/ssh/known_hosts")" "1"
+  in_routes_runtime pin_host_key_alias mpp-c 198.51.100.31
+  check "a probe with no pinned key gets no alias" \
+    "$(grep -c 'prtg-nats-probe-mpp-c' \
+      "${routes_runtime}/private/ssh/known_hosts" || true)" "0"
+else
+  printf '  skipped (no ssh-keygen installed)\n'
+fi
+rm -rf -- "${routes_runtime}"
+
+check "management calls verify the key against the probe's identity" \
+  "$(grep -c 'HostKeyAlias="${key_alias}"' libexec/common.sh)" "1"
+check "a rewrite of the inventory carries the overlay peer" \
+  "$(grep -c 'for carried_key in OVERLAY_ADDRESS' libexec/manage-probes.sh)" "1"
+
 printf '\n== Bootstrap report ==\n'
 
 # The template is not valid shell until it is rendered - the placeholders sit

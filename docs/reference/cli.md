@@ -1,7 +1,7 @@
 ---
 title: Command reference
 role: operator
-updated: 2026-08-29
+updated: 2026-11-07
 ---
 
 # Command reference
@@ -63,7 +63,7 @@ Unchanged, and staying: these need an interactive terminal.
 | --- | --- |
 | `install-mpp [ADMIN@HOST] [--nats-user USER]` | install or reconfigure a probe over SSH |
 | `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
-| `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes |
+| `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes; `list` and `show` name every management route in the order it is tried |
 | `probe helper-update USER\|--all` | renew the management helper on the probe |
 | `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |

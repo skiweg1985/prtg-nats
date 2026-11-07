@@ -46,7 +46,7 @@ require_command ssh
 SENSOR_SOURCE_DIR="${PROJECT_DIR}/sensors"
 SENSOR_PROFILE_DIR="${RUNTIME_DIR}/sensor-profiles"
 DRY_RUN="false"
-SENSOR_DEPLOYMENT_HELPER_VERSION=9
+SENSOR_DEPLOYMENT_HELPER_VERSION=10
 
 require_username() {
   local username="${1:-}"
@@ -285,7 +285,7 @@ deploy_sensor() {
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     if [[ -n "${managed_tool}" ]]; then
-      probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+      probe_details="$(managed_request "${username}" probe-info)" ||
         die "The probe did not answer the managed-tool preflight"
       helper_version="$(
         printf '%s\n' "${probe_details}" |
@@ -340,7 +340,7 @@ deploy_sensor() {
   # before any transaction, including sensors that carry no managed tool: an
   # old helper can commit successfully and still turn a lost SSH answer into
   # an unresolvable retry.
-  probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+  probe_details="$(managed_request "${username}" probe-info)" ||
     die "The probe did not report its helper version"
   helper_version="$(
     printf '%s\n' "${probe_details}" |
@@ -351,7 +351,7 @@ deploy_sensor() {
     printf 'Updating the signed probe helper before the sensor rollout.\n'
     "${SCRIPT_DIR}/manage-probes.sh" helper-update "${username}" >/dev/null ||
       die "The probe helper could not be updated on ${username}"
-    probe_details="$(printf 'probe-info\n' | managed_ssh "${username}")" ||
+    probe_details="$(managed_request "${username}" probe-info)" ||
       die "The updated probe helper did not answer on ${username}"
     helper_version="$(
       printf '%s\n' "${probe_details}" |
@@ -572,7 +572,7 @@ status_sensors() {
   printf 'Assigned in the inventory:\n'
   assigned_sensors "${username}" | sed 's/^/  /' || true
   printf '\nReported by the probe:\n'
-  if ! printf 'sensor-list\n' | managed_ssh "${username}" | sed 's/^/  /'; then
+  if ! managed_request "${username}" sensor-list | sed 's/^/  /'; then
     printf '  The restricted management connection is currently unavailable.\n'
   fi
 }

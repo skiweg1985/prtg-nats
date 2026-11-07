@@ -273,6 +273,81 @@ close_bootstrap_control_session() {
   BOOTSTRAP_CONTROL_PATH=""
 }
 
+# What the pinned host key is stored under. A probe keeps its key when it
+# changes address, so the key cannot be filed under an address - see
+# docs/architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md.
+# The NATS user name is the identity the inventory is named after, which makes
+# it the one name that does not move.
+probe_host_key_alias() {
+  printf 'prtg-nats-probe-%s\n' "$1"
+}
+
+# Files the key pinned under an address a second time, under the probe's
+# identity. Idempotent, and the bridge for a probe enrolled before ADR 0011:
+# its key sits under the address only, and without this every management call
+# would fail the strict check the moment the alias is asked for.
+#
+# The key is copied, never fetched. Scanning again would be a fresh trust
+# decision made silently - the whole point is to carry forward the one the
+# operator already confirmed.
+pin_host_key_alias() {
+  local username="$1"
+  local host="$2"
+  local key_alias=""
+  local entries=""
+
+  key_alias="$(probe_host_key_alias "${username}")"
+  [[ -f "${SSH_KNOWN_HOSTS}" ]] || return 0
+  if ssh-keygen -F "${key_alias}" -f "${SSH_KNOWN_HOSTS}" >/dev/null 2>&1; then
+    return 0
+  fi
+  [[ -n "${host}" ]] || return 0
+  entries="$(
+    ssh-keygen -F "${host}" -f "${SSH_KNOWN_HOSTS}" 2>/dev/null |
+      grep -v '^#' |
+      awk -v alias="${key_alias}" 'NF >= 3 { $1 = alias; print }'
+  )" || true
+  [[ -n "${entries}" ]] || return 0
+  printf '%s\n' "${entries}" >> "${SSH_KNOWN_HOSTS}"
+  chmod 600 "${SSH_KNOWN_HOSTS}"
+}
+
+valid_management_host() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]
+}
+
+# Addresses to try for the management channel, best first - the same order the
+# web platform's ProbeInventory.management_hosts uses, so both halves of this
+# project reach a probe the same way.
+#
+# The overlay address goes first where the tunnel is meant to be up: it is
+# allocated here rather than by DHCP at the site, so it is the one route that
+# survives a probe moving. SSH_HOST follows as the address the probe was last
+# reached at - a cache, not a configured value.
+probe_management_hosts() {
+  local username="$1"
+  local inventory=""
+  local overlay_address=""
+  local overlay_mode=""
+  local host=""
+
+  inventory="$(probe_path "${username}")"
+  [[ -f "${inventory}" ]] || die "Probe is not enrolled for user: ${username}"
+
+  overlay_address="$(read_optional_env_value "${inventory}" OVERLAY_ADDRESS)"
+  overlay_mode="$(read_optional_env_value "${inventory}" OVERLAY_MODE)"
+  if [[ -n "${overlay_address}" && "${overlay_mode}" != "off" ]] &&
+    valid_management_host "${overlay_address}"; then
+    printf '%s\n' "${overlay_address}"
+  fi
+
+  host="$(read_optional_env_value "${inventory}" SSH_HOST)"
+  if [[ -n "${host}" && "${host}" != "${overlay_address}" ]] &&
+    valid_management_host "${host}"; then
+    printf '%s\n' "${host}"
+  fi
+}
+
 # The restricted management channel to an enrolled probe. On the far side sits
 # a forced command that only accepts the known requests.
 #
@@ -282,16 +357,36 @@ close_bootstrap_control_session() {
 # ServerAlive*: ConnectTimeout only covers establishing the connection. If a
 # host stops answering afterwards the call would hang indefinitely, and one
 # dead probe would block an overview of the whole fleet.
+#
+# HostKeyAlias: the key is verified against the probe's identity rather than
+# against whichever address answered, so a probe that moves keeps its pinned
+# key, and trying a second route is not a second trust decision.
+#
+# One attempt, on the preferred route. The request arrives on stdin and may
+# carry a password, so it cannot be replayed against a second address - which
+# is what managed_request is for.
 managed_ssh() {
   local username="$1"
-  local inventory=""
   local host=""
 
-  inventory="$(probe_path "${username}")"
-  [[ -f "${inventory}" ]] || die "Probe is not enrolled for user: ${username}"
-  host="$(read_env_value "${inventory}" SSH_HOST)"
-  [[ "${host}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] ||
-    die "Invalid enrolled SSH host"
+  host="$(probe_management_hosts "${username}" | head -1)"
+  [[ -n "${host}" ]] || die "Probe has no usable address: ${username}"
+  managed_ssh_at "${username}" "${host}"
+}
+
+# The call itself, against one named address. Separate so that the route is
+# the caller's decision rather than something buried in the connection.
+managed_ssh_at() {
+  local username="$1"
+  local host="$2"
+  local key_alias=""
+
+  key_alias="$(probe_host_key_alias "${username}")"
+  valid_management_host "${host}" || die "Invalid management address: ${host}"
+  # From the address being tried, the same rule the web platform's
+  # carry_to_alias() applies: whichever address the operator confirmed the
+  # key at, the key is the same, and an alias already pinned is never touched.
+  pin_host_key_alias "${username}" "${host}"
   ssh \
     -T \
     -i "${SSH_KEY_PATH}" \
@@ -299,10 +394,115 @@ managed_ssh() {
     -o IdentitiesOnly=yes \
     -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="${SSH_KNOWN_HOSTS}" \
+    -o HostKeyAlias="${key_alias}" \
     -o ConnectTimeout=10 \
     -o ServerAliveInterval=5 \
     -o ServerAliveCountMax=3 \
     -- "prtg-nats-admin@${host}"
+}
+
+# A request that carries no secret, taken as arguments rather than read from
+# the caller's stdin. That is what allows the routes to be tried in turn: the
+# request text is rebuilt for every attempt, where a caller's stdin - which
+# may carry a password - can be read only once.
+#
+# The address that answered is written back as SSH_HOST, so the next call
+# starts where this one succeeded. Only a connection failure moves on to the
+# next route - an exit code from the far side means the route worked and the
+# request did not, and repeating it would run it twice.
+managed_request() {
+  local username="$1"
+  shift
+  local host=""
+  local status=0
+  local answered=""
+  local output=""
+
+  while read -r host; do
+    [[ -n "${host}" ]] || continue
+    status=0
+    output="$(printf '%s\n' "$@" | managed_ssh_at "${username}" "${host}")" ||
+      status=$?
+    if [[ "${status}" -eq 0 ]]; then
+      answered="${host}"
+      break
+    fi
+    [[ "${status}" -eq 255 ]] || {
+      printf '%s' "${output}"
+      return "${status}"
+    }
+  done < <(probe_management_hosts "${username}")
+
+  [[ -n "${answered}" ]] || return 255
+  remember_management_host "${username}" "${answered}"
+  [[ "$1" != "probe-info" ]] ||
+    adopt_reported_address "${username}" "${answered}" "${output}"
+  printf '%s\n' "${output}"
+}
+
+# A probe reached over the overlay says which addresses it holds on its own
+# networks. If the cached address is not among them, the probe has moved, and
+# the one it reports becomes the fallback route.
+#
+# Only then, and only with a single candidate. An answer over the cached
+# address proves that address works, even when the probe reports another -
+# behind NAT it sees its private address while the platform reaches the
+# public one, and replacing it would break the route that just answered. And
+# a probe with two site addresses gives no way to tell which one is reachable
+# from here; guessing would trade a stale entry for a wrong one.
+adopt_reported_address() {
+  local username="$1"
+  local answered="$2"
+  local information="$3"
+  local inventory=""
+  local cached=""
+  local reported=""
+
+  inventory="$(probe_path "${username}")"
+  [[ "${answered}" == \
+    "$(read_optional_env_value "${inventory}" OVERLAY_ADDRESS)" ]] || return 0
+  reported="$(
+    printf '%s\n' "${information}" | sed -n 's/^addresses=//p' | head -1
+  )"
+  [[ -n "${reported}" && "${reported}" != "none" && "${reported}" != *,* ]] ||
+    return 0
+  cached="$(read_optional_env_value "${inventory}" SSH_HOST)"
+  [[ "${reported}" != "${cached}" ]] || return 0
+  valid_management_host "${reported}" || return 0
+  printf 'Probe %s reports a new address: %s (was %s)\n' \
+    "${username}" "${reported}" "${cached:-none}" >&2
+  remember_management_host "${username}" "${reported}"
+}
+
+# Records where the probe was reached, so a probe that moved is found at its
+# new address next time. A cache, not a decision: the overlay route and the
+# port are untouched, and nothing else in the inventory is rewritten.
+remember_management_host() {
+  local username="$1"
+  local host="$2"
+  local inventory=""
+  local temporary=""
+  local line=""
+
+  inventory="$(probe_path "${username}")"
+  [[ -f "${inventory}" ]] || return 0
+  [[ "$(read_optional_env_value "${inventory}" SSH_HOST)" != "${host}" ]] ||
+    return 0
+  # The overlay address is a route, not a place the probe was reached at by
+  # its own address. Writing it here would lose the only other route there is.
+  [[ "$(read_optional_env_value "${inventory}" OVERLAY_ADDRESS)" \
+    != "${host}" ]] || return 0
+
+  temporary="$(mktemp "${inventory}.XXXXXX")"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" == SSH_HOST=* ]]; then
+      printf 'SSH_HOST=%s\n' "${host}"
+    else
+      printf '%s\n' "${line}"
+    fi
+  done < "${inventory}" > "${temporary}"
+  chmod 600 "${temporary}"
+  mv "${temporary}" "${inventory}"
 }
 
 # Every enrolled probe, one NATS user name per line. The inventory is the
