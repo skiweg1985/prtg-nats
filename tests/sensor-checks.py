@@ -566,6 +566,53 @@ def check_wlan_auth_output():
     check("and the server that handed it out",
           "from 198.51.100.1" in result["message"], True)
 
+    # An address proves that a DHCP server answered, nothing more. Seen on
+    # a probe: a guest network that handed out addresses of the internal
+    # one and then dropped every packet - the sensor reported "ok" for
+    # minutes while the client could not reach its own gateway.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300,
+                    "dhcp_ms": 700, "gateway_ms": 4},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.1", "gateway_kind": "router"},
+        "age": 3.0,
+    }
+    result = module.work(dict(arguments, stage="gateway"))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a reachable gateway is its own channel", channels[19]["value"], 1)
+    check("and carries the standard lookup", channels[19]["lookup_name"],
+          "prtg.standardlookups.netapp.nichealth")
+    check("the answer time is reported", channels[20]["value"], 4)
+    check("the message says the network carries traffic",
+          "router 198.51.100.1 answered in 4 ms" in result["message"], True)
+
+    # Without the stage the channels stay away: a channel that appears and
+    # disappears tears its history apart in PRTG.
+    plain = {entry["id"] for entry in module.work(arguments)["channels"]}
+    check("without the gateway stage the channel is absent", 19 in plain,
+          False)
+    check("and so is its time", 20 in plain, False)
+
+    # A lease without a reachable gateway is the case this stage exists
+    # for: the sign-in worked, the address arrived, and nothing moves.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "gateway-unreachable",
+        "message": "The lease is valid but 198.51.100.1 does not answer",
+        "timings": {"total_ms": 9000, "assoc_ms": 900, "dhcp_ms": 700},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "gateway": "198.51.100.1"},
+        "age": 3.0,
+    }
+    result = module.work(dict(arguments, stage="gateway"))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("an unreachable gateway reads as a failure", channels[19]["value"],
+          2)
+    check("and has its own failure code", channels[18]["value"], 14)
+    check("the message keeps the address apart from the reachability",
+          "does not answer" in result["message"], True)
+
     # A job the scheduler has not reached yet is not a failure. It gets the
     # third lookup state, which alarms on nothing, and says so in the
     # message - a sensor error here would blame the Wi-Fi for a radio that
@@ -733,6 +780,21 @@ def check_wlan_auth_scheduler():
     check("a changed freshness is the same job",
           module.job_identity(dict(job, max_age=60)),
           module.job_identity(dict(job, max_age=600)))
+
+    # Whom to ask whether the network carries traffic: the router the
+    # lease names, and where there is none - udhcpc reports no router on
+    # its output line - the server that handed the lease out.
+    check("the router of the lease is the target",
+          module.gateway_target({"new_routers": "198.51.100.1 198.51.100.2",
+                                 "new_dhcp_server_identifier": "198.51.100.9"}),
+          ("198.51.100.1", "router"))
+    check("without one the server stands in",
+          module.gateway_target(
+              {"new_dhcp_server_identifier": "198.51.100.9"}),
+          ("198.51.100.9", "dhcp server"))
+    check("a lease that names neither has no target",
+          module.gateway_target({"new_ip_address": "198.51.100.19"}),
+          ("", ""))
 
     # Three missed requests are not a deleted sensor, and the floor keeps
     # a sensor asking every half minute from expiring in 90 seconds.

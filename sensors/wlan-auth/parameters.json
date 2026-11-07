@@ -85,9 +85,9 @@
     {
       "name": "--stage",
       "type": "choice",
-      "choices": ["assoc", "dhcp"],
+      "choices": ["assoc", "dhcp", "gateway"],
       "default": "dhcp",
-      "description": "Stop after authentication or after DHCP."
+      "description": "Stop after authentication, after DHCP, or after reaching the gateway."
     },
     {
       "name": "--timeout",

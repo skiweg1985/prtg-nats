@@ -80,7 +80,7 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--private-key-passwd PASSWORD` | passphrase of the key |
 | `--bssid AA:BB:CC:DD:EE:FF` | test against a specific access point |
 | `--hidden` | the SSID is not broadcast |
-| `--stage assoc\|dhcp` | stop after sign-in, or measure through DHCP |
+| `--stage assoc\|dhcp\|gateway` | stop after sign-in, after DHCP, or after reaching the gateway |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
 | `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
@@ -157,6 +157,8 @@ paths.
 | 16 | Frequency | MHz |
 | 17 | Measurement Age | s |
 | 18 | Failure Code | see the table below |
+| 19 | Gateway Reachable | lookup, only with `--stage gateway` |
+| 20 | Gateway Time | ms, only with `--stage gateway` |
 
 **Auth Result** works well as the primary channel; it can be set in the
 sensor settings. A failed sign-in does not set the sensor to *Down*; it sets
@@ -178,6 +180,20 @@ read as a successful one either.
 > `prtg.standardlookups.netapp.nichealth`. The history survives it: `1` and
 > `2` mean the same in both lookups. Sensors created afterwards get it
 > right by themselves.
+
+**Gateway Reachable** exists only with `--stage gateway`, and it is the
+channel that separates a lease from a connection. An address proves that a
+DHCP server answered, nothing more: a client placed in the wrong network
+can hold a perfectly valid lease and still reach nothing. Seen on a probe
+whose guest network handed out addresses of the internal one — the sensor
+reported *ok* for minutes while the client could not reach its own
+gateway.
+
+The stage asks the router named in the lease, or the server that offered
+it where the lease names no router. The address is put on the interface
+as a `/32` with a host route for the duration of the ping and removed
+afterwards, so nothing of it outlives the run. A network that drops ICMP
+has no business with this stage; `--stage dhcp` is the right choice there.
 
 **Measurement Age** says how old the reported measurement is. It is the
 channel that shows whether the radio keeps up with what the sensors ask of
@@ -206,6 +222,7 @@ was rejected.
 | `not-measured` | 11 | registered, not measured yet |
 | `result-stale` | 12 | the last measurement is older than `--max-age` |
 | `max-age-too-low` | 13 | `--max-age` is below what a round over the radio costs |
+| `gateway-unreachable` | 14 | the lease is valid, but the gateway does not answer |
 
 The message line names the network, the access point behind it and the
 address that was offered — in a list of sensors that is everything visible

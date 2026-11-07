@@ -51,6 +51,7 @@ FAILURE_CODES = {
     "not-measured": 11,
     "result-stale": 12,
     "max-age-too-low": 13,
+    "gateway-unreachable": 14,
 }
 
 
@@ -107,8 +108,9 @@ def setup():
     argparser.add_argument("--bssid", help="Restrict the test to one access point.")
     argparser.add_argument("--hidden", action="store_true",
                            help="The SSID is not broadcast.")
-    argparser.add_argument("--stage", choices=("assoc", "dhcp"), default="dhcp",
-                           help="Stop after authentication or after DHCP.")
+    argparser.add_argument("--stage", choices=("assoc", "dhcp", "gateway"),
+                           default="dhcp",
+                           help="Stop after authentication, after DHCP, or after reaching the gateway.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
     argparser.add_argument("--max-age", type=int, default=300,
@@ -350,9 +352,25 @@ def work(args: dict[str, Any]):
                 kind="custom", display_unit="s"),
         channel(18, "Failure Code", FAILURE_CODES.get(code, 99)),
     ]
-    if args["stage"] == "dhcp":
+    if args["stage"] in ("dhcp", "gateway"):
         channels.append(channel(14, "DHCP Time",
                                 int(timings.get("dhcp_ms", 0)),
+                                kind="time_milliseconds"))
+    # An address proves that a DHCP server answered, not that the network
+    # carries traffic. A client put in the wrong network can hold a valid
+    # lease and reach nothing at all, and only this channel tells the two
+    # apart - which is why it is a stage of its own rather than an extra
+    # reading on every run.
+    if args["stage"] == "gateway":
+        reached = measured and outcome == "ok"
+        channels.append(channel(
+            19, "Gateway Reachable",
+            lookup_value(True) if reached
+            else lookup_value(False) if measured and code == "gateway-unreachable"
+            else LOOKUP_NONE,
+            type="lookup", lookup_name=RESULT_LOOKUP))
+        channels.append(channel(20, "Gateway Time",
+                                int(timings.get("gateway_ms", 0)),
                                 kind="time_milliseconds"))
     # Ascending, so the channel list in PRTG has the same order no matter
     # which parameters are set.
@@ -386,6 +404,13 @@ def work(args: dict[str, Any]):
             # network reads like a healthy result.
             if details.get("dhcp_server"):
                 message += " from %s" % details["dhcp_server"]
+        # The address says a server answered; this says the network
+        # carries traffic. In a list of sensors it is the difference
+        # between a lease and a connection.
+        if details.get("gateway"):
+            message += ", %s %s answered in %d ms" % (
+                details.get("gateway_kind") or "gateway", details["gateway"],
+                int(timings.get("gateway_ms", 0)))
         message += age_suffix(age)
     else:
         message = "%s%s (%s)%s" % (

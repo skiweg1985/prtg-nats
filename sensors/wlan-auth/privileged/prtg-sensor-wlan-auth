@@ -503,6 +503,9 @@ UDHCPC_SCRIPT = "/bin/true"
 UDHCPC_LEASE = re.compile(
     r"lease of (?P<address>\S+) obtained from (?P<server>[^,\s]+)")
 
+# "rtt min/avg/max/mdev = 1.234/..." - the average is the reading.
+PING_TIME = re.compile(r"= [\d.]+/([\d.]+)/")
+
 def dhcp_command(interface, seconds):
     """The DHCP client to run, and how to ask it for one lease.
 
@@ -536,7 +539,8 @@ def parse_lease(output):
     lease = {}
     for line in output.splitlines():
         key, _, value = line.strip().partition("=")
-        if key in ("new_ip_address", "new_dhcp_server_identifier"):
+        if key in ("new_ip_address", "new_dhcp_server_identifier",
+                   "new_routers"):
             value = value.strip("'")
             if value:
                 lease[key] = value
@@ -600,6 +604,80 @@ def run_dhcp(interface, budget):
     if "new_ip_address" not in lease:
         raise dhcp_failure(command, process.returncode, output)
     return duration, lease
+
+
+def gateway_target(lease):
+    """Whom to ask whether the network carries traffic at all.
+
+    The router the lease names, where it names one - that is the address
+    a client would send everything else to. udhcpc reports no router on
+    its output line, so the server that offered the lease stands in for
+    it; in a branch network the two are the same box, and either way it
+    is an address inside the network this run was placed in.
+    """
+    routers = lease.get("new_routers", "").split()
+    if routers:
+        return routers[0], "router"
+    server = lease.get("new_dhcp_server_identifier", "")
+    return (server, "dhcp server") if server else ("", "")
+
+
+def reach_gateway(interface, address, target, budget):
+    """Ask the gateway whether it answers, from the address just leased.
+
+    An address alone proves that a DHCP server replied, nothing more. A
+    client that is put in the wrong network can hold a perfectly valid
+    lease and still reach nothing - seen on a probe whose guest network
+    handed out addresses of the internal one and then dropped every
+    packet. This is the step that tells the two apart.
+
+    The lease was taken in test mode, so the interface carries nothing
+    yet. A /32 plus a host route is the smallest thing that lets a packet
+    out, and it needs no netmask - which udhcpc never reports. Both are
+    removed again before this returns.
+    """
+    if not shutil.which("ping"):
+        raise Blocked("ping-missing",
+                      "This probe has no ping, so the gateway cannot be "
+                      "tested; use --stage dhcp")
+    seconds = max(2, min(10, int(budget)))
+    added_address = added_route = False
+    started = time.monotonic()
+    try:
+        added_address = subprocess.run(
+            ["ip", "addr", "add", "%s/32" % address, "dev", interface],
+            capture_output=True, timeout=10, check=False).returncode == 0
+        added_route = subprocess.run(
+            ["ip", "route", "add", "%s/32" % target, "dev", interface,
+             "src", address],
+            capture_output=True, timeout=10, check=False).returncode == 0
+        if not added_address or not added_route:
+            raise Blocked("internal-error",
+                          "Could not put the leased address on %s"
+                          % interface)
+        done = subprocess.run(
+            ["ping", "-c", "2", "-W", str(seconds), "-I", address, target],
+            capture_output=True, timeout=seconds * 2 + 5, check=False,
+            text=True)
+    except subprocess.TimeoutExpired:
+        raise Failed("gateway-unreachable",
+                     "%s did not answer within the time budget" % target)
+    finally:
+        if added_route:
+            subprocess.run(["ip", "route", "del", "%s/32" % target,
+                            "dev", interface],
+                           capture_output=True, timeout=10, check=False)
+        if added_address:
+            subprocess.run(["ip", "addr", "del", "%s/32" % address,
+                            "dev", interface],
+                           capture_output=True, timeout=10, check=False)
+    if done.returncode != 0:
+        raise Failed("gateway-unreachable",
+                     "The lease is valid but %s does not answer" % target)
+    found = PING_TIME.search(done.stdout)
+    if found:
+        return int(float(found.group(1)))
+    return int((time.monotonic() - started) * 1000)
 
 
 def dhcp_failure(command, returncode, output):
@@ -755,7 +833,7 @@ def perform_test(job):
         result["timings"]["auth_ms"] = int((connected - associated) * 1000)
         collect_link_details(run, result)
 
-        if job["stage"] == "dhcp":
+        if job["stage"] in ("dhcp", "gateway"):
             before = link_fingerprint(run)
             duration, lease = run_dhcp(
                 interface, deadline - time.monotonic())
@@ -772,6 +850,19 @@ def perform_test(job):
             result["details"]["ip_address"] = lease.get("new_ip_address", "")
             result["details"]["dhcp_server"] = lease.get(
                 "new_dhcp_server_identifier", "")
+
+            if job["stage"] == "gateway":
+                target, kind = gateway_target(lease)
+                if not target:
+                    raise Failed(
+                        "gateway-unreachable",
+                        "The lease names neither a router nor a server to "
+                        "test")
+                result["details"]["gateway"] = target
+                result["details"]["gateway_kind"] = kind
+                result["timings"]["gateway_ms"] = reach_gateway(
+                    interface, lease["new_ip_address"], target,
+                    deadline - time.monotonic())
 
         result["message"] = "Authentication succeeded"
     except Failed as failure:
@@ -825,7 +916,7 @@ def validate_job(job):
     if len(job["ssid"].encode("utf-8")) > 32:
         raise Blocked("bad-request", "The SSID is longer than 32 bytes")
     job["stage"] = job.get("stage") or "dhcp"
-    if job["stage"] not in ("assoc", "dhcp"):
+    if job["stage"] not in ("assoc", "dhcp", "gateway"):
         raise Blocked("bad-request", "Unsupported test stage")
     try:
         job["timeout"] = int(job.get("timeout") or 45)
