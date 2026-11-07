@@ -109,7 +109,16 @@ export function ProbeListPage() {
           .join(' '),
       cell: (row) => (
         <div className="min-w-0">
-          <p className="text-ink truncate font-medium">
+          <p
+            className="text-ink truncate font-medium"
+            // A display name was chosen here; the probe name is only what the
+            // probe announced at enrollment, so it says so on hover.
+            title={
+              row.display_name == null && row.probe_name != null
+                ? t('probes.enrollmentNameTitle')
+                : undefined
+            }
+          >
             {row.display_name ?? row.probe_name ?? row.nats_username}
           </p>
           <Mono className="text-ink-3">{row.nats_username}</Mono>
