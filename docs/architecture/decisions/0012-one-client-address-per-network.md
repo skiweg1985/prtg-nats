@@ -76,6 +76,12 @@ told otherwise.
   readable on its own, at the cost of no longer finding the probe under one
   address everywhere. The message names the address of each run for that
   reason.
+- An address used for one network only has consecutive sessions on that
+  network, which the radio's single address never had. On the affected
+  gateways that surfaced a guest policy that let DHCP answers to a known
+  client address fall under its private-networks deny: the first run got
+  a lease, the later ones none. It needed a rule permitting DHCP in both
+  directions, which real guests renewing a lease need as well.
 - Radios whose driver cannot change the address - some USB adapters - can
   only run with `--mac permanent`, and then share the fault on gateways
   that have it.

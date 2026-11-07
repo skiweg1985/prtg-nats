@@ -218,9 +218,9 @@ for every other network and every other radio. Phones do the same with
 their private address per Wi-Fi network.
 
 The reason is a fault on Aruba gateways under AOS-10, found on two of
-three sites measured: a station that signs in to an 802.1X network and then, within the
-user idle timeout, to a PSK network under the same address is given the
-VLAN of its previous session. A probe that checks an internal and a guest
+three sites measured: a station that signs in to an 802.1X network and
+then, within the user idle timeout, to a PSK network under the same
+address is given the VLAN of its previous session. A probe that checks an internal and a guest
 network on one radio, a few seconds apart, then measures the guest network
 in the internal VLAN — with a valid lease and a green sensor. Under a
 second address the guest network is measured as itself. The background is
@@ -238,6 +238,18 @@ gateway's user table and in Central. A radio whose driver refuses a new
 address does not fall back to its own, which would bring the fault back
 unnoticed: the run does not take place and the sensor reports a sensor
 error that names the address and what the kernel said.
+
+A network address that is reused also reuses what the gateway remembers
+about it, and a guest role that blocks private networks can trip over
+that. Measured on Aruba AOS-10 with a guest policy of *permit ICMP to the
+gateway, deny private-networks, permit any*: the first run under a new
+address got its lease, every later one timed out on DHCP. Once the gateway
+knows the client's address, its DHCP answer goes out as unicast to that
+private address and the deny catches it - a rule that permits DHCP only
+*towards* the gateway does not help, because the answer travels the other
+way. What fixed it was `any → any → svc-dhcp → permit` ahead of the deny.
+Real guests need the same rule anyway: a phone renews its lease by unicast
+to the server.
 
 > **Existing sensors sign in under a new address after this update.**
 > Where a DHCP reservation, a MAC allowlist or a rule in Central is tied to
