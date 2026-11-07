@@ -199,10 +199,12 @@ const FORBIDDEN_TERMS = {
     ['enrollier', []],
     ['Ausrollvorgang', []],
     [/\bSonde\b/, []],
+    ['PRTG-Objekt-Id', []],
   ],
   en: [
     [/\benrol(?!l)/, []],
     ['counterpart', []],
+    [/PRTG object id/i, []],
   ],
 }
 

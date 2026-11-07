@@ -184,8 +184,15 @@ describe('the name in PRTG on the probe page', () => {
     expect(within(row).queryByText(/Differs/)).not.toBeInTheDocument()
   })
 
+  it('names the link by the object id, the one term for it', async () => {
+    wrap('/probes/P1')
+
+    const row = await prtgRow()
+    expect(await within(row).findByText('Object id 2041')).toBeInTheDocument()
+  })
+
   it.each([
-    ['not_configured', /no PRTG API token is set up/],
+    ['not_configured', /PRTG core URL or API token is missing/],
     ['unreachable', /PRTG cannot be reached/],
     ['rejected', /PRTG refused the API token/],
     ['not_found', /no longer has a probe with object id 2041/],

@@ -197,6 +197,11 @@ state does not tell - a tunnel without a handshake, or one never asked. The
 summary in `GET /probes` carries `managed_over_tunnel`, true while the last
 answer came over the tunnel and is not stale.
 
+The route is recorded for the calls the web platform makes. A call from the
+shell tooling still updates the inventory's cached address when the probe
+has moved, but leaves this record as it was, so after shell-only work
+`management_route` can be older than the last contact.
+
 `GET /probes/{id}/access-key` answers with `nats_username` and `access_key`
 and takes `credential.read`. It is the only endpoint that returns the value:
 `GET /probes/{id}` reports `access_key_present` and nothing more, and job logs
@@ -258,7 +263,7 @@ here except the link.
 
 A name answer carries `state`, `object_id`, `enrollment_name`, `name_in_prtg`
 and `differs`. Not knowing the name is not an error and answers 200 with one
-of these states: `not_configured` (no core URL or token), `not_linked`,
+of these states: `not_configured` (no core URL or no token), `not_linked`,
 `unreachable` (no answer, TLS failed, or an unexpected answer), `rejected`
 (the core refused the token) or `not_found` (PRTG has no probe with that id
 any more). The list carries one `state` for all names, since one request
