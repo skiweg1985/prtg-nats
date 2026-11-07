@@ -585,6 +585,57 @@ def check_wlan_auth_output():
     check("and the message names it",
           "901 seconds old" in result["message"], True)
 
+    # A freshness below what a round over the radio costs is a setting no
+    # schedule can meet. Left alone it shows up as a sensor that goes red
+    # every few scans for no reason an operator can see, so the cause is
+    # named instead - and the measurement that did arrive keeps counting.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate"}, "age": 30.0,
+        "round_budget": 120, "job_count": 2,
+    }
+    result = module.work(dict(arguments, max_age=60))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a freshness the radio cannot serve has its own failure code",
+          channels[18]["value"], 13)
+    check("the fresh measurement still counts", channels[10]["value"], 1)
+    check("the message says what to set",
+          "at least 120 seconds" in result["message"], True)
+    check("and how many networks share the radio",
+          "the 2 networks on this radio" in result["message"], True)
+
+    # The same answer with a freshness the radio can serve says nothing
+    # about it, or every sensor would carry advice it does not need.
+    result = module.work(dict(arguments, max_age=300))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a freshness the radio can serve is not commented on",
+          channels[18]["value"], 0)
+    check("and the message stays about the Wi-Fi",
+          "--max-age" in result["message"], False)
+
+    # The setting is named without hiding what the radio reported. Both
+    # belong in the message: one says what to fix, the other what broke.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout",
+        "message": "No DHCP offer arrived",
+        "timings": {"total_ms": 45000, "assoc_ms": 900},
+        "details": {"ssid": "Guest"}, "age": 20.0,
+        "round_budget": 120, "job_count": 2,
+    }
+    result = module.work(dict(arguments, max_age=60))
+    check("the advice does not swallow the cause the radio saw",
+          "dhcp-timeout" in result["message"], True)
+    check("and the advice comes first",
+          result["message"].startswith("Set --max-age"), True)
+
+    # A hand-run diagnosis measures on the spot, so no schedule applies
+    # and there is nothing to judge the setting against.
+    result = module.work(dict(arguments, max_age=60, measure_now=True))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("--measure-now is not judged against a round",
+          channels[18]["value"], 8)
+
     # Within the freshness the age is a reading like any other, and the
     # message says how old what it reports is.
     module.call_helper = lambda job, timeout: {
@@ -734,6 +785,23 @@ def check_wlan_auth_scheduler():
     check("the password never leaves the service",
           "secret" in serialised, False)
     check("nor does the identity", "monitor" in serialised, False)
+
+    # A sensor sets its own freshness and sees none of the other sensors
+    # on the radio, so every answer carries what a round costs. Only this
+    # side knows it, and without it a setting nobody can serve reaches
+    # PRTG as a sensor that reddens every few scans for no stated reason.
+    sharing = module.Scheduler()
+    sharing.collect(dict(job), 60)
+    answer = sharing.collect(dict(job, ssid="Guest"), 60)
+    check("an answer says what a round over the radio costs",
+          answer["round_budget"], 120.0)
+    check("and how many jobs share it", answer["job_count"], 2)
+    identity = module.job_identity(dict(job, ssid="Guest"))
+    sharing._jobs[identity]["result"] = {"result": "ok", "code": "ok"}
+    sharing._jobs[identity]["measured"] = time.monotonic()
+    answer = sharing.collect(dict(job, ssid="Guest"), 60)
+    check("a measured answer carries the round as well",
+          answer["round_budget"], 120.0)
 
     scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
     check("a job nobody asks for any more is dropped", scheduler._due(), None)

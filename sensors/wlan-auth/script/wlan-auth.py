@@ -50,6 +50,7 @@ FAILURE_CODES = {
     "assoc-lost": 10,
     "not-measured": 11,
     "result-stale": 12,
+    "max-age-too-low": 13,
 }
 
 
@@ -272,6 +273,10 @@ def work(args: dict[str, Any]):
     timings = answer.get("timings") or {}
     details = answer.get("details") or {}
     code = answer.get("code", "ok")
+    # What the radio reported, kept apart from the code the channel ends
+    # up carrying: a setting this sensor cannot meet replaces that code,
+    # and the message still has to name the cause the radio saw.
+    observed = code
     age = answer.get("age")
 
     # A measurement older than this sensor asked for is not a measurement
@@ -279,11 +284,28 @@ def work(args: dict[str, Any]):
     # sign-in from hours ago - a failure that looks like nothing is wrong,
     # and therefore worse than one that shows.
     stale = age is not None and age > args["max_age"]
-    if outcome == "pending":
+
+    # A round over every network on this radio takes as long as it takes.
+    # Asking for a value fresher than that is a setting no schedule can
+    # meet, so the sensor would go red on its own parameter rather than
+    # on the Wi-Fi - and periodically, which reads like an intermittent
+    # fault. The helper reports the round because only it sees the other
+    # sensors; this is where the setting is judged and named.
+    budget = answer.get("round_budget")
+    sharing = answer.get("job_count") or 1
+    unreachable = (not args["measure_now"] and budget is not None
+                   and budget > args["max_age"])
+
+    if unreachable:
+        code = "max-age-too-low"
+    elif outcome == "pending":
         code = "not-measured"
     elif stale:
         code = "result-stale"
 
+    # A wrong setting does not invalidate the measurement that did come
+    # in. The result keeps its channel and its history, and the cause
+    # travels in the message and the failure code instead.
     measured = outcome in ("ok", "failed") and not stale
     state = lookup_value(outcome == "ok") if measured else LOOKUP_NONE
 
@@ -346,8 +368,19 @@ def work(args: dict[str, Any]):
         message += age_suffix(age)
     else:
         message = "%s%s (%s)%s" % (
-            answer.get("message", "Authentication failed"), quoted, code,
+            answer.get("message", "Authentication failed"), quoted, observed,
             age_suffix(age))
+
+    # First in the line, because it is the one thing an operator has to
+    # act on: nothing about the schedule improves until the setting fits
+    # the radio.
+    if unreachable:
+        message = ("Set --max-age to at least %d seconds: a round over the "
+                   "%d %s on this radio takes that long, so %d can never be "
+                   "met. %s"
+                   % (budget, sharing,
+                      "network" if sharing == 1 else "networks",
+                      args["max_age"], message))
 
     # A failed sign-in remains a valid measurement: the sensor keeps
     # delivering values and the "Auth Result" channel carries the alarm.

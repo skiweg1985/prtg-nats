@@ -199,6 +199,7 @@ was rejected.
 | `assoc-lost` | 10 | the link changed while DHCP was running |
 | `not-measured` | 11 | registered, not measured yet |
 | `result-stale` | 12 | the last measurement is older than `--max-age` |
+| `max-age-too-low` | 13 | `--max-age` is below what a round over the radio costs |
 
 The message line names the network, the access point behind it and the
 address that was offered — in a list of sensors that is everything visible
@@ -341,8 +342,9 @@ One measurement then runs like this:
 The interval in PRTG no longer decides when the radio is used. It decides
 how often a sensor asks, and asking is free. What a sensor needs is
 `--max-age`, and whether the radio can hold that is arithmetic: a failing
-test uses its budget in full — `--timeout` seconds, 45 by default — so two
-networks need 90 seconds of radio time per round and three need 135.
+test uses its budget in full — `--timeout` seconds, 45 by default — plus up
+to half of it again, at most 15 seconds, waiting for the radio. So a
+network of 45 seconds costs 60 per round, two cost 120 and three 180.
 
 Where the jobs do not fit into their `--max-age`, the service shares the
 radio out evenly and all of them age together, instead of one network
@@ -351,15 +353,24 @@ channel of every affected sensor at once, which is why the limit belongs on
 that channel. Past `--max-age` the sensor stops offering the old value as a
 result at all: `Auth Result` goes to 3 and the failure code to 12.
 
-So a sensor asking for a 45-second check to be no older than a minute, next
-to a second one of its kind, cannot be satisfied — and says that, instead of
-reporting a failure about the Wi-Fi.
+A `--max-age` below what a round costs is a different case, and the sensor
+names it rather than letting it look like a fault on the Wi-Fi. No schedule
+can serve such a setting, so instead of reddening every few scans the
+sensor reports failure code 13 and the number to set:
+
+```text
+Set --max-age to at least 120 seconds: a round over the 2 networks on this radio takes that long, so 60 can never be met.
+```
+
+The measurement that did arrive still counts — `Auth Result` keeps its
+value and the timing channels keep their history. Only the cause changes,
+from a result that happens to be too old to the setting that made it so.
 
 The renewal starts a whole round before the limit, not at some fraction of
 it: a result renewed at `--max-age` would already be too old by the time
 the round is over. With the default `--max-age 300` and two networks of 45
-seconds, the radio is used every 210 seconds — not every minute, however
-often PRTG asks. **A scanning interval of one minute no longer means a
+seconds, a result is renewed once it is 180 seconds old — not every minute,
+however often PRTG asks. **A scanning interval of one minute no longer means a
 measurement every minute.** Whoever wants that has to say so, with a
 `--max-age` just above what a round costs.
 

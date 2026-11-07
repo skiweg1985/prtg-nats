@@ -1023,13 +1023,22 @@ class Scheduler:
         return answer
 
     def _answer(self, entry, now):
+        # Every answer carries what a round over this radio costs. A
+        # sensor sets its own freshness and cannot see the other sensors
+        # sharing the interface, so a value below the round is one no
+        # schedule can ever meet. This is the only side that knows the
+        # round, which is why it reports it with the result.
+        shared = {"round_budget": round_budget(self._jobs),
+                  "job_count": len(self._jobs)}
         if entry["result"] is None:
-            return {"result": "pending", "code": "not-measured",
-                    "message": "Registered on this probe, waiting for the "
-                               "first measurement",
-                    "timings": {}, "details": {}, "age": None}
-        answer = dict(entry["result"])
-        answer["age"] = round(now - entry["measured"], 1)
+            answer = {"result": "pending", "code": "not-measured",
+                      "message": "Registered on this probe, waiting for the "
+                                 "first measurement",
+                      "timings": {}, "details": {}, "age": None}
+        else:
+            answer = dict(entry["result"])
+            answer["age"] = round(now - entry["measured"], 1)
+        answer.update(shared)
         return answer
 
     def _due(self):

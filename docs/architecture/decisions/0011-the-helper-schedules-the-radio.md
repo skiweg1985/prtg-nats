@@ -1,7 +1,7 @@
 ---
 title: The helper schedules the radio, the sensor only collects
 role: developer
-updated: 2026-11-06
+updated: 2026-11-07
 status: accepted
 ---
 
@@ -89,6 +89,16 @@ configures would let a sensor stay green on a value measured hours ago,
 and that is a worse failure than today's wrong alarm, because nothing
 about it looks wrong.
 
+**A freshness the radio cannot serve is named as a setting, not as a
+fault.** The service answers every collection with the cost of a round,
+because a sensor sets `--max-age` without seeing the other sensors on the
+interface. Where the round is longer, no schedule can meet the value: the
+sensor would redden every few scans and the cause would read like an
+intermittent problem on the Wi-Fi. So the script reports its own failure
+code and the number to set, and it does that whether or not the current
+result happens to be inside the limit. The result still counts - the
+setting is wrong, the measurement is not.
+
 **`prtg.standardlookups.netapp.nichealth` carries the third state.** It
 knows 1 = Healthy, 2 = Unhealthy and 3 = Not Available with
 `state="None"`, so "registered, not measured yet" and "older than
@@ -121,9 +131,11 @@ message. The radio serves one job at a time because one party decides the
 order.
 
 **Good.** Over-subscription becomes a measurement instead of a failure.
-Two networks with a 45-second budget need 90 seconds of radio time per
-round either way - the difference is that it now shows as rising age on
-the channel built for it, where a limit can catch it.
+Two networks with a 45-second budget need 120 seconds of radio time per
+round either way, waiting for the interface included - the difference is
+that it now shows as rising age on the channel built for it, where a limit
+can catch it, and that a freshness below that round is reported as the
+setting it is.
 
 **Good.** A broken network no longer takes the sensor of a working one
 with it. Its own job is the one that occupies the radio for a full budget,
