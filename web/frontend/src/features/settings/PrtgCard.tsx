@@ -1,17 +1,11 @@
-import { useState, type FormEvent } from "react";
-import { useTranslation } from "react-i18next";
+import { useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 
-import { usePrtgSettings, useSavePrtgSettings } from "@/api/hooks";
-import type { PrtgSettingsUpdate } from "@/api/types";
-import { useAuth } from "@/app/providers";
-import { ErrorDetails } from "@/components/ui/ErrorDetails";
-import {
-  Button,
-  Card,
-  Field,
-  Input,
-  Textarea,
-} from "@/components/ui/primitives";
+import { usePrtgSettings, useSavePrtgSettings } from '@/api/hooks'
+import type { PrtgSettingsUpdate } from '@/api/types'
+import { useAuth } from '@/app/providers'
+import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { Button, Card, Field, Input, Textarea } from '@/components/ui/primitives'
 
 /**
  * Where the PRTG core is and how to ask it for probe names.
@@ -21,50 +15,46 @@ import {
  * of its own.
  */
 export function PrtgCard() {
-  const { t } = useTranslation();
-  const { can } = useAuth();
-  const { data, error, refetch } = usePrtgSettings();
-  const save = useSavePrtgSettings();
-  const editable = can("system.settings");
+  const { t } = useTranslation()
+  const { can } = useAuth()
+  const { data, error, refetch } = usePrtgSettings()
+  const save = useSavePrtgSettings()
+  const editable = can('system.settings')
 
-  const [coreUrl, setCoreUrl] = useState<string | null>(null);
-  const [token, setToken] = useState("");
-  const [caBundle, setCaBundle] = useState("");
+  const [coreUrl, setCoreUrl] = useState<string | null>(null)
+  const [token, setToken] = useState('')
+  const [caBundle, setCaBundle] = useState('')
 
-  if (error)
-    return <ErrorDetails error={error} onRetry={() => void refetch()} />;
+  if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
-  const shownUrl = coreUrl ?? data?.core_url ?? "";
+  const shownUrl = coreUrl ?? data?.core_url ?? ''
 
   function send(extra: Partial<PrtgSettingsUpdate> = {}) {
     const body: PrtgSettingsUpdate = {
       core_url: shownUrl.trim() || null,
       ...extra,
-    };
-    if (token.trim()) body.token = token.trim();
-    if (caBundle.trim()) body.ca_bundle = caBundle;
+    }
+    if (token.trim()) body.token = token.trim()
+    if (caBundle.trim()) body.ca_bundle = caBundle
     save.mutate(body, {
       onSuccess: () => {
-        setToken("");
-        setCaBundle("");
-        setCoreUrl(null);
+        setToken('')
+        setCaBundle('')
+        setCoreUrl(null)
       },
-    });
+    })
   }
 
   function submit(event: FormEvent) {
-    event.preventDefault();
-    send();
+    event.preventDefault()
+    send()
   }
 
   return (
-    <Card title={t("settings.prtg.title")}>
+    <Card title={t('settings.prtg.title')}>
       <form onSubmit={submit} className="space-y-3">
-        <p className="text-ink-3 text-sm">{t("settings.prtg.intro")}</p>
-        <Field
-          label={t("settings.prtg.coreUrl")}
-          hint={t("settings.prtg.coreUrlHint")}
-        >
+        <p className="text-ink-3 text-sm">{t('settings.prtg.intro')}</p>
+        <Field label={t('settings.prtg.coreUrl')} hint={t('settings.prtg.coreUrlHint')}>
           <Input
             value={shownUrl}
             onChange={(event) => setCoreUrl(event.target.value)}
@@ -74,11 +64,9 @@ export function PrtgCard() {
           />
         </Field>
         <Field
-          label={t("settings.prtg.token")}
+          label={t('settings.prtg.token')}
           hint={
-            data?.token_configured
-              ? t("settings.prtg.tokenStored")
-              : t("settings.prtg.tokenHint")
+            data?.token_configured ? t('settings.prtg.tokenStored') : t('settings.prtg.tokenHint')
           }
         >
           <Input
@@ -90,11 +78,11 @@ export function PrtgCard() {
           />
         </Field>
         <Field
-          label={t("settings.prtg.caBundle")}
+          label={t('settings.prtg.caBundle')}
           hint={
             data?.ca_bundle_configured
-              ? t("settings.prtg.caBundleStored")
-              : t("settings.prtg.caBundleHint")
+              ? t('settings.prtg.caBundleStored')
+              : t('settings.prtg.caBundleHint')
           }
         >
           <Textarea
@@ -115,7 +103,7 @@ export function PrtgCard() {
                 onClick={() => send({ clear_token: true })}
                 disabled={save.isPending}
               >
-                {t("settings.prtg.removeToken")}
+                {t('settings.prtg.removeToken')}
               </Button>
             )}
             {data?.ca_bundle_configured && (
@@ -125,15 +113,15 @@ export function PrtgCard() {
                 onClick={() => send({ clear_ca_bundle: true })}
                 disabled={save.isPending}
               >
-                {t("settings.prtg.removeCaBundle")}
+                {t('settings.prtg.removeCaBundle')}
               </Button>
             )}
             <Button type="submit" variant="primary" disabled={save.isPending}>
-              {t("common.save")}
+              {t('common.save')}
             </Button>
           </div>
         )}
       </form>
     </Card>
-  );
+  )
 }
