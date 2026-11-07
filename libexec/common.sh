@@ -450,7 +450,8 @@ managed_request() {
 
 # Which of the probe's routes an address is, for the operator: the overlay
 # address is the tunnel, anything else the probe's address at its site. The
-# web platform names the same two (issue #135).
+# words are the API's "via" values (issue #135), so a log line from either side
+# reads the same.
 describe_management_route() {
   local username="$1"
   local host="$2"
@@ -460,7 +461,7 @@ describe_management_route() {
     "$(probe_path "${username}")" OVERLAY_ADDRESS)" ]]; then
     printf 'tunnel (%s)\n' "${host}"
   else
-    printf 'site address (%s)\n' "${host}"
+    printf 'site (%s)\n' "${host}"
   fi
 }
 

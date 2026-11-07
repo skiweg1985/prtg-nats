@@ -703,6 +703,7 @@ show_probe() {
   local inventory=""
   local remote_information=""
   local answer_file=""
+  local prtg_object_id=""
 
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
@@ -717,20 +718,26 @@ show_probe() {
     "$(read_optional_env_value "${inventory}" PROBE_ID)"
   printf 'Access key:      %s\n' \
     "$(read_optional_env_value "${inventory}" ACCESS_KEY)"
+  # The link a person confirmed in the web interface. The name PRTG shows
+  # for it is read there; the shell holds no PRTG token and does not ask.
+  prtg_object_id="$(read_optional_env_value "${inventory}" PRTG_OBJECT_ID)"
+  [[ -z "${prtg_object_id}" ]] ||
+    printf 'PRTG object id:  %s\n' "${prtg_object_id}"
   printf 'Inventory:       %s\n' "${inventory}"
   # Into a file rather than $(...): managed_request reports the route that
   # answered in a variable, and a command substitution would lose it.
   answer_file="$(mktemp)"
+  # Expanded now: the trap outlives the local, and clears itself once run.
+  # shellcheck disable=SC2064
+  trap "rm -f -- '${answer_file}'; trap - RETURN" RETURN
   if probe_info "${username}" >"${answer_file}" 2>/dev/null; then
     remote_information="$(cat -- "${answer_file}")"
-    rm -f -- "${answer_file}"
     printf 'Answered on:     %s\n' \
       "$(describe_management_route "${username}" "${MANAGED_REQUEST_ANSWERED}")"
     printf '\nPRTG may call it something else; the probe id identifies it.\n'
     printf '\nReported by the probe:\n'
     printf '%s\n' "${remote_information}" | sed 's/^/  /'
   else
-    rm -f -- "${answer_file}"
     printf '\nPRTG may call it something else; the probe id identifies it.\n'
     printf '\nThe restricted management connection is currently unavailable.\n'
   fi
