@@ -99,16 +99,6 @@ code and the number to set, and it does that whether or not the current
 result happens to be inside the limit. The result still counts - the
 setting is wrong, the measurement is not.
 
-**A setting that is too low must not turn into a radio without a break.**
-A network is measured at most once a minute, and the radio rests ten
-seconds after every sign-in before it takes the next one. Without that the
-renewal of an over-subscribed radio fell to a second, and on a probe with
-two jobs on one SSID and `--max-age 60` the access point answered the
-endless sign-ins with status 16 until nothing got through - the old helper,
-asked once per PRTG scan, had never done that. The floor raises what the
-radio can keep to a round plus a minute, and the service reports that
-number with every answer, so failure code 13 still names the value to set.
-
 **`prtg.standardlookups.netapp.nichealth` carries the third state.** It
 knows 1 = Healthy, 2 = Unhealthy and 3 = Not Available with
 `state="None"`, so "registered, not measured yet" and "older than

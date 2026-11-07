@@ -220,12 +220,11 @@ their private address per Wi-Fi network.
 The reason is a fault on Aruba gateways under AOS-10, found on two of
 three sites measured: a station that signs in to an 802.1X network and
 then, within the user idle timeout, to a PSK network under the same
-address is given the VLAN of its previous session. A probe that checks
-an internal and a guest network on one radio, a few seconds apart, then
-measures the guest network in the internal VLAN — with a valid lease and a
-green sensor. Under a second address the guest network is measured as
-itself. The background is in
-[ADR 0012](../../docs/architecture/decisions/0012-one-client-address-per-network.md).
+address is given the VLAN of its previous session. A probe that checks an internal and a guest
+network on one radio, a few seconds apart, then measures the guest network
+in the internal VLAN — with a valid lease and a green sensor. Under a
+second address the guest network is measured as itself. The background is
+in [ADR 0012](../../docs/architecture/decisions/0012-one-client-address-per-network.md).
 
 | `--mac` | Signs in under |
 | --- | --- |
@@ -283,7 +282,7 @@ was rejected.
 | `assoc-lost` | 10 | the link changed while DHCP was running |
 | `not-measured` | 11 | registered, not measured yet |
 | `result-stale` | 12 | the last measurement is older than `--max-age` |
-| `max-age-too-low` | 13 | `--max-age` is below what the radio can keep: a round plus a minute |
+| `max-age-too-low` | 13 | `--max-age` is below what a round over the radio costs |
 | `gateway-unreachable` | 14 | the lease is valid, but the gateway does not answer |
 
 The message line is a row of short parts, the network and its verdict
@@ -298,7 +297,7 @@ Office: OK; client 02:91:0b:7e:12:c4; AP 00:00:5e:00:53:c0; IP 198.51.100.26 fro
 Office: no DHCP answer; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; code dhcp-timeout; age 20 s
 Office: association rejected by AP (status 17); client 02:3f:a1:9c:44:e7; code assoc-rejected; age 9 s
 Office: waiting for first measurement
-Set --max-age >= 180 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
+Set --max-age >= 120 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
 ```
 
 The DHCP server is named alongside the address because the address alone
@@ -444,22 +443,13 @@ channel of every affected sensor at once, which is why the limit belongs on
 that channel. Past `--max-age` the sensor stops offering the old value as a
 result at all: `Auth Result` goes to 3 and the failure code to 12.
 
-The radio is never driven without a break. A network is measured at most
-once a minute, and after every sign-in the radio rests ten seconds before
-it takes the next network. An access point that sees the same radio sign
-in every few seconds starts turning it away — seen on a probe with two
-jobs on one network and `--max-age 60`, rejected with status 16 until
-nothing got through. So what the radio can keep is a round plus that
-minute: 120 seconds for one network, 180 for two, 300 for four, which is
-the default.
-
-A `--max-age` below that is a different case, and the sensor names it
-rather than letting it look like a fault on the Wi-Fi. No schedule can
-serve such a setting, so instead of reddening every few scans the sensor
-reports failure code 13 and the number to set:
+A `--max-age` below what a round costs is a different case, and the sensor
+names it rather than letting it look like a fault on the Wi-Fi. No schedule
+can serve such a setting, so instead of reddening every few scans the
+sensor reports failure code 13 and the number to set:
 
 ```text
-Set --max-age >= 180 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
+Set --max-age to at least 120 seconds: a round over the 2 networks on this radio takes that long, so 60 can never be met.
 ```
 
 The measurement that did arrive still counts — `Auth Result` keeps its
@@ -471,8 +461,8 @@ it: a result renewed at `--max-age` would already be too old by the time
 the round is over. With the default `--max-age 300` and two networks of 45
 seconds, a result is renewed once it is 180 seconds old — not every minute,
 however often PRTG asks. **A scanning interval of one minute no longer means a
-measurement every minute**, and no setting gets one network measured more
-often than that.
+measurement every minute.** Whoever wants that has to say so, with a
+`--max-age` just above what a round costs.
 
 The state on a probe is readable where the measuring happens, which is the
 only place it exists:

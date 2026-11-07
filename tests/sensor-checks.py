@@ -748,24 +748,6 @@ def check_wlan_auth_output():
     check("and how many networks share the radio",
           "(2 networks on this radio)" in result["message"], True)
 
-    # A helper with the once-a-minute floor reports the smallest max_age it
-    # can keep, a round plus that minute. The sensor judges against that,
-    # so 150 is too low for two networks although it covers the round.
-    module.call_helper = lambda job, timeout: {
-        "result": "ok", "code": "ok", "message": "OK",
-        "timings": {}, "details": {"ssid": "Corporate"}, "age": 30.0,
-        "round_budget": 120, "min_max_age": 180, "job_count": 2,
-    }
-    result = module.work(dict(arguments, max_age=150))
-    channels = {entry["id"]: entry for entry in result["channels"]}
-    check("the floor counts towards what the radio can keep",
-          channels[18]["value"], 13)
-    check("and the message names the round plus the floor",
-          "Set --max-age >= 180 s" in result["message"], True)
-    check("the default max_age keeps two networks",
-          {entry["id"]: entry for entry in module.work(
-              dict(arguments, max_age=300))["channels"]}[18]["value"], 0)
-
     # The same answer with a freshness the radio can serve says nothing
     # about it, or every sensor would carry advice it does not need.
     result = module.work(dict(arguments, max_age=300))
@@ -1058,15 +1040,15 @@ def check_wlan_auth_scheduler():
     # at 48 under a fixed four fifths and finished at 58. One job more and
     # the result would have passed max_age and been thrown away, although
     # the scheduler did everything right.
-    two_short = {"a": dict(entry(120, 0), job=dict(job, timeout=15)),
-                 "b": dict(entry(120, 0), job=dict(job, timeout=15))}
+    two_short = {"a": dict(entry(60, 0), job=dict(job, timeout=15)),
+                 "b": dict(entry(60, 0), job=dict(job, timeout=15))}
     # 15 seconds of measuring plus 7.5 of waiting out the lock, twice.
     check("a round is as long as its jobs can take, waiting included",
           module.round_budget(two_short), 45.0)
     check("and the renewal starts a whole round before the limit",
-          module.refresh_threshold(120, two_short), 75.0)
+          module.refresh_threshold(60, two_short), 15.0)
     scheduler._jobs = two_short
-    scheduler._jobs["a"]["measured"] = now - 76
+    scheduler._jobs["a"]["measured"] = now - 16
     scheduler._jobs["b"]["measured"] = now - 5
     check("so a result one round short of the limit is renewed",
           scheduler._due()["job"]["timeout"], 15)
@@ -1076,31 +1058,9 @@ def check_wlan_auth_scheduler():
     # together - which is what the age channel is there to show.
     crowded = {str(i): dict(entry(60, 10), job=dict(job, timeout=45))
                for i in range(4)}
-    check("an over-subscribed radio keeps measuring, at the floor",
+    check("an over-subscribed radio keeps measuring",
           module.refresh_threshold(60, crowded),
           module.REFRESH_FLOOR_SECONDS)
-
-    # A max_age below what the radio can keep used to drive the renewal
-    # down to a second, and the radio signed in without a break. Seen on a
-    # probe: two jobs on one SSID with max_age 60, and the access point
-    # answered with status 16 until nothing got through. One network is
-    # measured at most once a minute now, whatever the setting says, and
-    # the sensor names the setting instead.
-    check("one network is measured at most once a minute",
-          module.REFRESH_FLOOR_SECONDS, 60.0)
-    check("however small the max_age",
-          module.refresh_threshold(30, {"only": entry(30, 0)}), 60.0)
-    check("the radio rests between two sign-ins",
-          module.RADIO_PAUSE_SECONDS >= 10, True)
-    pair = {"a": entry(300, 0), "b": entry(300, 0)}
-    check("the smallest max_age it can keep is a round plus the floor",
-          module.min_max_age(pair), module.round_budget(pair) + 60.0)
-    check("which is 180 seconds for two networks of 45",
-          module.min_max_age(pair), 180.0)
-    scheduler._jobs = dict(pair)
-    answer = scheduler._answer(pair["a"], now)
-    check("every answer carries it to the sensor",
-          answer.get("min_max_age"), 180.0)
 
     # The snapshot is read by whoever debugs on the probe. It must name
     # the jobs without handing out what they sign in with.
