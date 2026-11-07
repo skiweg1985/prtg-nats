@@ -1102,6 +1102,15 @@ class Scheduler:
                         job_ttl(entry["max_age"]) - (now - entry["asked"]), 1),
                     "result": result.get("result", ""),
                     "code": result.get("code", ""),
+                    # Which network answered is the question a probe with
+                    # several SSIDs on one radio is debugged with, and the
+                    # address alone does not answer it: a lease can come
+                    # from the wrong VLAN and still look healthy. The
+                    # DHCP server says who handed it out.
+                    "ip": (result.get("details") or {}).get(
+                        "ip_address", ""),
+                    "dhcp": (result.get("details") or {}).get(
+                        "dhcp_server", ""),
                 })
         return {"result": "ok", "code": "ok",
                 "message": "%d job(s), %d s of radio time per round"

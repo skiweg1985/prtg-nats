@@ -392,6 +392,11 @@ It names every registered job with the freshness it asked for, the age it
 holds, when it is renewed and when it expires unasked — and never the
 credentials it signs in with.
 
+Each job also carries the address of its last run and the DHCP server that
+handed it out. On a probe with several networks on one radio that is the
+question being debugged: an address from the wrong VLAN reads like a
+healthy result, and only the server behind it tells the two apart.
+
 All variable values go into the `wpa_supplicant` configuration as hex
 strings. Quotation marks or line breaks in an SSID or a password therefore
 cannot produce an additional directive. The WPA2 passphrase is converted to

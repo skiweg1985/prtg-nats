@@ -782,6 +782,24 @@ def check_wlan_auth_scheduler():
     check("the snapshot names the network", snapshot["jobs"][0]["ssid"],
           "Corporate")
     check("and reports the age it holds", snapshot["jobs"][0]["age"], 12.0)
+
+    # Which network answered is what a probe with several SSIDs on one
+    # radio is debugged with. The address alone does not say it: a lease
+    # from the wrong VLAN reads like a healthy result, and only the DHCP
+    # server behind it tells the two apart.
+    scheduler._jobs = {"only": entry(300, 12)}
+    scheduler._jobs["only"]["result"] = {
+        "result": "ok", "code": "ok",
+        "details": {"ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1"}}
+    lease = scheduler.snapshot()["jobs"][0]
+    check("the snapshot names the address it was given", lease["ip"],
+          "198.51.100.19")
+    check("and the server that handed it out", lease["dhcp"],
+          "198.51.100.1")
+    scheduler._jobs = {"only": entry(300, None)}
+    check("a job without a measurement reports no address",
+          scheduler.snapshot()["jobs"][0]["ip"], "")
     check("the password never leaves the service",
           "secret" in serialised, False)
     check("nor does the identity", "monitor" in serialised, False)
