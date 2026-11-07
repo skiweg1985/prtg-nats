@@ -129,7 +129,7 @@ comes back up, so its status passes through `detached` on the way. See
 | | |
 | --- | --- |
 | `GET /probes` | the table, entirely from cached state |
-| `GET /probes/{id}` | detail with sensors and deviations |
+| `GET /probes/{id}` | detail with sensors and deviations; `inventory.prtg_object_id` is the PRTG link |
 | `PATCH /probes/{id}` | display name, notes, labels, the PRTG tick |
 | `POST /probes/{id}/refresh` | ask this probe now, synchronously |
 | `GET`/`PUT /probes/{id}/desired-state` | what should be true - no UI, for automation |
@@ -185,6 +185,23 @@ SSH is not.
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
 
+Every successful management call records the address that answered, kept as
+observed state with its time rather than in the inventory - see
+[ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md).
+`GET /probes/{id}` reports it as `management_route` with `host`, `via`
+(`tunnel` for the overlay address, `site` for any other), `observed_at` and
+`stale`, which follows the same window as the rest of the observed state; it
+is `null` until management has reached the probe once. `nats_route` is
+`tunnel` or `direct` from the overlay peer's last state, and `null` where that
+state does not tell - a tunnel without a handshake, or one never asked. The
+summary in `GET /probes` carries `managed_over_tunnel`, true while the last
+answer came over the tunnel and is not stale.
+
+The route is recorded for the calls the web platform makes. A call from the
+shell tooling still updates the inventory's cached address when the probe
+has moved, but leaves this record as it was, so after shell-only work
+`management_route` can be older than the last contact.
+
 `GET /probes/{id}/access-key` answers with `nats_username` and `access_key`
 and takes `credential.read`. It is the only endpoint that returns the value:
 `GET /probes/{id}` reports `access_key_present` and nothing more, and job logs
@@ -227,6 +244,37 @@ access key.
 bootstrap script installs the package, so taking that host on again means a
 fresh invitation and the one-liner on its console - see
 [Enrolling a probe](#enrolling-a-probe) below.
+
+### Name in PRTG
+
+Read-only towards PRTG: every request to the core is a `GET`. None of these
+endpoints is a job - each is one short request, and none changes anything
+here except the link.
+
+| | Permission | |
+| --- | --- | --- |
+| `GET /prtg/settings` | `system.read` | core URL, `token_configured`, `ca_bundle_configured` - never the token |
+| `PUT /prtg/settings` | `system.settings` | `core_url`, `token`, `clear_token`, `ca_bundle`, `clear_ca_bundle`; a token or bundle left out stays as it is. Audited as `prtg.settings.update`, flags only |
+| `GET /prtg/probe-names` | `probe.read` | the name in PRTG of every linked probe, from one request to the core |
+| `GET /probes/{id}/prtg-name` | `probe.read` | this probe's name in PRTG, read by its object id |
+| `GET /probes/{id}/prtg-link/candidates` | `probe.update` | PRTG probes not yet linked to another probe here, and `suggested_object_id` where exactly one has the enrollment name |
+| `PUT /probes/{id}/prtg-link` | `probe.update` | `{"object_id": "2041"}` - checked against PRTG and against the other links, then stored in the inventory. Audited as `probe.prtg_link` |
+| `DELETE /probes/{id}/prtg-link` | `probe.update` | remove the link. Audited as `probe.prtg_unlink` |
+
+A name answer carries `state`, `object_id`, `enrollment_name`, `name_in_prtg`
+and `differs`. Not knowing the name is not an error and answers 200 with one
+of these states: `not_configured` (no core URL or no token), `not_linked`,
+`unreachable` (no answer, TLS failed, or an unexpected answer), `rejected`
+(the core refused the token) or `not_found` (PRTG has no probe with that id
+any more). The list carries one `state` for all names, since one request
+answers it.
+
+Linking refuses an id PRTG does not know with `prtg.object_not_found` (422)
+and an id already linked to another probe with `prtg.object_id_taken` (409,
+`params.probe` names it). The candidates and the link need a configured core
+and answer `prtg.not_configured`, `prtg.unreachable` or `prtg.rejected`
+otherwise. Why probes are linked by object id rather than found by their
+probe id: [PRTG core](configuration.md#prtg-core).
 
 ### Enrolling a probe
 

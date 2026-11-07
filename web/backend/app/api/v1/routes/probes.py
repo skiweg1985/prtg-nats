@@ -28,6 +28,7 @@ from app.api.schemas.probes import (
     DesiredStateIn,
     DesiredStateOut,
     DeviationOut,
+    ManagementRouteOut,
     ObservedStateOut,
     PlannedActionOut,
     ProbeActionIn,
@@ -82,6 +83,7 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
             pending_transaction=detail.inventory.pending_transaction,
             assigned_sensors=list(detail.inventory.assigned_sensors),
             known_iperf_endpoints=list(detail.inventory.known_iperf_endpoints),
+            prtg_object_id=detail.inventory.prtg_object_id,
         ),
         observed=(
             None
@@ -137,6 +139,17 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
         labels=detail.record.labels,
         prtg_registered_at=detail.record.prtg_registered_at,
         prtg_registered_by=detail.record.prtg_registered_by,
+        management_route=(
+            None
+            if detail.management_route is None
+            else ManagementRouteOut(
+                host=detail.management_route.host,
+                via="tunnel" if detail.management_route.over_overlay else "site",
+                observed_at=detail.management_route.observed_at,
+                stale=detail.management_route.stale,
+            )
+        ),
+        nats_route=detail.nats_route,
     )
 
 

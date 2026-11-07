@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 
 import {
   useOverlay,
+  useOverlayAttach,
+  useOverlayMode,
   useConfigureProbe,
   useExecuteReconcile,
   useIperfEndpoints,
@@ -34,9 +36,14 @@ import {
   RevealPasswordDialog,
   RotateAccountDialog,
 } from '@/features/infrastructure/NatsAccountDialogs'
-import { pathTone } from '@/features/infrastructure/overlayMode'
+import {
+  OverlayAttachDialog,
+  OverlayModeDialog,
+  pathTone,
+} from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
+import { PrtgNameRow } from '@/features/probes/PrtgName'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -431,7 +438,15 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 </PermissionGate>
               </span>
             </DetailRow>
-            <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
+            {/* Only what the probe announced when it was enrolled: PRTG may
+                have renamed it since and does not tell us. */}
+            <DetailRow label={t('probes.enrollmentName')}>
+              <span className="block">{probeName ?? '—'}</span>
+              <span className="text-ink-3 block text-xs">
+                {t('probes.enrollmentNameHint')}
+              </span>
+            </DetailRow>
+            <PrtgNameRow probeId={summary.id} />
             <DetailRow label={t('probes.probeId')}>
               <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
             </DetailRow>
@@ -440,7 +455,8 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 {inventory.ssh_host}:{inventory.ssh_port}
               </Mono>
             </DetailRow>
-            <OverlayRow username={summary.nats_username} />
+            <OverlayRow probeId={summary.id} username={summary.nats_username} />
+            <RouteRows detail={detail} />
             <DetailRow label={t('probes.accessKey')}>
               {/* Presence only. The value is behind an audited, explicit reveal. */}
               {inventory.access_key_present ? (
@@ -1328,23 +1344,85 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
 }
 
 /**
- * The probe's overlay address and what it is doing with it.
+ * Which way management and NATS currently reach the probe.
+ *
+ * Separate lines rather than part of the overlay row: a probe off the overlay
+ * still has a management route worth naming, and after a probe moves the
+ * question is exactly which of the two routes still works. The management
+ * route is the last answer, so it dims with the rest of what the probe last
+ * said once that is older than the staleness window.
+ */
+function RouteRows({ detail }: { detail: ProbeDetail }) {
+  const { t } = useTranslation()
+  const route = detail.management_route
+  return (
+    <>
+      <DetailRow label={t('probes.routes.management')}>
+        {route ? (
+          <span
+            className={`flex flex-wrap items-center gap-2 ${route.stale ? 'text-ink-3' : ''}`}
+          >
+            <span>{t(`probes.routes.${route.via}`)}</span>
+            <Mono>{route.host}</Mono>
+            <span className="text-xs">{formatRelative(route.observed_at)}</span>
+          </span>
+        ) : (
+          <span className="text-ink-3">{t('probes.routes.never')}</span>
+        )}
+      </DetailRow>
+      <DetailRow label={t('probes.routes.nats')}>
+        {t(`probes.routes.${detail.nats_route ?? 'unknown'}`)}
+      </DetailRow>
+    </>
+  )
+}
+
+/**
+ * The probe's overlay address, its mode, and the switch for it.
  *
  * On the identity card rather than a card of its own: for a probe on the
  * overlay this is a second address it answers on, which is what the rest of
  * that list is about. A probe that is not on it says so in one line instead
  * of taking up a panel to say nothing.
+ *
+ * The switch starts the overlay area's own job through its own confirmation:
+ * a second way of changing the mode would be a second set of rules about when
+ * it is safe. The hub stays in the overlay area.
  */
-function OverlayRow({ username }: { username: string }) {
+function OverlayRow({ probeId, username }: { probeId: string; username: string }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { data } = useOverlay()
+  const attach = useOverlayAttach()
+  const changeMode = useOverlayMode()
+  const [dialog, setDialog] = useState<'add' | 'mode' | null>(null)
   const peer = data?.peers.find((entry) => entry.nats_username === username)
 
   if (!data?.enabled) return null
+  const toJob = {
+    onSuccess: (job: { job_id: string }) => navigate(`/jobs/${job.job_id}`),
+  }
   if (!peer) {
     return (
       <DetailRow label={t('probes.overlay')}>
-        <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
+        <span className="flex flex-wrap items-center gap-2">
+          <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
+          <PermissionGate permission="overlay.manage">
+            <Button size="sm" variant="ghost" onClick={() => setDialog('add')}>
+              {t('probes.overlayAdd')}
+            </Button>
+          </PermissionGate>
+        </span>
+        {dialog === 'add' && (
+          <OverlayAttachDialog
+            title={t('probes.overlayAddTitle')}
+            initial={data.default_mode}
+            pending={attach.isPending}
+            onConfirm={(mode) => attach.mutate({ probe_ids: [probeId], mode }, toJob)}
+            onClose={() => setDialog(null)}
+          />
+        )}
+        {attach.error && <ErrorDetails error={attach.error} />}
       </DetailRow>
     )
   }
@@ -1359,6 +1437,11 @@ function OverlayRow({ username }: { username: string }) {
         <Badge tone={pathTone(peer.mode, state)}>
           {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
         </Badge>
+        <PermissionGate permission="overlay.manage">
+          <Button size="sm" variant="ghost" onClick={() => setDialog('mode')}>
+            {t('infrastructure.overlay.actions.mode')}
+          </Button>
+        </PermissionGate>
         <Link
           to="/infrastructure/overlay"
           className="text-accent text-xs hover:underline"
@@ -1366,6 +1449,15 @@ function OverlayRow({ username }: { username: string }) {
           {t('probes.atAGlance.manage')}
         </Link>
       </span>
+      {dialog === 'mode' && (
+        <OverlayModeDialog
+          initial={peer.mode}
+          pending={changeMode.isPending}
+          onApply={(mode) => changeMode.mutate({ probe_ids: [probeId], mode }, toJob)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {changeMode.error && <ErrorDetails error={changeMode.error} />}
     </DetailRow>
   )
 }

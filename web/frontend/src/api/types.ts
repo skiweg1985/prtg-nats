@@ -99,6 +99,7 @@ export interface ProbeSummary {
   helper_version: number | null
   helper_outdated: boolean
   prtg_registered: boolean
+  managed_over_tunnel: boolean
 }
 
 export interface SensorState {
@@ -161,12 +162,75 @@ export interface ProbeInventory {
   pending_transaction: string | null
   assigned_sensors: string[]
   known_iperf_endpoints: string[]
+  /** The PRTG object this probe is linked to, once somebody confirmed it. */
+  prtg_object_id?: string | null
+}
+
+/** Why the name in PRTG is or is not known. */
+export type PrtgNameState =
+  | 'ok'
+  | 'not_configured'
+  | 'not_linked'
+  | 'unreachable'
+  | 'rejected'
+  | 'not_found'
+
+export interface PrtgName {
+  state: PrtgNameState
+  object_id: string | null
+  enrollment_name: string | null
+  name_in_prtg: string | null
+  differs: boolean
+}
+
+export interface PrtgNames {
+  state: PrtgNameState
+  names: {
+    nats_username: string
+    object_id: string | null
+    name_in_prtg: string | null
+    differs: boolean
+  }[]
+}
+
+export interface PrtgCandidate {
+  object_id: string
+  name: string
+  status: string | null
+}
+
+export interface PrtgCandidates {
+  suggested_object_id: string | null
+  candidates: PrtgCandidate[]
+}
+
+/** The token itself never comes back - only whether one is stored. */
+export interface PrtgSettings {
+  core_url: string | null
+  token_configured: boolean
+  ca_bundle_configured: boolean
+}
+
+export interface PrtgSettingsUpdate {
+  core_url: string | null
+  token?: string
+  clear_token?: boolean
+  ca_bundle?: string
+  clear_ca_bundle?: boolean
 }
 
 /** Only ever the answer of the audited reveal endpoint, never part of a list. */
 export interface RevealedAccessKey {
   nats_username: string
   access_key: string
+}
+
+/** The address management last reached the probe on, and when. */
+export interface ManagementRoute {
+  host: string
+  via: 'tunnel' | 'site'
+  observed_at: string
+  stale: boolean
 }
 
 export interface ProbeDetail {
@@ -179,6 +243,8 @@ export interface ProbeDetail {
   labels: Record<string, string>
   prtg_registered_at: string | null
   prtg_registered_by: string | null
+  management_route: ManagementRoute | null
+  nats_route: 'tunnel' | 'direct' | null
 }
 
 export interface WirelessInterface {

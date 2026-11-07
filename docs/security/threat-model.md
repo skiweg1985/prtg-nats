@@ -1,7 +1,7 @@
 ---
 title: Threat model of the web platform
 role: operator
-updated: 2026-08-27
+updated: 2026-11-07
 ---
 
 # Threat model of the web platform
@@ -69,6 +69,7 @@ want a container-controlling web service can have everything else.
 | Audit records | `runtime/web.db` | append-only, enforced by trigger |
 | NATS passwords | `runtime/credentials/` | unchanged, read only when deploying |
 | Management key | `runtime/private/ssh/` | unchanged, used never exported |
+| PRTG API token | `runtime/private/prtg/api-token` | mode 0600, never returned by any endpoint, audited as a flag only |
 
 `runtime/web.db` is as sensitive as the rest of `runtime/`. It lives in the
 same git-ignored, root-owned directory and belongs in the same backup.
@@ -77,7 +78,9 @@ same git-ignored, root-owned directory and belongs in the same backup.
 
 - Secrets are not returned by any endpoint. The PRTG access key is the one
   exception, behind an explicit action, its own permission, and an audit record
-  of who looked.
+  of who looked. The PRTG API token is not an exception: the interface only
+  learns whether one is stored, and it travels only to the configured core,
+  over HTTPS with certificate verification that cannot be switched off.
 - Secrets are not written to logs. Redaction happens in the logging formatter,
   so it also covers third-party libraries that log on our behalf.
 - Secrets are not stored in the job payload. Transient credentials - an SSH

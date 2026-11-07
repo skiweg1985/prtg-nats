@@ -19,7 +19,6 @@ from app.core.permissions import Permission
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import ProbeHelperClient
-from app.infrastructure.probe_helper.management_transport import management_transport
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.session import get_db_session
@@ -27,6 +26,7 @@ from app.services.audit import AuditContext, AuditWriter
 from app.services.auth import AuthService, Principal
 from app.services.events import EventBroadcaster, get_broadcaster
 from app.services.jobs import JobService
+from app.services.management_routes import management_transport
 from app.services.probes import ProbeService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

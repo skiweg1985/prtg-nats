@@ -63,7 +63,7 @@ Unchanged, and staying: these need an interactive terminal.
 | --- | --- |
 | `install-mpp [ADMIN@HOST] [--nats-user USER]` | install or reconfigure a probe over SSH |
 | `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
-| `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes; `list` and `show` name every management route in the order it is tried |
+| `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes; `list` and `show` name every management route in the order it is tried, and show the name the probe announced at enrollment - PRTG may call it something else, the probe id identifies it |
 | `probe helper-update USER\|--all` | renew the management helper on the probe |
 | `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
@@ -174,8 +174,11 @@ the public key it was given during enrollment and refuses anything else - see
 sudo ./prtg-nats probe helper-update --all
 ```
 
-`probe show USER` reports what a probe carries. Two answers mean the same
-command does not help yet:
+`probe show USER` reports what a probe carries, and under `Answered on` which
+route the answer came over: `tunnel` for the overlay address, `site` for any
+other - the words the API uses. A probe linked to its PRTG object in the web
+interface shows the `PRTG object id`; the shell does not ask PRTG for the name.
+Two answers mean the same command does not help yet:
 
 | What the probe says | What it needs |
 | --- | --- |

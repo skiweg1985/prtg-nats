@@ -1,7 +1,7 @@
 ---
 title: Terminology of the web interface
 role: developer
-updated: 2026-09-01
+updated: 2026-11-07
 ---
 
 # Terminology of the web interface
@@ -35,11 +35,40 @@ does not settle, settle it here first.
 | job step log | Verlauf / Protokoll (job page only) | log | — |
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
+| name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
+| PRTG's number for a probe object | Objekt-Id | object id | GID, GUID, PRTG-Objekt-Id, PRTG object id |
+| connecting a probe to its PRTG object | verknüpfen / Verknüpfung | link | — |
+| the way management reaches a probe | Management über | management via | — |
+| the way NATS traffic reaches the server | NATS über | NATS via | — |
+| route over the overlay | Tunnel | tunnel | — |
+| route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
+| NATS traffic outside the overlay | direkt | direct | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
 side. `VPN` refers only to the customer's own site-to-site tunnel, never to
 ours.
+
+The enrollment name is only what the probe announced when it was first
+approved. Anyone can rename the probe in PRTG afterwards, and PRTG does not
+tell us, so the stored value is never labelled as the name PRTG uses. What
+identifies a probe is its **Probe-Id** / **probe id**, which never changes.
+The name PRTG currently shows, once it is read from PRTG, is the **Name in
+PRTG** / **name in PRTG** and sits next to the enrollment name, not in its
+place. The enrollment wizard's „Anderer Name in PRTG" / "Different name in
+PRTG" sets the enrollment name - at that moment the two are the same.
+
+PRTG has no GID to look the probe id up by, so the name in PRTG is read by the
+**Objekt-Id** / **object id**, the number PRTG shows in the probe's address.
+A probe is **verknüpft** / **linked** to its PRTG object once, by a person. A
+difference between the two names is a note, never a warning.
+
+A probe has two routes, and the interface names the one in use. Management
+goes **über den Tunnel** / **via the tunnel** - the overlay address - or
+**über die Standortadresse** / **via the site address**, the probe's address
+on its own network. The API and the shell spell the second one `site`.
+NATS traffic goes through the tunnel or **direkt** / **direct**; "site"
+is not used for NATS, because NATS does not connect to the probe.
 
 ## Register (German)
 

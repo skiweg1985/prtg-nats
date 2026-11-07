@@ -33,6 +33,11 @@ import type {
   OverlayMode,
   ProbeDetail,
   ProbeSummary,
+  PrtgCandidates,
+  PrtgName,
+  PrtgNames,
+  PrtgSettings,
+  PrtgSettingsUpdate,
   ProvisionEndpointRequest,
   ReconciliationPlan,
   RegisterEndpointRequest,
@@ -77,6 +82,10 @@ export const keys = {
   iperf: ['iperf'] as const,
   iperfInvitations: ['iperf-invitations'] as const,
   overlay: ['overlay'] as const,
+  prtgSettings: ['prtg', 'settings'] as const,
+  prtgNames: ['prtg', 'probe-names'] as const,
+  probePrtgName: (id: string) => ['probes', id, 'prtg-name'] as const,
+  probePrtgCandidates: (id: string) => ['probes', id, 'prtg-candidates'] as const,
   users: ['users'] as const,
 }
 
@@ -1030,5 +1039,77 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/users/${id}`),
     onSuccess: () => void client.invalidateQueries({ queryKey: keys.users }),
+  })
+}
+
+// --- The name in PRTG -------------------------------------------------------
+// Asked separately from the probe list and the probe page, so a slow PRTG core
+// delays one value and never the page around it.
+
+export function usePrtgSettings() {
+  return useQuery({
+    queryKey: keys.prtgSettings,
+    queryFn: () => api.get<PrtgSettings>('/prtg/settings'),
+  })
+}
+
+export function useSavePrtgSettings() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: PrtgSettingsUpdate) => api.put<PrtgSettings>('/prtg/settings', body),
+    onSuccess: (data) => {
+      client.setQueryData(keys.prtgSettings, data)
+      void client.invalidateQueries({ queryKey: ['prtg'] })
+      void client.invalidateQueries({ queryKey: keys.probes })
+    },
+  })
+}
+
+export function usePrtgProbeNames() {
+  return useQuery({
+    queryKey: keys.prtgNames,
+    queryFn: () => api.get<PrtgNames>('/prtg/probe-names'),
+    staleTime: 60_000,
+  })
+}
+
+export function useProbePrtgName(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.probePrtgName(id ?? ''),
+    queryFn: () => api.get<PrtgName>(`/probes/${id}/prtg-name`),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+  })
+}
+
+export function usePrtgLinkCandidates(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.probePrtgCandidates(id),
+    queryFn: () => api.get<PrtgCandidates>(`/probes/${id}/prtg-link/candidates`),
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useLinkPrtgObject() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, objectId }: { id: string; objectId: string }) =>
+      api.put<PrtgName>(`/probes/${id}/prtg-link`, { object_id: objectId }),
+    onSuccess: (_, { id }) => {
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+      void client.invalidateQueries({ queryKey: keys.prtgNames })
+    },
+  })
+}
+
+export function useUnlinkPrtgObject() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/probes/${id}/prtg-link`),
+    onSuccess: (_, id) => {
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+      void client.invalidateQueries({ queryKey: keys.prtgNames })
+    },
   })
 }

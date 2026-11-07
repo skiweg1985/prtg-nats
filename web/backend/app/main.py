@@ -28,7 +28,6 @@ from app.core.logging import configure_logging, get_logger, set_correlation_id
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import ProbeHelperClient
-from app.infrastructure.probe_helper.management_transport import management_transport
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.schema import ensure_schema
@@ -39,6 +38,7 @@ from app.persistence.session import (
 )
 from app.services.enrollment import EnrollmentService
 from app.services.events import get_broadcaster
+from app.services.management_routes import management_transport
 from app.services.overlay import OverlayService
 from app.services.provisioning import ProvisioningService
 from app.workers.inventory_sync import InventorySync

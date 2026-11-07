@@ -100,12 +100,13 @@ write_inventory() {
     printf 'ACCESS_KEY=%s\n' "${access_key}"
     printf 'PROBE_NAME=%s\n' "${probe_name}"
     # Written by other paths - the overlay peer by its own job, the host
-    # override at enrolment - and lost by a rewrite that does not carry them.
+    # override at enrolment, the PRTG object id when somebody links the probe
+    # in the web interface - and lost by a rewrite that does not carry them.
     # The web platform's _carried_lines() keeps the same keys for the same
     # reason; dropping the overlay address here would strand the probe behind
     # its own tunnel, and with ADR 0011 it is also the first management route.
     for carried_key in OVERLAY_ADDRESS OVERLAY_PUBLIC_KEY OVERLAY_MODE \
-      OVERLAY_LAST_STATE NATS_HOST_OVERRIDE; do
+      OVERLAY_LAST_STATE NATS_HOST_OVERRIDE PRTG_OBJECT_ID; do
       carried_value="$(read_optional_env_value "${destination}" "${carried_key}")"
       [[ -z "${carried_value}" ]] ||
         printf '%s=%s\n' "${carried_key}" "${carried_value}"
@@ -301,7 +302,7 @@ list_probes() {
   inventories=("${PROBE_DIR}"/*.env)
   shopt -u nullglob
   printf '%-24s %-32s %-32s %s\n' \
-    "NATS USER" "ROUTES" "PROBE NAME" "PENDING"
+    "NATS USER" "ROUTES" "ENROLLMENT NAME" "PENDING"
   for inventory in "${inventories[@]}"; do
     username="$(read_env_value "${inventory}" NATS_USERNAME)"
     # Every route in the order they are tried, so a probe reached over the
@@ -693,31 +694,51 @@ adopt_probe_identity() {
   resolve_probe_identity "${username}" "${host}" "${remote_information}"
   remember_probe_identity "${username}" "${host}"
   printf 'Recorded probe identity for %s.\n' "${username}"
-  printf '  Probe name: %s\n' "${RESOLVED_PROBE_NAME}"
-  printf '  Probe id:   %s\n' "${RESOLVED_PROBE_ID}"
+  printf '  Enrollment name: %s\n' "${RESOLVED_PROBE_NAME}"
+  printf '  Probe id:        %s\n' "${RESOLVED_PROBE_ID}"
 }
 
 show_probe() {
   local username="$1"
   local inventory=""
   local remote_information=""
+  local answer_file=""
+  local prtg_object_id=""
 
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
-  printf 'NATS user:    %s\n' "${username}"
-  printf 'Routes:       %s\n' \
+  printf 'NATS user:       %s\n' "${username}"
+  printf 'Routes:          %s\n' \
     "$(probe_management_hosts "${username}" | paste -sd, -)"
-  printf 'Probe name:   %s\n' \
+  # Only what the probe announced when it was enrolled: PRTG may have renamed
+  # it since and does not tell us, so it is not offered as the PRTG name.
+  printf 'Enrollment name: %s\n' \
     "$(read_optional_env_value "${inventory}" PROBE_NAME)"
-  printf 'Probe id:     %s\n' \
+  printf 'Probe id:        %s\n' \
     "$(read_optional_env_value "${inventory}" PROBE_ID)"
-  printf 'Access key:   %s\n' \
+  printf 'Access key:      %s\n' \
     "$(read_optional_env_value "${inventory}" ACCESS_KEY)"
-  printf 'Inventory:    %s\n' "${inventory}"
-  if remote_information="$(probe_info "${username}" 2>/dev/null)"; then
+  # The link a person confirmed in the web interface. The name PRTG shows
+  # for it is read there; the shell holds no PRTG token and does not ask.
+  prtg_object_id="$(read_optional_env_value "${inventory}" PRTG_OBJECT_ID)"
+  [[ -z "${prtg_object_id}" ]] ||
+    printf 'PRTG object id:  %s\n' "${prtg_object_id}"
+  printf 'Inventory:       %s\n' "${inventory}"
+  # Into a file rather than $(...): managed_request reports the route that
+  # answered in a variable, and a command substitution would lose it.
+  answer_file="$(mktemp)"
+  # Expanded now: the trap outlives the local, and clears itself once run.
+  # shellcheck disable=SC2064
+  trap "rm -f -- '${answer_file}'; trap - RETURN" RETURN
+  if probe_info "${username}" >"${answer_file}" 2>/dev/null; then
+    remote_information="$(cat -- "${answer_file}")"
+    printf 'Answered on:     %s\n' \
+      "$(describe_management_route "${username}" "${MANAGED_REQUEST_ANSWERED}")"
+    printf '\nPRTG may call it something else; the probe id identifies it.\n'
     printf '\nReported by the probe:\n'
     printf '%s\n' "${remote_information}" | sed 's/^/  /'
   else
+    printf '\nPRTG may call it something else; the probe id identifies it.\n'
     printf '\nThe restricted management connection is currently unavailable.\n'
   fi
 }

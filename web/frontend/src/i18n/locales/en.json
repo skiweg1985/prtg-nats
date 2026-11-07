@@ -139,7 +139,9 @@
     "identity": "Identity",
     "natsUser": "NATS account",
     "probeId": "Probe id",
-    "probeName": "Probe name in PRTG",
+    "enrollmentName": "Enrollment name",
+    "enrollmentNameHint": "The name the probe announced when it was enrolled. PRTG may call it something else; the probe id is what identifies it.",
+    "enrollmentNameTitle": "Enrollment name - PRTG may call this probe something else.",
     "accessKey": "PRTG access key",
     "accessKeyHint": "Add this value as a new line in the PRTG access-key list.",
     "accessKeyRevealTitle": "PRTG access key for {{probe}}",
@@ -334,6 +336,8 @@
     },
     "accessKeyMarkDone": "Registered in PRTG - tick it off",
     "overlay": "Overlay",
+    "overlayAdd": "Add",
+    "overlayAddTitle": "Add this probe to the overlay",
     "atAGlance": {
       "title": "Configuration at a glance",
       "sensors": "Sensors",
@@ -345,6 +349,40 @@
     },
     "account": {
       "showPassword": "Show password"
+    },
+    "routes": {
+      "management": "Management via",
+      "nats": "NATS via",
+      "tunnel": "Tunnel",
+      "site": "Site address",
+      "direct": "Direct",
+      "unknown": "Unknown",
+      "never": "Not reached yet",
+      "managedOverTunnel": "Management reaches this probe over the tunnel"
+    },
+    "prtgName": {
+      "label": "Name in PRTG",
+      "differs": "Differs from the enrollment name",
+      "objectId": "Object id {{id}}",
+      "link": "Link",
+      "relink": "Change link",
+      "unlink": "Remove link",
+      "inList": "In PRTG: {{name}}",
+      "listMissing": "Names in PRTG are missing: {{reason}}",
+      "dialogTitle": "Link to the probe in PRTG",
+      "dialogIntro": "Pick this probe as PRTG lists it. Probes already linked to another probe here are not listed. Nothing is changed in PRTG.",
+      "suggested": "Same name as at enrollment",
+      "noCandidates": "PRTG lists no probe that is still free.",
+      "manual": "Object id",
+      "manualHint": "Or enter it by hand: open the probe in PRTG, its address ends in id=<number>.",
+      "reasons": {
+        "not_configured": "Not read: the PRTG core URL or API token is missing.",
+        "not_linked": "Not linked to a probe in PRTG yet.",
+        "unreachable": "PRTG cannot be reached right now.",
+        "rejected": "PRTG refused the API token.",
+        "not_found": "PRTG no longer has a probe with object id {{id}}.",
+        "ok": "—"
+      }
     }
   },
   "sensors": {
@@ -1078,7 +1116,21 @@
     "deactivate": "Deactivate",
     "activate": "Activate",
     "roles": "Your access",
-    "initialPasswordHint": "The user has to change it at first sign-in."
+    "initialPasswordHint": "The user has to change it at first sign-in.",
+    "prtg": {
+      "title": "PRTG core",
+      "intro": "With an API token the platform reads the name each probe has in PRTG today. Nothing is changed in PRTG.",
+      "coreUrl": "Core URL",
+      "coreUrlHint": "The address of the PRTG API v2, usually port 1616.",
+      "token": "API token",
+      "tokenHint": "An API key with read access, created in PRTG.",
+      "tokenStored": "A token is stored. Leave the field empty to keep it.",
+      "caBundle": "CA bundle (PEM)",
+      "caBundleHint": "Only needed when the core’s certificate comes from an internal CA.",
+      "caBundleStored": "A CA bundle is stored. Leave the field empty to keep it.",
+      "removeToken": "Remove token",
+      "removeCaBundle": "Remove CA bundle"
+    }
   },
   "roles": {
     "viewer": "Viewer",
@@ -1256,7 +1308,20 @@
     },
     "stack.update_unavailable": "This installation cannot update itself ({{reason}})",
     "stack.update_blocked": "The update cannot start right now ({{reason}})",
-    "stack.update_failed": "The update did not complete"
+    "stack.update_failed": "The update did not complete",
+    "prtg": {
+      "not_configured": "No PRTG core is set up.",
+      "not_configured.action": "Enter the core URL and an API token under Settings.",
+      "unreachable": "PRTG cannot be reached.",
+      "unreachable.cause": "The core did not answer, its certificate could not be verified, or it answered with something unexpected.",
+      "unreachable.action": "Check the core URL and, for an internal CA, the CA bundle under Settings.",
+      "rejected": "PRTG refused the API token.",
+      "rejected.action": "Create a new API key in PRTG and enter it under Settings.",
+      "object_not_found": "PRTG has no probe with object id {{object_id}}.",
+      "object_not_found.action": "Open the probe in PRTG and take the number after id= from its address.",
+      "object_id_taken": "The PRTG object {{object_id}} is already linked to {{probe}}.",
+      "object_id_taken.action": "Remove that link first, or pick another probe."
+    }
   },
   "validation": {
     "too_short": "Too short.",

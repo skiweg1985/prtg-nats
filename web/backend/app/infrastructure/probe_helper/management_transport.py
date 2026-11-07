@@ -2,17 +2,14 @@
 
 The transport knows which route answered, the inventory knows what the routes
 are. This is the one place the two meet, so the transport stays free of
-inventories and every place that builds one reaches probes the same way.
+inventories. The transport every caller uses is assembled one layer up, in
+``app.services.management_routes``, because it also records the route in the
+database - and infrastructure does not reach into services.
 """
 
 from __future__ import annotations
 
-from app.core.config import Settings
-from app.infrastructure.probe_helper.client import (
-    AnswerObserver,
-    HelperTarget,
-    SshHelperTransport,
-)
+from app.infrastructure.probe_helper.client import AnswerObserver, HelperTarget
 from app.infrastructure.probe_helper.protocol import (
     HelperCommand,
     HelperRequest,
@@ -41,11 +38,16 @@ def inventory_route_observer(store: RuntimeFileStore) -> AnswerObserver:
     return observe
 
 
-def management_transport(settings: Settings) -> SshHelperTransport:
-    """The transport every probe call goes through, with the observer wired."""
-    return SshHelperTransport(
-        key_path=settings.ssh_key_path,
-        known_hosts_path=settings.ssh_known_hosts_path,
-        connect_timeout=settings.ssh_connect_timeout_seconds,
-        on_answer=inventory_route_observer(RuntimeFileStore(settings)),
-    )
+def both(first: AnswerObserver, second: AnswerObserver) -> AnswerObserver:
+    """Two observers on the one hook. The second runs even if the first
+    fails: a probe-info the inventory cannot use still answered on a route."""
+
+    def observe(
+        connection: HelperTarget, answered: str, request: HelperRequest, output: str
+    ) -> None:
+        try:
+            first(connection, answered, request, output)
+        finally:
+            second(connection, answered, request, output)
+
+    return observe

@@ -38,6 +38,7 @@ import {
   currentLanguage,
   type Language,
 } from '@/i18n'
+import { PrtgCard } from '@/features/settings/PrtgCard'
 import { UsersCard } from '@/features/settings/UsersCard'
 import { formatBytes, formatDateTime } from '@/utils/format'
 
@@ -389,6 +390,10 @@ export function SettingsPage() {
           </dl>
         </Card>
       </div>
+
+      <PermissionGate permission="system.read">
+        <PrtgCard />
+      </PermissionGate>
 
       <PermissionGate permission="user.manage">
         <UsersCard />

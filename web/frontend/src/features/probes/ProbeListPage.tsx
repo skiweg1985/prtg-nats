@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { useInvitations, useProbes } from '@/api/hooks'
+import { useInvitations, useProbes, usePrtgProbeNames } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
 import type { ProbeSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
@@ -51,6 +51,16 @@ export function ProbeListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useProbes()
+  // Asked beside the list, not with it: a slow PRTG core must not hold up
+  // the fleet. Without a token the answer is empty and the list unchanged.
+  const { data: prtgNames } = usePrtgProbeNames()
+  const prtgNameOf = new Map(
+    (prtgNames?.names ?? []).map((entry) => [entry.nats_username, entry]),
+  )
+  const prtgMissing =
+    prtgNames && ['unreachable', 'rejected'].includes(prtgNames.state)
+      ? prtgNames.state
+      : null
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deploying, setDeploying] = useState(false)
   // The two questions this list gets asked that search cannot answer: which
@@ -104,15 +114,46 @@ export function ProbeListPage() {
       header: t('probes.columns.name'),
       sortValue: (row) => row.display_name ?? row.nats_username,
       searchValue: (row) =>
-        [row.nats_username, row.display_name, row.probe_name, row.host]
+        [
+          row.nats_username,
+          row.display_name,
+          row.probe_name,
+          prtgNameOf.get(row.nats_username)?.name_in_prtg,
+          row.host,
+        ]
           .filter(Boolean)
           .join(' '),
       cell: (row) => (
         <div className="min-w-0">
-          <p className="text-ink truncate font-medium">
+          <p
+            className="text-ink truncate font-medium"
+            // A display name was chosen here; the probe name is only what the
+            // probe announced at enrollment, so it says so on hover.
+            title={
+              row.display_name == null && row.probe_name != null
+                ? t('probes.enrollmentNameTitle')
+                : undefined
+            }
+          >
             {row.display_name ?? row.probe_name ?? row.nats_username}
           </p>
-          <Mono className="text-ink-3">{row.nats_username}</Mono>
+          {prtgNameOf.get(row.nats_username)?.differs && (
+            <p className="text-ink-3 truncate text-xs">
+              {t('probes.prtgName.inList', {
+                name: prtgNameOf.get(row.nats_username)?.name_in_prtg,
+              })}
+            </p>
+          )}
+          <span className="flex items-center gap-2">
+            <Mono className="text-ink-3">{row.nats_username}</Mono>
+            {/* Only the tunnel is marked: the site address is the default
+                route, and marking every probe would mark none. */}
+            {row.managed_over_tunnel && (
+              <span title={t('probes.routes.managedOverTunnel')}>
+                <Badge tone="neutral">{t('probes.routes.tunnel')}</Badge>
+              </span>
+            )}
+          </span>
         </div>
       ),
     },
@@ -210,6 +251,14 @@ export function ProbeListPage() {
           still selected, so pressing it again is the button in the bar. It
           clears itself when the next one starts. */}
       {actionError && <ErrorDetails error={actionError} />}
+
+      {prtgMissing && (
+        <p className="text-ink-3 text-sm">
+          {t('probes.prtgName.listMissing', {
+            reason: t(`probes.prtgName.reasons.${prtgMissing}`),
+          })}
+        </p>
+      )}
 
       <DataTable
         rows={data ? rows : undefined}

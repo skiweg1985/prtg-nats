@@ -139,7 +139,9 @@
     "identity": "Identität",
     "natsUser": "NATS-Konto",
     "probeId": "Probe-Id",
-    "probeName": "Probe-Name in PRTG",
+    "enrollmentName": "Name bei der Einbindung",
+    "enrollmentNameHint": "Unter diesem Namen hat sich die Probe bei der Einbindung gemeldet. In PRTG kann sie anders heißen; erkannt wird sie an der Probe-Id.",
+    "enrollmentNameTitle": "Name bei der Einbindung - in PRTG kann die Probe anders heißen.",
     "accessKey": "PRTG Access Key",
     "accessKeyHint": "Diesen Wert als neue Zeile in die PRTG-Access-Key-Liste eintragen.",
     "accessKeyRevealTitle": "PRTG Access Key für {{probe}}",
@@ -334,6 +336,8 @@
     },
     "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
     "overlay": "Overlay",
+    "overlayAdd": "Aufnehmen",
+    "overlayAddTitle": "Probe ins Overlay aufnehmen",
     "atAGlance": {
       "title": "Konfiguration im Überblick",
       "sensors": "Sensoren",
@@ -345,6 +349,40 @@
     },
     "account": {
       "showPassword": "Passwort anzeigen"
+    },
+    "routes": {
+      "management": "Management über",
+      "nats": "NATS über",
+      "tunnel": "Tunnel",
+      "site": "Standortadresse",
+      "direct": "Direkt",
+      "unknown": "Unbekannt",
+      "never": "Noch nicht erreicht",
+      "managedOverTunnel": "Management erreicht diese Probe über den Tunnel"
+    },
+    "prtgName": {
+      "label": "Name in PRTG",
+      "differs": "Weicht vom Namen bei der Einbindung ab",
+      "objectId": "Objekt-Id {{id}}",
+      "link": "Verknüpfen",
+      "relink": "Verknüpfung ändern",
+      "unlink": "Verknüpfung lösen",
+      "inList": "In PRTG: {{name}}",
+      "listMissing": "Namen in PRTG fehlen: {{reason}}",
+      "dialogTitle": "Mit der Probe in PRTG verknüpfen",
+      "dialogIntro": "Wähle diese Probe so, wie PRTG sie führt. Probes, die schon mit einer anderen Probe hier verknüpft sind, stehen nicht in der Liste. In PRTG wird nichts geändert.",
+      "suggested": "Gleicher Name wie bei der Einbindung",
+      "noCandidates": "PRTG führt keine Probe, die noch frei ist.",
+      "manual": "Objekt-Id",
+      "manualHint": "Oder trag sie von Hand ein: Öffne die Probe in PRTG, ihre Adresse endet auf id=<Zahl>.",
+      "reasons": {
+        "not_configured": "Nicht abgefragt: Core-Adresse oder API-Token für PRTG fehlen.",
+        "not_linked": "Noch nicht mit einer Probe in PRTG verknüpft.",
+        "unreachable": "PRTG ist gerade nicht erreichbar.",
+        "rejected": "PRTG hat das API-Token abgelehnt.",
+        "not_found": "In PRTG gibt es keine Probe mit der Objekt-Id {{id}} mehr.",
+        "ok": "—"
+      }
     }
   },
   "sensors": {
@@ -1078,7 +1116,21 @@
     "deactivate": "Deaktivieren",
     "activate": "Aktivieren",
     "roles": "Dein Zugriff",
-    "initialPasswordHint": "Der Benutzer muss es bei der ersten Anmeldung ändern."
+    "initialPasswordHint": "Der Benutzer muss es bei der ersten Anmeldung ändern.",
+    "prtg": {
+      "title": "PRTG-Core",
+      "intro": "Mit einem API-Token liest die Plattform, wie jede Probe in PRTG heute heißt. In PRTG wird nichts geändert.",
+      "coreUrl": "Core-Adresse",
+      "coreUrlHint": "Die Adresse der PRTG-API v2, meist Port 1616.",
+      "token": "API-Token",
+      "tokenHint": "Ein API-Schlüssel mit Lesezugriff, angelegt in PRTG.",
+      "tokenStored": "Ein Token ist gespeichert. Lass das Feld leer, um es zu behalten.",
+      "caBundle": "CA-Bundle (PEM)",
+      "caBundleHint": "Nur nötig, wenn das Zertifikat des Cores von einer internen CA stammt.",
+      "caBundleStored": "Ein CA-Bundle ist hinterlegt. Lass das Feld leer, um es zu behalten.",
+      "removeToken": "Token entfernen",
+      "removeCaBundle": "CA-Bundle entfernen"
+    }
   },
   "roles": {
     "viewer": "Betrachter",
@@ -1256,7 +1308,20 @@
     },
     "stack.update_unavailable": "Diese Installation kann sich nicht selbst aktualisieren ({{reason}})",
     "stack.update_blocked": "Das Update kann gerade nicht starten ({{reason}})",
-    "stack.update_failed": "Das Update wurde nicht abgeschlossen"
+    "stack.update_failed": "Das Update wurde nicht abgeschlossen",
+    "prtg": {
+      "not_configured": "Es ist kein PRTG-Core eingerichtet.",
+      "not_configured.action": "Trag unter Einstellungen die Core-Adresse und ein API-Token ein.",
+      "unreachable": "PRTG ist nicht erreichbar.",
+      "unreachable.cause": "Der Core hat nicht geantwortet, sein Zertifikat ließ sich nicht prüfen, oder die Antwort war unerwartet.",
+      "unreachable.action": "Prüf unter Einstellungen die Core-Adresse und, bei einer internen CA, das CA-Bundle.",
+      "rejected": "PRTG hat das API-Token abgelehnt.",
+      "rejected.action": "Leg in PRTG einen neuen API-Schlüssel an und trag ihn unter Einstellungen ein.",
+      "object_not_found": "In PRTG gibt es keine Probe mit der Objekt-Id {{object_id}}.",
+      "object_not_found.action": "Öffne die Probe in PRTG und nimm die Zahl nach id= aus ihrer Adresse.",
+      "object_id_taken": "Das PRTG-Objekt {{object_id}} ist schon mit {{probe}} verknüpft.",
+      "object_id_taken.action": "Löse zuerst diese Verknüpfung, oder wähle eine andere Probe."
+    }
   },
   "validation": {
     "too_short": "Zu kurz.",

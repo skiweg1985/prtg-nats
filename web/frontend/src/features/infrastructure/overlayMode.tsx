@@ -1,6 +1,8 @@
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { OverlayMode } from '@/api/types'
+import { Banner, Button, Dialog } from '@/components/ui/primitives'
 
 const MODES: OverlayMode[] = ['off', 'auto', 'on']
 
@@ -44,6 +46,89 @@ export function OverlayModeChoice({
         </label>
       ))}
     </fieldset>
+  )
+}
+
+/**
+ * The confirmation in front of a mode change.
+ *
+ * Shared by the overlay area and a probe's own page so that both ask the same
+ * question and send the same request. Neither may offer a force flag: the
+ * check that refuses to switch a probe off through the tunnel the switch takes
+ * down is a command-line override, not a button.
+ */
+export function OverlayModeDialog({
+  initial,
+  pending,
+  onApply,
+  onClose,
+}: {
+  initial: OverlayMode
+  pending: boolean
+  onApply: (mode: OverlayMode) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [mode, setMode] = useState<OverlayMode>(initial)
+  return (
+    <Dialog onClose={onClose} title={t('infrastructure.overlay.actions.mode')}>
+      <OverlayModeChoice value={mode} onChange={setMode} />
+      {mode === 'off' && (
+        <div className="mt-3">
+          <Banner tone="warn">{t('infrastructure.overlay.offWarning')}</Banner>
+        </div>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button disabled={pending} onClick={() => onApply(mode)}>
+          {t('common.apply')}
+        </Button>
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * The confirmation in front of putting probes on the overlay.
+ *
+ * The overlay area passes its list of probes to pick from as children; a
+ * probe's own page has nothing to pick and passes none.
+ */
+export function OverlayAttachDialog({
+  title,
+  initial,
+  pending,
+  canConfirm = true,
+  onConfirm,
+  onClose,
+  children,
+}: {
+  title: string
+  initial: OverlayMode
+  pending: boolean
+  canConfirm?: boolean
+  onConfirm: (mode: OverlayMode) => void
+  onClose: () => void
+  children?: ReactNode
+}) {
+  const { t } = useTranslation()
+  const [mode, setMode] = useState<OverlayMode>(initial)
+  return (
+    <Dialog onClose={onClose} title={title}>
+      <p className="text-ink-3 mb-3 text-sm">{t('infrastructure.overlay.add.dialog')}</p>
+      {children}
+      <OverlayModeChoice value={mode} onChange={setMode} />
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button disabled={!canConfirm || pending} onClick={() => onConfirm(mode)}>
+          {t('infrastructure.overlay.add.confirm')}
+        </Button>
+      </div>
+    </Dialog>
   )
 }
 
