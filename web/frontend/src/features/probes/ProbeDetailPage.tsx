@@ -431,7 +431,14 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 </PermissionGate>
               </span>
             </DetailRow>
-            <DetailRow label={t('probes.probeName')}>{probeName ?? '—'}</DetailRow>
+            {/* Only what the probe announced when it was enrolled: PRTG may
+                have renamed it since and does not tell us. */}
+            <DetailRow label={t('probes.enrollmentName')}>
+              <span className="block">{probeName ?? '—'}</span>
+              <span className="text-ink-3 block text-xs">
+                {t('probes.enrollmentNameHint')}
+              </span>
+            </DetailRow>
             <DetailRow label={t('probes.probeId')}>
               <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
             </DetailRow>

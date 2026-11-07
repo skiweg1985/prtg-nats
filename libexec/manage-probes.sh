@@ -301,7 +301,7 @@ list_probes() {
   inventories=("${PROBE_DIR}"/*.env)
   shopt -u nullglob
   printf '%-24s %-32s %-32s %s\n' \
-    "NATS USER" "ROUTES" "PROBE NAME" "PENDING"
+    "NATS USER" "ROUTES" "ENROLLMENT NAME" "PENDING"
   for inventory in "${inventories[@]}"; do
     username="$(read_env_value "${inventory}" NATS_USERNAME)"
     # Every route in the order they are tried, so a probe reached over the
@@ -693,8 +693,8 @@ adopt_probe_identity() {
   resolve_probe_identity "${username}" "${host}" "${remote_information}"
   remember_probe_identity "${username}" "${host}"
   printf 'Recorded probe identity for %s.\n' "${username}"
-  printf '  Probe name: %s\n' "${RESOLVED_PROBE_NAME}"
-  printf '  Probe id:   %s\n' "${RESOLVED_PROBE_ID}"
+  printf '  Enrollment name: %s\n' "${RESOLVED_PROBE_NAME}"
+  printf '  Probe id:        %s\n' "${RESOLVED_PROBE_ID}"
 }
 
 show_probe() {
@@ -704,16 +704,19 @@ show_probe() {
 
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
-  printf 'NATS user:    %s\n' "${username}"
-  printf 'Routes:       %s\n' \
+  printf 'NATS user:       %s\n' "${username}"
+  printf 'Routes:          %s\n' \
     "$(probe_management_hosts "${username}" | paste -sd, -)"
-  printf 'Probe name:   %s\n' \
+  # Only what the probe announced when it was enrolled: PRTG may have renamed
+  # it since and does not tell us, so it is not offered as the PRTG name.
+  printf 'Enrollment name: %s\n' \
     "$(read_optional_env_value "${inventory}" PROBE_NAME)"
-  printf 'Probe id:     %s\n' \
+  printf 'Probe id:        %s\n' \
     "$(read_optional_env_value "${inventory}" PROBE_ID)"
-  printf 'Access key:   %s\n' \
+  printf 'Access key:      %s\n' \
     "$(read_optional_env_value "${inventory}" ACCESS_KEY)"
-  printf 'Inventory:    %s\n' "${inventory}"
+  printf 'Inventory:       %s\n' "${inventory}"
+  printf '\nPRTG may call it something else; the probe id identifies it.\n'
   if remote_information="$(probe_info "${username}" 2>/dev/null)"; then
     printf '\nReported by the probe:\n'
     printf '%s\n' "${remote_information}" | sed 's/^/  /'

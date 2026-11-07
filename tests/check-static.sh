@@ -2492,6 +2492,45 @@ check "management calls verify the key against the probe's identity" \
 check "a rewrite of the inventory carries the overlay peer" \
   "$(grep -c 'for carried_key in OVERLAY_ADDRESS' libexec/manage-probes.sh)" "1"
 
+printf '\n== Enrollment name ==\n'
+
+# The stored probe name is what the probe announced when it was enrolled. PRTG
+# may have renamed it since and never tells us, so the console must not call
+# it the probe's name. Port 1 on loopback refuses at once, which keeps
+# "probe show" from waiting on a probe that does not exist.
+names_runtime="$(mktemp -d)"
+mkdir -p "${names_runtime}/probes" "${names_runtime}/private/ssh"
+printf '%s\n' NATS_USERNAME=mpp-e SSH_HOST=127.0.0.1 SSH_PORT=1 \
+  PROBE_NAME=berlin-01 PROBE_ID=11111111-2222-3333-4444-555555555555 \
+  > "${names_runtime}/probes/mpp-e.env"
+in_names_runtime() {
+  PRTG_NATS_RUNTIME_DIR="${names_runtime}" \
+    NATS_FQDN=nats.example.test \
+    NATS_HOST_IP=192.0.2.10 \
+    ./libexec/manage-probes.sh "$@" 2>&1 || true
+}
+if command -v ssh >/dev/null 2>&1 && command -v ssh-keygen >/dev/null 2>&1; then
+  names_list="$(in_names_runtime list)"
+  check "probe list heads the column as the enrollment name" \
+    "$(printf '%s\n' "${names_list}" | head -1 | grep -c 'ENROLLMENT NAME')" "1"
+  check "probe list shows the announced name under it" \
+    "$(printf '%s\n' "${names_list}" | grep -c '^mpp-e .* berlin-01 ')" "1"
+  names_show="$(in_names_runtime show mpp-e)"
+  check "probe show labels the value as the enrollment name" \
+    "$(printf '%s\n' "${names_show}" |
+      grep -c '^Enrollment name: *berlin-01$')" "1"
+  check "probe show says that PRTG may call the probe something else" \
+    "$(printf '%s\n' "${names_show}" |
+      grep -c 'PRTG may call it something else; the probe id identifies it')" \
+    "1"
+  check "neither calls it the probe name" \
+    "$(printf '%s\n%s\n' "${names_list}" "${names_show}" |
+      grep -ci 'probe name' || true)" "0"
+else
+  printf '  skipped (no SSH client installed)\n'
+fi
+rm -rf -- "${names_runtime}"
+
 printf '\n== Bootstrap report ==\n'
 
 # The template is not valid shell until it is rendered - the placeholders sit
