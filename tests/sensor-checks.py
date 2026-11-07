@@ -576,7 +576,7 @@ def check_wlan_auth_output():
                     "dhcp_ms": 700, "gateway_ms": 4},
         "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
                     "dhcp_server": "198.51.100.1",
-                    "gateway": "198.51.100.1", "gateway_kind": "router"},
+                    "gateway": "198.51.100.254", "gateway_kind": "router"},
         "age": 3.0,
     }
     result = module.work(dict(arguments, stage="gateway"))
@@ -586,7 +586,23 @@ def check_wlan_auth_output():
           "prtg.standardlookups.netapp.nichealth")
     check("the answer time is reported", channels[20]["value"], 4)
     check("the message says the network carries traffic",
-          "router 198.51.100.1 answered in 4 ms" in result["message"], True)
+          "router 198.51.100.254 answered in 4 ms" in result["message"], True)
+
+    # Where the lease names no router, the server that offered it is the
+    # target - and then the same address must not appear twice in one line.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "dhcp_ms": 700, "gateway_ms": 6},
+        "details": {"ssid": "Guest", "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.1", "gateway_kind": "dhcp server"},
+        "age": 3.0,
+    }
+    message = module.work(dict(arguments, stage="gateway"))["message"]
+    check("one machine is named once",
+          "dhcp server 198.51.100.1 answered" in message, False)
+    check("and the ping is still reported",
+          "which answered a ping in 6 ms" in message, True)
 
     # Without the stage the channels stay away: a channel that appears and
     # disappears tears its history apart in PRTG.

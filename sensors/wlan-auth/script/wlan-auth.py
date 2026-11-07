@@ -408,9 +408,15 @@ def work(args: dict[str, Any]):
         # carries traffic. In a list of sensors it is the difference
         # between a lease and a connection.
         if details.get("gateway"):
-            message += ", %s %s answered in %d ms" % (
-                details.get("gateway_kind") or "gateway", details["gateway"],
-                int(timings.get("gateway_ms", 0)))
+            took = int(timings.get("gateway_ms", 0))
+            if details["gateway"] == details.get("dhcp_server"):
+                # Naming the same address twice in one line reads like two
+                # machines where there is one.
+                message += ", which answered a ping in %d ms" % took
+            else:
+                message += ", %s %s answered in %d ms" % (
+                    details.get("gateway_kind") or "gateway",
+                    details["gateway"], took)
         message += age_suffix(age)
     else:
         message = "%s%s (%s)%s" % (
