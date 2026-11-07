@@ -174,8 +174,9 @@ the public key it was given during enrollment and refuses anything else - see
 sudo ./prtg-nats probe helper-update --all
 ```
 
-`probe show USER` reports what a probe carries. Two answers mean the same
-command does not help yet:
+`probe show USER` reports what a probe carries, and under `Answered on` which
+route the answer came over: `tunnel` for the overlay address, `site address`
+for any other. Two answers mean the same command does not help yet:
 
 | What the probe says | What it needs |
 | --- | --- |

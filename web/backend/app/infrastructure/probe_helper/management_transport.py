@@ -20,6 +20,10 @@ from app.infrastructure.probe_helper.protocol import (
     reported_addresses,
 )
 from app.infrastructure.runtime_files import RuntimeFileStore
+from app.services.management_routes import (
+    default_session_factory,
+    management_route_observer,
+)
 
 
 def inventory_route_observer(store: RuntimeFileStore) -> AnswerObserver:
@@ -41,11 +45,32 @@ def inventory_route_observer(store: RuntimeFileStore) -> AnswerObserver:
     return observe
 
 
+def both(first: AnswerObserver, second: AnswerObserver) -> AnswerObserver:
+    """Two observers on the one hook. The second runs even if the first
+    fails: a probe-info the inventory cannot use still answered on a route."""
+
+    def observe(
+        connection: HelperTarget, answered: str, request: HelperRequest, output: str
+    ) -> None:
+        try:
+            first(connection, answered, request, output)
+        finally:
+            second(connection, answered, request, output)
+
+    return observe
+
+
 def management_transport(settings: Settings) -> SshHelperTransport:
-    """The transport every probe call goes through, with the observer wired."""
+    """The transport every probe call goes through, with the observers wired:
+    the inventory learns a moved probe's address, the database which route
+    answered (issue #135)."""
+    store = RuntimeFileStore(settings)
     return SshHelperTransport(
         key_path=settings.ssh_key_path,
         known_hosts_path=settings.ssh_known_hosts_path,
         connect_timeout=settings.ssh_connect_timeout_seconds,
-        on_answer=inventory_route_observer(RuntimeFileStore(settings)),
+        on_answer=both(
+            inventory_route_observer(store),
+            management_route_observer(store, default_session_factory),
+        ),
     )

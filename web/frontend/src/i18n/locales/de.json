@@ -349,6 +349,16 @@
     },
     "account": {
       "showPassword": "Passwort anzeigen"
+    },
+    "routes": {
+      "management": "Management über",
+      "nats": "NATS über",
+      "tunnel": "Tunnel",
+      "site": "Standortadresse",
+      "direct": "Direkt",
+      "unknown": "Unbekannt",
+      "never": "Noch nicht erreicht",
+      "managedOverTunnel": "Management erreicht diese Probe über den Tunnel"
     }
   },
   "sensors": {

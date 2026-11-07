@@ -121,7 +121,16 @@ export function ProbeListPage() {
           >
             {row.display_name ?? row.probe_name ?? row.nats_username}
           </p>
-          <Mono className="text-ink-3">{row.nats_username}</Mono>
+          <span className="flex items-center gap-2">
+            <Mono className="text-ink-3">{row.nats_username}</Mono>
+            {/* Only the tunnel is marked: the site address is the default
+                route, and marking every probe would mark none. */}
+            {row.managed_over_tunnel && (
+              <span title={t('probes.routes.managedOverTunnel')}>
+                <Badge tone="neutral">{t('probes.routes.tunnel')}</Badge>
+              </span>
+            )}
+          </span>
         </div>
       ),
     },

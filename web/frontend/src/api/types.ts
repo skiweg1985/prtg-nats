@@ -99,6 +99,7 @@ export interface ProbeSummary {
   helper_version: number | null
   helper_outdated: boolean
   prtg_registered: boolean
+  managed_over_tunnel: boolean
 }
 
 export interface SensorState {
@@ -169,6 +170,14 @@ export interface RevealedAccessKey {
   access_key: string
 }
 
+/** The address management last reached the probe on, and when. */
+export interface ManagementRoute {
+  host: string
+  via: 'tunnel' | 'site'
+  observed_at: string
+  stale: boolean
+}
+
 export interface ProbeDetail {
   summary: ProbeSummary
   inventory: ProbeInventory
@@ -179,6 +188,8 @@ export interface ProbeDetail {
   labels: Record<string, string>
   prtg_registered_at: string | null
   prtg_registered_by: string | null
+  management_route: ManagementRoute | null
+  nats_route: 'tunnel' | 'direct' | null
 }
 
 export interface WirelessInterface {

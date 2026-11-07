@@ -454,6 +454,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
               </Mono>
             </DetailRow>
             <OverlayRow probeId={summary.id} username={summary.nats_username} />
+            <RouteRows detail={detail} />
             <DetailRow label={t('probes.accessKey')}>
               {/* Presence only. The value is behind an audited, explicit reveal. */}
               {inventory.access_key_present ? (
@@ -1337,6 +1338,40 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
         })}
       </ul>
     </Card>
+  )
+}
+
+/**
+ * Which way management and NATS currently reach the probe.
+ *
+ * Separate lines rather than part of the overlay row: a probe off the overlay
+ * still has a management route worth naming, and after a probe moves the
+ * question is exactly which of the two routes still works. The management
+ * route is the last answer, so it dims with the rest of what the probe last
+ * said once that is older than the staleness window.
+ */
+function RouteRows({ detail }: { detail: ProbeDetail }) {
+  const { t } = useTranslation()
+  const route = detail.management_route
+  return (
+    <>
+      <DetailRow label={t('probes.routes.management')}>
+        {route ? (
+          <span
+            className={`flex flex-wrap items-center gap-2 ${route.stale ? 'text-ink-3' : ''}`}
+          >
+            <span>{t(`probes.routes.${route.via}`)}</span>
+            <Mono>{route.host}</Mono>
+            <span className="text-xs">{formatRelative(route.observed_at)}</span>
+          </span>
+        ) : (
+          <span className="text-ink-3">{t('probes.routes.never')}</span>
+        )}
+      </DetailRow>
+      <DetailRow label={t('probes.routes.nats')}>
+        {t(`probes.routes.${detail.nats_route ?? 'unknown'}`)}
+      </DetailRow>
+    </>
   )
 }
 

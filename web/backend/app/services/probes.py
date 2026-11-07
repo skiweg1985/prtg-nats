@@ -29,9 +29,12 @@ from app.domain.models import (
     DesiredProbeState,
     Deviation,
     InstalledSensor,
+    ManagementRoute,
+    NatsRoute,
     ObservedProbeState,
     ProbeSummary,
     WirelessInterface,
+    nats_route,
     parse_probe_info,
     parse_sensor_list,
     parse_wireless_interfaces,
@@ -51,6 +54,7 @@ from app.infrastructure.sensor_catalog import SensorCatalog, SensorDefinition
 from app.infrastructure.tool_catalog import ToolCatalog
 from app.persistence.models.inventory import (
     ProbeDesiredState,
+    ProbeManagementRoute,
     ProbeObservedState,
     ProbeRecord,
 )
@@ -68,6 +72,8 @@ class ProbeDetail:
     summary: ProbeSummary
     sensors: tuple[SensorComparison, ...]
     deviations: tuple[Deviation, ...]
+    management_route: ManagementRoute | None = None
+    nats_route: NatsRoute | None = None
 
 
 class ProbeService:
@@ -161,6 +167,9 @@ class ProbeService:
                 )
             )
         }
+        routes = await self._management_routes(
+            [record.id for record in records.values()]
+        )
         active_jobs = await self._active_job_ids()
         definitions = self._catalog.list()
         catalogue_versions = {
@@ -208,6 +217,7 @@ class ProbeService:
                     expected_ca_sha256=expected_ca_sha256,
                     deviations=deviations,
                     running_job_id=active_jobs.get(record.id),
+                    route=routes.get(record.id),
                 )
             )
         return summaries
@@ -272,6 +282,7 @@ class ProbeService:
             )
 
         active_jobs = await self._active_job_ids()
+        route = (await self._management_routes([record.id])).get(record.id)
         summary = self._summarise(
             record=record,
             inventory=inventory,
@@ -280,6 +291,7 @@ class ProbeService:
             expected_ca_sha256=expected_ca_sha256,
             deviations=list(deviations),
             running_job_id=active_jobs.get(record.id),
+            route=route,
         )
         return ProbeDetail(
             record=record,
@@ -289,7 +301,36 @@ class ProbeService:
             summary=summary,
             sensors=sensors,
             deviations=deviations,
+            management_route=route,
+            nats_route=nats_route(
+                on_overlay=inventory.on_overlay,
+                overlay_mode=inventory.overlay_mode,
+                last_state=inventory.overlay_last_state,
+            ),
         )
+
+    async def _management_routes(
+        self, probe_ids: list[str]
+    ) -> dict[str, ManagementRoute]:
+        """The last route per probe, aged against the observed-state window
+        so it dims together with everything else the probe last said."""
+        stale_after = timedelta(
+            seconds=self._settings.observed_state_stale_after_seconds
+        )
+        now = datetime.now(UTC)
+        return {
+            row.probe_id: ManagementRoute(
+                host=row.host,
+                over_overlay=row.over_overlay,
+                observed_at=row.observed_at,
+                stale=now - row.observed_at > stale_after,
+            )
+            for row in await self._db.scalars(
+                select(ProbeManagementRoute).where(
+                    ProbeManagementRoute.probe_id.in_(probe_ids)
+                )
+            )
+        }
 
     def _catalogue_tools(
         self,
@@ -606,6 +647,7 @@ class ProbeService:
         expected_ca_sha256: str | None,
         deviations: list[Deviation],
         running_job_id: str | None,
+        route: ManagementRoute | None = None,
     ) -> ProbeSummary:
         # The findings an operator is expected to do something about. The
         # informational ones stay on the probe's own page, where they belong:
@@ -653,6 +695,9 @@ class ProbeService:
             helper_version=observed.helper_version if observed else None,
             helper_outdated=observed.helper_outdated if observed else False,
             prtg_registered=record.prtg_registered_at is not None,
+            managed_over_tunnel=route is not None
+            and route.over_overlay
+            and not route.stale,
         )
 
 

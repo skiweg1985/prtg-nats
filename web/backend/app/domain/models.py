@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from app.domain.enums import (
     CaState,
@@ -388,3 +388,38 @@ class ProbeSummary:
     # healthy here and invisible over there, which is exactly why it needs
     # its own signal.
     prtg_registered: bool = False
+    # The last management answer came over the overlay, recently enough to
+    # count as current. The list marks these so a probe whose tunnel quietly
+    # stopped carrying management stands out from the ones it still does.
+    managed_over_tunnel: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ManagementRoute:
+    """The address a probe last answered management on, and when."""
+
+    host: str
+    over_overlay: bool
+    observed_at: datetime
+    stale: bool
+
+
+NatsRoute = Literal["tunnel", "direct"]
+
+
+def nats_route(
+    *, on_overlay: bool, overlay_mode: str, last_state: str | None
+) -> NatsRoute | None:
+    """Where the probe's NATS traffic goes, from the overlay peer's last state.
+
+    ``down`` counts as direct: with the interface gone there is no tunnel
+    route to take. A tunnel without a handshake, or one never asked, says
+    nothing either way, so it is not reported as either.
+    """
+    if not on_overlay or overlay_mode == "off":
+        return "direct"
+    if last_state == "tunnel":
+        return "tunnel"
+    if last_state in ("direct", "down", "off"):
+        return "direct"
+    return None
