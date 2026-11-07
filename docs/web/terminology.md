@@ -1,7 +1,7 @@
 ---
 title: Terminology of the web interface
 role: developer
-updated: 2026-09-01
+updated: 2026-11-07
 ---
 
 # Terminology of the web interface
@@ -35,11 +35,21 @@ does not settle, settle it here first.
 | job step log | Verlauf / Protokoll (job page only) | log | — |
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
+| name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
 side. `VPN` refers only to the customer's own site-to-site tunnel, never to
 ours.
+
+The enrollment name is only what the probe announced when it was first
+approved. Anyone can rename the probe in PRTG afterwards, and PRTG does not
+tell us, so the stored value is never labelled as the name PRTG uses. What
+identifies a probe is its **Probe-Id** / **probe id**, which never changes.
+The name PRTG currently shows, once it is read from PRTG, is the **Name in
+PRTG** / **name in PRTG** and sits next to the enrollment name, not in its
+place. The enrollment wizard's „Anderer Name in PRTG" / "Different name in
+PRTG" sets the enrollment name - at that moment the two are the same.
 
 ## Register (German)
 

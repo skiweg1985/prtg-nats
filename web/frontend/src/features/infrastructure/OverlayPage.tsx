@@ -11,7 +11,7 @@ import {
   useOverlayRefresh,
   useProbes,
 } from '@/api/hooks'
-import type { OverlayMode, OverlayPeer, ProbeSummary } from '@/api/types'
+import type { OverlayPeer, ProbeSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable } from '@/components/ui/DataTable'
 import type { Column } from '@/components/ui/DataTable'
@@ -31,7 +31,7 @@ import {
   PageHeader,
 } from '@/components/ui/primitives'
 
-import { OverlayModeChoice, pathTone } from './overlayMode'
+import { OverlayAttachDialog, OverlayModeDialog, pathTone } from './overlayMode'
 
 /**
  * The tunnel between this installation and the probes.
@@ -57,7 +57,6 @@ export function OverlayPage() {
     'add' | 'mode' | 'remove' | 'enable' | 'disable' | null
   >(null)
   const [endpoint, setEndpoint] = useState('')
-  const [chosenMode, setChosenMode] = useState<OverlayMode>('auto')
 
   const idFor = useMemo(() => {
     const byName = new Map<string, string>()
@@ -232,10 +231,17 @@ export function OverlayPage() {
       </PermissionGate>
 
       {dialog === 'add' && (
-        <Dialog onClose={close} title={t('infrastructure.overlay.add.title')}>
-          <p className="text-ink-3 mb-3 text-sm">
-            {t('infrastructure.overlay.add.dialog')}
-          </p>
+        <OverlayAttachDialog
+          title={t('infrastructure.overlay.add.title')}
+          initial="auto"
+          pending={attach.isPending}
+          canConfirm={selected.size > 0}
+          onConfirm={(chosen) => {
+            attach.mutate({ probe_ids: selectedIds(), mode: chosen })
+            close()
+          }}
+          onClose={close}
+        >
           <div className="mb-4 space-y-2">
             {offOverlay.map((probe) => (
               <label key={probe.id} className="flex items-center gap-2 text-sm">
@@ -253,47 +259,19 @@ export function OverlayPage() {
               </label>
             ))}
           </div>
-          <OverlayModeChoice value={chosenMode} onChange={setChosenMode} />
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={close}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              disabled={selected.size === 0 || attach.isPending}
-              onClick={() => {
-                attach.mutate({ probe_ids: selectedIds(), mode: chosenMode })
-                close()
-              }}
-            >
-              {t('infrastructure.overlay.add.confirm')}
-            </Button>
-          </div>
-        </Dialog>
+        </OverlayAttachDialog>
       )}
 
       {dialog === 'mode' && (
-        <Dialog onClose={close} title={t('infrastructure.overlay.actions.mode')}>
-          <OverlayModeChoice value={chosenMode} onChange={setChosenMode} />
-          {chosenMode === 'off' && (
-            <div className="mt-3">
-              <Banner tone="warn">{t('infrastructure.overlay.offWarning')}</Banner>
-            </div>
-          )}
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={close}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              disabled={mode.isPending}
-              onClick={() => {
-                mode.mutate({ probe_ids: selectedIds(), mode: chosenMode })
-                close()
-              }}
-            >
-              {t('common.apply')}
-            </Button>
-          </div>
-        </Dialog>
+        <OverlayModeDialog
+          initial="auto"
+          pending={mode.isPending}
+          onApply={(chosen) => {
+            mode.mutate({ probe_ids: selectedIds(), mode: chosen })
+            close()
+          }}
+          onClose={close}
+        />
       )}
 
       {dialog === 'remove' && (
