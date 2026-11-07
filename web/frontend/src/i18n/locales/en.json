@@ -334,6 +334,8 @@
     },
     "accessKeyMarkDone": "Registered in PRTG - tick it off",
     "overlay": "Overlay",
+    "overlayAdd": "Add",
+    "overlayAddTitle": "Add this probe to the overlay",
     "atAGlance": {
       "title": "Configuration at a glance",
       "sensors": "Sensors",

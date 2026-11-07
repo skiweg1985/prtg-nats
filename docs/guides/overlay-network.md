@@ -1,7 +1,7 @@
 ---
 title: Connect probes over the overlay
 role: operator
-updated: 2026-09-01
+updated: 2026-11-07
 ---
 
 # Connect probes over the overlay
@@ -67,7 +67,8 @@ and the management key gains the hub's address instead of losing the old one.
 A probe whose tunnel breaks is reachable the way it always was.
 
 In the interface the same thing is **Infrastructure → Overlay → Add probes**,
-for one probe or for a whole site at once.
+for one probe or for a whole site at once. A single probe can also be put on
+the overlay from the Overlay row on its own page.
 
 Probes enrolled from now on join during enrolment: the invitation carries the
 hub key and an address reserved for that probe, and the bootstrap brings the
@@ -92,6 +93,11 @@ anything:
 ```bash
 sudo ./prtg-nats overlay mode mpp-berlin-01 on
 ```
+
+In the interface, **Change mode** sits in the overlay area for a selection of
+probes and in the Overlay row of each probe's own page. Both start the same
+job behind the same confirmation, so a switch to `off` that would cut the
+probe's only working route is refused from either place.
 
 `auto` is the default and the one worth understanding. The probe keeps
 measuring the direct path to NATS every minute, on the interface that path

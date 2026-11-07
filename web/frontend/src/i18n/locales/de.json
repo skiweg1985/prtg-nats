@@ -334,6 +334,8 @@
     },
     "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
     "overlay": "Overlay",
+    "overlayAdd": "Aufnehmen",
+    "overlayAddTitle": "Probe ins Overlay aufnehmen",
     "atAGlance": {
       "title": "Konfiguration im Überblick",
       "sensors": "Sensoren",
