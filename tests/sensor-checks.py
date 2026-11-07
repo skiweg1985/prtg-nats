@@ -512,7 +512,7 @@ def check_wlan_auth_output():
         "ca_cert": None, "domain_suffix_match": None, "no_verify_server": True,
         "client_cert": None, "private_key": None, "private_key_passwd": None,
         "bssid": None, "hidden": False, "stage": "dhcp", "timeout": 45,
-        "max_age": 300, "measure_now": False,
+        "max_age": 300, "measure_now": False, "gateway": "",
     }
     result = module.work(arguments)
     channels = {entry["id"]: entry for entry in result["channels"]}
@@ -579,7 +579,7 @@ def check_wlan_auth_output():
                     "gateway": "198.51.100.254", "gateway_kind": "router"},
         "age": 3.0,
     }
-    result = module.work(dict(arguments, stage="gateway"))
+    result = module.work(dict(arguments))
     channels = {entry["id"]: entry for entry in result["channels"]}
     check("a reachable gateway is its own channel", channels[19]["value"], 1)
     check("and carries the standard lookup", channels[19]["lookup_name"],
@@ -598,18 +598,39 @@ def check_wlan_auth_output():
                     "gateway": "198.51.100.1", "gateway_kind": "dhcp server"},
         "age": 3.0,
     }
-    message = module.work(dict(arguments, stage="gateway"))["message"]
+    message = module.work(dict(arguments))["message"]
     check("one machine is named once",
           "dhcp server 198.51.100.1 answered" in message, False)
     check("and the ping is still reported",
           "which answered a ping in 6 ms" in message, True)
 
-    # Without the stage the channels stay away: a channel that appears and
-    # disappears tears its history apart in PRTG.
-    plain = {entry["id"] for entry in module.work(arguments)["channels"]}
-    check("without the gateway stage the channel is absent", 19 in plain,
-          False)
-    check("and so is its time", 20 in plain, False)
+    # The check runs without being asked for, because an address that
+    # carries no traffic is the failure worth catching. A network that
+    # drops ICMP has no answer to give, and there --gateway none takes
+    # the channels away with the question.
+    off = {entry["id"] for entry in
+           module.work(dict(arguments, gateway="none"))["channels"]}
+    check("--gateway none removes the channel", 19 in off, False)
+    check("and its time with it", 20 in off, False)
+    check("the other channels stay", 14 in off, True)
+
+    # A fixed address overrides what the lease says, for a network whose
+    # router does not answer or does not exist in the lease at all.
+    asked = {}
+
+    def remember_gateway(job, timeout):
+        asked.update(job)
+        return {"result": "ok", "code": "ok", "message": "ok",
+                "timings": {}, "details": {}, "age": 1.0}
+
+    keep = module.call_helper
+    module.call_helper = remember_gateway
+    module.work(dict(arguments, gateway="198.51.100.254"))
+    check("a fixed gateway reaches the helper", asked.get("gateway"),
+          "198.51.100.254")
+    module.work(dict(arguments))
+    check("and by default the lease decides", asked.get("gateway"), "")
+    module.call_helper = keep
 
     # A lease without a reachable gateway is the case this stage exists
     # for: the sign-in worked, the address arrived, and nothing moves.
@@ -621,7 +642,7 @@ def check_wlan_auth_output():
                     "gateway": "198.51.100.1"},
         "age": 3.0,
     }
-    result = module.work(dict(arguments, stage="gateway"))
+    result = module.work(dict(arguments))
     channels = {entry["id"]: entry for entry in result["channels"]}
     check("an unreachable gateway reads as a failure", channels[19]["value"],
           2)
@@ -796,6 +817,25 @@ def check_wlan_auth_scheduler():
     check("a changed freshness is the same job",
           module.job_identity(dict(job, max_age=60)),
           module.job_identity(dict(job, max_age=600)))
+
+    # The gateway is an address or the word that switches the step off. A
+    # name would have to be resolved, and a sensor that cannot reach its
+    # network cannot resolve anything - so it is refused as a parameter
+    # error rather than failing later as a broken network.
+    def refused(value):
+        try:
+            module.validate_job({"interface": "wlan0", "ssid": "Corporate",
+                                 "auth": "psk", "psk": "passphrase123",
+                                 "stage": "dhcp", "gateway": value})
+        except module.Blocked as blocked:
+            return blocked.code
+        return "accepted"
+
+    check("a host name is not a gateway", refused("gateway.example.test"),
+          "bad-request")
+    check("an address is", refused("198.51.100.1"), "accepted")
+    check("and so is none", refused("none"), "accepted")
+    check("empty means the lease decides", refused(""), "accepted")
 
     # Whom to ask whether the network carries traffic: the router the
     # lease names, and where there is none - udhcpc reports no router on

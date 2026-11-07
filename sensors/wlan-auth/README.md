@@ -80,7 +80,8 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--private-key-passwd PASSWORD` | passphrase of the key |
 | `--bssid AA:BB:CC:DD:EE:FF` | test against a specific access point |
 | `--hidden` | the SSID is not broadcast |
-| `--stage assoc\|dhcp\|gateway` | stop after sign-in, after DHCP, or after reaching the gateway |
+| `--stage assoc\|dhcp` | stop after sign-in, or measure through DHCP |
+| `--gateway ADDRESS\|none` | which address to ping after DHCP; empty means the one from the lease |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
 | `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
@@ -157,8 +158,8 @@ paths.
 | 16 | Frequency | MHz |
 | 17 | Measurement Age | s |
 | 18 | Failure Code | see the table below |
-| 19 | Gateway Reachable | lookup, only with `--stage gateway` |
-| 20 | Gateway Time | ms, only with `--stage gateway` |
+| 19 | Gateway Reachable | lookup, absent with `--gateway none` |
+| 20 | Gateway Time | ms, absent with `--gateway none` |
 
 **Auth Result** works well as the primary channel; it can be set in the
 sensor settings. A failed sign-in does not set the sensor to *Down*; it sets
@@ -181,19 +182,25 @@ read as a successful one either.
 > `2` mean the same in both lookups. Sensors created afterwards get it
 > right by themselves.
 
-**Gateway Reachable** exists only with `--stage gateway`, and it is the
-channel that separates a lease from a connection. An address proves that a
-DHCP server answered, nothing more: a client placed in the wrong network
-can hold a perfectly valid lease and still reach nothing. Seen on a probe
-whose guest network handed out addresses of the internal one — the sensor
-reported *ok* for minutes while the client could not reach its own
-gateway.
+**Gateway Reachable** separates a lease from a connection, and it needs
+no configuration: with `--stage dhcp` the sensor pings the gateway as part
+of the test. An address proves only that a DHCP server answered. A client
+placed in the wrong network holds a perfectly valid lease and reaches
+nothing — seen on a probe whose guest network handed out addresses of the
+internal one, where the sensor reported *ok* for minutes while the client
+could not reach its own gateway.
 
-The stage asks the router named in the lease, or the server that offered
-it where the lease names no router. The address is put on the interface
-as a `/32` with a host route for the duration of the ping and removed
-afterwards, so nothing of it outlives the run. A network that drops ICMP
-has no business with this stage; `--stage dhcp` is the right choice there.
+Asked is the router the lease names, or the server that offered it where
+the lease names none. `--gateway ADDRESS` replaces that choice, for a
+network whose router stays silent or one with fixed addressing. The
+leased address is put on the interface as a `/32` with a host route for
+the duration of the ping and removed afterwards, so nothing of it
+outlives the run.
+
+> **A network that drops ICMP needs `--gateway none`.** The check runs by
+> default, so a sensor that was green before this change and sits in such
+> a network reports failure code 14 from the next scan on. `none` takes
+> the question away, and channels 19 and 20 with it.
 
 **Measurement Age** says how old the reported measurement is. It is the
 channel that shows whether the radio keeps up with what the sensors ask of

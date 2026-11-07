@@ -110,7 +110,7 @@ IDENTITY_FIELDS = ("interface", "ssid", "auth", "profile", "psk",
                    "identity", "password", "anonymous_identity", "ca_cert",
                    "domain_suffix_match", "verify_server", "client_cert",
                    "private_key", "private_key_passwd", "bssid", "hidden",
-                   "stage", "timeout")
+                   "stage", "timeout", "gateway")
 # Everything a test shells out to. wpa_cli ships with wpa_supplicant and ip
 # with iproute2, but a probe missing either fails the same way, so the check
 # names the programs rather than the packages behind them.
@@ -134,6 +134,7 @@ STRING_FIELDS = (
     "bssid",
     "profile",
     "auth",
+    "gateway",
 )
 
 AUTH_METHODS = ("psk", "peap", "eap-tls")
@@ -639,7 +640,7 @@ def reach_gateway(interface, address, target, budget):
     if not shutil.which("ping"):
         raise Blocked("ping-missing",
                       "This probe has no ping, so the gateway cannot be "
-                      "tested; use --stage dhcp")
+                      "tested; use --gateway none")
     seconds = max(2, min(10, int(budget)))
     added_address = added_route = False
     started = time.monotonic()
@@ -833,7 +834,7 @@ def perform_test(job):
         result["timings"]["auth_ms"] = int((connected - associated) * 1000)
         collect_link_details(run, result)
 
-        if job["stage"] in ("dhcp", "gateway"):
+        if job["stage"] == "dhcp":
             before = link_fingerprint(run)
             duration, lease = run_dhcp(
                 interface, deadline - time.monotonic())
@@ -851,8 +852,14 @@ def perform_test(job):
             result["details"]["dhcp_server"] = lease.get(
                 "new_dhcp_server_identifier", "")
 
-            if job["stage"] == "gateway":
-                target, kind = gateway_target(lease)
+            # An address alone is not a working network, so the gateway is
+            # asked by default. "none" is for a network that drops ICMP,
+            # where the question has no answer to give.
+            if job["gateway"] != "none":
+                if job["gateway"]:
+                    target, kind = job["gateway"], "gateway"
+                else:
+                    target, kind = gateway_target(lease)
                 if not target:
                     raise Failed(
                         "gateway-unreachable",
@@ -916,8 +923,18 @@ def validate_job(job):
     if len(job["ssid"].encode("utf-8")) > 32:
         raise Blocked("bad-request", "The SSID is longer than 32 bytes")
     job["stage"] = job.get("stage") or "dhcp"
-    if job["stage"] not in ("assoc", "dhcp", "gateway"):
+    if job["stage"] not in ("assoc", "dhcp"):
         raise Blocked("bad-request", "Unsupported test stage")
+    # Empty means the lease decides, "none" switches the step off. Anything
+    # else has to be an address: a name would have to be resolved first,
+    # and a sensor that cannot reach its network cannot resolve anything.
+    job["gateway"] = (job.get("gateway") or "").strip()
+    if job["gateway"] and job["gateway"] != "none":
+        try:
+            socket.inet_aton(job["gateway"])
+        except OSError:
+            raise Blocked("bad-request",
+                          "--gateway takes an IPv4 address or \"none\"")
     try:
         job["timeout"] = int(job.get("timeout") or 45)
     except (TypeError, ValueError):

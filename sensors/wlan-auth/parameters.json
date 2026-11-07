@@ -85,9 +85,14 @@
     {
       "name": "--stage",
       "type": "choice",
-      "choices": ["assoc", "dhcp", "gateway"],
+      "choices": ["assoc", "dhcp"],
       "default": "dhcp",
-      "description": "Stop after authentication, after DHCP, or after reaching the gateway."
+      "description": "Stop after authentication or after DHCP."
+    },
+    {
+      "name": "--gateway",
+      "type": "string",
+      "description": "Address to ping after DHCP, or none to skip the check."
     },
     {
       "name": "--timeout",

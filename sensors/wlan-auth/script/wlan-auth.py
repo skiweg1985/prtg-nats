@@ -108,9 +108,10 @@ def setup():
     argparser.add_argument("--bssid", help="Restrict the test to one access point.")
     argparser.add_argument("--hidden", action="store_true",
                            help="The SSID is not broadcast.")
-    argparser.add_argument("--stage", choices=("assoc", "dhcp", "gateway"),
-                           default="dhcp",
-                           help="Stop after authentication, after DHCP, or after reaching the gateway.")
+    argparser.add_argument("--stage", choices=("assoc", "dhcp"), default="dhcp",
+                           help="Stop after authentication or after DHCP.")
+    argparser.add_argument("--gateway", default="",
+                           help="Address to ping after DHCP, or none to skip the check.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
     argparser.add_argument("--max-age", type=int, default=300,
@@ -271,6 +272,7 @@ def work(args: dict[str, Any]):
         "bssid": args["bssid"],
         "hidden": args["hidden"],
         "stage": args["stage"],
+        "gateway": args["gateway"],
         "timeout": args["timeout"],
     }
     # Collecting a stored result is a memory read in the helper, so it
@@ -352,7 +354,7 @@ def work(args: dict[str, Any]):
                 kind="custom", display_unit="s"),
         channel(18, "Failure Code", FAILURE_CODES.get(code, 99)),
     ]
-    if args["stage"] in ("dhcp", "gateway"):
+    if args["stage"] == "dhcp":
         channels.append(channel(14, "DHCP Time",
                                 int(timings.get("dhcp_ms", 0)),
                                 kind="time_milliseconds"))
@@ -361,7 +363,7 @@ def work(args: dict[str, Any]):
     # lease and reach nothing at all, and only this channel tells the two
     # apart - which is why it is a stage of its own rather than an extra
     # reading on every run.
-    if args["stage"] == "gateway":
+    if args["stage"] == "dhcp" and args["gateway"] != "none":
         reached = measured and outcome == "ok"
         channels.append(channel(
             19, "Gateway Reachable",
