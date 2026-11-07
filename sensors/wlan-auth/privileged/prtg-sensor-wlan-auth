@@ -84,11 +84,23 @@ JOB_TTL_MINIMUM = 300
 # one job more and the result would have passed max_age and been thrown
 # away, although the scheduler did everything right.
 #
-# The floor keeps the scheduler measuring where a round cannot fit into
-# max_age at all. Then every job is overdue all the time, they are served
-# in turn, and they age together - which is what the age channel is there
-# to show.
-REFRESH_FLOOR_SECONDS = 1.0
+# The floor is the shortest interval at which one network is measured
+# again, whatever max_age asks for. Where a round cannot fit into max_age,
+# every job is overdue all the time; with a floor of a second the radio then
+# signed in without a break, and an access point answered that with status
+# 16 until nothing got through (seen on a probe with two jobs on one SSID
+# and max_age 60). A minute between two sign-ins of the same network keeps
+# a setting that is too low from hammering the access point - the sensor
+# names the setting with failure code 13 instead (see min_max_age).
+REFRESH_FLOOR_SECONDS = 60.0
+
+# The rest after every sign-in before the radio takes the next network. An
+# access point sees one station leave and the next arrive from the same
+# radio, and back to back within a second that is what it throttles. Not
+# part of round_budget: the round already assumes every run uses its whole
+# timeout, which real runs come nowhere near, and counting the rest on top
+# would flag four networks under the default max_age for no real gain.
+RADIO_PAUSE_SECONDS = 10.0
 
 # How long the scheduler sleeps when nothing is due. Short enough that a
 # newly registered job is measured almost at once, long enough to cost
@@ -1186,6 +1198,16 @@ def refresh_threshold(max_age, jobs):
     return max(REFRESH_FLOOR_SECONDS, max_age - round_budget(jobs))
 
 
+def min_max_age(jobs):
+    """The smallest max_age this radio can keep, a round plus the floor.
+
+    Below it the renewal would have to start before the floor allows, so
+    results reach the sensor older than it asked for. The sensor compares
+    its setting against this number and names it with failure code 13.
+    """
+    return round_budget(jobs) + REFRESH_FLOOR_SECONDS
+
+
 class Scheduler:
     """Measures the registered jobs one after another on the one radio.
 
@@ -1233,6 +1255,7 @@ class Scheduler:
         # schedule can ever meet. This is the only side that knows the
         # round, which is why it reports it with the result.
         shared = {"round_budget": round_budget(self._jobs),
+                  "min_max_age": min_max_age(self._jobs),
                   "job_count": len(self._jobs)}
         if entry["result"] is None:
             answer = {"result": "pending", "code": "not-measured",
@@ -1363,11 +1386,13 @@ class Scheduler:
                 self._wake.clear()
                 continue
             result = self._measure(entry["job"])
-            if result is None:
-                continue
-            with self._guard:
-                entry["result"] = result
-                entry["measured"] = time.monotonic()
+            if result is not None:
+                with self._guard:
+                    entry["result"] = result
+                    entry["measured"] = time.monotonic()
+            # Rest whatever the outcome: a run that did not get the radio
+            # is no reason to try again within the same second.
+            time.sleep(RADIO_PAUSE_SECONDS)
 
 
 SCHEDULER = Scheduler()
