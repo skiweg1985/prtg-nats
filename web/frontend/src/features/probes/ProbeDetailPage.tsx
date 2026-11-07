@@ -1378,15 +1378,12 @@ function RouteRows({ detail }: { detail: ProbeDetail }) {
 }
 
 /**
- * The probe's overlay address and what it is doing with it.
+ * The probe's overlay address, its mode, and the switch for it.
  *
  * On the identity card rather than a card of its own: for a probe on the
  * overlay this is a second address it answers on, which is what the rest of
  * that list is about. A probe that is not on it says so in one line instead
  * of taking up a panel to say nothing.
- */
-/**
- * The overlay mode of this one probe, and the switch for it.
  *
  * The switch starts the overlay area's own job through its own confirmation:
  * a second way of changing the mode would be a second set of rules about when
