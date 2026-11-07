@@ -309,3 +309,41 @@ async def validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
 async def unhandled_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """Last resort: never leak a traceback, always leave a correlation id."""
     return AppError(details=type(exc).__name__).to_response()
+
+
+class PrtgNotConfiguredError(AppError):
+    """No PRTG core URL or no API token is stored."""
+
+    code = "prtg.not_configured"
+    http_status = status.HTTP_409_CONFLICT
+
+
+class PrtgUnreachableError(AppError):
+    """The core did not answer, failed TLS, or answered with something odd."""
+
+    code = "prtg.unreachable"
+    http_status = status.HTTP_502_BAD_GATEWAY
+    retryable = True
+
+
+class PrtgRejectedError(AppError):
+    """The core answered and refused the API token."""
+
+    code = "prtg.rejected"
+    http_status = status.HTTP_502_BAD_GATEWAY
+
+
+class PrtgObjectNotFoundError(ValidationFailedError):
+    """PRTG has no probe with the object id somebody entered."""
+
+    code = "prtg.object_not_found"
+
+
+class PrtgObjectIdTakenError(ConflictError):
+    """The PRTG object is already linked to another probe here.
+
+    One PRTG object is one probe; two links to it would show both probes
+    under one name and hide that one of them is not in PRTG at all.
+    """
+
+    code = "prtg.object_id_taken"

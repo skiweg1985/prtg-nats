@@ -2751,6 +2751,28 @@ done
 
 rm -rf -- "${bootstrap_dir}"
 
+printf '\n== Inventory keys a rewrite carries ==\n'
+
+# Both write_inventory in the shell and _carried_lines() in the web platform
+# rewrite a probe's whole inventory file, and each keeps the keys other paths
+# wrote. Two lists in two languages drift apart silently: the side that
+# forgets a key drops it on the next rotation, and nothing fails until the
+# probe is stranded behind its tunnel or loses its PRTG link.
+shell_carried="$(
+  sed -n '/for carried_key in/,/; do/p' libexec/manage-probes.sh |
+    grep -oE '[A-Z][A-Z_]+' | sort | tr '\n' ' '
+)"
+web_carried="$(
+  sed -n '/def _carried_lines/,/present = /p' \
+    web/backend/app/infrastructure/runtime_files.py |
+    grep -oE '^ +"[A-Z][A-Z_]+",$' | tr -d ' ",' | sort | tr '\n' ' '
+)"
+check "shell and web platform carry the same inventory keys" \
+  "${shell_carried}" "${web_carried}"
+check "a rewrite keeps the PRTG object id" \
+  "$([[ " ${shell_carried}" == *" PRTG_OBJECT_ID "* ]] && printf 'yes' ||
+    printf 'no')" "yes"
+
 printf '\n== Result ==\n'
 printf '  passed: %s\n' "${passed}"
 printf '  failed: %s\n' "${failed}"

@@ -100,12 +100,13 @@ write_inventory() {
     printf 'ACCESS_KEY=%s\n' "${access_key}"
     printf 'PROBE_NAME=%s\n' "${probe_name}"
     # Written by other paths - the overlay peer by its own job, the host
-    # override at enrolment - and lost by a rewrite that does not carry them.
+    # override at enrolment, the PRTG object id when somebody links the probe
+    # in the web interface - and lost by a rewrite that does not carry them.
     # The web platform's _carried_lines() keeps the same keys for the same
     # reason; dropping the overlay address here would strand the probe behind
     # its own tunnel, and with ADR 0011 it is also the first management route.
     for carried_key in OVERLAY_ADDRESS OVERLAY_PUBLIC_KEY OVERLAY_MODE \
-      OVERLAY_LAST_STATE NATS_HOST_OVERRIDE; do
+      OVERLAY_LAST_STATE NATS_HOST_OVERRIDE PRTG_OBJECT_ID; do
       carried_value="$(read_optional_env_value "${destination}" "${carried_key}")"
       [[ -z "${carried_value}" ]] ||
         printf '%s=%s\n' "${carried_key}" "${carried_value}"

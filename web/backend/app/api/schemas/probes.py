@@ -91,6 +91,8 @@ class ProbeInventoryOut(ApiModel):
     pending_transaction: str | None
     assigned_sensors: list[str] = Field(default_factory=list)
     known_iperf_endpoints: list[str] = Field(default_factory=list)
+    # The PRTG object this probe is linked to, once somebody confirmed it.
+    prtg_object_id: str | None = None
 
 
 class AccessKeyOut(ApiModel):

@@ -130,6 +130,49 @@ mounts it and has no business being able to read the CA key next door.
 rebuilt. `hub-key` cannot: a runtime restored without it means every probe has
 to be put on the overlay again.
 
+## PRTG core
+
+Optional. With it, the platform reads the name each probe has in PRTG today
+and shows it next to the enrollment name; without it nothing changes. Set it
+under **Settings → PRTG core**. Like the overlay, it lives in the runtime and
+not in `.env`, so an administrator does not need a shell to change it.
+Nothing is ever written to PRTG.
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| core URL | The PRTG API v2 address, `https://` only, e.g. `https://prtg.example.test:1616`. A trailing `/api/v2` is removed | – |
+| API token | An API key created in PRTG; read access is enough. Sent as `Authorization: Bearer` | – |
+| CA bundle | PEM certificates that issued the core's certificate, for a core with an internal CA | system trust store |
+
+The token is a secret: it is stored with mode 0600, never returned by the API,
+never logged and never part of a job event or an audit record. An empty token
+field keeps the stored one; removing it is a separate action. Changing the
+settings needs `system.settings`.
+
+TLS is always verified. A core whose certificate comes from an internal CA
+needs that CA as the bundle, and the URL has to name the host the certificate
+was issued for - an address is refused by the verification when the
+certificate names only a host.
+
+**Why each probe is linked by hand.** PRTG exposes no probe GID or GUID: not in
+API v2 (`/experimental/probes`, `/probes/{id}`, its overview and schema) and
+not through the classic `getobjectproperty.htm` (`gid`/`guid` answer "property
+not found"). The probe id this platform knows therefore cannot be looked up in
+PRTG. Instead each probe is linked once to its PRTG object id, the number in
+the probe's PRTG address after `id=`. The probe page suggests the PRTG probe
+whose name equals the enrollment name, and a person confirms it, picks another
+or enters the id by hand; nothing links on its own. The link is stored in the
+probe inventory as `PRTG_OBJECT_ID`, and both the shell tooling and the web
+platform keep it when they rewrite the inventory.
+
+### Files under `runtime/private/prtg/`
+
+| File | What it is |
+| --- | --- |
+| `settings` | the core URL |
+| `api-token` | the API token, mode 0600 |
+| `ca-bundle.pem` | the CA bundle, when one was given |
+
 ## Management channel
 
 | Name | Description | Type | Default | Required | Example |
@@ -212,6 +255,7 @@ one of them is a backup that cannot manage the fleet afterwards.
 | `ssh/known_hosts` | the pinned host keys of every enrolled probe, filed under the address it was enrolled at and under `prtg-nats-probe-USER`, which is what management calls verify against ([ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md)) |
 | `helper-signing-key.pem` | signs the probe helper before it is sent over the channel |
 | `helper-signing.pub` | the public half, installed on a probe during enrollment |
+| `prtg/` | the PRTG core URL, API token and CA bundle - see [PRTG core](#prtg-core) |
 
 The signing pair is created on first use, so an installation from before it
 existed grows one the moment a helper update or an enrollment needs it. Losing

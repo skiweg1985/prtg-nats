@@ -83,6 +83,7 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
             pending_transaction=detail.inventory.pending_transaction,
             assigned_sensors=list(detail.inventory.assigned_sensors),
             known_iperf_endpoints=list(detail.inventory.known_iperf_endpoints),
+            prtg_object_id=detail.inventory.prtg_object_id,
         ),
         observed=(
             None
