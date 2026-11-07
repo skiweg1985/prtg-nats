@@ -185,6 +185,18 @@ SSH is not.
 `GET /probes` never contacts a probe. An unreachable host must not make the
 list slow, and every row reports its own freshness.
 
+Every successful management call records the address that answered, kept as
+observed state with its time rather than in the inventory - see
+[ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md).
+`GET /probes/{id}` reports it as `management_route` with `host`, `via`
+(`tunnel` for the overlay address, `site` for any other), `observed_at` and
+`stale`, which follows the same window as the rest of the observed state; it
+is `null` until management has reached the probe once. `nats_route` is
+`tunnel` or `direct` from the overlay peer's last state, and `null` where that
+state does not tell - a tunnel without a handshake, or one never asked. The
+summary in `GET /probes` carries `managed_over_tunnel`, true while the last
+answer came over the tunnel and is not stale.
+
 `GET /probes/{id}/access-key` answers with `nats_username` and `access_key`
 and takes `credential.read`. It is the only endpoint that returns the value:
 `GET /probes/{id}` reports `access_key_present` and nothing more, and job logs

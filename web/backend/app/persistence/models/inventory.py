@@ -60,6 +60,9 @@ class ProbeRecord(Base, IdMixin, TimestampMixin):
     observed_state: Mapped[ProbeObservedState | None] = relationship(
         back_populates="probe", cascade="all, delete-orphan", uselist=False
     )
+    management_route: Mapped[ProbeManagementRoute | None] = relationship(
+        back_populates="probe", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class ProbeDesiredState(Base, IdMixin, TimestampMixin):
@@ -122,6 +125,32 @@ class ProbeObservedState(Base, IdMixin, TimestampMixin):
     error_details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     probe: Mapped[ProbeRecord] = relationship(back_populates="observed_state")
+
+
+class ProbeManagementRoute(Base, IdMixin, TimestampMixin):
+    """The address a probe last answered management on, and when.
+
+    A cache like the observed state, and kept apart from it: this is written
+    after every successful call, by whichever request made it, while the
+    observed state is a whole probe-info answer that only the refresh writes.
+    Sharing a row would let either one overwrite the other's timestamp.
+    """
+
+    __tablename__ = "probe_management_route"
+
+    probe_id: Mapped[str] = mapped_column(
+        ForeignKey("probe_record.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Decided when the answer arrives, against the overlay address the probe
+    # had then. Deriving it on read would misreport a route once the probe
+    # left the overlay or was given another address on it.
+    over_overlay: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+    probe: Mapped[ProbeRecord] = relationship(back_populates="management_route")
 
 
 class Deployment(Base, IdMixin, TimestampMixin):

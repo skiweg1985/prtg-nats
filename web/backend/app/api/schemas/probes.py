@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -42,6 +42,7 @@ class ProbeSummaryOut(ApiModel):
     helper_version: int | None = None
     helper_outdated: bool = False
     prtg_registered: bool = False
+    managed_over_tunnel: bool = False
 
 
 class SensorStateOut(ApiModel):
@@ -121,6 +122,15 @@ class ObservedStateOut(ApiModel):
     error_details: str | None = None
 
 
+class ManagementRouteOut(ApiModel):
+    """The address management last reached the probe on."""
+
+    host: str
+    via: Literal["tunnel", "site"]
+    observed_at: datetime
+    stale: bool
+
+
 class ProbeDetailOut(ApiModel):
     summary: ProbeSummaryOut
     inventory: ProbeInventoryOut
@@ -131,6 +141,9 @@ class ProbeDetailOut(ApiModel):
     labels: dict[str, str] = Field(default_factory=dict)
     prtg_registered_at: datetime | None = None
     prtg_registered_by: str | None = None
+    management_route: ManagementRouteOut | None = None
+    # None when the overlay peer's last state says nothing either way.
+    nats_route: Literal["tunnel", "direct"] | None = None
 
 
 class ProbeUpdateIn(ApiModel):

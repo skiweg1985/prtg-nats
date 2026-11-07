@@ -410,6 +410,10 @@ managed_ssh_at() {
 # starts where this one succeeded. Only a connection failure moves on to the
 # next route - an exit code from the far side means the route worked and the
 # request did not, and repeating it would run it twice.
+#
+# MANAGED_REQUEST_ANSWERED holds the address that answered afterwards, empty
+# when none did, so a caller can name the route. It survives only a call made
+# in the caller's own shell, not one inside $(...).
 managed_request() {
   local username="$1"
   shift
@@ -418,6 +422,8 @@ managed_request() {
   local answered=""
   local output=""
 
+  # shellcheck disable=SC2034  # read by the caller, see above
+  MANAGED_REQUEST_ANSWERED=""
   while read -r host; do
     [[ -n "${host}" ]] || continue
     status=0
@@ -434,10 +440,28 @@ managed_request() {
   done < <(probe_management_hosts "${username}")
 
   [[ -n "${answered}" ]] || return 255
+  # shellcheck disable=SC2034  # read by the caller, see above
+  MANAGED_REQUEST_ANSWERED="${answered}"
   remember_management_host "${username}" "${answered}"
   [[ "$1" != "probe-info" ]] ||
     adopt_reported_address "${username}" "${answered}" "${output}"
   printf '%s\n' "${output}"
+}
+
+# Which of the probe's routes an address is, for the operator: the overlay
+# address is the tunnel, anything else the probe's address at its site. The
+# web platform names the same two (issue #135).
+describe_management_route() {
+  local username="$1"
+  local host="$2"
+
+  [[ -n "${host}" ]] || return 0
+  if [[ "${host}" == "$(read_optional_env_value \
+    "$(probe_path "${username}")" OVERLAY_ADDRESS)" ]]; then
+    printf 'tunnel (%s)\n' "${host}"
+  else
+    printf 'site address (%s)\n' "${host}"
+  fi
 }
 
 # A probe reached over the overlay says which addresses it holds on its own

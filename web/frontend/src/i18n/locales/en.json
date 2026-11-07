@@ -345,6 +345,16 @@
     },
     "account": {
       "showPassword": "Show password"
+    },
+    "routes": {
+      "management": "Management via",
+      "nats": "NATS via",
+      "tunnel": "Tunnel",
+      "site": "Site address",
+      "direct": "Direct",
+      "unknown": "Unknown",
+      "never": "Not reached yet",
+      "managedOverTunnel": "Management reaches this probe over the tunnel"
     }
   },
   "sensors": {

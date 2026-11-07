@@ -2462,6 +2462,17 @@ request_with moved managed_request mpp-d probe-info >/dev/null 2>&1
 check "a probe reached over the tunnel brings its new address along" \
   "$(grep -c '^SSH_HOST=198.51.100.40$' "${routes_runtime}/probes/mpp-d.env")" \
   "1"
+# probe show names the route that answered (issue #135). managed_request
+# leaves it behind for its caller, which is how show_probe learns it.
+answered_route() {
+  managed_request "$1" probe-info >/dev/null 2>&1
+  describe_management_route "$1" "${MANAGED_REQUEST_ANSWERED}"
+}
+check "the route that answered is named as the tunnel" \
+  "$(request_with moved answered_route mpp-d)" "tunnel (10.99.0.2)"
+check "the route that answered is named as the site address" \
+  "$(request_with overlay-down answered_route mpp-d)" \
+  "site address (198.51.100.40)"
 refused_status=0
 request_with refused managed_request mpp-d status >/dev/null 2>&1 ||
   refused_status=$?

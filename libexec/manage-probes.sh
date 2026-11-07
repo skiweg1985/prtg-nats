@@ -701,6 +701,7 @@ show_probe() {
   local username="$1"
   local inventory=""
   local remote_information=""
+  local answer_file=""
 
   inventory="$(probe_path "${username}")"
   [[ -f "${inventory}" ]] || die "Probe is not enrolled: ${username}"
@@ -714,10 +715,18 @@ show_probe() {
   printf 'Access key:   %s\n' \
     "$(read_optional_env_value "${inventory}" ACCESS_KEY)"
   printf 'Inventory:    %s\n' "${inventory}"
-  if remote_information="$(probe_info "${username}" 2>/dev/null)"; then
+  # Into a file rather than $(...): managed_request reports the route that
+  # answered in a variable, and a command substitution would lose it.
+  answer_file="$(mktemp)"
+  if probe_info "${username}" >"${answer_file}" 2>/dev/null; then
+    remote_information="$(cat -- "${answer_file}")"
+    rm -f -- "${answer_file}"
+    printf 'Answered on:  %s\n' \
+      "$(describe_management_route "${username}" "${MANAGED_REQUEST_ANSWERED}")"
     printf '\nReported by the probe:\n'
     printf '%s\n' "${remote_information}" | sed 's/^/  /'
   else
+    rm -f -- "${answer_file}"
     printf '\nThe restricted management connection is currently unavailable.\n'
   fi
 }
