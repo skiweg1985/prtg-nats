@@ -1,24 +1,19 @@
-import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
-import { useInvitations, useProbes } from '@/api/hooks'
-import type { ApiError } from '@/api/client'
-import type { ProbeSummary } from '@/api/types'
-import { PermissionGate, useAuth } from '@/app/providers'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { ErrorDetails } from '@/components/ui/ErrorDetails'
-import {
-  Badge,
-  Button,
-  Mono,
-  PageHeader,
-} from '@/components/ui/primitives'
-import { ProbeStatusBadge } from '@/components/ui/status'
-import { formatRelative } from '@/utils/format'
+import { useInvitations, useProbes, usePrtgProbeNames } from "@/api/hooks";
+import type { ApiError } from "@/api/client";
+import type { ProbeSummary } from "@/api/types";
+import { PermissionGate, useAuth } from "@/app/providers";
+import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ErrorDetails } from "@/components/ui/ErrorDetails";
+import { Badge, Button, Mono, PageHeader } from "@/components/ui/primitives";
+import { ProbeStatusBadge } from "@/components/ui/status";
+import { formatRelative } from "@/utils/format";
 
-import { DeployDialog } from '../deployments/DeployDialog'
-import { FleetActionBar } from './FleetActions'
+import { DeployDialog } from "../deployments/DeployDialog";
+import { FleetActionBar } from "./FleetActions";
 
 /**
  * The fleet, one row per probe.
@@ -35,24 +30,34 @@ import { FleetActionBar } from './FleetActions'
  * remembered.
  */
 function OpenInvitationsHint() {
-  const { t } = useTranslation()
-  const { can } = useAuth()
-  const { data } = useInvitations(can('probe.create'))
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const { data } = useInvitations(can("probe.create"));
 
-  if (!data || data.length === 0) return null
+  if (!data || data.length === 0) return null;
   return (
     <Link to="/probes/new" className="text-accent text-sm hover:underline">
-      {t('probes.openInvitations', { count: data.length })}
+      {t("probes.openInvitations", { count: data.length })}
     </Link>
-  )
+  );
 }
 
 export function ProbeListPage() {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { data, isLoading, error, refetch } = useProbes()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [deploying, setDeploying] = useState(false)
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { data, isLoading, error, refetch } = useProbes();
+  // Asked beside the list, not with it: a slow PRTG core must not hold up
+  // the fleet. Without a token the answer is empty and the list unchanged.
+  const { data: prtgNames } = usePrtgProbeNames();
+  const prtgNameOf = new Map(
+    (prtgNames?.names ?? []).map((entry) => [entry.nats_username, entry]),
+  );
+  const prtgMissing =
+    prtgNames && ["unreachable", "rejected"].includes(prtgNames.state)
+      ? prtgNames.state
+      : null;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deploying, setDeploying] = useState(false);
   // The two questions this list gets asked that search cannot answer: which
   // probes are due a helper, and which ones drifted. Both are columns already;
   // the filters only save clicking them together by hand.
@@ -61,52 +66,59 @@ export function ProbeListPage() {
   // somebody's behalf - "probes with deviations: 3" is a link now, not a
   // label - and so the filtered list survives a reload and can be sent to a
   // colleague.
-  const [params, setParams] = useSearchParams()
-  const active = new Set(params.getAll('filter'))
-  const onlyHelperOutdated = active.has('helper')
-  const onlyDeviations = active.has('deviations')
-  const [actionError, setActionError] = useState<ApiError | Error | null>(null)
+  const [params, setParams] = useSearchParams();
+  const active = new Set(params.getAll("filter"));
+  const onlyHelperOutdated = active.has("helper");
+  const onlyDeviations = active.has("deviations");
+  const [actionError, setActionError] = useState<ApiError | Error | null>(null);
 
-  function toggleFilter(name: 'helper' | 'deviations') {
-    const next = new Set(active)
-    if (next.has(name)) next.delete(name)
-    else next.add(name)
+  function toggleFilter(name: "helper" | "deviations") {
+    const next = new Set(active);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
     setParams(
-      [...next].map((entry): [string, string] => ['filter', entry]),
+      [...next].map((entry): [string, string] => ["filter", entry]),
       { replace: true },
-    )
+    );
   }
 
-  if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
+  if (error)
+    return <ErrorDetails error={error} onRetry={() => void refetch()} />;
 
   const rows = (data ?? []).filter(
     (row) =>
       (!onlyHelperOutdated || row.helper_outdated) &&
       (!onlyDeviations || row.deviation_count > 0),
-  )
+  );
   // Out of the full list, not out of the filtered one: a probe that was picked
   // before a filter was set is still picked, and the confirmation names it.
-  const selectedProbes = (data ?? []).filter((row) => selected.has(row.id))
-  const filtered = onlyHelperOutdated || onlyDeviations
+  const selectedProbes = (data ?? []).filter((row) => selected.has(row.id));
+  const filtered = onlyHelperOutdated || onlyDeviations;
 
   function clearFilters() {
-    setParams([], { replace: true })
+    setParams([], { replace: true });
   }
 
   // Carried into every row link and handed back by the detail page's own way
   // out. Without it, opening a probe from a filtered, searched list and
   // stepping back lands on the unfiltered fleet with the search box empty.
-  const listSearch = params.toString()
+  const listSearch = params.toString();
 
   const columns: Column<ProbeSummary>[] = [
     {
-      key: 'name',
-      header: t('probes.columns.name'),
+      key: "name",
+      header: t("probes.columns.name"),
       sortValue: (row) => row.display_name ?? row.nats_username,
       searchValue: (row) =>
-        [row.nats_username, row.display_name, row.probe_name, row.host]
+        [
+          row.nats_username,
+          row.display_name,
+          row.probe_name,
+          prtgNameOf.get(row.nats_username)?.name_in_prtg,
+          row.host,
+        ]
           .filter(Boolean)
-          .join(' '),
+          .join(" "),
       cell: (row) => (
         <div className="min-w-0">
           <p
@@ -115,19 +127,26 @@ export function ProbeListPage() {
             // probe announced at enrollment, so it says so on hover.
             title={
               row.display_name == null && row.probe_name != null
-                ? t('probes.enrollmentNameTitle')
+                ? t("probes.enrollmentNameTitle")
                 : undefined
             }
           >
             {row.display_name ?? row.probe_name ?? row.nats_username}
           </p>
+          {prtgNameOf.get(row.nats_username)?.differs && (
+            <p className="text-ink-3 truncate text-xs">
+              {t("probes.prtgName.inList", {
+                name: prtgNameOf.get(row.nats_username)?.name_in_prtg,
+              })}
+            </p>
+          )}
           <span className="flex items-center gap-2">
             <Mono className="text-ink-3">{row.nats_username}</Mono>
             {/* Only the tunnel is marked: the site address is the default
                 route, and marking every probe would mark none. */}
             {row.managed_over_tunnel && (
-              <span title={t('probes.routes.managedOverTunnel')}>
-                <Badge tone="neutral">{t('probes.routes.tunnel')}</Badge>
+              <span title={t("probes.routes.managedOverTunnel")}>
+                <Badge tone="neutral">{t("probes.routes.tunnel")}</Badge>
               </span>
             )}
           </span>
@@ -135,50 +154,54 @@ export function ProbeListPage() {
       ),
     },
     {
-      key: 'host',
-      header: t('probes.columns.host'),
+      key: "host",
+      header: t("probes.columns.host"),
       sortValue: (row) => row.host,
       searchValue: (row) => row.host,
       cell: (row) => <Mono truncate>{row.host}</Mono>,
     },
     {
-      key: 'status',
-      header: t('probes.columns.status'),
+      key: "status",
+      header: t("probes.columns.status"),
       sortValue: (row) => row.status,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <ProbeStatusBadge status={row.status} />
-          {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
+          {row.running_job_id && (
+            <Badge tone="accent">{t("status.job.running")}</Badge>
+          )}
           {/* Beside the status rather than in its own column: it decides
               whether the next job on this probe will run at all. */}
-          {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
+          {row.helper_outdated && (
+            <Badge tone="warn">{t("probes.helperOutdated")}</Badge>
+          )}
           {/* Green here and invisible in PRTG is exactly what the status
               colour hides; a pending probe has an earlier problem. */}
           {!row.prtg_registered &&
-            row.status !== 'pending' &&
-            row.status !== 'enrolled' && (
-              <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>
+            row.status !== "pending" &&
+            row.status !== "enrolled" && (
+              <Badge tone="warn">{t("probes.prtg.missingBadge")}</Badge>
             )}
         </div>
       ),
     },
     {
-      key: 'version',
-      header: t('probes.columns.version'),
-      sortValue: (row) => row.package_version ?? '',
-      cell: (row) => <Mono>{row.package_version ?? '—'}</Mono>,
+      key: "version",
+      header: t("probes.columns.version"),
+      sortValue: (row) => row.package_version ?? "",
+      cell: (row) => <Mono>{row.package_version ?? "—"}</Mono>,
     },
     {
-      key: 'sensors',
-      header: t('probes.columns.sensors'),
-      align: 'right',
+      key: "sensors",
+      header: t("probes.columns.sensors"),
+      align: "right",
       sortValue: (row) => row.sensor_count,
       cell: (row) => <span className="text-sm">{row.sensor_count}</span>,
     },
     {
-      key: 'deviations',
-      header: t('probes.columns.deviations'),
-      align: 'right',
+      key: "deviations",
+      header: t("probes.columns.deviations"),
+      align: "right",
       sortValue: (row) => row.deviation_count,
       cell: (row) =>
         row.deviation_count > 0 ? (
@@ -188,26 +211,30 @@ export function ProbeListPage() {
         ),
     },
     {
-      key: 'observed',
-      header: t('probes.columns.observed'),
-      align: 'right',
-      sortValue: (row) => row.observed_at ?? '',
+      key: "observed",
+      header: t("probes.columns.observed"),
+      align: "right",
+      sortValue: (row) => row.observed_at ?? "",
       cell: (row) => (
         // A cached value is shown as cached. The alternative is a table that
         // looks current and is not, which is the failure this platform exists
         // to prevent.
-        <span className={row.stale ? 'text-ink-3 text-xs' : 'text-ink-2 text-xs'}>
-          {row.observed_at ? formatRelative(row.observed_at) : t('common.never')}
+        <span
+          className={row.stale ? "text-ink-3 text-xs" : "text-ink-2 text-xs"}
+        >
+          {row.observed_at
+            ? formatRelative(row.observed_at)
+            : t("common.never")}
         </span>
       ),
     },
-  ]
+  ];
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title={t('probes.title')}
-        subtitle={t('probes.subtitle')}
+        title={t("probes.title")}
+        subtitle={t("probes.subtitle")}
         action={
           <>
             <OpenInvitationsHint />
@@ -215,9 +242,9 @@ export function ProbeListPage() {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => navigate('/probes/new')}
+                onClick={() => navigate("/probes/new")}
               >
-                {t('probes.enroll.action')}
+                {t("probes.enroll.action")}
               </Button>
             </PermissionGate>
           </>
@@ -229,6 +256,14 @@ export function ProbeListPage() {
           clears itself when the next one starts. */}
       {actionError && <ErrorDetails error={actionError} />}
 
+      {prtgMissing && (
+        <p className="text-ink-3 text-sm">
+          {t("probes.prtgName.listMissing", {
+            reason: t(`probes.prtgName.reasons.${prtgMissing}`),
+          })}
+        </p>
+      )}
+
       <DataTable
         rows={data ? rows : undefined}
         columns={columns}
@@ -237,39 +272,41 @@ export function ProbeListPage() {
         // A filter that matches nothing is not an empty fleet, and telling
         // somebody to enrol their first probe when they have twelve is how an
         // empty state stops being read at all.
-        emptyTitle={filtered ? t('probes.filters.empty') : t('probes.empty')}
-        emptyHint={filtered ? undefined : t('probes.emptyHint')}
+        emptyTitle={filtered ? t("probes.filters.empty") : t("probes.empty")}
+        emptyHint={filtered ? undefined : t("probes.emptyHint")}
         // An empty fleet is where someone is looking for exactly this.
         emptyAction={
           filtered ? (
             <Button variant="secondary" onClick={clearFilters}>
-              {t('common.clearFilters')}
+              {t("common.clearFilters")}
             </Button>
           ) : (
             <PermissionGate permission="probe.create">
-              <Button variant="primary" onClick={() => navigate('/probes/new')}>
-                {t('probes.enroll.action')}
+              <Button variant="primary" onClick={() => navigate("/probes/new")}>
+                {t("probes.enroll.action")}
               </Button>
             </PermissionGate>
           )
         }
-        rowHref={(row) => `/probes/${row.id}${listSearch ? `?${listSearch}` : ''}`}
+        rowHref={(row) =>
+          `/probes/${row.id}${listSearch ? `?${listSearch}` : ""}`
+        }
         searchParamKey="q"
         filters={
           <div className="flex flex-wrap items-center gap-2">
             <FilterToggle
-              label={t('probes.filters.helperOutdated')}
+              label={t("probes.filters.helperOutdated")}
               active={onlyHelperOutdated}
-              onToggle={() => toggleFilter('helper')}
+              onToggle={() => toggleFilter("helper")}
             />
             <FilterToggle
-              label={t('probes.filters.deviations')}
+              label={t("probes.filters.deviations")}
               active={onlyDeviations}
-              onToggle={() => toggleFilter('deviations')}
+              onToggle={() => toggleFilter("deviations")}
             />
             {filtered && (
               <Button size="sm" variant="ghost" onClick={clearFilters}>
-                {t('common.clearFilters')}
+                {t("common.clearFilters")}
               </Button>
             )}
           </div>
@@ -280,8 +317,12 @@ export function ProbeListPage() {
           actions: (
             <>
               <PermissionGate permission="deployment.create">
-                <Button size="sm" variant="primary" onClick={() => setDeploying(true)}>
-                  {t('sensors.deploy')}
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => setDeploying(true)}
+                >
+                  {t("sensors.deploy")}
                 </Button>
               </PermissionGate>
               <FleetActionBar
@@ -299,13 +340,13 @@ export function ProbeListPage() {
           probeIds={[...selected]}
           onClose={() => setDeploying(false)}
           onDone={() => {
-            setDeploying(false)
-            setSelected(new Set())
+            setDeploying(false);
+            setSelected(new Set());
           }}
         />
       )}
     </div>
-  )
+  );
 }
 
 function FilterToggle({
@@ -313,18 +354,18 @@ function FilterToggle({
   active,
   onToggle,
 }: {
-  label: string
-  active: boolean
-  onToggle: () => void
+  label: string;
+  active: boolean;
+  onToggle: () => void;
 }) {
   return (
     <Button
       size="sm"
-      variant={active ? 'primary' : 'ghost'}
+      variant={active ? "primary" : "ghost"}
       aria-pressed={active}
       onClick={onToggle}
     >
       {label}
     </Button>
-  )
+  );
 }

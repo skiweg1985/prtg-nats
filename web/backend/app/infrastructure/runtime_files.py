@@ -111,6 +111,12 @@ class ProbeInventory:
     # nothing is given up by using it. Empty everywhere else, and the site
     # setting is what applies then.
     nats_host_override: str | None = None
+    # Which object in PRTG this probe is, confirmed once by a person. PRTG
+    # exposes no probe GID - not in API v2, not in the classic API - so the
+    # identity this platform knows cannot be looked up there. The object id
+    # is the only stable handle PRTG offers, and the name it currently shows
+    # is read by it.
+    prtg_object_id: str | None = None
 
     @property
     def has_credentials(self) -> bool:
@@ -364,6 +370,7 @@ class RuntimeFileStore:
             overlay_mode=values.get("OVERLAY_MODE") or "off",
             overlay_last_state=values.get("OVERLAY_LAST_STATE") or None,
             nats_host_override=values.get("NATS_HOST_OVERRIDE") or None,
+            prtg_object_id=values.get("PRTG_OBJECT_ID") or None,
         )
 
     def probe_username_for_host(
@@ -523,10 +530,12 @@ class RuntimeFileStore:
 
         write_probe_inventory() rewrites the whole file, and these are written
         by other paths: the overlay peer by its own job, the host override at
-        enrolment. Losing either here would strand the probe behind its own
-        tunnel, or point it at a name its site cannot resolve.
+        enrolment, the PRTG object id when somebody links the probe. Losing
+        the first two would strand the probe behind its own tunnel, or point
+        it at a name its site cannot resolve; losing the link would quietly
+        drop a confirmation a person made.
 
-        A probe that has neither keeps the file it always had, which is what
+        A probe that has none of them keeps the file it always had, which is what
         lets the shell tooling read both without knowing which it is looking
         at.
         """
@@ -536,6 +545,7 @@ class RuntimeFileStore:
             "OVERLAY_MODE",
             "OVERLAY_LAST_STATE",
             "NATS_HOST_OVERRIDE",
+            "PRTG_OBJECT_ID",
         )
         present = {key: values.get(key, "") for key in keys}
         if not any(present.values()):
@@ -575,6 +585,14 @@ class RuntimeFileStore:
         so the name would be a dead end no matter how good the tunnel is.
         """
         self._update_probe_values(nats_username, {"NATS_HOST_OVERRIDE": host})
+
+    def write_probe_prtg_object_id(self, nats_username: str, object_id: str) -> None:
+        """Link this probe to its object in PRTG, or unlink it with "".
+
+        A partial update for the same reason as the overlay peer: the link
+        is all this path knows about.
+        """
+        self._update_probe_values(nats_username, {"PRTG_OBJECT_ID": object_id})
 
     def clear_probe_overlay(self, nats_username: str) -> None:
         self._update_probe_values(

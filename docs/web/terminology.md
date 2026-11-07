@@ -36,6 +36,8 @@ does not settle, settle it here first.
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
 | name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
+| PRTG's number for a probe object | Objekt-Id / PRTG-Objekt-Id | object id / PRTG object id | GID, GUID |
+| connecting a probe to its PRTG object | verknüpfen / Verknüpfung | link | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
@@ -50,6 +52,11 @@ The name PRTG currently shows, once it is read from PRTG, is the **Name in
 PRTG** / **name in PRTG** and sits next to the enrollment name, not in its
 place. The enrollment wizard's „Anderer Name in PRTG" / "Different name in
 PRTG" sets the enrollment name - at that moment the two are the same.
+
+PRTG has no GID to look the probe id up by, so the name in PRTG is read by the
+**Objekt-Id** / **object id**, the number PRTG shows in the probe's address.
+A probe is **verknüpft** / **linked** to its PRTG object once, by a person. A
+difference between the two names is a note, never a warning.
 
 ## Register (German)
 

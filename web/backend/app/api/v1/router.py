@@ -14,6 +14,7 @@ from app.api.v1.routes import (
     jobs,
     overlay,
     probes,
+    prtg,
     sensors,
     system,
     users,
@@ -24,6 +25,8 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(system.router)
 api_router.include_router(probes.router)
+api_router.include_router(prtg.probe_router)
+api_router.include_router(prtg.router)
 api_router.include_router(enrollment.router)
 api_router.include_router(sensors.router)
 api_router.include_router(deployments.router)

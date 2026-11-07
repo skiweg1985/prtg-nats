@@ -105,7 +105,8 @@ describe('the name a probe announced at enrollment', () => {
 
     const label = await screen.findByText('Enrollment name')
     expect(label.closest('div')).toHaveTextContent('berlin-01')
-    expect(screen.queryByText(/name in PRTG/i)).not.toBeInTheDocument()
+    // The name in PRTG has a row of its own (#137); this one never claims it.
+    expect(label.closest('div')).not.toHaveTextContent(/name in PRTG/i)
     expect(screen.getByText(/PRTG may call it something else.*probe id/i)).toBeInTheDocument()
   })
 
@@ -113,8 +114,8 @@ describe('the name a probe announced at enrollment', () => {
     await changeLanguage('de')
     wrap('/probes/P1')
 
-    expect(await screen.findByText('Name bei der Einbindung')).toBeInTheDocument()
-    expect(screen.queryByText(/Name in PRTG/)).not.toBeInTheDocument()
+    const label = await screen.findByText('Name bei der Einbindung')
+    expect(label.closest('div')).not.toHaveTextContent(/Name in PRTG/)
     expect(screen.getByText(/In PRTG kann sie anders heißen.*Probe-Id/)).toBeInTheDocument()
   })
 

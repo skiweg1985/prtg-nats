@@ -43,6 +43,7 @@ import {
 } from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
+import { PrtgNameRow } from '@/features/probes/PrtgName'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -445,6 +446,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 {t('probes.enrollmentNameHint')}
               </span>
             </DetailRow>
+            <PrtgNameRow probeId={summary.id} />
             <DetailRow label={t('probes.probeId')}>
               <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
             </DetailRow>
