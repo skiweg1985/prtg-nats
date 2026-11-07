@@ -92,6 +92,12 @@ which looks the same on screen and leaves the sensor down with *"Could not
 parse input parameter"* — so the message names the character when it finds
 one.
 
+A parameter PRTG refuses for any other reason reads the same way, so the
+message says what is wrong with this one: which parameter it was, and
+either the values it accepts, the kind of value it needs, or the known
+name closest to a misspelt one. What was configured is never repeated
+back, because a parameter line carries passphrases.
+
 ### Examples
 
 WPA2-PSK:

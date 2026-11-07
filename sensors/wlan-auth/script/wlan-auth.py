@@ -22,7 +22,9 @@ Structured after the bundled examples under
 
 # std-lib
 import argparse
+import difflib
 import json
+import re
 import shlex
 import socket
 import sys
@@ -65,18 +67,107 @@ TYPOGRAPHIC_DASHES = {
 }
 
 
-def parse_failure(text: str) -> str:
-    """Why the parameters could not be read, without quoting them."""
-    message = "Could not parse input parameter. Check configured parameters."
+# What argparse puts in front of its complaint. The parameter name is the
+# one part of it the sensor repeats; see parse_failure for why.
+BAD_CHOICE = re.compile(r"argument (--[\w-]+)[^:]*: invalid choice")
+BAD_VALUE = re.compile(r"argument (--[\w-]+)[^:]*: invalid (\w+) value")
+NO_VALUE = re.compile(r"argument (--[\w-]+)[^:]*: expected one argument")
+UNKNOWN_NAME = re.compile(r"unrecognized arguments: (--[\w-]+)")
+# The words argparse uses for the types this sensor converts.
+VALUE_KINDS = {"int": "a whole number"}
+
+
+class RecordingParser(argparse.ArgumentParser):
+    """An argument parser that keeps its complaint instead of printing it.
+
+    argparse writes to stderr and exits, which leaves PRTG with no output
+    at all - it then only reports that it cannot read the result. Holding
+    the text lets the sensor turn it into a channel message.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.complaint = ""
+
+    def error(self, message: str) -> NoReturn:
+        self.complaint = message
+        raise SystemExit(2)
+
+
+def spoken_list(values: list[str]) -> str:
+    """The values as a reader expects them: a, b or c."""
+    if len(values) < 2:
+        return "".join(values)
+    return "%s or %s" % (", ".join(values[:-1]), values[-1])
+
+
+def parameter_choices(parser: argparse.ArgumentParser, name: str) -> list[str]:
+    """The values one parameter accepts, as the parser itself knows them."""
+    # _actions is the only way to the parser's own definitions. Reading
+    # them beats a second table of choices that has to be kept in step.
+    for action in parser._actions:
+        if name in action.option_strings and action.choices:
+            return [str(choice) for choice in action.choices]
+    return []
+
+
+def parameter_names(parser: argparse.ArgumentParser) -> list[str]:
+    """Every parameter name the parser accepts."""
+    names = []
+    for action in parser._actions:
+        names.extend(action.option_strings)
+    return names
+
+
+def parse_failure(text: str, complaint: str = "",
+                  parser: argparse.ArgumentParser | None = None) -> str:
+    """Why the parameters could not be read, without quoting them.
+
+    argparse names the offending value in its own complaint, and a
+    parameter line carries passphrases, so nothing from the input is
+    repeated: the parameter name comes out of the complaint, the values
+    and the suggestion out of the parser.
+    """
+    general = "Could not parse input parameter. Check configured parameters."
+
     named = [name for dash, name in TYPOGRAPHIC_DASHES.items() if dash in text]
     if named:
-        message += (" The parameters contain %s where a parameter name "
-                    "needs two plain hyphens." % named[0])
-    return message
+        # The more precise cause, and one that also explains the unknown
+        # name argparse would otherwise complain about.
+        return (general + " The parameters contain %s where a parameter "
+                "name needs two plain hyphens." % named[0])
+    if not complaint or parser is None:
+        return general
+
+    found = BAD_CHOICE.search(complaint)
+    if found:
+        choices = parameter_choices(parser, found.group(1))
+        if choices:
+            return "%s accepts only %s." % (found.group(1),
+                                            spoken_list(choices))
+    found = BAD_VALUE.search(complaint)
+    if found:
+        kind = VALUE_KINDS.get(found.group(2), "another kind of value")
+        return "%s needs %s." % (found.group(1), kind)
+    found = NO_VALUE.search(complaint)
+    if found:
+        return "%s was given without a value." % found.group(1)
+    found = UNKNOWN_NAME.search(complaint)
+    if found:
+        # The name itself stays unspoken - it is input, and a passphrase
+        # typed in place of a name would be quoted with it. A near miss
+        # among the known names says enough on its own.
+        close = difflib.get_close_matches(found.group(1),
+                                          parameter_names(parser), 1)
+        if close:
+            return ("This sensor has no parameter by one of the names "
+                    "given. Did you mean %s?" % close[0])
+        return "This sensor has no parameter by one of the names given."
+    return general
 
 
 def setup():
-    argparser = argparse.ArgumentParser(
+    argparser = RecordingParser(
         description="The script tests the WLAN authentication of this probe.",
         exit_on_error=False,
     )
@@ -129,21 +220,21 @@ def setup():
             pipestring = sys.stdin.read().rstrip()
             args = argparser.parse_args(shlex.split(pipestring))
 
-    except argparse.ArgumentError:
+    except argparse.ArgumentError as problem:
         # Use helpful message, free of sensitive data.
-        fail(parse_failure(pipestring))
+        fail(parse_failure(pipestring, str(problem), argparser))
     except ValueError:
         # shlex.split fails on an unpaired quotation mark.
         fail(parse_failure(pipestring))
     except SystemExit as termination:
         # exit_on_error only covers conversion failures. On an unknown
-        # parameter, argparse terminates the process itself with code 2 -
-        # PRTG would then get no output at all and only report that it
-        # cannot read the result. Help (code 0) stays untouched so the
+        # parameter or a value outside the choices, argparse goes through
+        # error() - RecordingParser holds that text so the cause survives
+        # into the channel message. Help (code 0) stays untouched so the
         # terminal invocation keeps working.
         if termination.code == 0:
             raise
-        fail(parse_failure(pipestring))
+        fail(parse_failure(pipestring, argparser.complaint, argparser))
     return vars(args)
 
 

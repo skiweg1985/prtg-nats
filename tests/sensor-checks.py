@@ -496,6 +496,45 @@ def check_wlan_auth_output():
     check("the parameters are never quoted back",
           "short" in message, False)
 
+    # A value outside the choices is the other way a parameter line goes
+    # wrong, and it happened here: --stage gateway, left over from a
+    # draft where the ping was a stage of its own. PRTG then shows only
+    # "could not parse", which says nothing about which parameter or
+    # what it would accept. Both come out of the parser, so they stay
+    # right when a choice is added.
+    base = "--ssid Test --auth psk --psk short"
+    completed = run_script(script, base + " --stage gateway\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("a value outside the choices names the parameter",
+          "--stage" in message, True)
+    check("and the values it does accept",
+          "assoc or dhcp" in message, True)
+    check("without repeating the one that was given",
+          "gateway" in message, False)
+    completed = run_script(script, base.replace("psk", "wpa3", 1) + "\n")
+    check("three choices read as a list",
+          "psk, peap or eap-tls" in json.loads(completed.stdout)["message"],
+          True)
+    completed = run_script(script, base + " --timeout abc\n")
+    check("a number that is not one says so",
+          "--timeout needs a whole number."
+          in json.loads(completed.stdout)["message"], True)
+    completed = run_script(script, base + " --max-age\n")
+    check("a parameter without its value says so",
+          "--max-age was given without a value."
+          in json.loads(completed.stdout)["message"], True)
+    completed = run_script(script, base + " --stagee dhcp\n")
+    check("a misspelt name points at the one that was meant",
+          "Did you mean --stage?"
+          in json.loads(completed.stdout)["message"], True)
+    # A passphrase typed where a name belongs is still a passphrase, so
+    # the unknown name itself is never spoken - only a known one.
+    completed = run_script(script, base + " --Sommer2024 1\n")
+    message = json.loads(completed.stdout).get("message", "")
+    check("an unknown name is not quoted back", "Sommer2024" in message, False)
+    check("but the sensor says that is what it is",
+          "no parameter by one of the names given" in message, True)
+
     # An invented helper answer, so the output format is checkable
     # without Wi-Fi. This is what a failed sign-in looks like.
     module.call_helper = lambda job, timeout: {
