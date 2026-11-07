@@ -72,14 +72,18 @@ up, then `SSH_HOST` - and the shell tooling computes it the same way the web
 platform's `management_hosts` already does. One function in `common.sh`, used
 by the nine places that read the field today.
 
-**A reached probe reports where it is.** `probe-info` returns the addresses
-the probe currently holds. Because that answer arrives over a connection
-already authenticated by the pinned host key, it needs no new endpoint, no
-new credential and no inbound path to the platform. The reported address
-replaces the "last reached at" route, under two conditions. The answer has to
-have come over the overlay: an answer over the cached address proves that
-address works, even when the probe reports another - behind NAT it sees its
-private address while the platform reaches the public one. And there has to
+**A reached probe reports where it is.** `probe-info` returns the addresses the
+probe currently holds on its own networks. Two kinds of interface are left out:
+the overlay, whose address the platform assigned itself, and every interface a
+sensor has reserved, as recorded by `sensor-reserve-interface`. A WLAN test can
+hold a transient address on its radio, and reporting it beside the site address
+would turn one candidate into two. Because that answer arrives over a
+connection already authenticated by the pinned host key, it needs no new
+endpoint, no new credential and no inbound path to the platform. The reported
+address replaces the "last reached at" route, under two conditions. The answer
+has to have come over the overlay: an answer over the cached address proves
+that address works, even when the probe reports another - behind NAT it sees
+its private address while the platform reaches the public one. And there has to
 be exactly one candidate; a probe on two site networks gives no way to tell
 which one is reachable from here. The overlay route is never overwritten.
 

@@ -588,11 +588,26 @@ status_probe() {
   printf 'OK active config=%s\n' "${config_path}"
 }
 
+# Every interface some sensor has reserved, one per line, each once. The
+# files written by reserve_sensor_interface are the record; nothing else
+# knows which radio belongs to a test.
+reserved_sensor_interfaces() {
+  local file=""
+
+  shopt -s nullglob
+  for file in "${SENSOR_CONFIG_ROOT}"/*/allowed-interfaces; do
+    grep -v -x -e '' -- "${file}" || true
+  done | sort -u
+  shopt -u nullglob
+}
+
 # The addresses this probe holds on its own networks, comma separated, for
 # the platform to find it at after a DHCP change - see ADR 0011. The overlay
 # interface is left out: its address is assigned by the platform, which
 # already knows it, and reporting it as a site address would make the tunnel
-# look like the probe's own network.
+# look like the probe's own network. Interfaces reserved for sensors are left
+# out too: a test can hold a transient address on its radio, and a second
+# address makes the platform skip the adoption as ambiguous.
 own_addresses() {
   local site_addresses=""
 
@@ -602,9 +617,13 @@ own_addresses() {
   }
   site_addresses="$(
     ip -4 -o address show scope global 2>/dev/null |
-      awk -v overlay="${OVERLAY_INTERFACE}" '$2 != overlay {
-        split($4, address, "/"); print address[1]
-      }' |
+      awk -v overlay="${OVERLAY_INTERFACE}" \
+        -v reserved="$(reserved_sensor_interfaces | paste -sd, -)" '
+        BEGIN { count = split(reserved, names, ",")
+                for (i = 1; i <= count; i++) skip[names[i]] = 1 }
+        $2 != overlay && !($2 in skip) {
+          split($4, address, "/"); print address[1]
+        }' |
       paste -sd, -
   )"
   printf '%s' "${site_addresses:-none}"

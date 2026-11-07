@@ -2468,6 +2468,56 @@ request_with refused managed_request mpp-d status >/dev/null 2>&1 ||
 check "an answer from the far side is not repeated on the next route" \
   "${refused_status}" "3"
 
+# The other half of the rule above: the probe has to report one address when
+# it has one network. A radio reserved for a WLAN sensor can hold a transient
+# address of its own while a test runs, and reporting it beside the site
+# address made the platform skip the adoption as ambiguous. The reservation
+# record the helper keeps itself decides what is left out, so no interface
+# name is assumed here or in the helper.
+reported_addresses() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the sourced code
+    SENSOR_CONFIG_ROOT="${sandbox}/config"
+    # shellcheck disable=SC2034
+    OVERLAY_INTERFACE=prtg-overlay
+    local name=""
+    local interface=""
+    for interface in "$@"; do
+      name="${interface%%:*}"
+      mkdir -p "${SENSOR_CONFIG_ROOT}/${name}"
+      printf '%s\n' "${interface#*:}" \
+        >> "${SENSOR_CONFIG_ROOT}/${name}/allowed-interfaces"
+    done
+
+    # shellcheck disable=SC1090  # a process substitution, not a fixed path
+    source <(sed -n '/^reserved_sensor_interfaces()/,/^}/p
+      /^own_addresses()/,/^}/p' libexec/prtg-nats-probe-helper)
+    # Replaces the real command for the sourced code; called indirectly.
+    # shellcheck disable=SC2329
+    ip() {
+      printf '%s\n' \
+        '2: eth0    inet 198.51.100.50/24 brd 198.51.100.255 scope global eth0' \
+        '3: wlan0    inet 203.0.113.60/32 scope global wlan0' \
+        '4: wlan1    inet 203.0.113.61/24 scope global wlan1' \
+        '5: prtg-overlay    inet 10.99.0.5/24 scope global prtg-overlay'
+    }
+    own_addresses
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "a probe without reservations reports every site address" \
+  "$(reported_addresses)" "198.51.100.50,203.0.113.60,203.0.113.61"
+check "an interface reserved for a sensor is not a site address" \
+  "$(reported_addresses wlan-auth:wlan0)" "198.51.100.50,203.0.113.61"
+check "reservations of several sensors are all left out" \
+  "$(reported_addresses wlan-auth:wlan0 wlan-scan:wlan1)" "198.51.100.50"
+check "a reservation that names an interface twice is left out once" \
+  "$(reported_addresses wlan-auth:wlan0 wlan-scan:wlan0)" \
+  "198.51.100.50,203.0.113.61"
+
 if command -v ssh-keygen >/dev/null 2>&1; then
   routes_key="${routes_runtime}/key"
   ssh-keygen -q -t ed25519 -N '' -f "${routes_key}" >/dev/null
