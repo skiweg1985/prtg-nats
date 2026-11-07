@@ -2,17 +2,14 @@
 
 The transport knows which route answered, the inventory knows what the routes
 are. This is the one place the two meet, so the transport stays free of
-inventories and every place that builds one reaches probes the same way.
+inventories. The transport every caller uses is assembled one layer up, in
+``app.services.management_routes``, because it also records the route in the
+database - and infrastructure does not reach into services.
 """
 
 from __future__ import annotations
 
-from app.core.config import Settings
-from app.infrastructure.probe_helper.client import (
-    AnswerObserver,
-    HelperTarget,
-    SshHelperTransport,
-)
+from app.infrastructure.probe_helper.client import AnswerObserver, HelperTarget
 from app.infrastructure.probe_helper.protocol import (
     HelperCommand,
     HelperRequest,
@@ -20,10 +17,6 @@ from app.infrastructure.probe_helper.protocol import (
     reported_addresses,
 )
 from app.infrastructure.runtime_files import RuntimeFileStore
-from app.services.management_routes import (
-    default_session_factory,
-    management_route_observer,
-)
 
 
 def inventory_route_observer(store: RuntimeFileStore) -> AnswerObserver:
@@ -58,19 +51,3 @@ def both(first: AnswerObserver, second: AnswerObserver) -> AnswerObserver:
             second(connection, answered, request, output)
 
     return observe
-
-
-def management_transport(settings: Settings) -> SshHelperTransport:
-    """The transport every probe call goes through, with the observers wired:
-    the inventory learns a moved probe's address, the database which route
-    answered (issue #135)."""
-    store = RuntimeFileStore(settings)
-    return SshHelperTransport(
-        key_path=settings.ssh_key_path,
-        known_hosts_path=settings.ssh_known_hosts_path,
-        connect_timeout=settings.ssh_connect_timeout_seconds,
-        on_answer=both(
-            inventory_route_observer(store),
-            management_route_observer(store, default_session_factory),
-        ),
-    )

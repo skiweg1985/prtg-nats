@@ -401,7 +401,8 @@ class ManagementRoute:
     host: str
     over_overlay: bool
     observed_at: datetime
-    stale: bool
+    # Only meaningful when read back: a route just observed is current.
+    stale: bool = False
 
 
 NatsRoute = Literal["tunnel", "direct"]

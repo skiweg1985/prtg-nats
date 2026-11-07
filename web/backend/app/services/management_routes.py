@@ -15,9 +15,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.infrastructure.probe_helper.client import AnswerObserver, HelperTarget
+from app.domain.models import ManagementRoute
+from app.infrastructure.probe_helper.client import (
+    AnswerObserver,
+    HelperTarget,
+    SshHelperTransport,
+)
+from app.infrastructure.probe_helper.management_transport import (
+    both,
+    inventory_route_observer,
+)
 from app.infrastructure.probe_helper.protocol import HelperRequest
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.persistence.models.inventory import ProbeManagementRoute, ProbeRecord
@@ -33,12 +43,7 @@ _pending: set[asyncio.Task[None]] = set()
 
 
 async def record_management_route(
-    session: AsyncSession,
-    nats_username: str,
-    host: str,
-    *,
-    over_overlay: bool,
-    at: datetime,
+    session: AsyncSession, nats_username: str, route: ManagementRoute
 ) -> None:
     """Replace the probe's last route with this one."""
     record = await session.scalar(
@@ -49,22 +54,22 @@ async def record_management_route(
         record = ProbeRecord(nats_username=nats_username)
         session.add(record)
         await session.flush()
-    route = await session.scalar(
+    row = await session.scalar(
         select(ProbeManagementRoute).where(ProbeManagementRoute.probe_id == record.id)
     )
-    if route is None:
+    if row is None:
         session.add(
             ProbeManagementRoute(
                 probe_id=record.id,
-                host=host,
-                over_overlay=over_overlay,
-                observed_at=at,
+                host=route.host,
+                over_overlay=route.over_overlay,
+                observed_at=route.observed_at,
             )
         )
         return
-    route.host = host
-    route.over_overlay = over_overlay
-    route.observed_at = at
+    row.host = route.host
+    row.over_overlay = route.over_overlay
+    row.observed_at = route.observed_at
 
 
 def management_route_observer(
@@ -93,9 +98,10 @@ def management_route_observer(
         factory = session_factory()
         if factory is None:
             return
-        task = asyncio.get_running_loop().create_task(
-            _write(factory, username, answered, over_overlay, datetime.now(UTC))
+        route = ManagementRoute(
+            host=answered, over_overlay=over_overlay, observed_at=datetime.now(UTC)
         )
+        task = asyncio.get_running_loop().create_task(_write(factory, username, route))
         _pending.add(task)
         task.add_done_callback(_pending.discard)
 
@@ -103,17 +109,11 @@ def management_route_observer(
 
 
 async def _write(
-    factory: async_sessionmaker[AsyncSession],
-    username: str,
-    host: str,
-    over_overlay: bool,
-    at: datetime,
+    factory: async_sessionmaker[AsyncSession], username: str, route: ManagementRoute
 ) -> None:
     try:
         async with factory() as session:
-            await record_management_route(
-                session, username, host, over_overlay=over_overlay, at=at
-            )
+            await record_management_route(session, username, route)
             await session.commit()
     except IntegrityError:
         # Two answers from the same probe at the same moment, both creating
@@ -122,7 +122,7 @@ async def _write(
     except Exception:
         logger.exception(
             "could not record which route the probe answered on",
-            extra={"probe": username, "host": host},
+            extra={"probe": username, "host": route.host},
         )
 
 
@@ -139,3 +139,22 @@ def default_session_factory() -> async_sessionmaker[AsyncSession] | None:
         return get_session_factory()
     except RuntimeError:
         return None
+
+
+def management_transport(settings: Settings) -> SshHelperTransport:
+    """The transport every probe call goes through, with the observers wired:
+    the inventory learns a moved probe's address, the database which route
+    answered (issue #135).
+
+    Assembled here rather than beside the transport: recording the route needs
+    the database, and the infrastructure layer stays free of services."""
+    store = RuntimeFileStore(settings)
+    return SshHelperTransport(
+        key_path=settings.ssh_key_path,
+        known_hosts_path=settings.ssh_known_hosts_path,
+        connect_timeout=settings.ssh_connect_timeout_seconds,
+        on_answer=both(
+            inventory_route_observer(store),
+            management_route_observer(store, default_session_factory),
+        ),
+    )

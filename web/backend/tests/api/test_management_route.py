@@ -17,6 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.domain.models import ManagementRoute
 from app.infrastructure.probe_helper.client import ProbeConnection
 from app.infrastructure.probe_helper.protocol import HelperCommand, HelperRequest
 from app.infrastructure.runtime_files import RuntimeFileStore
@@ -139,7 +140,9 @@ async def test_an_old_route_is_marked_stale_and_no_longer_marks_the_list(
     )
     async with session_factory() as db:
         await record_management_route(
-            db, PROBE, OVERLAY, over_overlay=True, at=long_ago
+            db,
+            PROBE,
+            ManagementRoute(host=OVERLAY, over_overlay=True, observed_at=long_ago),
         )
         await db.commit()
 

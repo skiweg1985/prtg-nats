@@ -312,9 +312,7 @@ def _interface_state(up: bool | None) -> str:
 
 def _helper_client(settings: Settings) -> ProbeHelperClient:
     from app.infrastructure.probe_helper import ProbeHelperClient
-    from app.infrastructure.probe_helper.management_transport import (
-        management_transport,
-    )
+    from app.services.management_routes import management_transport
 
     return ProbeHelperClient(
         management_transport(settings),
