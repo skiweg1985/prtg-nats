@@ -402,13 +402,15 @@ def work(args: dict[str, Any]):
     # and therefore worse than one that shows.
     stale = age is not None and age > args["max_age"]
 
-    # A round over every network on this radio takes as long as it takes.
-    # Asking for a value fresher than that is a setting no schedule can
-    # meet, so the sensor would go red on its own parameter rather than
-    # on the Wi-Fi - and periodically, which reads like an intermittent
-    # fault. The helper reports the round because only it sees the other
-    # sensors; this is where the setting is judged and named.
-    budget = answer.get("round_budget")
+    # A round over every network on this radio takes as long as it takes,
+    # and the helper measures one network at most once a minute. Asking for
+    # a value fresher than both together is a setting no schedule can meet,
+    # so the sensor would go red on its own parameter rather than on the
+    # Wi-Fi - and periodically, which reads like an intermittent fault. The
+    # helper reports the smallest max_age it can keep because only it sees
+    # the other sensors; a helper from before the floor reports only the
+    # round. This is where the setting is judged and named.
+    budget = answer.get("min_max_age") or answer.get("round_budget")
     sharing = answer.get("job_count") or 1
     unreachable = (not args["measure_now"] and budget is not None
                    and budget > args["max_age"])
