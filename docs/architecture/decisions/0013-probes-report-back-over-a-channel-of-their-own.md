@@ -1,8 +1,8 @@
 ---
 title: Probes report back over a channel of their own
 role: developer
-updated: 2026-11-07
-status: proposed
+updated: 2026-11-08
+status: accepted
 ---
 
 # 13. Probes report back over a channel of their own
