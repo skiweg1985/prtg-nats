@@ -147,6 +147,48 @@ describe('the sensor log page', () => {
     expect(hours).toBeLessThan(24.1)
   })
 
+  it('links the probe of a run to its page', async () => {
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([{ id: 'P1', nats_username: 'mpp-berlin-01' }]),
+      ),
+    )
+    listItems = [record()]
+    wrap('/sensor-logs')
+
+    expect(await screen.findByRole('link', { name: 'mpp-berlin-01' })).toHaveAttribute(
+      'href',
+      '/probes/P1',
+    )
+  })
+
+  it('shows the runs as cards on a phone, without sideways scrolling', async () => {
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia
+    try {
+      listItems = [record()]
+      wrap('/sensor-logs')
+
+      const summary = await screen.findByText('no DHCP lease after 30 s')
+      expect(screen.queryByRole('table')).toBeNull()
+      // One control for the run and none nested in it: the card opens the
+      // run's own page, and the probe is a separate thing to reach.
+      const card = summary.closest('a')
+      expect(card).toHaveAttribute('href', '/sensor-logs/0b6f2a52-0000-4000-8000-000000000001')
+      expect(within(card as HTMLElement).queryByText('mpp-berlin-01')).toBeNull()
+      expect(screen.getByText('mpp-berlin-01')).toBeInTheDocument()
+      expect(screen.getByText('corp-wifi')).toBeInTheDocument()
+    } finally {
+      window.matchMedia = original
+    }
+  })
+
   it('asks the server again for every filter that changes', async () => {
     const user = userEvent.setup()
     server.use(
@@ -211,7 +253,7 @@ describe('the sensor log page', () => {
 
     expect(await screen.findByText(/CTRL-EVENT-EAP-FAILURE/)).toBeInTheDocument()
     expect(screen.getByText('02:00:00:00:00:01')).toBeInTheDocument()
-    expect(screen.getByText('230')).toBeInTheDocument()
+    expect(screen.getByText('230 ms')).toBeInTheDocument()
   })
 
   it('adds a new run from the event stream without reloading', async () => {
@@ -408,14 +450,16 @@ describe('a single run', () => {
     expect(screen.getByText('Access point (BSSID)')).toBeInTheDocument()
     expect(screen.getByText('Authentication')).toBeInTheDocument()
     expect(screen.getByText('Stage timings')).toBeInTheDocument()
-    expect(screen.getByText('Association (ms)')).toBeInTheDocument()
+    expect(screen.getByText('Association')).toBeInTheDocument()
     expect(screen.getByText('wpa_supplicant output')).toBeInTheDocument()
     expect(screen.getByText('Helper events')).toBeInTheDocument()
     expect(screen.getByText('Credential profile')).toBeInTheDocument()
     expect(screen.queryByText('client_mac')).toBeNull()
-    // Numbers through Intl, like everywhere else in the interface.
-    expect(screen.getByText('5,180')).toBeInTheDocument()
-    expect(screen.getByText('2,100')).toBeInTheDocument()
+    // Numbers through Intl, like everywhere else in the interface, and the
+    // unit with the value: a stage past a second is read in seconds.
+    expect(screen.getByText('5,180 MHz')).toBeInTheDocument()
+    expect(screen.getByText('41 ms')).toBeInTheDocument()
+    expect(screen.getByText('2.1 s')).toBeInTheDocument()
   })
 
   it('labels them in German too', async () => {
@@ -425,7 +469,24 @@ describe('a single run', () => {
     expect(await screen.findByText('Client-Adresse')).toBeInTheDocument()
     expect(screen.getByText('Ausgabe von wpa_supplicant')).toBeInTheDocument()
     expect(screen.getByText('Zugangsdaten-Profil')).toBeInTheDocument()
-    expect(screen.getByText('5.180')).toBeInTheDocument()
+    expect(screen.getByText('5.180 MHz')).toBeInTheDocument()
+    expect(screen.getByText('2,1 s')).toBeInTheDocument()
+  })
+
+  it('names the network in its header when only the body carries it', async () => {
+    server.use(
+      http.get('/api/v1/sensor-logs/:id', () =>
+        HttpResponse.json({
+          ...record({ id: 'R9', ssid: null }),
+          body: { ssid: 'corp-wifi' },
+        }),
+      ),
+    )
+    wrap('/sensor-logs/R9')
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'wlan-auth · corp-wifi' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the field names of a sensor it has no labels for', async () => {

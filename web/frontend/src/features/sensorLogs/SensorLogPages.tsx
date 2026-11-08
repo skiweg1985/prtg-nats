@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/primitives'
 import { formatDateTime } from '@/utils/format'
 
-import { RecordBody, ResultBadge, RunTable } from './RunList'
+import { RecordBody, ResultBadge, RunTable, networkOf } from './RunList'
 
 const RANGES: SensorLogRange[] = ['1h', '24h', '7d', '14d']
 const RESULTS: SensorLogResult[] = ['ok', 'error', 'gap']
@@ -104,7 +104,7 @@ export function SensorLogPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('sensorLogs.title')} />
+      <PageHeader title={t('sensorLogs.title')} subtitle={t('sensorLogs.subtitle')} />
 
       <div className="surface-card overflow-hidden">
         <div className="border-rule flex flex-wrap items-center gap-2 border-b px-3 py-2">
@@ -114,7 +114,7 @@ export function SensorLogPage() {
             onChange={(event) => setTerm(event.target.value)}
             placeholder={t('sensorLogs.filters.search')}
             aria-label={t('sensorLogs.filters.search')}
-            className="w-56"
+            className="w-full sm:w-56"
           />
           <Select
             aria-label={t('sensorLogs.filters.range')}
@@ -262,12 +262,15 @@ export function SensorLogRecordPage() {
   if (!data) return null
 
   const probe = probes?.find((entry) => entry.nats_username === data.probe)
+  const network = networkOf(data)
 
   return (
     <div className="space-y-4">
+      {/* The network leads where there is one: on a probe testing four
+          SSIDs, it is what tells two runs of the same sensor apart. */}
       <PageHeader
-        title={`${data.sensor} · ${data.probe}`}
-        subtitle={formatDateTime(data.time)}
+        title={network ? `${data.sensor} · ${network}` : data.sensor}
+        subtitle={`${data.probe} · ${formatDateTime(data.time)}`}
         backTo="/sensor-logs"
         backLabel={t('sensorLogs.title')}
       />
@@ -298,7 +301,7 @@ export function SensorLogRecordPage() {
             <Mono>{data.sensor}</Mono>
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.network')}>
-            <Mono>{data.ssid ?? '—'}</Mono>
+            <Mono>{network ?? '—'}</Mono>
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.time')}>
             {formatDateTime(data.time)}

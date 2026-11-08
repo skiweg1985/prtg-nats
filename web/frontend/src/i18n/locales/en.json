@@ -418,6 +418,7 @@
     "parameters": "Parameters",
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
     "parametersResult": "Parameter line for PRTG",
+    "parametersBuild": "Build the parameter line yourself ({{count}} parameters)",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
     "reference": {
       "recommendedLine": "Recommended start of the parameter line",
@@ -451,7 +452,9 @@
       "confirmDeleteBody": "It is removed from the server and from these probes: {{probes}}. PRTG objects naming it via --profile fail afterwards.",
       "confirmDeleteUnused": "It is not deployed to any probe; only the record on the server is removed."
     },
-    "iperfBadge": "needs an endpoint",
+    "metaInterface": "reserved interface",
+    "metaHelper": "privileged helper",
+    "metaEndpoint": "needs an endpoint",
     "updateOnProbe": "Update",
     "requirements": "Requirements",
     "prtg": {
@@ -1474,6 +1477,7 @@
   },
   "sensorLogs": {
     "title": "Sensor log",
+    "subtitle": "Every sensor run on every probe, with its output",
     "empty": "No runs in this period",
     "emptyFiltered": "No runs match these filters",
     "count": "{{shown}} of {{total}}",
@@ -1528,14 +1532,14 @@
       "dhcpServer": "DHCP server",
       "gateway": "Gateway",
       "gatewayKind": "Gateway source",
-      "frequency": "Frequency (MHz)",
-      "signal": "Signal (dBm)",
+      "frequency": "Frequency",
+      "signal": "Signal strength",
       "timings": "Stage timings",
-      "assocMs": "Association (ms)",
-      "authMs": "Authentication (ms)",
-      "dhcpMs": "DHCP (ms)",
-      "gatewayMs": "Gateway ping (ms)",
-      "totalMs": "Total (ms)",
+      "assocMs": "Association",
+      "authMs": "Authentication",
+      "dhcpMs": "DHCP",
+      "gatewayMs": "Gateway ping",
+      "totalMs": "Total",
       "supplicant": "wpa_supplicant output",
       "dhcp": "DHCP client output",
       "events": "Helper events"
