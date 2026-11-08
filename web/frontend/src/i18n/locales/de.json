@@ -456,7 +456,9 @@
       "confirmTitle": "Probe-Software auf {{probe}} aktualisieren",
       "confirmBody": "Die Probe wechselt von {{current}} auf {{target}}.",
       "confirmBodyLatest": "Die Probe hat {{current}}. Sie installiert die neueste Version, die das Paessler-Repository anbietet, falls es eine neuere gibt.",
-      "restartNote": "Der Probe-Dienst startet dabei neu, und die Messungen pausieren für etwa eine Minute. Prüfe vorher, ob die neue Version zu deinem PRTG-Core passt."
+      "restartNote": "Der Probe-Dienst startet dabei neu, und die Messungen pausieren für etwa eine Minute. Prüfe vorher, ob die neue Version zu deinem PRTG-Core passt.",
+      "finishPending": "Abgebrochenes System-Update zuerst abschließen",
+      "finishPendingHint": "Nur nötig, wenn das Update daran gescheitert ist. Die Probe richtet dabei alle halb installierten Systempakete fertig ein, nicht nur die Probe-Software."
     }
   },
   "sensors": {
@@ -715,7 +717,8 @@
         "channel_service_not_running": "{{probe}}: Der Dienst des Rückkanals läuft noch immer nicht ({{service}})",
         "mpp_upgraded": "{{probe}}: Probe-Software von {{from}} auf {{to}} aktualisiert",
         "mpp_current": "{{probe}}: Probe-Software {{version}} ist bereits die neueste",
-        "mpp_service_down": "{{probe}}: Probe-Software {{version}} ist installiert, der Dienst läuft aber nicht"
+        "mpp_service_down": "{{probe}}: Probe-Software {{version}} ist installiert, der Dienst läuft aber nicht",
+        "packages_finished": "{{probe}}: abgebrochenes System-Update abgeschlossen ({{count}} Pakete)"
       },
       "sensor": {
         "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
@@ -1414,7 +1417,10 @@
       "host_key_mismatch.action": "Kläre über einen vertrauenswürdigen Kanal, ob der Host neu aufgesetzt wurde. Wenn ja, entferne den alten Eintrag und binde ihn erneut ein; wenn nein, brich ab und geh der Sache nach.",
       "host_already_enrolled": "Die Adresse „{{host}}\" ist bereits als „{{probe}}\" angemeldet.",
       "host_already_enrolled.cause": "Der Management-Zugang liegt auf dem Host, nicht im Inventareintrag. Ein zweiter Eintrag würde ihn mitbenutzen, und das Entfernen eines der beiden zöge ihn für beide zurück.",
-      "host_already_enrolled.action": "Binde diesen Host erneut unter „{{probe}}“ ein, wenn du das meintest. Soll er ein anderes Konto bekommen, entferne zuerst „{{probe}}“."
+      "host_already_enrolled.action": "Binde diesen Host erneut unter „{{probe}}“ ein, wenn du das meintest. Soll er ein anderes Konto bekommen, entferne zuerst „{{probe}}“.",
+      "package_operations_pending": "Auf „{{probe}}“ ist ein früheres System-Update nicht fertig geworden ({{count}} Pakete).",
+      "package_operations_pending.cause": "Das System-Update wurde mittendrin abgebrochen. Pakete sind entpackt, aber nicht eingerichtet, und apt verweigert jede weitere Installation, bis das erledigt ist.",
+      "package_operations_pending.action": "Starte „Probe-Software aktualisieren“ auf der Probe-Seite erneut und hake „Abgebrochenes System-Update zuerst abschließen“ an. Oder führe auf der Probe „sudo dpkg --configure -a“ aus."
     },
     "nats": {
       "reload_refused": "NATS hat seine bisherige Konfiguration behalten.",

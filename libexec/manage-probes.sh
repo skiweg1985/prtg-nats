@@ -17,7 +17,7 @@ Usage:
   ./prtg-nats probe configure USER [--probe-name NAME]
   ./prtg-nats probe install-ca USER
   ./prtg-nats probe helper-update USER|--all
-  ./prtg-nats probe mpp-upgrade USER|--all
+  ./prtg-nats probe mpp-upgrade USER|--all [--finish-pending]
   ./prtg-nats probe return-channel USER [--if-missing]
   ./prtg-nats probe adopt USER
   ./prtg-nats probe apply USER
@@ -615,6 +615,7 @@ update_probe_helper() {
 # as the web platform's job does. The probe service restarts on the way.
 upgrade_probe_software() {
   local username="$1"
+  local mode="${2:-}"
   local helper="${SCRIPT_DIR}/prtg-nats-probe-helper"
   local shipped=""
   local reported=""
@@ -629,7 +630,8 @@ upgrade_probe_software() {
   if [[ ! "${reported}" =~ ^[0-9]+$ ]] || ((reported < shipped)); then
     update_probe_helper "${username}" >/dev/null || return
   fi
-  answer="$(printf 'mpp-upgrade\n' | managed_ssh "${username}")" || return
+  answer="$(printf 'mpp-upgrade\t%s\n' "${mode}" | managed_ssh "${username}")" ||
+    return
   printf '%s\n' "${answer#OK mpp-upgraded }"
   # The helper reports both: a service that ran before and does not now is a
   # failed upgrade, whatever the package manager said.
@@ -643,12 +645,13 @@ upgrade_probe_software() {
 # One after another, so the probes do not all stop measuring at once, and one
 # failure does not keep the others on the old package.
 upgrade_software_on_all_probes() {
+  local mode="${1:-}"
   local username=""
   local failures=0
 
   for username in $(enrolled_probes); do
     printf '%s: ' "${username}"
-    if ! upgrade_probe_software "${username}"; then
+    if ! upgrade_probe_software "${username}" "${mode}"; then
       failures=$((failures + 1))
     fi
   done
@@ -1102,12 +1105,19 @@ case "${command_name}" in
     fi
     ;;
   mpp-upgrade)
-    [[ $# -eq 1 ]] || die "Usage: ./prtg-nats probe mpp-upgrade USER|--all"
+    # --finish-pending first completes a system update that stopped halfway;
+    # it touches every half-installed package, so it is never the default.
+    upgrade_mode=""
+    case "$#:${2:-}" in
+      1:) ;;
+      2:--finish-pending) upgrade_mode="finish-pending" ;;
+      *) die "Usage: ./prtg-nats probe mpp-upgrade USER|--all [--finish-pending]" ;;
+    esac
     if [[ "$1" == "--all" ]]; then
-      upgrade_software_on_all_probes
+      upgrade_software_on_all_probes "${upgrade_mode}"
     else
       require_username "$1"
-      upgrade_probe_software "$1"
+      upgrade_probe_software "$1" "${upgrade_mode}"
     fi
     ;;
   return-channel)

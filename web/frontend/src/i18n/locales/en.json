@@ -456,7 +456,9 @@
       "confirmTitle": "Upgrade the probe software on {{probe}}",
       "confirmBody": "The probe moves from {{current}} to {{target}}.",
       "confirmBodyLatest": "The probe has {{current}}. It installs the newest version the Paessler repository offers, if there is a newer one.",
-      "restartNote": "The probe service restarts, and measuring pauses for about a minute. Check beforehand that the new version fits your PRTG core."
+      "restartNote": "The probe service restarts, and measuring pauses for about a minute. Check beforehand that the new version fits your PRTG core.",
+      "finishPending": "Finish the interrupted system update first",
+      "finishPendingHint": "Only needed when the upgrade failed because of it. The probe configures every half-installed system package, not only the probe software."
     }
   },
   "sensors": {
@@ -715,7 +717,8 @@
         "channel_service_not_running": "{{probe}}: the return channel service is still not running ({{service}})",
         "mpp_upgraded": "{{probe}}: probe software upgraded from {{from}} to {{to}}",
         "mpp_current": "{{probe}}: probe software {{version}} is already the newest",
-        "mpp_service_down": "{{probe}}: probe software {{version}} is installed, but its service is not running"
+        "mpp_service_down": "{{probe}}: probe software {{version}} is installed, but its service is not running",
+        "packages_finished": "{{probe}}: interrupted system update finished ({{count}} packages)"
       },
       "sensor": {
         "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
@@ -1414,7 +1417,10 @@
       "host_key_mismatch.action": "Confirm out of band whether the host was rebuilt. If it was, remove the old entry deliberately and enroll again; if it was not, stop and investigate.",
       "host_already_enrolled": "The address \"{{host}}\" is already enrolled as \"{{probe}}\".",
       "host_already_enrolled.cause": "The management access lives on the host, not in an inventory entry. A second entry for the same address would share it, and retiring either one would revoke it for both - leaving a probe that is connected to NATS and unreachable at the same time.",
-      "host_already_enrolled.action": "Enroll this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrollment installs again."
+      "host_already_enrolled.action": "Enroll this host again under \"{{probe}}\" if that is what you meant. To give it a different account, remove \"{{probe}}\" first - that also revokes the management access on the host, which the next enrollment installs again.",
+      "package_operations_pending": "An earlier system update on \"{{probe}}\" did not finish ({{count}} packages).",
+      "package_operations_pending.cause": "The system update stopped halfway. Packages are unpacked but not configured, and apt refuses every further install until that is done.",
+      "package_operations_pending.action": "Start \"Upgrade probe software\" on the probe page again and tick \"Finish the interrupted system update first\". Or run \"sudo dpkg --configure -a\" on the probe."
     },
     "nats": {
       "reload_refused": "NATS kept its previous configuration.",

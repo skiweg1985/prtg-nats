@@ -265,8 +265,10 @@ The summary also carries `package_update`: the newest `prtgmpprobe` version
 any enrolled probe of the same platform reports, installed or offered by its
 package cache, when it is newer than the one this probe has - `null`
 otherwise. Versions are ordered the way dpkg orders them, epoch and `~`
-included; Debian and RPM versions are never compared with each other. `POST /probes/actions/mpp-upgrade` acts on it:
-the job renews an older helper, upgrades the package from the Paessler
+included; Debian and RPM versions are never compared with each other. `POST /probes/actions/mpp-upgrade` acts on it,
+and takes `"finish_pending": true` beside `probe_ids` to complete an
+interrupted system update first - without it, such a probe fails with
+`probe.package_operations_pending`. The job renews an older helper, upgrades the package from the Paessler
 repository, restarts the probe service and fails when the service does not
 come back. A probe already on the newest version is logged as current, not as
 a failure.

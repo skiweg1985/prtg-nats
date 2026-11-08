@@ -242,9 +242,23 @@ export function useUpdateProbe() {
   })
 }
 
-export function useProbeAction(
-  action: 'install-ca' | 'validate' | 'helper-update' | 'mpp-upgrade',
-) {
+/** Upgrade one probe's package, optionally finishing a broken system update. */
+export function useMppUpgrade() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, finishPending }: { id: string; finishPending: boolean }) =>
+      api.post<JobAccepted>('/probes/actions/mpp-upgrade', {
+        probe_ids: [id],
+        finish_pending: finishPending,
+      }),
+    onSuccess: (_, { id }) => {
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+    },
+  })
+}
+
+export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-update') {
   const client = useQueryClient()
   return useMutation({
     // The fleet route with a one-probe selection: the per-probe twins did the
@@ -298,8 +312,20 @@ export type FleetAction =
 export function useFleetAction() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ action, probeIds }: { action: FleetAction; probeIds: string[] }) =>
-      api.post<JobAccepted>(`/probes/actions/${action}`, { probe_ids: probeIds }),
+    mutationFn: ({
+      action,
+      probeIds,
+      options,
+    }: {
+      action: FleetAction
+      probeIds: string[]
+      /** Fields an action takes besides the selection, e.g. finish_pending. */
+      options?: Record<string, boolean>
+    }) =>
+      api.post<JobAccepted>(`/probes/actions/${action}`, {
+        probe_ids: probeIds,
+        ...options,
+      }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['jobs'] })
       void client.invalidateQueries({ queryKey: keys.probes })

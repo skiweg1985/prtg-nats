@@ -17,6 +17,8 @@ from app.domain.enums import JobStatus
 from app.domain.models import newer_package_version
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.probe_helper import CURRENT_HELPER_VERSION, ProbeHelperClient
+from app.infrastructure.probe_helper.client import refusal_error
+from app.infrastructure.probe_helper.protocol import HelperCommand
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.jobs import Job
@@ -281,3 +283,62 @@ async def test_a_probe_on_the_newest_version_is_not_a_failure(
         job = await db.get(Job, job_id)
         assert job is not None
         assert job.status is JobStatus.SUCCESSFUL
+
+
+async def test_an_interrupted_system_update_has_its_own_error(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The interface offers the way out for this one, so it must be told apart
+    from any other refusal."""
+    write_probe_inventory(project_dir, PROBE)
+    await sign_in(client)
+    transport.responses["probe-info"] = probe_info("3.10.0-1")
+    transport.responses["mpp-upgrade"] = refusal_error(
+        PROBE,
+        HelperCommand.MPP_UPGRADE,
+        "ERROR: An earlier system update on this probe did not finish: 31 "
+        "package(s) are unpacked but not configured",
+    )
+
+    job_id = await upgrade(client, settings, transport)
+
+    async with session_factory() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None
+        assert job.status is JobStatus.FAILED
+        assert job.error_code == "probe.package_operations_pending"
+
+
+async def test_finishing_the_system_update_is_asked_for_explicitly(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, PROBE)
+    await sign_in(client)
+    transport.responses["probe-info"] = probe_info("3.10.0-1")
+    transport.responses["mpp-upgrade"] = (
+        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=active "
+        "was=active finished=31\n"
+    )
+    listing = await client.get("/api/v1/probes")
+    probe_id = listing.json()[0]["id"]
+
+    accepted = await client.post(
+        "/api/v1/probes/actions/mpp-upgrade",
+        json={"probe_ids": [probe_id], "finish_pending": True},
+    )
+    assert accepted.status_code == 202, accepted.text
+    await drain(build_runner(settings, transport))
+
+    requests = [
+        request
+        for _, request in transport.calls
+        if request.command is HelperCommand.MPP_UPGRADE
+    ]
+    assert [request.arguments for request in requests] == [("finish-pending",)]

@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=15
+HELPER_VERSION=16
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -4217,7 +4217,41 @@ uninstall_mpp() {
 # The configuration this platform wrote stays as it is (--force-confold).
 #
 # A probe already on the newest version is a finished upgrade, not an error.
+#
+# "finish-pending" first completes a system update that stopped halfway
+# (dpkg --configure -a, then apt-get -f install). Without it such a probe is
+# refused with a message that names the state, because finishing it touches
+# every half-installed package on the host, not only this one.
+pending_package_count() {
+  command -v dpkg >/dev/null 2>&1 || {
+    printf '0\n'
+    return 0
+  }
+  dpkg --audit 2>/dev/null |
+    awk '/^ [^[:space:]]+[[:space:]]/ { count++ } END { print count + 0 }'
+}
+
+finish_pending_packages() {
+  local output=""
+
+  output="$(
+    LC_ALL=C DEBIAN_FRONTEND=noninteractive dpkg --configure -a \
+      --force-confold </dev/null 2>&1
+  )" || die "Could not finish the interrupted system update: $(
+    tail -n 1 <<<"${output}"
+  )"
+  output="$(
+    LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get -f install -y \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confold </dev/null 2>&1
+  )" || die "Could not finish the interrupted system update: $(
+    grep -E '^E:' <<<"${output}" | head -n 1 || tail -n 1 <<<"${output}"
+  )"
+}
+
 upgrade_mpp() {
+  local mode="${1:-}"
+  local finished=0
   local before=""
   local after=""
   local state="upgraded"
@@ -4240,13 +4274,15 @@ upgrade_mpp() {
     # configured, and apt then refuses every install. Finishing it touches
     # far more than this package, so it is named here and left to the
     # operator, the way install-mpp.sh does.
-    if command -v dpkg >/dev/null 2>&1; then
-      pending="$(
-        dpkg --audit 2>/dev/null |
-          awk '/^ [^[:space:]]+[[:space:]]/ { count++ } END { print count + 0 }'
-      )"
+    pending="$(pending_package_count)"
+    if ((pending > 0)); then
+      [[ "${mode}" == "finish-pending" ]] ||
+        die "An earlier system update on this probe did not finish: ${pending} package(s) are unpacked but not configured, and apt refuses every install until that is done. Run \"sudo dpkg --configure -a\" on the probe, or upgrade again with the option to finish it"
+      finish_pending_packages
+      finished="${pending}"
+      pending="$(pending_package_count)"
       ((pending == 0)) ||
-        die "An earlier system update on this probe did not finish: ${pending} package(s) are unpacked but not configured, and apt refuses every install until that is done. Run \"sudo dpkg --configure -a\" on the probe, then upgrade again"
+        die "The interrupted system update is still not finished: ${pending} package(s) remain unconfigured. Run \"sudo dpkg --audit\" on the probe for details"
     fi
     # apt exits 0 when a source cannot be fetched and only prints a warning.
     # Taken at its word, an unreachable mirror would read as "already
@@ -4307,9 +4343,10 @@ upgrade_mpp() {
     done
   fi
 
-  printf 'OK mpp-upgraded from=%s to=%s state=%s service=%s was=%s\n' \
+  printf 'OK mpp-upgraded from=%s to=%s state=%s service=%s was=%s finished=%s\n' \
     "${before}" "${after}" "${state}" "${service_state}" \
-    "$([[ "${was_active}" == "true" ]] && printf active || printf inactive)"
+    "$([[ "${was_active}" == "true" ]] && printf active || printf inactive)" \
+    "${finished}"
 }
 
 # ---------------------------------------------------------------------------
@@ -5016,8 +5053,10 @@ case "${command_name}" in
     uninstall_mpp
     ;;
   mpp-upgrade)
-    [[ -z "${argument_one:-}" ]] || die "mpp-upgrade takes no arguments"
-    upgrade_mpp
+    [[ -z "${argument_one:-}" || "${argument_one}" == "finish-pending" ]] &&
+      [[ -z "${argument_two:-}" ]] ||
+      die "mpp-upgrade takes at most the word finish-pending"
+    upgrade_mpp "${argument_one:-}"
     ;;
   unenroll)
     [[ -z "${argument_one:-}" ]] || die "unenroll takes no arguments"

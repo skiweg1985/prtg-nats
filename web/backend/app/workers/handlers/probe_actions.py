@@ -183,8 +183,17 @@ async def mpp_upgrade_on(context: JobContext, username: str) -> dict[str, Any]:
     info = await ensure_current_helper(context, connection, username, info)
 
     await context.step("upgrade")
-    response = await context.helper.mpp_upgrade(connection)
+    response = await context.helper.mpp_upgrade(
+        connection, finish_pending=bool(context.payload.get("finish_pending"))
+    )
     fields = response.header_fields
+    finished = fields.get("finished", "0")
+    if finished.isdigit() and int(finished) > 0:
+        await context.log(
+            "jobs.probe.packages_finished",
+            level=LogLevel.WARNING,
+            params={"probe": username, "count": finished},
+        )
     after = fields.get("to", "unknown")
     if fields.get("state") == "current":
         await context.log(

@@ -73,7 +73,7 @@ Unchanged, and staying: these need an interactive terminal.
 | `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
 | `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes; `list` and `show` name every management route in the order it is tried, and show the name the probe announced at enrollment - PRTG may call it something else, the probe id identifies it |
 | `probe helper-update USER\|--all` | renew the management helper on the probe; a probe without a return channel certificate gets one, one with a certificate gets its service rewritten |
-| `probe mpp-upgrade USER\|--all` | upgrade the probe package to what the Paessler repository offers; renews an older helper first, restarts the probe service |
+| `probe mpp-upgrade USER\|--all [--finish-pending]` | upgrade the probe package to what the Paessler repository offers; renews an older helper first, restarts the probe service; `--finish-pending` first completes an interrupted system update |
 | `probe return-channel USER [--if-missing]` | issue the probe's return channel certificate and install its service; `--if-missing` keeps a certificate the probe already has |
 | `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
@@ -236,6 +236,12 @@ so measuring pauses for about a minute, and `--all` goes through the probes one
 after another. A probe already on the newest version reports `state=current`.
 Check that the new version fits the PRTG core before upgrading a fleet - which
 is why this is a command and not an unattended upgrade.
+
+A probe whose last system update stopped halfway refuses the upgrade: apt
+installs nothing until the half-installed packages are configured. Add
+`--finish-pending` and the probe runs `dpkg --configure -a` and `apt-get -f
+install` first, then upgrades. That configures every pending package on the
+host, not only the probe software, so it is never the default.
 
 ### Retiring a probe
 

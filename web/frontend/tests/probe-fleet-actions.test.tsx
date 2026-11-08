@@ -236,9 +236,16 @@ describe('acting on a selection of probes', () => {
     expect(within(dialog).getByText(/service restarts/)).toBeInTheDocument()
     expect(posted).toEqual([])
 
+    // Finishing a broken system update is offered, and off until ticked.
+    const finish = within(dialog).getByLabelText(/Finish the interrupted system update/)
+    expect(finish).not.toBeChecked()
+    await user.click(finish)
+
     await user.click(within(dialog).getByRole('button', { name: 'Confirm' }))
     expect(await screen.findByText('job page')).toBeInTheDocument()
-    expect(posted).toEqual([{ url: 'mpp-upgrade', body: { probe_ids: ['P1'] } }])
+    expect(posted).toEqual([
+      { url: 'mpp-upgrade', body: { probe_ids: ['P1'], finish_pending: true } },
+    ])
   })
 
   it('narrows the list to the rows a filter is about', async () => {

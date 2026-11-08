@@ -29,6 +29,7 @@ from app.api.schemas.probes import (
     DesiredStateOut,
     DeviationOut,
     ManagementRouteOut,
+    MppUpgradeIn,
     ObservedStateOut,
     PlannedActionOut,
     ProbeActionIn,
@@ -381,7 +382,7 @@ async def update_helper_on_selected_probes(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def upgrade_mpp_on_selected_probes(
-    payload: ProbeActionIn,
+    payload: MppUpgradeIn,
     probes: ProbeServiceDep,
     jobs: JobServiceDep,
     audit: AuditDep,
@@ -399,6 +400,7 @@ async def upgrade_mpp_on_selected_probes(
         job_type=probe_actions.MPP_UPGRADE_JOB_TYPE,
         steps=probe_actions.MPP_UPGRADE_STEPS,
         action="probe.mpp_upgrade",
+        extra_payload={"finish_pending": payload.finish_pending},
     )
 
 
