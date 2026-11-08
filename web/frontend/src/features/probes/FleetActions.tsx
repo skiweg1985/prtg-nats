@@ -8,6 +8,7 @@ import type { ProbeSummary } from '@/api/types'
 import {
   ArrowUpCircle,
   FileBadge,
+  PackageCheck,
   RefreshCw,
   Settings2,
   ShieldCheck,
@@ -46,6 +47,12 @@ interface Spec {
    * twelve jobs which fail on arrival is worse than no button.
    */
   appliesTo: (probe: ProbeSummary) => boolean
+  /**
+   * Asks first even for a single probe, with this note in the dialog. For an
+   * action that interrupts the probe's measuring, which one click should
+   * not do unannounced.
+   */
+  confirmNoteKey?: string
 }
 
 const SPECS: Spec[] = [
@@ -81,6 +88,16 @@ const SPECS: Spec[] = [
     // management channel cannot reach it - the same test the detail page makes
     // before it enables the button.
     appliesTo: (probe) => probe.helper_version != null,
+  },
+  {
+    action: 'mpp-upgrade',
+    icon: PackageCheck,
+    labelKey: 'probes.mppUpgrade.action',
+    permission: 'probe.update',
+    // Only where the fleet knows of a newer package, and only on a helper the
+    // channel can renew - the upgrade needs a current one.
+    appliesTo: (probe) => probe.package_update != null && probe.helper_version != null,
+    confirmNoteKey: 'probes.mppUpgrade.restartNote',
   },
   {
     action: 'configure',
@@ -144,7 +161,7 @@ export function FleetActionBar({
     // One probe is what the detail page does on a single click, so it happens
     // on a single click here too. More than one is a decision worth showing
     // the targets for first.
-    if (targetsOf(spec).length > 1) setConfirming(spec)
+    if (targetsOf(spec).length > 1 || spec.confirmNoteKey) setConfirming(spec)
     else execute(spec)
   }
 
@@ -184,6 +201,7 @@ export function FleetActionBar({
       {confirming && (
         <ConfirmFleetAction
           label={t(confirming.labelKey)}
+          note={confirming.confirmNoteKey ? t(confirming.confirmNoteKey) : undefined}
           targets={targetsOf(confirming)}
           skipped={probes.length - targetsOf(confirming).length}
           pending={run.isPending}
@@ -197,6 +215,7 @@ export function FleetActionBar({
 
 function ConfirmFleetAction({
   label,
+  note,
   targets,
   skipped,
   pending,
@@ -204,6 +223,7 @@ function ConfirmFleetAction({
   onConfirm,
 }: {
   label: string
+  note?: string
   targets: ProbeSummary[]
   skipped: number
   pending: boolean
@@ -232,6 +252,7 @@ function ConfirmFleetAction({
           </li>
         ))}
       </ul>
+      {note && <p className="text-ink-2 mt-3 text-sm">{note}</p>}
       {skipped > 0 && (
         <p className="text-ink-3 mt-3 text-xs">
           {t('probes.fleet.skipped', { count: skipped })}

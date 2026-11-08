@@ -346,6 +346,30 @@ a probe that reports no helper version at all cannot work - it was enrolled
 before updates were signed and carries no key to verify one against - so it is
 left out of the selection and the confirmation says how many were.
 
+## Upgrade the probe software
+
+The enrollment installs the `prtgmpprobe` version the Paessler repository
+offers on that day and leaves it there, so probes set up at different times
+run different versions. Where any probe in the fleet reports a newer version
+than the one a probe carries, the probe list and the probe's page show it
+beside the version, as "3.11.0-1 available".
+
+"Upgrade probe software" sits in a probe's menu and, for a selection, in the
+bar above the probe list. It always asks first, because the probe service
+restarts and measuring pauses for about a minute. The job renews an older
+helper, refreshes only the Paessler source, upgrades only this package and
+checks afterwards that the service runs again. A selection is upgraded one
+probe after another. From the shell:
+
+```bash
+sudo ./prtg-nats probe mpp-upgrade mpp-probe-01
+```
+
+The fleet comparison makes up for package caches that are days old: a probe
+whose cache has not seen the release yet still shows it once another probe
+has. Check that the new version fits the PRTG core before upgrading many
+probes.
+
 ## Roll out the MPP configuration centrally
 
 The probes' runtime configuration is generated from

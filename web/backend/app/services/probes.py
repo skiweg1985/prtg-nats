@@ -9,6 +9,7 @@ state - and with the last thing the probe said about itself.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,6 +37,7 @@ from app.domain.models import (
     ReturnChannelState,
     WirelessInterface,
     nats_route,
+    newer_package_version,
     parse_probe_info,
     parse_sensor_list,
     parse_wireless_interfaces,
@@ -203,6 +205,7 @@ class ProbeService:
             observed_by_id,
         )
 
+        known_packages = _known_packages(observed_by_id.values())
         summaries: list[ProbeSummary] = []
         for username, inventory in sorted(inventories.items()):
             record = records[username]
@@ -233,6 +236,7 @@ class ProbeService:
                     running_job_id=active_jobs.get(record.id),
                     route=routes.get(record.id),
                     channel=channels.get(record.id),
+                    known_packages=known_packages,
                 )
             )
         return summaries
@@ -313,6 +317,7 @@ class ProbeService:
             running_job_id=active_jobs.get(record.id),
             route=route,
             channel=channel,
+            known_packages=await self._fleet_known_packages(),
         )
         return ProbeDetail(
             record=record,
@@ -650,6 +655,19 @@ class ProbeService:
             error_details=row.error_details,
         )
 
+    async def _fleet_known_packages(self) -> tuple[str, ...]:
+        """Every package version any probe reported, installed or available."""
+        rows = await self._db.scalars(select(ProbeObservedState))
+        return _known_packages(
+            ObservedProbeState.from_document(
+                nats_username="",
+                observed_at=row.observed_at,
+                reachable=row.reachable,
+                document=row.document,
+            )
+            for row in rows
+        )
+
     async def _active_job_ids(self) -> dict[str, str]:
         """Which probes currently have a job holding their lock."""
         rows = await self._db.execute(
@@ -671,6 +689,7 @@ class ProbeService:
         running_job_id: str | None,
         route: ManagementRoute | None = None,
         channel: ReturnChannelState | None = None,
+        known_packages: tuple[str, ...] = (),
     ) -> ProbeSummary:
         # The findings an operator is expected to do something about. The
         # informational ones stay on the probe's own page, where they belong:
@@ -717,6 +736,9 @@ class ProbeService:
             error_code=observed.error_code if observed else None,
             helper_version=observed.helper_version if observed else None,
             helper_outdated=observed.helper_outdated if observed else False,
+            package_update=newer_package_version(
+                observed.package_version if observed else None, known_packages
+            ),
             prtg_registered=record.prtg_registered_at is not None,
             managed_over_tunnel=route is not None
             and route.over_overlay
@@ -725,6 +747,18 @@ class ProbeService:
             channel_certificate_expired=channel is not None
             and channel.certificate_expired,
         )
+
+
+def _known_packages(
+    observations: Iterable[ObservedProbeState | None],
+) -> tuple[str, ...]:
+    return tuple(
+        version
+        for observed in observations
+        if observed is not None
+        for version in (observed.package_version, observed.package_available)
+        if version is not None
+    )
 
 
 def _derive_status(

@@ -17,6 +17,7 @@ Usage:
   ./prtg-nats probe configure USER [--probe-name NAME]
   ./prtg-nats probe install-ca USER
   ./prtg-nats probe helper-update USER|--all
+  ./prtg-nats probe mpp-upgrade USER|--all
   ./prtg-nats probe return-channel USER [--if-missing]
   ./prtg-nats probe adopt USER
   ./prtg-nats probe apply USER
@@ -609,6 +610,45 @@ update_probe_helper() {
       "${username}" "${username}" >&2
 }
 
+# Upgrades the probe package to what the Paessler repository offers. The
+# request arrived with helper version 14, so an older helper is renewed first,
+# as the web platform's job does. The probe service restarts on the way.
+upgrade_probe_software() {
+  local username="$1"
+  local helper="${SCRIPT_DIR}/prtg-nats-probe-helper"
+  local shipped=""
+  local reported=""
+  local answer=""
+
+  shipped="$(sed -n 's/^HELPER_VERSION=\([0-9][0-9]*\)$/\1/p' "${helper}" | head -n 1)"
+  [[ -n "${shipped}" ]] || die "Probe helper declares no version: ${helper}"
+  reported="$(
+    printf 'probe-info\n' | managed_ssh "${username}" |
+      sed -n 's/^helper_version=//p'
+  )" || return
+  if [[ ! "${reported}" =~ ^[0-9]+$ ]] || ((reported < shipped)); then
+    update_probe_helper "${username}" >/dev/null || return
+  fi
+  answer="$(printf 'mpp-upgrade\n' | managed_ssh "${username}")" || return
+  printf '%s\n' "${answer#OK mpp-upgraded }"
+}
+
+# One after another, so the probes do not all stop measuring at once, and one
+# failure does not keep the others on the old package.
+upgrade_software_on_all_probes() {
+  local username=""
+  local failures=0
+
+  for username in $(enrolled_probes); do
+    printf '%s: ' "${username}"
+    if ! upgrade_probe_software "${username}"; then
+      failures=$((failures + 1))
+    fi
+  done
+  [[ "${failures}" -eq 0 ]] ||
+    die "The probe software upgrade failed on ${failures} probe(s)"
+}
+
 # The return channel (ADR 0013): a client certificate issued by the probe CA,
 # and the service that delivers sensor logs with it. The same step the
 # enrollment and helper update jobs run, reached through app.ops rather than
@@ -1052,6 +1092,15 @@ case "${command_name}" in
     else
       require_username "$1"
       update_probe_helper "$1"
+    fi
+    ;;
+  mpp-upgrade)
+    [[ $# -eq 1 ]] || die "Usage: ./prtg-nats probe mpp-upgrade USER|--all"
+    if [[ "$1" == "--all" ]]; then
+      upgrade_software_on_all_probes
+    else
+      require_username "$1"
+      upgrade_probe_software "$1"
     fi
     ;;
   return-channel)

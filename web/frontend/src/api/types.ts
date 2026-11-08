@@ -98,6 +98,7 @@ export interface ProbeSummary {
   error_code: string | null
   helper_version: number | null
   helper_outdated: boolean
+  package_update?: string | null
   prtg_registered: boolean
   managed_over_tunnel: boolean
   channel_silent?: boolean

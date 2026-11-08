@@ -203,6 +203,44 @@ describe('acting on a selection of probes', () => {
     expect(posted).toEqual([{ url: 'helper-update', body: { probe_ids: ['P1'] } }])
   })
 
+  it('shows a newer probe package and asks before upgrading even one probe', async () => {
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          probe({
+            id: 'P1',
+            nats_username: 'mpp-berlin-01',
+            probe_name: 'berlin-01',
+            package_update: '3.11.0-1',
+          }),
+          probe({ id: 'P3', nats_username: 'mpp-munich-01', probe_name: 'munich-01' }),
+        ]),
+      ),
+    )
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('mpp-berlin-01')
+    expect(screen.getAllByText('3.11.0-1 available').length).toBeGreaterThan(0)
+
+    // Nothing to upgrade on munich-01, so the action is not offered for it.
+    await user.click(screen.getByLabelText('munich-01'))
+    expect(screen.queryByRole('button', { name: 'Upgrade probe software' })).toBeNull()
+    await user.click(screen.getByLabelText('munich-01'))
+
+    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByRole('button', { name: 'Upgrade probe software' }))
+    // The probe service restarts, so even a single probe is confirmed first.
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/service restarts/)).toBeInTheDocument()
+    expect(posted).toEqual([])
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    expect(await screen.findByText('job page')).toBeInTheDocument()
+    expect(posted).toEqual([{ url: 'mpp-upgrade', body: { probe_ids: ['P1'] } }])
+  })
+
   it('narrows the list to the rows a filter is about', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()

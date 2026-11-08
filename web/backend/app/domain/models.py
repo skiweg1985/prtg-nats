@@ -7,6 +7,8 @@ and without a probe.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -78,6 +80,9 @@ class ObservedProbeState:
     reachable: bool
     service: ServiceState = ServiceState.UNKNOWN
     package_version: str | None = None
+    # The newest version the probe's package manager would install, from its
+    # local cache. Older helpers do not report it.
+    package_available: str | None = None
     hostname: str | None = None
     ca_sha256: str | None = None
     config_path: str | None = None
@@ -133,6 +138,7 @@ class ObservedProbeState:
         return {
             "service": self.service.value,
             "package_version": self.package_version,
+            "package_available": self.package_available,
             "hostname": self.hostname,
             "ca_sha256": self.ca_sha256,
             "config_path": self.config_path,
@@ -182,6 +188,7 @@ class ObservedProbeState:
             reachable=reachable,
             service=_service_state(document.get("service")),
             package_version=document.get("package_version"),
+            package_available=document.get("package_available"),
             hostname=document.get("hostname"),
             ca_sha256=document.get("ca_sha256"),
             config_path=document.get("config_path"),
@@ -227,6 +234,7 @@ def parse_probe_info(
         reachable=True,
         service=_service_state(response.value("service")),
         package_version=normalise_optional(response.value("package")),
+        package_available=normalise_optional(response.value("package_available")),
         hostname=normalise_optional(response.value("hostname")),
         ca_sha256=normalise_optional(response.value("ca_sha256")),
         config_path=normalise_optional(response.value("config")),
@@ -240,6 +248,38 @@ def parse_probe_info(
         channel_service=normalise_optional(response.value("channel_service")),
         channel_cert_issued=normalise_optional(response.value("channel_cert_issued")),
     )
+
+
+def _package_key(version: str) -> tuple[bool, tuple[int, ...]]:
+    # Debian versions carry a revision ("3.11.0-1"), RPM versions as reported
+    # here do not ("3.11.0"). Comparing the two digit by digit would call every
+    # RHEL probe outdated, so the format is part of the key and only versions
+    # of the same kind are ever compared.
+    return "-" in version, tuple(int(part) for part in re.findall(r"\d+", version))
+
+
+def newer_package_version(
+    installed: str | None, known: Iterable[str | None]
+) -> str | None:
+    """The newest of ``known`` if it is newer than ``installed``, else None.
+
+    ``known`` is what the whole fleet reports, installed and available alike.
+    A probe whose package cache is weeks old still learns about a release
+    once any other probe has seen it.
+    """
+    if installed is None:
+        return None
+    format_installed, key_installed = _package_key(installed)
+    newest: tuple[tuple[int, ...], str] | None = None
+    for version in known:
+        if version is None:
+            continue
+        has_revision, key = _package_key(version)
+        if has_revision != format_installed or key <= key_installed:
+            continue
+        if newest is None or key > newest[0]:
+            newest = (key, version)
+    return newest[1] if newest is not None else None
 
 
 def _helper_version(value: str | None) -> int | None:
@@ -401,6 +441,9 @@ class ProbeSummary:
     # In the row rather than only on the detail page: an operator should see
     # which probes will refuse the next job before starting it.
     helper_outdated: bool = False
+    # A newer probe package than the installed one, as far as the fleet knows,
+    # or None when the probe is current.
+    package_update: str | None = None
     # The operator's tick that the access key was entered in PRTG and the
     # probe approved there. Not part of the status: a probe without it is
     # healthy here and invisible over there, which is exactly why it needs

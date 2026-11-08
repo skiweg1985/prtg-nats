@@ -242,7 +242,9 @@ export function useUpdateProbe() {
   })
 }
 
-export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-update') {
+export function useProbeAction(
+  action: 'install-ca' | 'validate' | 'helper-update' | 'mpp-upgrade',
+) {
   const client = useQueryClient()
   return useMutation({
     // The fleet route with a one-probe selection: the per-probe twins did the
@@ -278,6 +280,7 @@ export type FleetAction =
   | 'validate'
   | 'install-ca'
   | 'helper-update'
+  | 'mpp-upgrade'
   | 'configure'
   | 'reconcile'
 

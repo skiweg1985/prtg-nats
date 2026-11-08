@@ -114,6 +114,12 @@ REGISTRY: dict[str, JobDefinition] = {
         handler=probe_actions.helper_update,
         permission="probe.update",
     ),
+    probe_actions.MPP_UPGRADE_JOB_TYPE: JobDefinition(
+        type=probe_actions.MPP_UPGRADE_JOB_TYPE,
+        steps=probe_actions.MPP_UPGRADE_STEPS,
+        handler=probe_actions.mpp_upgrade,
+        permission="probe.update",
+    ),
     channel_repair.JOB_TYPE: JobDefinition(
         type=channel_repair.JOB_TYPE,
         steps=channel_repair.STEPS,

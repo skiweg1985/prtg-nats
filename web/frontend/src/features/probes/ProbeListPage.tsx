@@ -22,6 +22,7 @@ import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { FleetActionBar } from './FleetActions'
+import { PackageUpdateBadge } from './PackageUpdateBadge'
 import { probeName } from './probeName'
 
 /**
@@ -230,7 +231,10 @@ export function ProbeListPage() {
       header: t('probes.columns.version'),
       sortValue: (row) => row.package_version ?? '',
       cell: (row) => (
-        <Mono className="whitespace-nowrap">{row.package_version ?? '—'}</Mono>
+        <span className="flex flex-wrap items-center gap-2">
+          <Mono className="whitespace-nowrap">{row.package_version ?? '—'}</Mono>
+          <PackageUpdateBadge version={row.package_update} />
+        </span>
       ),
     },
     {
@@ -344,6 +348,7 @@ export function ProbeListPage() {
             <div className="text-ink-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               <Mono truncate>{row.host}</Mono>
               {row.package_version && <Mono>{row.package_version}</Mono>}
+              <PackageUpdateBadge version={row.package_update} />
               <span>
                 {t('probes.columns.sensors')} {row.sensor_count}
               </span>
