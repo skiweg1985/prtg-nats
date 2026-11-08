@@ -431,3 +431,53 @@ async def test_cleanup_removes_day_files_older_than_the_retention(
     assert [item["id"] for item in listed.json()["items"]] == [kept]
     remaining = list((settings.sensor_log_dir / PROBE).rglob("*.jsonl"))
     assert len(remaining) == 1
+
+
+async def test_the_streams_fold_runs_that_ended_the_same_way(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # A network checked every minute: OK, one failure, OK again - and a
+    # second network beside it. The failure must stay its own line.
+    def run(n: int, result: str, ssid: str = "Example-Corp") -> dict[str, Any]:
+        return record(
+            f"55555555-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T10:{n:02d}:00Z",
+            result=result,
+            ssid=ssid,
+        )
+
+    batch = [run(n, "ok") for n in range(0, 10)]
+    batch.append(run(10, "error"))
+    batch += [run(n, "ok") for n in range(11, 30)]
+    batch.append(run(40, "ok", ssid="Example-Guest"))
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs/streams", params={**DAY, "probe": PROBE}
+    )
+    assert response.status_code == 200, response.text
+    streams = response.json()
+    assert [(s["sensor"], s["ssid"]) for s in streams] == [
+        ("wlan-auth", "Example-Corp"),
+        ("wlan-auth", "Example-Guest"),
+    ]
+    corp = streams[0]
+    assert corp["total"] == 30
+    assert corp["results"] == {"ok": 29, "error": 1}
+    assert [(s["result"], s["count"]) for s in corp["segments"]] == [
+        ("ok", 19),
+        ("error", 1),
+        ("ok", 10),
+    ]
+    newest = corp["segments"][0]
+    assert newest["first"]["time"].startswith("2025-03-08T10:11")
+    assert newest["last"]["time"].startswith("2025-03-08T10:29")
+    assert corp["more_segments"] == 0
+
+    capped = await client.get(
+        "/api/v1/sensor-logs/streams",
+        params={**DAY, "probe": PROBE, "segments": 2},
+    )
+    assert [s["count"] for s in capped.json()[0]["segments"]] == [19, 1]
+    assert capped.json()[0]["more_segments"] == 1

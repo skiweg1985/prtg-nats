@@ -27,6 +27,17 @@ export function formatTime(value: string | null | undefined): string {
   }).format(new Date(value))
 }
 
+/**
+ * The end of a span that started at `from`: the time alone on the same day,
+ * the date as well once it crosses midnight.
+ */
+export function formatSpanEnd(from: string, to: string): string {
+  const start = new Date(from)
+  const end = new Date(to)
+  if (start.toDateString() !== end.toDateString()) return formatDateTime(to)
+  return new Intl.DateTimeFormat(locale(), { timeStyle: 'short' }).format(end)
+}
+
 /** "3 minutes ago". Falls back to an absolute date beyond a week. */
 export function formatRelative(value: string | null | undefined): string {
   if (!value) return '—'

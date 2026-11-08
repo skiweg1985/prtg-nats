@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -58,6 +59,34 @@ class SensorLogFilter:
 class SensorLogPage:
     items: list[dict[str, Any]]
     total: int
+
+
+@dataclass(frozen=True, slots=True)
+class SensorLogSegment:
+    """Consecutive runs of one stream that ended the same way.
+
+    Same result and same code: an error that changes its code is a different
+    problem, and folding it into the one before would hide that.
+    """
+
+    result: str
+    code: str | None
+    count: int
+    first: dict[str, Any]
+    last: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class SensorLogStream:
+    """The runs of one sensor for one network, folded into segments."""
+
+    sensor: str
+    ssid: str | None
+    total: int
+    results: dict[str, int]
+    segments: list[SensorLogSegment]
+    # Older segments past the ones returned; reachable in the full log.
+    more_segments: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +232,60 @@ class SensorLogStore:
         matches.sort(key=lambda item: (item[0], str(item[1].get("id"))), reverse=True)
         page = [summary_of(entry) for _, entry in matches[offset : offset + limit]]
         return SensorLogPage(items=page, total=len(matches))
+
+    def streams(
+        self, filters: SensorLogFilter, *, segments: int
+    ) -> list[SensorLogStream]:
+        """Every sensor and network in the window, newest segment first.
+
+        A sensor that runs every minute produced over a thousand rows a day,
+        and listing them buried the one failure in between. Folding runs that
+        ended the same way keeps the failure as its own line and costs a
+        steady stream one line. Folded here rather than in the browser so the
+        page does not have to download a day of runs to show a dozen lines.
+        """
+        page = self.query(filters, limit=sys.maxsize)
+        grouped: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
+        for item in page.items:
+            key = (str(item.get("sensor")), item.get("ssid"))
+            grouped.setdefault(key, []).append(item)
+
+        out: list[SensorLogStream] = []
+        for (sensor, ssid), items in grouped.items():
+            folded: list[SensorLogSegment] = []
+            results: dict[str, int] = {}
+            for item in items:
+                result = str(item.get("result"))
+                code = item.get("code")
+                results[result] = results.get(result, 0) + 1
+                current = folded[-1] if folded else None
+                if current and current.result == result and current.code == code:
+                    # Newest first, so each further run is an older one.
+                    folded[-1] = SensorLogSegment(
+                        result=result,
+                        code=code,
+                        count=current.count + 1,
+                        first=item,
+                        last=current.last,
+                    )
+                else:
+                    folded.append(
+                        SensorLogSegment(
+                            result=result, code=code, count=1, first=item, last=item
+                        )
+                    )
+            out.append(
+                SensorLogStream(
+                    sensor=sensor,
+                    ssid=ssid,
+                    total=len(items),
+                    results=results,
+                    segments=folded[:segments],
+                    more_segments=max(len(folded) - segments, 0),
+                )
+            )
+        out.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
+        return out
 
     def get(self, record_id: str) -> dict[str, Any] | None:
         """One record by ID, wherever it is.

@@ -81,3 +81,22 @@ class SensorLogPageOut(ApiModel):
     total: int
     limit: int
     offset: int
+
+
+class SensorLogSegmentOut(ApiModel):
+    """Runs in a row that ended the same way; ``first`` is the oldest."""
+
+    result: RecordResult
+    code: str | None = None
+    count: int
+    first: SensorLogSummaryOut
+    last: SensorLogSummaryOut
+
+
+class SensorLogStreamOut(ApiModel):
+    sensor: str
+    ssid: str | None = None
+    total: int
+    results: dict[str, int]
+    segments: list[SensorLogSegmentOut]
+    more_segments: int

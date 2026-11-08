@@ -1594,8 +1594,7 @@
     "subtitle": "Jeder Lauf der Sensoren auf allen Probes, mit seiner Ausgabe",
     "empty": "Keine Läufe in diesem Zeitraum",
     "emptyFiltered": "Keine Läufe passen zu diesen Filtern",
-    "count": "{{shown}} von {{total}}",
-    "loadMore": "Weitere laden",
+    "count": "{{from}}–{{to}} von {{total}}",
     "noBody": "Dieser Lauf hat keine Ausgabe",
     "output": "Ausgabe",
     "all": "Alle im Sensor-Log anzeigen",
@@ -1707,6 +1706,20 @@
       "supplicant": "Ausgabe von wpa_supplicant",
       "dhcp": "Ausgabe des DHCP-Clients",
       "events": "Ereignisse des Helpers"
-    }
+    },
+    "streams": {
+      "runs_one": "1 Lauf",
+      "runs_other": "{{count}} Läufe",
+      "failed_one": "1 fehlgeschlagen",
+      "failed_other": "{{count}} fehlgeschlagen",
+      "since": "seit {{time}}",
+      "span": "{{from}} bis {{to}}",
+      "all_one": "Im Sensor-Log anzeigen",
+      "all_other": "Alle {{count}} im Sensor-Log anzeigen"
+    },
+    "pagination": "Seiten",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "page": "Seite {{page}} von {{pages}}"
   }
 }

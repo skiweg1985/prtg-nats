@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import {
   useSensorLog,
@@ -21,7 +22,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useProbeNames } from '@/features/probes/probeName'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatNumber } from '@/utils/format'
 
 import { RecordBody, ResultBadge, RunTable, networkOf, useCodeLabel } from './RunList'
 
@@ -29,9 +30,12 @@ const RANGES: SensorLogRange[] = ['1h', '24h', '7d', '14d']
 const RESULTS: SensorLogResult[] = ['ok', 'error', 'gap']
 const DEFAULT_RANGE: SensorLogRange = '24h'
 
-/** One page of runs, and how far "load more" may take it - the API's cap. */
+/**
+ * One page of runs. Paged rather than loaded on and on: a sensor that runs
+ * every minute writes over a thousand runs a day, more than "load more" up
+ * to the API's cap of 500 could ever reach.
+ */
 const PAGE_SIZE = 100
-const MAX_LIMIT = 500
 
 // Typing a search term should not send a request per keystroke.
 const SEARCH_DELAY_MS = 300
@@ -59,8 +63,11 @@ export function SensorLogPage() {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
   const filters = filtersFrom(params)
-  const [limit, setLimit] = useState(PAGE_SIZE)
-  const { data, isLoading, error, refetch } = useSensorLogs(filters, limit)
+  // In the address with the filters, so a page can be reloaded and sent on.
+  const page = Math.max(1, Number.parseInt(params.get('page') ?? '1', 10) || 1)
+  const offset = (page - 1) * PAGE_SIZE
+  const listTop = useRef<HTMLDivElement>(null)
+  const { data, isLoading, error, refetch } = useSensorLogs(filters, PAGE_SIZE, offset)
   const { probes, nameOf } = useProbeNames()
   const { data: sensors } = useSensors()
   useSensorLogStream()
@@ -72,8 +79,18 @@ export function SensorLogPage() {
     // The default range is no filter, so it stays out of the address.
     if (value && !(key === 'range' && value === DEFAULT_RANGE)) next.set(key, value)
     else next.delete(key)
+    // Other filters, other runs: page 3 of the old list means nothing here.
+    next.delete('page')
     setParams(next, { replace: true })
-    setLimit(PAGE_SIZE)
+  }
+
+  function goTo(target: number) {
+    const next = new URLSearchParams(params)
+    if (target > 1) next.set('page', String(target))
+    else next.delete('page')
+    setParams(next)
+    // The buttons sit under the list; the next page starts at its top.
+    listTop.current?.scrollIntoView?.({ block: 'start' })
   }
 
   useEffect(() => {
@@ -96,17 +113,17 @@ export function SensorLogPage() {
   function clearFilters() {
     setTerm('')
     setParams(new URLSearchParams(), { replace: true })
-    setLimit(PAGE_SIZE)
   }
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="space-y-4">
       <PageHeader title={t('sensorLogs.title')} subtitle={t('sensorLogs.subtitle')} />
 
-      <div className="surface-card overflow-hidden">
+      <div ref={listTop} className="surface-card scroll-mt-4 overflow-hidden">
         <div className="border-rule flex flex-wrap items-center gap-2 border-b px-3 py-2">
           <Input
             type="search"
@@ -179,7 +196,13 @@ export function SensorLogPage() {
             onCommit={(value) => setFilter('ssid', value)}
           />
           <span className="text-ink-3 ml-auto text-xs">
-            {t('sensorLogs.count', { shown: items.length, total })}
+            {items.length === 0
+              ? t('sensorLogs.count', { from: 0, to: 0, total: formatNumber(total) })
+              : t('sensorLogs.count', {
+                  from: formatNumber(offset + 1),
+                  to: formatNumber(offset + items.length),
+                  total: formatNumber(total),
+                })}
           </span>
         </div>
 
@@ -207,16 +230,33 @@ export function SensorLogPage() {
           />
         )}
 
-        {items.length < total && limit < MAX_LIMIT && (
-          <div className="border-rule flex justify-center border-t px-3 py-2">
+        {pages > 1 && (
+          <nav
+            aria-label={t('sensorLogs.pagination')}
+            className="border-rule flex items-center justify-between gap-3 border-t px-3 py-2"
+          >
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setLimit(Math.min(limit + PAGE_SIZE, MAX_LIMIT))}
+              icon={ChevronLeft}
+              disabled={page <= 1}
+              onClick={() => goTo(page - 1)}
             >
-              {t('sensorLogs.loadMore')}
+              {t('sensorLogs.previous')}
             </Button>
-          </div>
+            <span className="text-ink-2 text-xs tabular-nums">
+              {t('sensorLogs.page', { page: Math.min(page, pages), pages })}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={page >= pages}
+              onClick={() => goTo(page + 1)}
+            >
+              {t('sensorLogs.next')}
+              <ChevronRight aria-hidden size={14} />
+            </Button>
+          </nav>
         )}
       </div>
     </div>

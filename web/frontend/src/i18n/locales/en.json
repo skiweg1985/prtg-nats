@@ -1594,8 +1594,7 @@
     "subtitle": "Every sensor run on every probe, with its output",
     "empty": "No runs in this period",
     "emptyFiltered": "No runs match these filters",
-    "count": "{{shown}} of {{total}}",
-    "loadMore": "Load more",
+    "count": "{{from}}–{{to}} of {{total}}",
     "noBody": "This run carries no output",
     "output": "Output",
     "all": "Show all in the sensor log",
@@ -1707,6 +1706,20 @@
       "supplicant": "wpa_supplicant output",
       "dhcp": "DHCP client output",
       "events": "Helper events"
-    }
+    },
+    "streams": {
+      "runs_one": "1 run",
+      "runs_other": "{{count}} runs",
+      "failed_one": "1 failed",
+      "failed_other": "{{count}} failed",
+      "since": "since {{time}}",
+      "span": "{{from}} to {{to}}",
+      "all_one": "Show in the sensor log",
+      "all_other": "Show all {{count}} in the sensor log"
+    },
+    "pagination": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}} of {{pages}}"
   }
 }
