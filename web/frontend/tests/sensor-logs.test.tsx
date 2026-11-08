@@ -162,6 +162,34 @@ describe('the sensor log page', () => {
     )
   })
 
+  it('names the probe the way the fleet list does, in the column and the filter', async () => {
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          {
+            id: 'P1',
+            nats_username: 'mpp-berlin-01',
+            display_name: 'Berlin office',
+            probe_name: 'berlin-01',
+          },
+        ]),
+      ),
+    )
+    listItems = [record()]
+    const user = userEvent.setup()
+    wrap('/sensor-logs')
+
+    expect(await screen.findByRole('link', { name: 'Berlin office' })).toHaveAttribute(
+      'href',
+      '/probes/P1',
+    )
+    // Chosen by name, filtered by the account the records carry.
+    const filter = screen.getByRole('combobox', { name: 'Probe' })
+    await screen.findByRole('option', { name: 'Berlin office' })
+    await user.selectOptions(filter, 'Berlin office')
+    await waitFor(() => expect(lastRequest().get('probe')).toBe('mpp-berlin-01'))
+  })
+
   it('shows the runs as cards on a phone, without sideways scrolling', async () => {
     const original = window.matchMedia
     window.matchMedia = ((query: string) => ({
@@ -487,6 +515,43 @@ describe('a single run', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'wlan-auth · corp-wifi' }),
     ).toBeInTheDocument()
+  })
+
+  it('puts the result code, the stage and the probe in words, and drops empty output', async () => {
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          {
+            id: 'P1',
+            nats_username: 'mpp-berlin-01',
+            display_name: 'Berlin office',
+            probe_name: 'berlin-01',
+          },
+        ]),
+      ),
+      http.get('/api/v1/sensor-logs/:id', () =>
+        HttpResponse.json({
+          ...record({ id: 'R10', code: 'dhcp-timeout' }),
+          body: {
+            ssid: 'corp-wifi',
+            stage: 'dhcp',
+            timings: {},
+            supplicant: ['+0.500s wlan0: CTRL-EVENT-CONNECTED'],
+            dhcp: [],
+          },
+        }),
+      ),
+    )
+    wrap('/sensor-logs/R10')
+
+    expect(await screen.findByText('No DHCP answer')).toBeInTheDocument()
+    // The raw code stays beside the words, for searching and the sensor docs.
+    expect(screen.getByText('dhcp-timeout')).toBeInTheDocument()
+    expect(screen.getByText('Through DHCP')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Berlin office' })).toBeInTheDocument()
+    expect(screen.getByText('wpa_supplicant output')).toBeInTheDocument()
+    expect(screen.queryByText('DHCP client output')).not.toBeInTheDocument()
+    expect(screen.queryByText('Stage timings')).not.toBeInTheDocument()
   })
 
   it('keeps the field names of a sensor it has no labels for', async () => {

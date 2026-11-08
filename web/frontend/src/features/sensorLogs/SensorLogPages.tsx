@@ -3,7 +3,6 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
-  useProbes,
   useSensorLog,
   useSensorLogStream,
   useSensorLogs,
@@ -21,9 +20,10 @@ import {
   Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { useProbeNames } from '@/features/probes/probeName'
 import { formatDateTime } from '@/utils/format'
 
-import { RecordBody, ResultBadge, RunTable, networkOf } from './RunList'
+import { RecordBody, ResultBadge, RunTable, networkOf, useCodeLabel } from './RunList'
 
 const RANGES: SensorLogRange[] = ['1h', '24h', '7d', '14d']
 const RESULTS: SensorLogResult[] = ['ok', 'error', 'gap']
@@ -61,7 +61,7 @@ export function SensorLogPage() {
   const filters = filtersFrom(params)
   const [limit, setLimit] = useState(PAGE_SIZE)
   const { data, isLoading, error, refetch } = useSensorLogs(filters, limit)
-  const { data: probes } = useProbes()
+  const { probes, nameOf } = useProbeNames()
   const { data: sensors } = useSensors()
   useSensorLogStream()
 
@@ -145,14 +145,19 @@ export function SensorLogPage() {
             onChange={(event) => setFilter('probe', event.target.value)}
           >
             <option value="">{t('sensorLogs.filters.anyProbe')}</option>
+            {/* Chosen by the name the fleet shows; the address keeps the
+                account, because that is what the records carry. */}
             {withCurrent(
-              (probes ?? []).map((probe) => probe.nats_username),
+              probes.map((probe) => probe.nats_username),
               filters.probe,
-            ).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
+            )
+              .map((account) => ({ account, name: nameOf(account) }))
+              .sort((left, right) => left.name.localeCompare(right.name))
+              .map(({ account, name }) => (
+                <option key={account} value={account}>
+                  {name}
+                </option>
+              ))}
           </Select>
           <Select
             aria-label={t('sensorLogs.filters.sensor')}
@@ -255,13 +260,15 @@ export function SensorLogRecordPage() {
   const { t } = useTranslation()
   const { recordId } = useParams<{ recordId: string }>()
   const { data, isLoading, error, refetch } = useSensorLog(recordId)
-  const { data: probes } = useProbes()
+  const { probeOf, nameOf } = useProbeNames()
+  const codeLabel = useCodeLabel()
 
   if (isLoading) return <Skeleton className="h-64" />
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
   if (!data) return null
 
-  const probe = probes?.find((entry) => entry.nats_username === data.probe)
+  const probe = probeOf(data.probe)
+  const probeLabel = nameOf(data.probe)
   const network = networkOf(data)
 
   return (
@@ -270,7 +277,7 @@ export function SensorLogRecordPage() {
           SSIDs, it is what tells two runs of the same sensor apart. */}
       <PageHeader
         title={network ? `${data.sensor} · ${network}` : data.sensor}
-        subtitle={`${data.probe} · ${formatDateTime(data.time)}`}
+        subtitle={`${probeLabel} · ${formatDateTime(data.time)}`}
         backTo="/sensor-logs"
         backLabel={t('sensorLogs.title')}
       />
@@ -283,7 +290,14 @@ export function SensorLogRecordPage() {
             {data.summary || '—'}
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.code')}>
-            <Mono>{data.code ?? '—'}</Mono>
+            {data.code ? (
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                {codeLabel(data.sensor, data.code)}
+                <Mono className="text-ink-3">{data.code}</Mono>
+              </span>
+            ) : (
+              '—'
+            )}
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.probe')}>
             {probe ? (
@@ -291,7 +305,7 @@ export function SensorLogRecordPage() {
                 to={`/probes/${probe.id}?tab=sensors`}
                 className="text-accent hover:underline"
               >
-                <Mono>{data.probe}</Mono>
+                {probeLabel}
               </Link>
             ) : (
               <Mono>{data.probe}</Mono>

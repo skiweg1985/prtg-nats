@@ -26,6 +26,7 @@ does not settle, settle it here first.
 | sensor config bundle | Variante | variant | Profil (for this sense) |
 | credential bundle (iperf, wlan-auth run field `profile`) | Zugangsdaten(-Profil) | credentials / credential profile | Profil (bare) |
 | iperf target | Messpunkt | iperf endpoint / endpoint | Endpunkt, Endpoint (DE), Gegenstelle, counterpart |
+| iperf target not run by this platform | externer Messpunkt / eintragen | external endpoint / add | Fremder Messpunkt, registrieren, foreign endpoint |
 | NATS monitoring URL | Adresse / Monitoring-Adresse | address | Endpunkt/endpoint for this sense |
 | WireGuard dial-in | Hub-Adresse / Endpoint des Overlays | hub address | — |
 | shipping a sensor | ausrollen (Verb), Rollout (Substantiv) | deploy / deployment | Ausrollvorgang, verteilen |
@@ -35,19 +36,25 @@ does not settle, settle it here first.
 | job step log | Verlauf / Protokoll (job page only) | log | — |
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
-| PRTG's server | PRTG-Core | PRTG core | PRTG Core (DE, without hyphen) |
+| PRTG's server | PRTG-Core | PRTG core | PRTG Core (DE, without hyphen), Core (bare), Core-Adresse |
+| its URL in the settings | Adresse des PRTG-Core | PRTG core URL | Core-Adresse, core URL (bare) |
+| a person confirming the PRTG steps | bestätigt von | confirmed by | abgehakt, ticked |
 | name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
 | PRTG's number for a probe object | Objekt-Id | object id | GID, GUID, PRTG-Objekt-Id, PRTG object id |
 | connecting a probe to its PRTG object | verknüpfen / Verknüpfung | link | — |
 | the way management reaches a probe | Management über | management via | — |
 | the way NATS traffic reaches the server | NATS über | NATS via | — |
 | route over the overlay | Tunnel | tunnel | — |
+| putting a probe on the overlay | ins Overlay holen | add to the overlay | Aufnehmen |
 | route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
 | NATS traffic outside the overlay | direkt | direct | — |
 | the probe's own connection back to the platform | Rückkanal | return channel | — |
 | what sensors report over it, per run | Sensor-Log | sensor log | Protokoll (for this sense) |
 | one sensor execution in the sensor log | Lauf | run | — |
 | a stretch the probe could not keep | Lücke | gap | — |
+| the runtime volume's directory | Laufzeitverzeichnis | runtime directory | runtime-Verzeichnis, Runtime-Verzeichnis |
+| the stack's git working tree on the host | Installationsverzeichnis | installation directory | Checkout (in the interface) |
+| the branch updates come from | Update-Kanal | update channel | Branch (in the interface) |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
@@ -83,8 +90,9 @@ The **Rückkanal** / **return channel** is how a probe reports back on its own
 initiative, separate from the management access and from NATS. What arrives
 over it is the **Sensor-Log** / **sensor log**: one entry per **Lauf** /
 **run** of a sensor, with its raw output. „Protokoll" stays with the job page,
-so the two are never confused on screen. A **Lücke** / **gap** marks runs the
-probe had to drop while the platform was out of reach.
+so the two are never confused on screen; the audit trail is „Audit", never
+„Audit-Protokoll". A **Lücke** / **gap** marks runs the probe had to drop
+while the platform was out of reach.
 
 ## Register (German)
 

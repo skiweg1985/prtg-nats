@@ -817,10 +817,14 @@ function UnreachableBanner({
   const { t } = useTranslation()
   const route = detail.management_route
   const host = route?.host ?? detail.inventory.ssh_host
+  // NATS is asked on every load, not the probe. A probe still connected
+  // there measures and reports to PRTG; only management lost it, which is a
+  // warning, not an outage - and the banner says so first.
+  const measuring = detail.summary.nats_connection === 'connected'
   return (
     <Banner
-      tone="danger"
-      title={t('probes.fault.unreachableTitle')}
+      tone={measuring ? 'warn' : 'danger'}
+      title={t(measuring ? 'probes.fault.managementOnlyTitle' : 'probes.fault.unreachableTitle')}
       action={
         onDetails && (
           <Button size="sm" variant="ghost" onClick={onDetails}>
@@ -829,6 +833,7 @@ function UnreachableBanner({
         )
       }
     >
+      {measuring && <p className="mb-1">{t('probes.fault.stillMeasuring')}</p>}
       <p>
         {route
           ? t('probes.fault.lastContact', {
@@ -1411,7 +1416,11 @@ function DeviationRow({
   deviation: Deviation
   sensors: SensorState[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // A finding newer than this interface gets a plain sentence; its raw kind
+  // follows as the detail, not as the headline.
+  const known = i18n.exists(`deviations.${deviation.kind}`)
+  const remediationKey = `deviations.remediation.${deviation.remediation}`
   const step =
     deviation.kind === 'sensor_outdated'
       ? versionStep(sensors, deviation.object_ref)
@@ -1427,14 +1436,20 @@ function DeviationRow({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-ink text-sm">
-          {t(`deviations.${deviation.kind}`, {
-            ...deviation.params,
-            sensor: deviation.object_ref,
-            defaultValue: deviation.kind,
-          })}
+          {known
+            ? t(`deviations.${deviation.kind}`, {
+                ...deviation.params,
+                sensor: deviation.object_ref,
+              })
+            : t('deviations.unknown')}
           {inSentence &&
             ` ${t('probes.deviationVersions', { from: inSentence.from, to: inSentence.to })}`}
         </p>
+        {!known && (
+          <p className="text-ink-3 mt-0.5 font-mono text-xs break-all">
+            {deviation.object_ref ? `${deviation.kind} · ${deviation.object_ref}` : deviation.kind}
+          </p>
+        )}
         {/* The raw comparison stays for whoever has to look closer: a
             checksum or a tool path, second to the sentence. */}
         {!inSentence && (deviation.expected || deviation.actual) && (
@@ -1444,12 +1459,8 @@ function DeviationRow({
         )}
         {/* Set for every finding since the beginning, shown nowhere: what to
             do about it stayed the reader's own conclusion. */}
-        {deviation.remediation && (
-          <p className="text-ink-3 mt-0.5 text-xs">
-            {t(`deviations.remediation.${deviation.remediation}`, {
-              defaultValue: deviation.remediation,
-            })}
-          </p>
+        {deviation.remediation && i18n.exists(remediationKey) && (
+          <p className="text-ink-3 mt-0.5 text-xs">{t(remediationKey)}</p>
         )}
       </div>
     </li>

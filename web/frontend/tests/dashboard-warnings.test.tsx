@@ -141,6 +141,41 @@ describe('the warnings card', () => {
 
     expect(await screen.findByText('Active warnings')).toBeInTheDocument()
   })
+
+  it('names the probe the way the fleet list does, not by its NATS account', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          {
+            id: 'P1',
+            nats_username: 'mpp-berlin-01',
+            display_name: 'Berlin office',
+            probe_name: 'berlin-01',
+          },
+        ]),
+      ),
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({
+          ...DASHBOARD,
+          alerts: [
+            {
+              ...DASHBOARD.alerts[0],
+              id: 'A2',
+              kind: 'probe.unreachable',
+              severity: 'critical',
+              object_type: 'probe',
+              object_ref: 'mpp-berlin-01',
+              object_label: 'mpp-berlin-01',
+            },
+          ],
+        }),
+      ),
+    )
+    wrap()
+
+    expect(await screen.findByText('Berlin office is not answering')).toBeInTheDocument()
+  })
 })
 
 /**

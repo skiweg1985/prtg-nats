@@ -177,6 +177,8 @@
     "unenrollWarning": "This removes the management access, the inventory and the NATS account of {{probe}}. The probe loses its connection; enrolling it again later hands it a new PRTG access key.",
     "unenrollTitle": "Unenroll {{probe}}?",
     "fault": {
+      "managementOnlyTitle": "Management cannot reach the probe",
+      "stillMeasuring": "It is connected over NATS and keeps measuring.",
       "unreachableTitle": "The probe does not answer",
       "lastContact": "Last contact {{time}} via {{route}} {{host}}.",
       "neverAnswered": "It has never answered.",
@@ -254,7 +256,7 @@
         "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
-        "donePrtg": "Two steps are still missing in PRTG: add the access key to the core's access-key list, then approve the probe. The key is on the probe's page under \"PRTG access key\".",
+        "donePrtg": "Two steps are still missing in PRTG: add the access key to the PRTG core's access-key list, then approve the probe. The key is on the probe's page under \"PRTG access key\".",
         "failedTitle": "The enrollment did not finish",
         "failedBody": "The log below says where it stopped. If the cause was temporary, retry the job; if the host has to run the command again, create a new invitation.",
         "toProbe": "Open the probe",
@@ -356,12 +358,12 @@
       "bannerBody": "Two steps the platform cannot take for you: add the access key in PRTG (Setup → System Administration → Probes) and approve the connection request - without \"Approve and auto-discover\". Tick this off afterwards.",
       "markDone": "Mark as registered",
       "markUndone": "Reset",
-      "markedBy": "Registered in PRTG - ticked by {{by}} {{when}}.",
+      "markedBy": "Registered in PRTG (confirmed by {{by}}, {{when}}).",
       "alreadyMarked": "Marked as registered in PRTG."
     },
     "accessKeyMarkDone": "Registered in PRTG - tick it off",
     "overlay": "Overlay",
-    "overlayAdd": "Add",
+    "overlayAdd": "Add to the overlay",
     "overlayAddTitle": "Add this probe to the overlay",
     "atAGlance": {
       "title": "Configuration at a glance",
@@ -444,6 +446,7 @@
     "deployTo": "Deploy to probes",
     "parameters": "Parameters",
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
+    "parametersIntroVariants": "With a variant above, PRTG needs only its name. Build the line yourself only without one.",
     "parametersResult": "Parameter line for PRTG",
     "parametersBuild": "Build the parameter line yourself ({{count}} parameters)",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
@@ -604,7 +607,7 @@
       "export": "Archive the runtime",
       "preflight": "Check the preconditions",
       "fetch": "Fetch from the repository",
-      "checkout": "Moving the checkout",
+      "checkout": "Switching the code in the installation directory",
       "build": "Build the images",
       "recreate": "Recreate the stack",
       "settle": "Record the outcome",
@@ -753,11 +756,11 @@
       },
       "stack": {
         "backup_taken": "Runtime archived as {{archive}}",
-        "checkout_found": "Updating the checkout at {{path}}",
+        "checkout_found": "Updating the installation directory {{path}}",
         "handover": "Handing over to the updater; this page keeps following it",
         "outcome_unknown": "The updater container {{container}} is gone, so what it did cannot be established",
-        "rebuilding": "Rebuilding what the checkout already holds ({{commit}})",
-        "rolled_back": "The build failed; the checkout was put back to {{commit}} and nothing was replaced",
+        "rebuilding": "Rebuilding what the installation directory already holds ({{commit}})",
+        "rolled_back": "The build failed; the installation directory was put back to {{commit}} and nothing was replaced",
         "target": "Updating {{branch}} from {{from}} to {{to}}",
         "timeout": "The updater is taking longer than expected; it keeps running and the outcome is recorded when it ends",
         "update_failed": "The update failed (exit code {{code}})",
@@ -801,7 +804,7 @@
         "remove": "Remove an iperf endpoint",
         "revoke": "Revoke iperf credentials",
         "rotate": "Rotate the iperf password",
-        "update_foreign_credentials": "Update foreign credentials"
+        "update_foreign_credentials": "Update credentials of an external endpoint"
       },
       "overlay": {
         "attach": "Put a probe on the overlay",
@@ -875,7 +878,7 @@
       },
       "iperf": {
         "deploy": "iperf credentials deployed",
-        "foreign_credentials_update": "Foreign credentials updated",
+        "foreign_credentials_update": "Credentials of an external endpoint updated",
         "provision": "Endpoint provisioned",
         "register": "Endpoint registered",
         "remove": "Endpoint removed",
@@ -1000,9 +1003,9 @@
       "privateKeyHint": "Instead of a password. Not stored.",
       "publicKey": "Public key",
       "publicKeyHint": "The endpoint's public.pem, pasted whole with its BEGIN and END lines. Without it the probes cannot authenticate; an OpenSSH key (ssh-rsa AAAAB3…) is a different format and does not work.",
-      "register": "Register a foreign one",
+      "register": "Add an external endpoint",
       "registerIntro": "For a host somebody else operates: nothing is installed and nothing is reached. Only the record here, so the probes can use it.",
-      "registerTitle": "Register a foreign endpoint",
+      "registerTitle": "Add an external endpoint",
       "setupHelp": "How the operator sets this endpoint up",
       "setupHelpIntro": "This host is not touched from here. Whoever is root there runs the following once - or setup-iperf3-endpoint.sh from the repository, which does the same and checks itself.",
       "setupHelpService": "iperf3 stores no password, only the SHA-256 of \"{user}password\", and decrypts what the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers everyone.",
@@ -1021,7 +1024,7 @@
       "updateForeignTitle": "Update the stored password",
       "updateForeignBody_one": "The operator has already changed the password for \"{{name}}\". This stores the replacement here and deploys it to {{count}} probe. The endpoint is not contacted.",
       "updateForeignBody_other": "The operator has already changed the password for \"{{name}}\". This stores the replacement here and deploys it to {{count}} probes. The endpoint is not contacted.",
-      "updateForeignHint": "The password is stored only in protected runtime and in the profiles on current holders. It is not written to the job or audit log.",
+      "updateForeignHint": "The password is stored only in the protected runtime directory and in the profiles of the assigned probes. It is written neither to the job nor to the audit.",
       "updateForeignSubmit": "Update and deploy",
       "newPassword": "New password",
       "scan": "Read host keys",
@@ -1208,13 +1211,13 @@
     "prtg": {
       "title": "PRTG core",
       "intro": "With an API token the platform reads the name each probe has in PRTG today. Nothing is changed in PRTG.",
-      "coreUrl": "Core URL",
+      "coreUrl": "PRTG core URL",
       "coreUrlHint": "The address of the PRTG API v2, usually port 1616.",
       "token": "API token",
       "tokenHint": "An API key with read access, created in PRTG.",
       "tokenStored": "A token is stored. Leave the field empty to keep it.",
       "caBundle": "CA bundle (PEM)",
-      "caBundleHint": "Only needed when the core’s certificate comes from an internal CA.",
+      "caBundleHint": "Only needed when the PRTG core’s certificate comes from an internal CA.",
       "caBundleStored": "A CA bundle is stored. Leave the field empty to keep it.",
       "removeToken": "Remove token",
       "removeCaBundle": "Remove CA bundle"
@@ -1225,7 +1228,7 @@
     "viewer": "Viewer",
     "operator": "Operator",
     "administrator": "Administrator",
-    "viewer.description": "Reads status, probes, sensors, jobs, logs and audit records.",
+    "viewer.description": "Reads status, probes, sensors, jobs, sensor logs and the audit.",
     "operator.description": "Also deploys sensors, applies configuration, runs checks and retries failed jobs.",
     "administrator.description": "Also manages users, credentials, certificates, probes and system settings."
   },
@@ -1284,6 +1287,7 @@
     }
   },
   "deviations": {
+    "unknown": "The probe differs from the desired state",
     "sensor_missing": "Sensor {{sensor}} is not installed",
     "sensor_outdated": "Sensor {{sensor}} is outdated",
     "sensor_drifted": "Sensor {{sensor}} was modified on the probe",
@@ -1401,10 +1405,10 @@
     "stack.update_failed": "The update did not complete",
     "prtg": {
       "not_configured": "No PRTG core is set up.",
-      "not_configured.action": "Enter the core URL and an API token under Settings.",
+      "not_configured.action": "Enter the PRTG core URL and an API token under Settings.",
       "unreachable": "PRTG cannot be reached.",
       "unreachable.cause": "The core did not answer, its certificate could not be verified, or it answered with something unexpected.",
-      "unreachable.action": "Check the core URL and, for an internal CA, the CA bundle under Settings.",
+      "unreachable.action": "Check the PRTG core URL and, for an internal CA, the CA bundle under Settings.",
       "rejected": "PRTG refused the API token.",
       "rejected.action": "Create a new API key in PRTG and enter it under Settings.",
       "object_not_found": "PRTG has no probe with object id {{object_id}}.",
@@ -1453,17 +1457,17 @@
   },
   "updates": {
     "title": "Updates",
-    "subtitle": "Which version runs and what is new on the branch",
+    "subtitle": "Which version runs and what is new on the update channel",
     "check_now": "Check now",
     "progress": "Progress",
     "changes": "What is new",
-    "no_changes": "Nothing new on this branch",
+    "no_changes": "Nothing new on the update channel",
     "install": "Install the update",
     "running": "Running",
     "running_unknown": "unknown - built without a version stamp; the next ./prtg-nats update fills it in",
-    "checkout": "Checkout",
-    "branch": "Branch",
-    "checkout_dir": "Checkout on the host",
+    "checkout": "Code on the host",
+    "branch": "Update channel",
+    "checkout_dir": "Installation directory",
     "checked_at": "Last checked",
     "dirty": "modified",
     "unreachable": "The repository could not be reached",
@@ -1479,11 +1483,11 @@
       "unknown": "Unknown"
     },
     "rebuild_pending": {
-      "title": "The checkout is ahead of what is running",
-      "body": "Somebody has pulled on this host without rebuilding, so the stack still runs the older code. Rebuilding installs what the checkout already holds; nothing is fetched and the checkout is not moved."
+      "title": "The host holds newer code than is running",
+      "body": "Somebody has pulled on this host without rebuilding, so the stack still runs the older code. Rebuilding installs what the installation directory already holds; nothing is fetched or moved."
     },
     "dirty_blocks": {
-      "title": "The checkout has uncommitted changes",
+      "title": "The installation directory has uncommitted changes",
       "body": "An update would have to move over them. Commit or discard them on the host first - nothing here will throw local work away."
     },
     "away": {
@@ -1495,7 +1499,7 @@
     "unavailable": {
       "title": "This installation cannot update itself",
       "docker_socket_missing": "The Docker socket is not mounted, so nothing here can build or restart containers.",
-      "checkout_not_found": "The stack was not started with Compose, so the checkout it was built from cannot be located.",
+      "checkout_not_found": "The stack was not started with Compose, so the installation directory it was built from cannot be located.",
       "updater_image_missing": "The updater image does not exist yet. Run ./prtg-nats update on the host once; every update after that works from here.",
       "unknown": "The reason could not be determined."
     },
@@ -1582,6 +1586,56 @@
       "network": "Network (SSID)"
     },
     "wlanAuth": {
+      "codes": {
+        "ok": "Sign-in succeeded",
+        "assocTimeout": "No association within the time budget",
+        "authFailedPsk": "Passphrase rejected",
+        "authFailedEap": "The RADIUS server rejected the credentials",
+        "serverCertRejected": "Server certificate not accepted",
+        "authRejected": "The access point rejected the sign-in",
+        "assocRejected": "The access point rejected the association",
+        "ssidNotFound": "SSID not found in the scan",
+        "dhcpTimeout": "No DHCP answer",
+        "authTimeout": "Key negotiation not completed",
+        "assocLost": "Link changed during DHCP",
+        "notMeasured": "Not measured yet",
+        "resultStale": "Last measurement too old",
+        "maxAgeTooLow": "--max-age is shorter than one round",
+        "gatewayUnreachable": "Gateway does not answer",
+        "ifaceMissing": "Wireless interface missing",
+        "ifaceDown": "Wireless interface is down",
+        "ifaceBusy": "Wireless interface is busy",
+        "ifaceBlocked": "Wireless interface is blocked",
+        "ifaceNotWireless": "The interface is not wireless",
+        "ifaceNotReserved": "Wireless interface is not reserved for the sensor",
+        "ifaceProtected": "The interface is protected",
+        "macNotSettable": "Client address cannot be set",
+        "dhcpClientBroken": "DHCP client on the probe is broken",
+        "profileMissing": "Credential profile missing",
+        "fileMissing": "File missing on the probe",
+        "toolMissing": "Tool missing on the probe",
+        "pingMissing": "ping missing on the probe",
+        "noPrivileges": "The helper lacks privileges",
+        "tooManyJobs": "Too many measurements at once",
+        "badRequest": "Invalid request to the helper",
+        "internalError": "Internal error of the helper"
+      },
+      "values": {
+        "stage": {
+          "assoc": "Up to sign-in",
+          "dhcp": "Through DHCP"
+        },
+        "clientMacKind": {
+          "auto": "Derived per network",
+          "permanent": "Built-in address of the radio",
+          "fixed": "Fixed"
+        },
+        "gatewayKind": {
+          "gateway": "Configured",
+          "router": "Router from the lease",
+          "dhcpServer": "DHCP server from the lease"
+        }
+      },
       "ssid": "Network (SSID)",
       "auth": "Authentication",
       "interface": "Interface",

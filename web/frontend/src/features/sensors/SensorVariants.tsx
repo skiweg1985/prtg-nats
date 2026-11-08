@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, formatDateTime, shortFingerprint } from '@/utils/format'
+import { useProbeNames } from '@/features/probes/probeName'
 
 import { fieldDescription, fieldLabel } from './parameterFields'
 
@@ -228,6 +229,7 @@ function VariantDialog({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { nameOfProbe } = useProbeNames()
   const navigate = useNavigate()
   const { data: probes } = useProbes()
   const { data: stored, isLoading } = useSensorProfile(
@@ -472,7 +474,7 @@ function VariantDialog({
                       setSelected(next)
                     }}
                   />
-                  <Mono>{probe.nats_username}</Mono>
+                  <span>{nameOfProbe(probe)}</span>
                 </label>
               ))}
             </div>

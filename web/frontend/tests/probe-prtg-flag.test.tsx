@@ -126,7 +126,7 @@ describe('the PRTG registration tick', () => {
     await user.click(screen.getByRole('button', { name: 'Mark as registered' }))
     expect(patches).toEqual([{ prtg_registered: true }])
 
-    expect(await screen.findByText(/ticked by admin/)).toBeInTheDocument()
+    expect(await screen.findByText(/confirmed by admin/)).toBeInTheDocument()
     expect(
       screen.queryByText('This probe is not registered in PRTG yet'),
     ).not.toBeInTheDocument()
@@ -138,7 +138,7 @@ describe('the PRTG registration tick', () => {
     const user = userEvent.setup()
     wrap()
 
-    expect(await screen.findByText(/ticked by admin/)).toBeInTheDocument()
+    expect(await screen.findByText(/confirmed by admin/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Reset' }))
     expect(patches).toEqual([{ prtg_registered: false }])
   })

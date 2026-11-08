@@ -352,10 +352,17 @@ export function ParameterCard({
   const { t } = useTranslation()
   const [values, setValues] = useState<Record<string, unknown>>({})
   const render = useRenderParameters(sensorName)
-  // Folded when a recommended line exists: most setups copy that line, or
-  // take a variant's single parameter, and never fill in twenty fields. A
-  // sensor without one has nothing to copy, so the form starts open.
-  const [formOpen, setFormOpen] = useState(!schema?.default_parameter_line)
+  // Folded when there is a shorter way: a recommended line to copy, or
+  // variants, whose single parameter replaces most of the form - wlan-auth
+  // opened on twenty-one fields although its variants exist for exactly
+  // that. A sensor with neither has nothing else to offer, so it starts open.
+  const hasVariants = Boolean(
+    schema &&
+      schema.settings.length + schema.credentials.length + schema.files.length > 0,
+  )
+  const [formOpen, setFormOpen] = useState(
+    !schema?.default_parameter_line && !hasVariants,
+  )
 
   // 'internal' is deployment plumbing (--self-check would build a line whose
   // sensor never measures); 'moved' produces a line the script rejects. The
@@ -390,7 +397,13 @@ export function ParameterCard({
 
   return (
     <Card title={t('sensors.parameters')}>
-      <p className="text-ink-3 mb-3 text-sm">{t('sensors.parametersIntro')}</p>
+      <p className="text-ink-3 mb-3 text-sm">
+        {t(
+          hasVariants && !schema?.default_parameter_line
+            ? 'sensors.parametersIntroVariants'
+            : 'sensors.parametersIntro',
+        )}
+      </p>
 
       {schema?.default_parameter_line && (
         <div className="bg-surface-2 rounded-inset mb-4 p-3">

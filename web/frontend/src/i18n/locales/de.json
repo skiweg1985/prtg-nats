@@ -148,7 +148,7 @@
     "accessKey": "PRTG Access Key",
     "accessKeyHint": "Diesen Wert als neue Zeile in die PRTG-Access-Key-Liste eintragen.",
     "accessKeyRevealTitle": "PRTG Access Key für {{probe}}",
-    "accessKeyAudited": "Diese Anzeige wurde im Protokoll festgehalten.",
+    "accessKeyAudited": "Diese Anzeige wurde im Audit festgehalten.",
     "caFingerprint": "CA-Fingerabdruck",
     "installCa": "CA installieren",
     "validate": "Prüfung als Job starten",
@@ -177,6 +177,8 @@
     "unenrollWarning": "Damit werden Management-Zugang, Inventar und NATS-Konto von {{probe}} entfernt. Die Probe verliert ihre Verbindung; bindest du sie später neu ein, bekommt sie einen neuen PRTG Access Key.",
     "unenrollTitle": "{{probe}} ausbinden?",
     "fault": {
+      "managementOnlyTitle": "Die Verwaltung erreicht die Probe nicht",
+      "stillMeasuring": "Über NATS ist sie verbunden und misst weiter.",
       "unreachableTitle": "Die Probe antwortet nicht",
       "lastContact": "Letzter Kontakt {{time}} über {{route}} {{host}}.",
       "neverAnswered": "Sie hat noch nie geantwortet.",
@@ -254,7 +256,7 @@
         "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
         "doneTitle": "Die Probe ist eingebunden",
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
-        "donePrtg": "In PRTG fehlen noch zwei Schritte: den Access Key in die Access-Key-Liste des Cores eintragen und die Probe genehmigen. Der Key steht auf der Probe-Seite unter „PRTG Access Key“.",
+        "donePrtg": "In PRTG fehlen noch zwei Schritte: den Access Key in die Access-Key-Liste des PRTG-Core eintragen und die Probe genehmigen. Der Key steht auf der Probe-Seite unter „PRTG Access Key“.",
         "failedTitle": "Die Einbindung wurde nicht fertig",
         "failedBody": "Der Verlauf unten zeigt, wo sie stehen geblieben ist. War die Ursache vorübergehend, wiederhole den Job; sonst erstelle eine neue Einladung und führe den Befehl erneut aus.",
         "toProbe": "Zur Probe",
@@ -356,12 +358,12 @@
       "bannerBody": "Zwei Handgriffe kann die Plattform nicht übernehmen: den Access Key in PRTG hinterlegen (Setup → Systemverwaltung → Probes) und die Verbindungsanfrage genehmigen - ohne „Approve and auto-discover“. Danach hier abhaken.",
       "markDone": "Als eingetragen markieren",
       "markUndone": "Zurücksetzen",
-      "markedBy": "In PRTG eingetragen - abgehakt von {{by}} {{when}}.",
+      "markedBy": "In PRTG eingetragen (bestätigt von {{by}}, {{when}}).",
       "alreadyMarked": "Als in PRTG eingetragen markiert."
     },
     "accessKeyMarkDone": "In PRTG eingetragen - abhaken",
     "overlay": "Overlay",
-    "overlayAdd": "Aufnehmen",
+    "overlayAdd": "Ins Overlay holen",
     "overlayAddTitle": "Probe ins Overlay aufnehmen",
     "atAGlance": {
       "title": "Konfiguration im Überblick",
@@ -401,7 +403,7 @@
       "manual": "Objekt-Id",
       "manualHint": "Oder trag sie von Hand ein: Öffne die Probe in PRTG, ihre Adresse endet auf id=<Zahl>.",
       "reasons": {
-        "not_configured": "Nicht abgefragt: Core-Adresse oder API-Token für PRTG fehlen.",
+        "not_configured": "Nicht abgefragt: Adresse des PRTG-Core oder API-Token fehlen.",
         "not_linked": "Noch nicht mit einer Probe in PRTG verknüpft.",
         "unreachable": "PRTG ist gerade nicht erreichbar.",
         "rejected": "PRTG hat das API-Token abgelehnt.",
@@ -444,6 +446,7 @@
     "deployTo": "Auf Probes ausrollen",
     "parameters": "Parameter",
     "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
+    "parametersIntroVariants": "Mit einer Variante oben reicht in PRTG ihr Name. Selbst zusammenstellen musst du die Zeile nur ohne Variante.",
     "parametersResult": "Parameterzeile für PRTG",
     "parametersBuild": "Parameterzeile selbst zusammenstellen ({{count}} Parameter)",
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
@@ -604,7 +607,7 @@
       "export": "Laufzeitstand archivieren",
       "preflight": "Voraussetzungen prüfen",
       "fetch": "Vom Repository holen",
-      "checkout": "Checkout umstellen",
+      "checkout": "Code im Installationsverzeichnis umstellen",
       "build": "Images bauen",
       "recreate": "Stack neu erstellen",
       "settle": "Ergebnis festhalten",
@@ -753,11 +756,11 @@
       },
       "stack": {
         "backup_taken": "Runtime als {{archive}} gesichert",
-        "checkout_found": "Checkout unter {{path}} wird aktualisiert",
+        "checkout_found": "Installationsverzeichnis {{path}} wird aktualisiert",
         "handover": "Übergabe an den Updater; diese Seite verfolgt ihn weiter",
         "outcome_unknown": "Der Updater-Container {{container}} ist nicht mehr da, sein Ergebnis lässt sich nicht mehr feststellen",
-        "rebuilding": "Es wird neu gebaut, was der Checkout schon hat ({{commit}})",
-        "rolled_back": "Der Build ist fehlgeschlagen; der Checkout steht wieder auf {{commit}}, ersetzt wurde nichts",
+        "rebuilding": "Es wird neu gebaut, was im Installationsverzeichnis schon liegt ({{commit}})",
+        "rolled_back": "Der Build ist fehlgeschlagen; das Installationsverzeichnis steht wieder auf {{commit}}, ersetzt wurde nichts",
         "target": "{{branch}} wird von {{from}} auf {{to}} aktualisiert",
         "timeout": "Der Updater braucht länger als erwartet; er läuft weiter, das Ergebnis wird festgehalten, sobald er fertig ist",
         "update_failed": "Das Update ist fehlgeschlagen (Exit-Code {{code}})",
@@ -801,7 +804,7 @@
         "remove": "Messpunkt entfernen",
         "revoke": "iperf-Zugangsdaten entziehen",
         "rotate": "iperf-Passwort wechseln",
-        "update_foreign_credentials": "Fremde Zugangsdaten aktualisieren"
+        "update_foreign_credentials": "Zugangsdaten eines externen Messpunkts aktualisieren"
       },
       "overlay": {
         "attach": "Aufs Overlay nehmen",
@@ -853,7 +856,7 @@
       "result": "Ergebnis",
       "source": "Quelle"
     },
-    "immutable": "Protokolleinträge lassen sich nicht ändern und nicht löschen.",
+    "immutable": "Audit-Einträge lassen sich nicht ändern und nicht löschen.",
     "actions": {
       "auth": {
         "login": "Anmeldung",
@@ -875,7 +878,7 @@
       },
       "iperf": {
         "deploy": "iperf-Zugangsdaten ausgerollt",
-        "foreign_credentials_update": "Fremde Zugangsdaten aktualisiert",
+        "foreign_credentials_update": "Zugangsdaten eines externen Messpunkts aktualisiert",
         "provision": "Messpunkt eingerichtet",
         "register": "Messpunkt registriert",
         "remove": "Messpunkt entfernt",
@@ -1000,9 +1003,9 @@
       "privateKeyHint": "Alternative zum Passwort. Wird nicht gespeichert.",
       "publicKey": "Öffentlicher Schlüssel",
       "publicKeyHint": "Die public.pem des Messpunkts, komplett mit BEGIN- und END-Zeile eingefügt. Ohne sie können die Probes sich nicht anmelden; ein OpenSSH-Schlüssel (ssh-rsa AAAAB3…) ist ein anderes Format und funktioniert nicht.",
-      "register": "Fremden registrieren",
+      "register": "Externen Messpunkt eintragen",
       "registerIntro": "Für einen Host, den jemand anderes betreibt: Es wird nichts installiert und nichts kontaktiert. Nur der Eintrag hier entsteht, damit die Probes ihn nutzen können.",
-      "registerTitle": "Fremden Messpunkt registrieren",
+      "registerTitle": "Externen Messpunkt eintragen",
       "setupHelp": "Wie der Betreiber diesen Messpunkt einrichtet",
       "setupHelpIntro": "Dieser Host wird von hier aus nicht angefasst. Wer dort root ist, führt das Folgende aus - oder setup-iperf3-endpoint.sh aus dem Repository, das dasselbe tut und sich selbst prüft.",
       "setupHelpService": "iperf3 speichert kein Passwort, nur den SHA-256 über „{user}passwort“, und entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne es antwortet der Messpunkt jedem.",
@@ -1021,7 +1024,7 @@
       "updateForeignTitle": "Hinterlegtes Passwort aktualisieren",
       "updateForeignBody_one": "Der Betreiber hat das Passwort für „{{name}}“ bereits geändert. Es wird hier gespeichert und an {{count}} Probe ausgerollt; der Messpunkt selbst wird nicht kontaktiert.",
       "updateForeignBody_other": "Der Betreiber hat das Passwort für „{{name}}“ bereits geändert. Es wird hier gespeichert und an {{count}} Probes ausgerollt; der Messpunkt selbst wird nicht kontaktiert.",
-      "updateForeignHint": "Das Passwort liegt nur im geschützten Runtime-Verzeichnis und in den Profilen der zugeordneten Probes. Es wird nicht in den Job oder das Audit-Protokoll geschrieben.",
+      "updateForeignHint": "Das Passwort liegt nur im geschützten Laufzeitverzeichnis und in den Profilen der zugeordneten Probes. Es wird weder in den Job noch ins Audit geschrieben.",
       "updateForeignSubmit": "Aktualisieren und ausrollen",
       "newPassword": "Neues Passwort",
       "scan": "Hostschlüssel lesen",
@@ -1208,24 +1211,24 @@
     "prtg": {
       "title": "PRTG-Core",
       "intro": "Mit einem API-Token liest die Plattform, wie jede Probe in PRTG heute heißt. In PRTG wird nichts geändert.",
-      "coreUrl": "Core-Adresse",
+      "coreUrl": "Adresse des PRTG-Core",
       "coreUrlHint": "Die Adresse der PRTG-API v2, meist Port 1616.",
       "token": "API-Token",
       "tokenHint": "Ein API-Schlüssel mit Lesezugriff, angelegt in PRTG.",
       "tokenStored": "Ein Token ist gespeichert. Lass das Feld leer, um es zu behalten.",
       "caBundle": "CA-Bundle (PEM)",
-      "caBundleHint": "Nur nötig, wenn das Zertifikat des Cores von einer internen CA stammt.",
+      "caBundleHint": "Nur nötig, wenn das Zertifikat des PRTG-Core von einer internen CA stammt.",
       "caBundleStored": "Ein CA-Bundle ist hinterlegt. Lass das Feld leer, um es zu behalten.",
       "removeToken": "Token entfernen",
       "removeCaBundle": "CA-Bundle entfernen"
     },
-    "deleteUserConfirm": "{{user}} wird gelöscht und kann sich nicht mehr anmelden. Die Einträge im Audit-Protokoll bleiben erhalten."
+    "deleteUserConfirm": "{{user}} wird gelöscht und kann sich nicht mehr anmelden. Die Einträge im Audit bleiben erhalten."
   },
   "roles": {
     "viewer": "Betrachter",
     "operator": "Operator",
     "administrator": "Administrator",
-    "viewer.description": "Liest Status, Probes, Sensoren, Jobs, Protokolle und Audit-Einträge.",
+    "viewer.description": "Liest Status, Probes, Sensoren, Jobs, Sensor-Logs und das Audit.",
     "operator.description": "Rollt zusätzlich Sensoren aus, wendet Konfigurationen an, startet Prüfungen und wiederholt fehlgeschlagene Jobs.",
     "administrator.description": "Verwaltet zusätzlich Benutzer, Zugangsdaten, Zertifikate, Probes und Systemeinstellungen."
   },
@@ -1284,6 +1287,7 @@
     }
   },
   "deviations": {
+    "unknown": "Die Probe weicht vom gewünschten Zustand ab",
     "sensor_missing": "Sensor {{sensor}} ist nicht installiert",
     "sensor_outdated": "Sensor {{sensor}} ist veraltet",
     "sensor_drifted": "Sensor {{sensor}} wurde auf der Probe verändert",
@@ -1401,10 +1405,10 @@
     "stack.update_failed": "Das Update wurde nicht abgeschlossen",
     "prtg": {
       "not_configured": "Es ist kein PRTG-Core eingerichtet.",
-      "not_configured.action": "Trag unter Einstellungen die Core-Adresse und ein API-Token ein.",
+      "not_configured.action": "Trag unter Einstellungen die Adresse des PRTG-Core und ein API-Token ein.",
       "unreachable": "PRTG ist nicht erreichbar.",
       "unreachable.cause": "Der Core hat nicht geantwortet, sein Zertifikat ließ sich nicht prüfen, oder die Antwort war unerwartet.",
-      "unreachable.action": "Prüf unter Einstellungen die Core-Adresse und, bei einer internen CA, das CA-Bundle.",
+      "unreachable.action": "Prüf unter Einstellungen die Adresse des PRTG-Core und, bei einer internen CA, das CA-Bundle.",
       "rejected": "PRTG hat das API-Token abgelehnt.",
       "rejected.action": "Leg in PRTG einen neuen API-Schlüssel an und trag ihn unter Einstellungen ein.",
       "object_not_found": "In PRTG gibt es keine Probe mit der Objekt-Id {{object_id}}.",
@@ -1449,21 +1453,21 @@
     "delete": "Löschen",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Passwort für {{account}}",
-    "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
+    "revealHint": "Diese Anzeige wurde im Audit festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
   },
   "updates": {
     "title": "Updates",
-    "subtitle": "Welche Version läuft und was der Branch Neues hat",
+    "subtitle": "Welche Version läuft und was im Update-Kanal Neues ist",
     "check_now": "Jetzt prüfen",
     "progress": "Fortschritt",
     "changes": "Was neu ist",
-    "no_changes": "Auf diesem Branch gibt es nichts Neues",
+    "no_changes": "Im Update-Kanal gibt es nichts Neues",
     "install": "Update einspielen",
     "running": "Läuft",
     "running_unknown": "unbekannt - ohne Versionsstempel gebaut; das nächste ./prtg-nats update trägt ihn nach",
-    "checkout": "Checkout",
-    "branch": "Branch",
-    "checkout_dir": "Checkout auf dem Host",
+    "checkout": "Stand auf dem Host",
+    "branch": "Update-Kanal",
+    "checkout_dir": "Installationsverzeichnis",
     "checked_at": "Zuletzt geprüft",
     "dirty": "geändert",
     "unreachable": "Das Repository war nicht erreichbar",
@@ -1479,11 +1483,11 @@
       "unknown": "Unbekannt"
     },
     "rebuild_pending": {
-      "title": "Der Checkout ist weiter als das, was läuft",
-      "body": "Auf dem Host wurde gepullt, aber nicht neu gebaut - der Stack läuft weiterhin auf dem älteren Code. Neu bauen spielt ein, was der Checkout schon hat; es wird nichts geholt und der Checkout nicht bewegt."
+      "title": "Auf dem Host liegt neuerer Code, als läuft",
+      "body": "Auf dem Host wurde gepullt, aber nicht neu gebaut - der Stack läuft weiterhin auf dem älteren Code. Neu bauen spielt ein, was im Installationsverzeichnis schon liegt; es wird nichts geholt und nichts umgestellt."
     },
     "dirty_blocks": {
-      "title": "Der Checkout hat uncommittete Änderungen",
+      "title": "Im Installationsverzeichnis gibt es uncommittete Änderungen",
       "body": "Ein Update müsste sich darüber hinwegsetzen. Committe oder verwirf sie zuerst auf dem Host - hier wird keine lokale Arbeit weggeworfen."
     },
     "away": {
@@ -1495,7 +1499,7 @@
     "unavailable": {
       "title": "Diese Installation kann sich nicht selbst aktualisieren",
       "docker_socket_missing": "Der Docker-Socket ist nicht eingebunden, hier kann also nichts gebaut oder neu gestartet werden.",
-      "checkout_not_found": "Der Stack wurde nicht mit Compose gestartet, deshalb lässt sich der Checkout nicht ermitteln, aus dem er gebaut wurde.",
+      "checkout_not_found": "Der Stack wurde nicht mit Compose gestartet, deshalb lässt sich das Installationsverzeichnis nicht ermitteln, aus dem er gebaut wurde.",
       "updater_image_missing": "Das Updater-Image existiert noch nicht. Einmal ./prtg-nats update auf dem Host ausführen; jedes weitere Update geht dann von hier.",
       "unknown": "Der Grund ließ sich nicht ermitteln."
     },
@@ -1521,7 +1525,7 @@
     },
     "backup": {
       "title": "Sicherungen",
-      "body": "Die JetStream-Sicherung hält den Nachrichtenbestand; der Laufzeit-Export archiviert das gesamte runtime-Verzeichnis für Umzug oder Wiederherstellung.",
+      "body": "Die JetStream-Sicherung hält den Nachrichtenbestand; der Laufzeit-Export archiviert das gesamte Laufzeitverzeichnis für Umzug oder Wiederherstellung.",
       "jetstream": "JetStream sichern",
       "export": "Laufzeit exportieren",
       "exportConfirmTitle": "Laufzeitverzeichnis exportieren?",
@@ -1582,6 +1586,56 @@
       "network": "Netz (SSID)"
     },
     "wlanAuth": {
+      "codes": {
+        "ok": "Anmeldung erfolgreich",
+        "assocTimeout": "Keine Assoziierung innerhalb des Zeitbudgets",
+        "authFailedPsk": "Passphrase abgelehnt",
+        "authFailedEap": "Der RADIUS-Server hat die Zugangsdaten abgelehnt",
+        "serverCertRejected": "Serverzertifikat nicht akzeptiert",
+        "authRejected": "Der Access Point hat die Anmeldung abgelehnt",
+        "assocRejected": "Der Access Point hat die Assoziierung abgelehnt",
+        "ssidNotFound": "SSID im Scan nicht gefunden",
+        "dhcpTimeout": "Keine DHCP-Antwort",
+        "authTimeout": "Schlüsselaushandlung nicht abgeschlossen",
+        "assocLost": "Verbindung während DHCP verloren",
+        "notMeasured": "Noch nicht gemessen",
+        "resultStale": "Letzte Messung zu alt",
+        "maxAgeTooLow": "--max-age ist kürzer als eine Messrunde",
+        "gatewayUnreachable": "Gateway antwortet nicht",
+        "ifaceMissing": "Funk-Interface fehlt",
+        "ifaceDown": "Funk-Interface ist nicht aktiv",
+        "ifaceBusy": "Funk-Interface ist belegt",
+        "ifaceBlocked": "Funk-Interface ist blockiert",
+        "ifaceNotWireless": "Das Interface ist kein Funk-Interface",
+        "ifaceNotReserved": "Funk-Interface ist nicht für den Sensor reserviert",
+        "ifaceProtected": "Das Interface ist geschützt",
+        "macNotSettable": "Client-Adresse lässt sich nicht setzen",
+        "dhcpClientBroken": "DHCP-Client auf der Probe defekt",
+        "profileMissing": "Zugangsdaten-Profil fehlt",
+        "fileMissing": "Datei fehlt auf der Probe",
+        "toolMissing": "Werkzeug fehlt auf der Probe",
+        "pingMissing": "ping fehlt auf der Probe",
+        "noPrivileges": "Dem Helfer fehlen Rechte",
+        "tooManyJobs": "Zu viele gleichzeitige Messungen",
+        "badRequest": "Ungültige Anfrage an den Helfer",
+        "internalError": "Interner Fehler des Helfers"
+      },
+      "values": {
+        "stage": {
+          "assoc": "Bis zur Anmeldung",
+          "dhcp": "Bis einschließlich DHCP"
+        },
+        "clientMacKind": {
+          "auto": "Je Netz abgeleitet",
+          "permanent": "Eingebaute Adresse des Funkmoduls",
+          "fixed": "Fest eingestellt"
+        },
+        "gatewayKind": {
+          "gateway": "Vorgegeben",
+          "router": "Router aus dem Lease",
+          "dhcpServer": "DHCP-Server aus dem Lease"
+        }
+      },
       "ssid": "Netz (SSID)",
       "auth": "Authentifizierung",
       "interface": "Schnittstelle",

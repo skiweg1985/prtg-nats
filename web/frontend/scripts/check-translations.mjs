@@ -200,11 +200,21 @@ const FORBIDDEN_TERMS = {
     ['Ausrollvorgang', []],
     [/\bSonde\b/, []],
     ['PRTG-Objekt-Id', []],
+    // "Protokoll" stays with the job log; for the audit trail it is retired.
+    ['Audit-Protokoll', []],
+    ['im Protokoll festgehalten', []],
+    ['Protokolleintr', []],
+    [/\bFremde[nr]? (Messpunkt|Zugangsdaten|registrieren)/, []],
+    ['abgehakt', []],
+    ['Core-Adresse', []],
+    [/\b[Rr]untime-Verzeichnis/, []],
   ],
   en: [
     [/\benrol(?!l)/, []],
     ['counterpart', []],
     [/PRTG object id/i, []],
+    [/\bforeign (endpoint|credentials|one)\b/i, []],
+    ['ticked by', []],
   ],
 }
 

@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
@@ -172,9 +172,11 @@ describe("the overlay mode on the probe's own page", () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }))
+    await user.click(await screen.findByRole('button', { name: 'Add to the overlay' }))
     await user.click(screen.getByRole('radio', { name: /^On/ }))
-    await user.click(screen.getByRole('button', { name: 'Add to the overlay' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Add to the overlay' }),
+    )
 
     expect(await screen.findByText('job J2')).toBeInTheDocument()
     expect(attachRequests).toEqual([{ probe_ids: ['P1'], mode: 'on' }])
@@ -198,6 +200,6 @@ describe("the overlay mode on the probe's own page", () => {
     wrap()
 
     expect(await screen.findByText('Off')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add to the overlay' })).not.toBeInTheDocument()
   })
 })

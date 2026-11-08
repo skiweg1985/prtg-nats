@@ -17,7 +17,6 @@ import {
   useOverlayEnable,
   useOverlayMode,
   useOverlayRefresh,
-  useProbes,
 } from '@/api/hooks'
 import type { OverlayPeer, ProbeSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
@@ -25,6 +24,7 @@ import { DataTable } from '@/components/ui/DataTable'
 import type { Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
+import { useProbeNames } from '@/features/probes/probeName'
 import {
   ActionMenu,
   Banner,
@@ -53,7 +53,7 @@ import { OverlayAttachDialog, OverlayModeDialog, pathTone } from './overlayMode'
 export function OverlayPage() {
   const { t } = useTranslation()
   const { data, isLoading, error, refetch } = useOverlay()
-  const probes = useProbes()
+  const { probes, nameOf, nameOfProbe } = useProbeNames()
   const attach = useOverlayAttach()
   const mode = useOverlayMode()
   const detach = useOverlayDetach()
@@ -69,16 +69,14 @@ export function OverlayPage() {
 
   const idFor = useMemo(() => {
     const byName = new Map<string, string>()
-    for (const probe of probes.data ?? []) byName.set(probe.nats_username, probe.id)
+    for (const probe of probes) byName.set(probe.nats_username, probe.id)
     return byName
-  }, [probes.data])
+  }, [probes])
 
   const offOverlay = useMemo(() => {
     const peers = new Set((data?.peers ?? []).map((peer) => peer.nats_username))
-    return (probes.data ?? []).filter(
-      (probe: ProbeSummary) => !peers.has(probe.nats_username),
-    )
-  }, [data?.peers, probes.data])
+    return probes.filter((probe: ProbeSummary) => !peers.has(probe.nats_username))
+  }, [data?.peers, probes])
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -95,9 +93,12 @@ export function OverlayPage() {
     {
       key: 'probe',
       header: t('infrastructure.overlay.columns.probe'),
-      sortValue: (row) => row.nats_username,
-      searchValue: (row) => `${row.nats_username} ${row.address}`,
-      cell: (row) => <ProbeLink username={row.nats_username} />,
+      sortValue: (row) => nameOf(row.nats_username),
+      searchValue: (row) =>
+        `${nameOf(row.nats_username)} ${row.nats_username} ${row.address}`,
+      // The account as a second line: the overlay's peer list is keyed by it,
+      // and the hub's WireGuard config names peers that way.
+      cell: (row) => <ProbeLink username={row.nats_username} account />,
     },
     {
       key: 'address',
@@ -284,7 +285,7 @@ export function OverlayPage() {
                     setSelected(next)
                   }}
                 />
-                <span>{probe.nats_username}</span>
+                <span>{nameOfProbe(probe)}</span>
               </label>
             ))}
           </div>
