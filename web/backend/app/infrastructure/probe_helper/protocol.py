@@ -104,7 +104,10 @@ FIELD_SEPARATOR = "\t"
 # heartbeat must not install a service that never sends one.
 #
 # Version 14 adds mpp-upgrade and reports package_available in probe-info.
-CURRENT_HELPER_VERSION = 14
+#
+# Version 15 has mpp-upgrade name an interrupted system update and pass apt's
+# own error on, instead of a bare "could not upgrade".
+CURRENT_HELPER_VERSION = 15
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not

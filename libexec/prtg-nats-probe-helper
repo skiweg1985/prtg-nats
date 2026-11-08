@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=14
+HELPER_VERSION=15
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -4224,6 +4224,8 @@ upgrade_mpp() {
   local service_state="inactive"
   local was_active="false"
   local refresh_output=""
+  local install_output=""
+  local pending=0
   local attempt=0
 
   before="$(installed_package_version)"
@@ -4234,6 +4236,18 @@ upgrade_mpp() {
   if command -v apt-get >/dev/null 2>&1; then
     [[ -f "${MPP_REPOSITORY_FILES[0]}" ]] ||
       die "The Paessler repository is not registered on this probe"
+    # An interrupted system update leaves packages unpacked but not
+    # configured, and apt then refuses every install. Finishing it touches
+    # far more than this package, so it is named here and left to the
+    # operator, the way install-mpp.sh does.
+    if command -v dpkg >/dev/null 2>&1; then
+      pending="$(
+        dpkg --audit 2>/dev/null |
+          awk '/^ [^[:space:]]+[[:space:]]/ { count++ } END { print count + 0 }'
+      )"
+      ((pending == 0)) ||
+        die "An earlier system update on this probe did not finish: ${pending} package(s) are unpacked but not configured, and apt refuses every install until that is done. Run \"sudo dpkg --configure -a\" on the probe, then upgrade again"
+    fi
     # apt exits 0 when a source cannot be fetched and only prints a warning.
     # Taken at its word, an unreachable mirror would read as "already
     # current", so any W: or E: line counts as a failed refresh.
@@ -4249,10 +4263,16 @@ upgrade_mpp() {
         grep -E '^(W|E|Err):' <<<"${refresh_output}" | head -n 1
       )"
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade \
-      -o DPkg::Lock::Timeout=300 \
-      -o Dpkg::Options::=--force-confold "${MPP_PACKAGE}" >/dev/null 2>&1 ||
-      die "Could not upgrade the ${MPP_PACKAGE} package"
+    # apt's own reason travels with the failure: "could not upgrade" alone
+    # sends the operator to the probe to find out what this already knew.
+    install_output="$(
+      LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade \
+        -o DPkg::Lock::Timeout=300 \
+        -o Dpkg::Options::=--force-confold "${MPP_PACKAGE}" </dev/null 2>&1
+    )" || die "Could not upgrade the ${MPP_PACKAGE} package: $(
+      grep -E '^E:' <<<"${install_output}" | head -n 1 ||
+        tail -n 1 <<<"${install_output}"
+    )"
   elif command -v dnf >/dev/null 2>&1; then
     dnf upgrade -y --refresh "${MPP_PACKAGE}" >/dev/null 2>&1 ||
       die "Could not upgrade the ${MPP_PACKAGE} package"
