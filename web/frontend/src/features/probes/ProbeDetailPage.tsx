@@ -41,6 +41,23 @@ import {
   OverlayAttachDialog,
   OverlayModeDialog,
 } from '@/features/infrastructure/overlayMode'
+import {
+  ArrowRight,
+  ArrowUpCircle,
+  Check,
+  Eye,
+  FileBadge,
+  KeyRound,
+  Lock,
+  LockOpen,
+  Plus,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { PrtgNameRow } from '@/features/probes/PrtgName'
@@ -50,16 +67,20 @@ import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   CheckboxField,
+  ConfirmDialog,
   DetailRow,
   Dialog,
   Dot,
   EmptyState,
   Mono,
+  RowActions,
   Select,
   Skeleton,
   Tabs,
@@ -98,6 +119,7 @@ export function ProbeDetailPage() {
   const { data, isLoading, error, refetch } = useProbe(probeId)
   const { data: prtgName } = useProbePrtgName(probeId)
   const navigate = useNavigate()
+  const { can } = useAuth()
   const refresh = useRefreshProbe()
   const installCa = useProbeAction('install-ca')
   const validate = useProbeAction('validate')
@@ -151,11 +173,17 @@ export function ProbeDetailPage() {
   // here because the two cases need different instructions, not a shared
   // "something is old".
   const helperUpdatable = observed?.helper_version != null
+  const canUpdate = can('probe.update')
+  const toJob = {
+    onSuccess: (accepted: { job_id: string }) => navigate(`/jobs/${accepted.job_id}`),
+  }
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+      {/* The title keeps its line; the toolbar moves under it when both do
+          not fit, instead of squeezing the name into two lines. */}
+      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-64 flex-1">
           <Link to={backToList} className="text-ink-3 text-xs">
             ← {t('probes.title')}
           </Link>
@@ -175,22 +203,39 @@ export function ProbeDetailPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        {/* Three groups, by how often and how far-reaching. Reading the
+            state is always at hand; checking and applying the configuration
+            are the everyday changes; installing the CA, renewing the helper
+            and unenrolling are rare, so they wait in the menu - unenrolling
+            last, in danger text, behind its own confirmation. Renewing the
+            helper comes out as the one primary action only when the probe
+            actually needs it. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
+            variant="ghost"
+            icon={RefreshCw}
             onClick={() => refresh.mutate(probeId)}
             disabled={refresh.isPending}
           >
             {t('probes.refreshState')}
           </Button>
+          {canUpdate && summary.helper_outdated && helperUpdatable && (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={ArrowUpCircle}
+              onClick={() => updateHelper.mutate(probeId, toJob)}
+              disabled={updateHelper.isPending}
+            >
+              {t('probes.updateHelper')}
+            </Button>
+          )}
           <PermissionGate permission="probe.read">
             <Button
               size="sm"
-              onClick={() =>
-                validate.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
+              icon={ShieldCheck}
+              onClick={() => validate.mutate(probeId, toJob)}
               disabled={validate.isPending}
             >
               {t('probes.validate')}
@@ -199,44 +244,52 @@ export function ProbeDetailPage() {
           <PermissionGate permission="probe.update">
             <Button
               size="sm"
-              onClick={() =>
-                installCa.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
-              disabled={installCa.isPending}
-            >
-              {t('probes.installCa')}
-            </Button>
-            <Button
-              size="sm"
-              variant={summary.helper_outdated && helperUpdatable ? 'primary' : undefined}
-              onClick={() =>
-                updateHelper.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
-              disabled={updateHelper.isPending || !helperUpdatable}
-            >
-              {t('probes.updateHelper')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() =>
-                configure.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
+              icon={Settings2}
+              onClick={() => configure.mutate(probeId, toJob)}
               disabled={configure.isPending}
             >
               {t('probes.configure')}
             </Button>
           </PermissionGate>
-          <PermissionGate permission="probe.delete">
-            <Button size="sm" variant="danger" onClick={() => setConfirmUnenroll(true)}>
-              {t('probes.unenroll')}
-            </Button>
-          </PermissionGate>
+          <ActionMenu
+            label={t('common.moreActions')}
+            variant="secondary"
+            actions={[
+              ...(canUpdate
+                ? [
+                    {
+                      key: 'install-ca',
+                      label: t('probes.installCa'),
+                      icon: FileBadge,
+                      disabled: installCa.isPending,
+                      onSelect: () => installCa.mutate(probeId, toJob),
+                    },
+                    ...(summary.helper_outdated && helperUpdatable
+                      ? []
+                      : [
+                          {
+                            key: 'update-helper',
+                            label: t('probes.updateHelper'),
+                            icon: ArrowUpCircle,
+                            disabled: updateHelper.isPending || !helperUpdatable,
+                            onSelect: () => updateHelper.mutate(probeId, toJob),
+                          },
+                        ]),
+                  ]
+                : []),
+              ...(can('probe.delete')
+                ? [
+                    {
+                      key: 'unenroll',
+                      label: t('probes.unenroll'),
+                      icon: Trash2,
+                      tone: 'danger' as const,
+                      onSelect: () => setConfirmUnenroll(true),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
       </header>
 
@@ -330,9 +383,11 @@ export function ProbeDetailPage() {
             title={t('probes.prtg.bannerTitle')}
             action={
               <PermissionGate permission="probe.update">
+                {/* Secondary: a blue fill inside an amber banner shouts twice,
+                    and the page keeps its one primary for the toolbar. */}
                 <Button
                   size="sm"
-                  variant="primary"
+                  icon={Check}
                   disabled={updateProbe.isPending}
                   onClick={() =>
                     updateProbe.mutate({ id: probeId, prtg_registered: true })
@@ -400,6 +455,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
   const { summary, inventory, observed } = detail
   const reveal = useRevealAccessKey()
   const updateProbe = useUpdateProbe()
+  const { can } = useAuth()
   // A mutation, not a query: nothing refetches it, and closing the dialog
   // drops the value out of both this state and the mutation's own.
   const [accessKey, setAccessKey] = useState<string | null>(null)
@@ -415,32 +471,49 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Two columns only where a half-width card still holds a row with its
+          actions on one line. */}
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card title={t('probes.identity')}>
           <dl>
             {/* The account belongs to this probe and nothing else, so it is
                 managed here rather than in a list of its own. */}
-            <DetailRow label={t('probes.natsUser')}>
-              <span className="flex items-center gap-2">
-                <Mono>{summary.nats_username}</Mono>
-                <PermissionGate permission="credential.rotate">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      revealPassword.mutate(summary.nats_username, {
-                        onSuccess: (data) => setPassword(data.password),
-                      })
-                    }
-                    disabled={revealPassword.isPending}
-                  >
-                    {t('probes.account.showPassword')}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setRotating(true)}>
-                    {t('credentials.rotate')}
-                  </Button>
-                </PermissionGate>
-              </span>
+            <DetailRow
+              label={t('probes.natsUser')}
+              actions={
+                can('credential.rotate') && (
+                  <RowActions>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={Eye}
+                      onClick={() =>
+                        revealPassword.mutate(summary.nats_username, {
+                          onSuccess: (data) => setPassword(data.password),
+                        })
+                      }
+                      disabled={revealPassword.isPending}
+                    >
+                      {t('probes.account.showPassword')}
+                    </Button>
+                    {/* Rotation cuts the probe's current credentials: rare,
+                        consequential, and confirmed in its own dialog. */}
+                    <ActionMenu
+                      label={t('common.moreActions')}
+                      actions={[
+                        {
+                          key: 'rotate',
+                          label: t('credentials.rotate'),
+                          icon: KeyRound,
+                          onSelect: () => setRotating(true),
+                        },
+                      ]}
+                    />
+                  </RowActions>
+                )
+              }
+            >
+              <Mono>{summary.nats_username}</Mono>
             </DetailRow>
             <PrtgNameRow probeId={summary.id} />
             <DetailRow label={t('probes.probeId')}>
@@ -448,15 +521,17 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             </DetailRow>
             <RouteRows detail={detail} />
             <OverlayRow probeId={summary.id} username={summary.nats_username} />
-            <DetailRow label={t('probes.accessKey')}>
-              {/* Presence only. The value is behind an audited, explicit reveal. */}
-              {inventory.access_key_present ? (
-                <span className="flex items-center gap-2">
-                  <Badge tone="ok">{t('common.hidden')}</Badge>
-                  <PermissionGate permission="credential.read">
+            {/* Presence only. The value is behind an audited, explicit reveal. */}
+            <DetailRow
+              label={t('probes.accessKey')}
+              actions={
+                inventory.access_key_present &&
+                can('credential.read') && (
+                  <RowActions>
                     <Button
                       size="sm"
                       variant="ghost"
+                      icon={Eye}
                       onClick={() =>
                         reveal.mutate(summary.id, {
                           onSuccess: (revealed) => setAccessKey(revealed.access_key),
@@ -466,8 +541,12 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                     >
                       {t('common.reveal')}
                     </Button>
-                  </PermissionGate>
-                </span>
+                  </RowActions>
+                )
+              }
+            >
+              {inventory.access_key_present ? (
+                <span className="text-ink-3">{t('common.hidden')}</span>
               ) : (
                 <Badge tone="warn">{t('common.none')}</Badge>
               )}
@@ -514,7 +593,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
         </Card>
 
         {reveal.error && (
-          <div className="lg:col-span-2">
+          <div className="xl:col-span-2">
             <ErrorDetails error={reveal.error} />
           </div>
         )}
@@ -524,37 +603,35 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
             page, endpoints on the iperf pages, the overlay on its own page -
             and until now nothing said so. One row per aspect: the current
             value, and the way to the page that changes it. */}
-        <Card title={t('probes.atAGlance.title')} className="lg:col-span-2">
+        <Card title={t('probes.atAGlance.title')} className="xl:col-span-2">
           <dl>
-            <DetailRow label={t('probes.atAGlance.sensors')}>
-              <span className="flex items-center gap-3">
-                <span>
-                  {t('probes.atAGlance.sensorsValue', {
-                    count: inventory.assigned_sensors.length,
-                  })}
-                </span>
-                <Link
-                  to="?tab=sensors"
-                  className="text-accent text-xs hover:underline"
-                >
-                  {t('probes.atAGlance.manage')}
-                </Link>
-              </span>
+            <DetailRow
+              label={t('probes.atAGlance.sensors')}
+              actions={
+                <RowActions>
+                  <ButtonLink to="?tab=sensors" icon={ArrowRight}>
+                    {t('probes.atAGlance.manage')}
+                  </ButtonLink>
+                </RowActions>
+              }
+            >
+              {t('probes.atAGlance.sensorsValue', {
+                count: inventory.assigned_sensors.length,
+              })}
             </DetailRow>
-            <DetailRow label={t('probes.atAGlance.endpoints')}>
-              <span className="flex items-center gap-3">
-                <span>
-                  {inventory.known_iperf_endpoints.length > 0
-                    ? inventory.known_iperf_endpoints.join(', ')
-                    : t('probes.atAGlance.none')}
-                </span>
-                <Link
-                  to="/infrastructure/iperf"
-                  className="text-accent text-xs hover:underline"
-                >
-                  {t('probes.atAGlance.manage')}
-                </Link>
-              </span>
+            <DetailRow
+              label={t('probes.atAGlance.endpoints')}
+              actions={
+                <RowActions>
+                  <ButtonLink to="/infrastructure/iperf" icon={ArrowRight}>
+                    {t('probes.atAGlance.manage')}
+                  </ButtonLink>
+                </RowActions>
+              }
+            >
+              {inventory.known_iperf_endpoints.length > 0
+                ? inventory.known_iperf_endpoints.join(', ')
+                : t('probes.atAGlance.none')}
             </DetailRow>
           </dl>
         </Card>
@@ -742,6 +819,7 @@ function InterfacesCard({
             <Button
               size="sm"
               variant="ghost"
+              icon={LockOpen}
               disabled={release.isPending}
               onClick={() =>
                 release.mutate(
@@ -756,6 +834,7 @@ function InterfacesCard({
             <Button
               size="sm"
               variant="ghost"
+              icon={Lock}
               // The probe would refuse anyway; a button that works until it
               // does not, with a red badge beside it, reads like a dare.
               disabled={reserve.isPending || !target || row.carries_default_route}
@@ -827,6 +906,8 @@ function InterfacesCard({
 }
 
 function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail }) {
+  const { can } = useAuth()
+  const [removing, setRemoving] = useState<string | null>(null)
   const { t } = useTranslation()
   const sensors = detail.sensors
   const navigate = useNavigate()
@@ -941,35 +1022,37 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       align: 'right',
       cell: (row) =>
         row.status === 'absent' ? null : (
-          <span className="flex justify-end gap-2">
+          <RowActions>
             {/* The row already names the cure's target: outdated and drifted
                 are fixed by rolling the sensor out again, and until now the
                 only button in reach was "remove". */}
             {(row.status === 'outdated' || row.status === 'drifted') && (
               <PermissionGate permission="deployment.create">
-                <Button size="sm" onClick={() => setDeploying(row.name)}>
+                <Button size="sm" icon={Upload} onClick={() => setDeploying(row.name)}>
                   {t('sensors.updateOnProbe')}
                 </Button>
               </PermissionGate>
             )}
-            <PermissionGate permission="sensor.remove">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  removeSensor.mutate(
-                    { probeId, sensor: row.name },
-                    {
-                      onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                    },
-                  )
-                }
-                disabled={removeSensor.isPending}
-              >
-                {t('sensors.remove')}
-              </Button>
-            </PermissionGate>
-          </span>
+            {/* Removing takes the sensor off the probe: in the menu, and
+                confirmed before it runs. */}
+            <ActionMenu
+              label={t('common.moreActions')}
+              actions={
+                can('sensor.remove')
+                  ? [
+                      {
+                        key: 'remove',
+                        label: t('sensors.remove'),
+                        icon: Trash2,
+                        tone: 'danger',
+                        disabled: removeSensor.isPending,
+                        onSelect: () => setRemoving(row.name),
+                      },
+                    ]
+                  : []
+              }
+            />
+          </RowActions>
         ),
     },
   ]
@@ -978,7 +1061,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
     <div className="space-y-4">
       <div className="flex justify-end">
         <PermissionGate permission="deployment.create">
-          <Button size="sm" variant="primary" onClick={() => setDeploying('')}>
+          <Button size="sm" variant="primary" icon={Upload} onClick={() => setDeploying('')}>
             {t('probes.deploySensor')}
           </Button>
         </PermissionGate>
@@ -1007,6 +1090,28 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
           sensorName={deploying || undefined}
           probeIds={[probeId]}
           onClose={() => setDeploying(null)}
+        />
+      )}
+      {removing !== null && (
+        <ConfirmDialog
+          title={t('confirm.title')}
+          body={t('probes.removeSensorConfirm', { sensor: removing })}
+          confirmLabel={t('sensors.remove')}
+          cancelLabel={t('common.cancel')}
+          pending={removeSensor.isPending}
+          error={removeSensor.error ? <ErrorDetails error={removeSensor.error} /> : undefined}
+          onConfirm={() =>
+            removeSensor.mutate(
+              { probeId, sensor: removing },
+              {
+                onSuccess: (accepted) => {
+                  setRemoving(null)
+                  navigate(`/jobs/${accepted.job_id}`)
+                },
+              },
+            )
+          }
+          onClose={() => setRemoving(null)}
         />
       )}
     </div>
@@ -1403,6 +1508,7 @@ function RouteRows({ detail }: { detail: ProbeDetail }) {
 function OverlayRow({ probeId, username }: { probeId: string; username: string }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { can } = useAuth()
   const { data } = useOverlay()
   const attach = useOverlayAttach()
   const changeMode = useOverlayMode()
@@ -1413,45 +1519,44 @@ function OverlayRow({ probeId, username }: { probeId: string; username: string }
   const toJob = {
     onSuccess: (job: { job_id: string }) => navigate(`/jobs/${job.job_id}`),
   }
-  if (!peer) {
-    return (
-      <DetailRow label={t('probes.overlay')}>
-        <span className="flex flex-wrap items-center gap-2">
-          <Badge tone="neutral">{t('infrastructure.overlay.modes.off.name')}</Badge>
-          <PermissionGate permission="overlay.manage">
-            <Button size="sm" variant="ghost" onClick={() => setDialog('add')}>
-              {t('probes.overlayAdd')}
-            </Button>
-          </PermissionGate>
-        </span>
-        {dialog === 'add' && (
-          <OverlayAttachDialog
-            title={t('probes.overlayAddTitle')}
-            initial={data.default_mode}
-            pending={attach.isPending}
-            onConfirm={(mode) => attach.mutate({ probe_ids: [probeId], mode }, toJob)}
-            onClose={() => setDialog(null)}
-          />
-        )}
-        {attach.error && <ErrorDetails error={attach.error} />}
-      </DetailRow>
-    )
-  }
+  const manage = can('overlay.manage')
   return (
-    <DetailRow label={t('probes.overlay')}>
-      {/* Mode and switch only: the tunnel address and whether NATS takes it
-          are already in the route rows above. */}
-      <span className="flex flex-wrap items-center gap-2">
-        <Badge tone="accent">
-          {t(`infrastructure.overlay.modes.${peer.mode}.name`)}
-        </Badge>
-        <PermissionGate permission="overlay.manage">
-          <Button size="sm" variant="ghost" onClick={() => setDialog('mode')}>
-            {t('infrastructure.overlay.actions.mode')}
-          </Button>
-        </PermissionGate>
-      </span>
-      {dialog === 'mode' && (
+    <DetailRow
+      label={t('probes.overlay')}
+      actions={
+        manage && (
+          <RowActions>
+            {peer ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={SlidersHorizontal}
+                onClick={() => setDialog('mode')}
+              >
+                {t('infrastructure.overlay.actions.mode')}
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" icon={Plus} onClick={() => setDialog('add')}>
+                {t('probes.overlayAdd')}
+              </Button>
+            )}
+          </RowActions>
+        )
+      }
+    >
+      {/* Mode only: the tunnel address and whether NATS takes it are in the
+          route rows above. */}
+      {t(`infrastructure.overlay.modes.${peer?.mode ?? 'off'}.name`)}
+      {dialog === 'add' && (
+        <OverlayAttachDialog
+          title={t('probes.overlayAddTitle')}
+          initial={data.default_mode}
+          pending={attach.isPending}
+          onConfirm={(mode) => attach.mutate({ probe_ids: [probeId], mode }, toJob)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'mode' && peer && (
         <OverlayModeDialog
           initial={peer.mode}
           pending={changeMode.isPending}
@@ -1459,6 +1564,7 @@ function OverlayRow({ probeId, username }: { probeId: string; username: string }
           onClose={() => setDialog(null)}
         />
       )}
+      {attach.error && <ErrorDetails error={attach.error} />}
       {changeMode.error && <ErrorDetails error={changeMode.error} />}
     </DetailRow>
   )

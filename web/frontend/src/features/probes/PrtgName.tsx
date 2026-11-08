@@ -8,16 +8,20 @@ import {
   useUnlinkPrtgObject,
 } from '@/api/hooks'
 import type { PrtgName } from '@/api/types'
-import { PermissionGate } from '@/app/providers'
+import { Link2, Unlink } from 'lucide-react'
+import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Button,
+  ConfirmDialog,
   DetailRow,
   Dialog,
   Field,
   Input,
   Mono,
+  RowActions,
   Spinner,
 } from '@/components/ui/primitives'
 
@@ -31,40 +35,63 @@ import {
  */
 export function PrtgNameRow({ probeId }: { probeId: string }) {
   const { t } = useTranslation()
+  const { can } = useAuth()
   const { data, isLoading } = useProbePrtgName(probeId)
   const unlink = useUnlinkPrtgObject()
   const [linking, setLinking] = useState(false)
+  // Unlinking drops the name the page is titled by; it asks first.
+  const [confirmUnlink, setConfirmUnlink] = useState(false)
+  const linked = Boolean(data?.object_id)
+  const offered = can('probe.update') && data != null && data.state !== 'not_configured'
 
   return (
-    <DetailRow label={t('probes.prtgName.label')}>
-      {isLoading || !data ? (
-        <Spinner />
-      ) : (
-        <>
-          <PrtgNameValue name={data} />
-          <PermissionGate permission="probe.update">
-            {data.state !== 'not_configured' && (
-              <span className="mt-1 flex flex-wrap gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setLinking(true)}>
-                  {data.object_id ? t('probes.prtgName.relink') : t('probes.prtgName.link')}
-                </Button>
-                {data.object_id && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => unlink.mutate(probeId)}
-                    disabled={unlink.isPending}
-                  >
-                    {t('probes.prtgName.unlink')}
-                  </Button>
-                )}
-              </span>
+    <DetailRow
+      label={t('probes.prtgName.label')}
+      actions={
+        offered && (
+          <RowActions>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={Link2}
+              onClick={() => setLinking(true)}
+            >
+              {linked ? t('probes.prtgName.relink') : t('probes.prtgName.link')}
+            </Button>
+            {linked && (
+              <ActionMenu
+                label={t('common.moreActions')}
+                actions={[
+                  {
+                    key: 'unlink',
+                    label: t('probes.prtgName.unlink'),
+                    icon: Unlink,
+                    tone: 'danger',
+                    onSelect: () => setConfirmUnlink(true),
+                  },
+                ]}
+              />
             )}
-          </PermissionGate>
-          {unlink.error && <ErrorDetails error={unlink.error} />}
-        </>
-      )}
+          </RowActions>
+        )
+      }
+    >
+      {isLoading || !data ? <Spinner /> : <PrtgNameValue name={data} />}
       {linking && <PrtgLinkDialog probeId={probeId} onClose={() => setLinking(false)} />}
+      {confirmUnlink && (
+        <ConfirmDialog
+          title={t('confirm.title')}
+          body={t('probes.prtgName.unlinkConfirm', { id: data?.object_id ?? '' })}
+          confirmLabel={t('probes.prtgName.unlink')}
+          cancelLabel={t('common.cancel')}
+          pending={unlink.isPending}
+          error={unlink.error ? <ErrorDetails error={unlink.error} /> : undefined}
+          onConfirm={() =>
+            unlink.mutate(probeId, { onSuccess: () => setConfirmUnlink(false) })
+          }
+          onClose={() => setConfirmUnlink(false)}
+        />
+      )}
     </DetailRow>
   )
 }

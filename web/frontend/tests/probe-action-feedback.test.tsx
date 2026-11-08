@@ -143,7 +143,9 @@ describe('what the probe actions report back', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: 'Install CA' }))
+    // Rare: in the toolbar's menu.
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Install CA' }))
     expect(await screen.findByText('job page')).toBeInTheDocument()
   })
 
@@ -170,7 +172,9 @@ describe('what the probe actions report back', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: 'Install CA' }))
+    // Rare: in the toolbar's menu.
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Install CA' }))
 
     // The panel, naming the probe it is about - not a button that greys out
     // for a second and comes back.
