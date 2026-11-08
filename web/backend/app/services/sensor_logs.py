@@ -200,10 +200,11 @@ class SensorLogStore:
 
         Judged by the date in the file name, not the file's mtime: a day file
         keeps growing while a buffered probe catches up, and what it holds is
-        that day's records however late they arrived.
+        that day's records however late they arrived. Today counts as one of
+        the days kept, so a retention of 1 keeps today's file alone.
         """
         today = today or datetime.now(UTC).date()
-        cutoff = today - timedelta(days=self._retention_days)
+        cutoff = today - timedelta(days=self._retention_days - 1)
         removed = 0
         with _write_lock:
             for path in self._all_day_files():
@@ -278,12 +279,29 @@ def _day_of(path: Path) -> date | None:
 
 
 def _searchable(entry: dict[str, Any]) -> str:
+    """Summary, code and every value in the body, one per line.
+
+    The values as the sensor wrote them: searching the serialised body would
+    match field names and JSON punctuation, and miss a quote or backslash in
+    raw output, which the serialisation escapes.
+    """
     parts = [
         str(entry.get("summary") or ""),
         str(entry.get("code") or ""),
-        json.dumps(entry.get("body"), ensure_ascii=False),
+        *_values(entry.get("body")),
     ]
     return "\n".join(parts).casefold()
+
+
+def _values(value: object) -> Iterator[str]:
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _values(item)
+    elif value is not None:
+        yield str(value)
 
 
 async def ingest(

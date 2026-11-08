@@ -383,9 +383,11 @@ envelope `id`, `probe`, `sensor`, `job`, `time`, `result`, `code`, `summary`
 and the sensor-specific `body`. The files are output, not state: nothing else
 refers to them, and deleting one loses only what it holds.
 
-Once a day, and once at startup, the API deletes the day files older than
-`PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS`, judged by the date in the file
-name. The shell tooling knows the directory as `SENSOR_LOG_DIR`.
+Once a day, and once at startup, the API keeps the day files of the last
+`PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` days, today included, and deletes
+the older ones, judged by the date in the file name: with `14`, today and
+the 13 days before it. The shell tooling knows the directory as
+`SENSOR_LOG_DIR`.
 
 Each delivery also counts as contact, and the service on the probe sends an
 empty batch as a heartbeat at least every five minutes

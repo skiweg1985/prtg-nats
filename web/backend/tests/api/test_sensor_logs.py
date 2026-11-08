@@ -288,6 +288,33 @@ async def test_each_filter_narrows_the_list(
     assert bad.status_code == 422
 
 
+async def test_the_text_search_matches_raw_output_as_it_was_written(
+    client: AsyncClient, as_probe: None
+) -> None:
+    """Quotes and backslashes are searched for as the supplicant printed
+    them, not in the escaped form they take in the stored JSON."""
+    quoted = "66666666-0000-4000-8000-000000000001"
+    other = "66666666-0000-4000-8000-000000000002"
+    batch = [
+        record(quoted, raw='wlan0: SSID "Example-Corp" rejected, user DOMAIN\\alice'),
+        record(other, raw="wlan0: CTRL-EVENT-DISCONNECTED reason=3"),
+    ]
+    response = await client.post("/probe/v1/records", json={"records": batch})
+    assert response.status_code == 200, response.text
+    await sign_in(client)
+
+    async def listed(text: str) -> list[str]:
+        answer = await client.get("/api/v1/sensor-logs", params={**DAY, "q": text})
+        assert answer.status_code == 200, answer.text
+        return [item["id"] for item in answer.json()["items"]]
+
+    assert await listed('SSID "Example-Corp"') == [quoted]
+    assert await listed("DOMAIN\\alice") == [quoted]
+    # Field names and JSON punctuation are not part of what was written.
+    assert await listed("supplicant_lines") == []
+    assert await listed('", "') == []
+
+
 async def test_without_a_time_range_the_last_24_hours_are_listed(
     client: AsyncClient, as_probe: None
 ) -> None:
@@ -354,12 +381,15 @@ async def test_new_records_are_announced_on_the_event_stream(
 async def test_cleanup_removes_day_files_older_than_the_retention(
     client: AsyncClient, as_probe: None, settings: Settings
 ) -> None:
+    """Fourteen days of retention keep today and the thirteen days before
+    it - fourteen day files, not fifteen."""
+    assert settings.sensor_log_retention_days == 14
     today = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     kept = "55555555-0000-4000-8000-000000000001"
     expired = "55555555-0000-4000-8000-000000000002"
     batch = [
-        record(kept, time=(today - timedelta(days=14)).isoformat()),
-        record(expired, time=(today - timedelta(days=15)).isoformat()),
+        record(kept, time=(today - timedelta(days=13)).isoformat()),
+        record(expired, time=(today - timedelta(days=14)).isoformat()),
     ]
     await client.post("/probe/v1/records", json={"records": batch})
 

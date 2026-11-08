@@ -648,7 +648,7 @@ Every route needs `sensor_log.read`, which every role holds.
 | `ssid` | the network the run was about, from the body |
 | `result` | `ok`, `error` or `gap` |
 | `since`, `until` | ISO 8601 times; without `since` the last 24 hours |
-| `q` | case-insensitive text in the summary, the error code and the body |
+| `q` | case-insensitive text in the summary, the error code and the values in the body, as the sensor wrote them (quotes and backslashes included, field names not) |
 | `limit`, `offset` | paging, `limit` up to 500, default 100 |
 
 The answer is `{"items": [...], "total": n, "limit": n, "offset": n}`.
