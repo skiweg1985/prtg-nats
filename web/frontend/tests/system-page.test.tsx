@@ -125,6 +125,21 @@ describe('the maintenance page', () => {
     )
   })
 
+  it('says on the restart card itself when the Docker socket is missing', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/system/capabilities', () =>
+        HttpResponse.json({ docker: false, runtime_state: 'complete', dev_auth: false }),
+      ),
+    )
+    wrap()
+
+    expect(
+      await screen.findByText(/Without the Docker socket mounted/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeDisabled()
+  })
+
   it('keeps the download and the destructive cards from a reader', async () => {
     await changeLanguage('en')
     permissions = ['system.read', 'job.read']

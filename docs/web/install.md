@@ -91,9 +91,10 @@ This is stated plainly rather than worked around, and
 Two things are worth knowing here:
 
 - **The Docker socket is optional.** Leave the mount out and the platform still
-  manages every probe, every sensor and every certificate. Only the server
-  lifecycle actions - restart, backup - disappear from the interface, and the
-  interface says why rather than failing when they are pressed.
+  manages every probe, every sensor and every certificate. Restarting NATS and
+  updating the stack need it: the restart button on the maintenance page is
+  disabled and the updates page cannot update, and both say why on the spot
+  rather than failing when pressed.
 - **The API never listens on a routable address.** It joins the host network
   namespace and binds to loopback; Caddy is the only thing that opens a port.
 

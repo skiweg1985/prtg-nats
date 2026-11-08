@@ -5,6 +5,7 @@ import { Archive, DatabaseBackup, Download, RotateCcw, ShieldCheck } from 'lucid
 
 import {
   useBackups,
+  useCapabilities,
   useCreateBackup,
   useExportRuntime,
   useRestartNats,
@@ -40,6 +41,10 @@ export function SystemPage() {
   const backup = useCreateBackup()
   const exportRuntime = useExportRuntime()
   const restart = useRestartNats()
+  const { data: capabilities } = useCapabilities()
+  // Restarting is the one action here that needs the Docker socket. The
+  // notice sits on the button it blocks, not in every corner of the frame.
+  const dockerMissing = capabilities?.docker === false
   const [confirming, setConfirming] = useState<'restart' | 'export' | null>(null)
 
   const toJob = (accepted: { job_id: string }) => navigate(`/jobs/${accepted.job_id}`)
@@ -72,12 +77,20 @@ export function SystemPage() {
           <Card
             title={t('system.restart.title')}
             action={
-              <Button size="sm" icon={RotateCcw} onClick={() => setConfirming('restart')}>
+              <Button
+                size="sm"
+                icon={RotateCcw}
+                disabled={dockerMissing}
+                onClick={() => setConfirming('restart')}
+              >
                 {t('system.restart.run')}
               </Button>
             }
           >
             <p className="text-ink-2 text-sm">{t('system.restart.body')}</p>
+            {dockerMissing && (
+              <p className="text-ink-3 mt-2 text-xs">{t('system.restart.dockerMissing')}</p>
+            )}
             {restart.error != null && <ErrorDetails error={restart.error} />}
           </Card>
         </PermissionGate>

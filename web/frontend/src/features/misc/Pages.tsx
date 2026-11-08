@@ -12,6 +12,7 @@ import {
 import type {
   AuditEvent,
   Certificate,
+  ContainerState,
 } from '@/api/types'
 import {
   ArrowRight,
@@ -131,6 +132,23 @@ export function AuditPage() {
 
 // --- Infrastructure ---------------------------------------------------------
 
+/**
+ * What a container row can honestly say.
+ *
+ * Without the Docker socket the backend cannot ask, and reports every
+ * container as absent - drawn red, that read as a stack that had fallen over.
+ * Not knowing is neutral; only a container known to be down is a fault.
+ */
+export function containerState(
+  container: ContainerState,
+  dockerAvailable: boolean,
+): { tone: 'ok' | 'danger' | 'neutral'; key: 'running' | 'stopped' | 'absent' | 'unknown' } {
+  if (container.running) return { tone: 'ok', key: 'running' }
+  if (!dockerAvailable) return { tone: 'neutral', key: 'unknown' }
+  if (!container.exists) return { tone: 'danger', key: 'absent' }
+  return { tone: 'danger', key: 'stopped' }
+}
+
 export function NatsPage() {
   const { t } = useTranslation()
   const { can } = useAuth()
@@ -140,7 +158,7 @@ export function NatsPage() {
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
   if (!data) return null
 
-  const { nats, site, containers } = data
+  const { nats, site, containers, capabilities } = data
 
   return (
     <div className="space-y-4">
@@ -149,6 +167,7 @@ export function NatsPage() {
           matter, not a menu entry of its own. */}
       <PageHeader
         title={t('infrastructure.natsTitle')}
+        subtitle={t('infrastructure.natsSubtitle')}
         action={
           can('credential.read') ? (
             <ButtonLink to="/infrastructure/credentials" icon={ArrowRight}>
@@ -164,11 +183,17 @@ export function NatsPage() {
             <DetailRow label={t('dashboard.endpoint')}>
               <Mono truncate>{site.nats_endpoint ?? '—'}</Mono>
             </DetailRow>
-            <DetailRow label="server">{nats.server_name ?? '—'}</DetailRow>
-            <DetailRow label="version">
+            <DetailRow label={t('infrastructure.serverName')}>
+              <Mono>{nats.server_name ?? '—'}</Mono>
+            </DetailRow>
+            <DetailRow label={t('infrastructure.version')}>
               <Mono>{nats.version ?? '—'}</Mono>
             </DetailRow>
-            <DetailRow label="uptime">{nats.uptime ?? '—'}</DetailRow>
+            {/* NATS reports its own duration string ("3d4h12m"); it is a
+                measurement, so it stays as NATS spells it. */}
+            <DetailRow label={t('infrastructure.uptime')}>
+              <Mono>{nats.uptime ?? '—'}</Mono>
+            </DetailRow>
             <DetailRow label={t('dashboard.connections')}>{nats.connections}</DetailRow>
             <DetailRow label={t('dashboard.coreAddress')}>
               <Mono>{site.prtg_core_ip ?? '—'}</Mono>
@@ -182,7 +207,7 @@ export function NatsPage() {
               <DetailRow label={t('dashboard.streams')}>
                 {nats.jetstream.streams}
               </DetailRow>
-              <DetailRow label="consumers">{nats.jetstream.consumers}</DetailRow>
+              <DetailRow label={t('infrastructure.consumers')}>{nats.jetstream.consumers}</DetailRow>
               <DetailRow label={t('dashboard.messages')}>
                 {nats.jetstream.messages}
               </DetailRow>
@@ -203,19 +228,26 @@ export function NatsPage() {
           </div>
         )}
         <ul>
-          {containers.map((container) => (
-            <li
-              key={container.name}
-              className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0"
-            >
-              <Dot tone={container.running ? 'ok' : 'danger'} />
-              <Mono className="text-ink flex-1">{container.name}</Mono>
-              <span className="text-ink-3 text-xs">
-                {container.status ?? t('common.unknown')}
-                {container.health ? ` · ${container.health}` : ''}
-              </span>
-            </li>
-          ))}
+          {containers.map((container) => {
+            const state = containerState(container, capabilities.docker)
+            return (
+              <li
+                key={container.name}
+                className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0"
+              >
+                <Dot tone={state.tone} />
+                <Mono className="text-ink flex-1">{container.name}</Mono>
+                <span className="text-ink-3 text-xs">
+                  {state.key === 'unknown'
+                    ? t('common.unknown')
+                    : t(`infrastructure.containerState.${state.key}`)}
+                  {/* Docker's own words, kept as values: they are what
+                      docker ps prints when someone checks on the host. */}
+                  {container.health && <Mono className="ml-1">· {container.health}</Mono>}
+                </span>
+              </li>
+            )
+          })}
         </ul>
       </Card>
     </div>
@@ -231,7 +263,10 @@ export function CertificatesPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('infrastructure.certificatesTitle')} />
+      <PageHeader
+        title={t('infrastructure.certificatesTitle')}
+        subtitle={t('infrastructure.certificatesSubtitle')}
+      />
       {data && data.length === 0 ? (
         <Card>
           <EmptyState title={t('infrastructure.certificatesEmpty')} />
@@ -255,12 +290,13 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
 
   return (
     <Card
-      title={certificate.kind.toUpperCase()}
+      title={t(`infrastructure.certificateKind.${certificate.kind}`)}
       action={
         <span className="flex items-center gap-2">
           {/* Renewal existed as an endpoint and a CLI command; the page that
-              shows the expiry date had no way to act on it. */}
-          {certificate.kind === 'server' && (
+              shows the expiry date had no way to act on it. A certificate that
+              was never created has nothing to renew - initialisation makes it. */}
+          {certificate.kind === 'server' && certificate.status !== 'missing' && (
             <PermissionGate permission="certificate.renew">
               <Button size="sm" icon={RotateCcw} onClick={() => setConfirming(true)}>
                 {t('infrastructure.renewServer')}
@@ -272,14 +308,14 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
       }
     >
       <dl>
-        <DetailRow label="subject">
+        <DetailRow label={t('infrastructure.subject')}>
           <Mono truncate>{certificate.subject ?? '—'}</Mono>
         </DetailRow>
-        <DetailRow label="issuer">
+        <DetailRow label={t('infrastructure.issuer')}>
           <Mono truncate>{certificate.issuer ?? '—'}</Mono>
         </DetailRow>
-        <DetailRow label="not after">
-          {formatDateTime(certificate.not_after)}
+        <DetailRow label={t('infrastructure.notAfter')}>
+          {certificate.not_after ? formatDateTime(certificate.not_after) : '—'}
           {certificate.days_remaining !== null && (
             <span className="text-ink-3 ml-2 text-xs">
               {certificate.days_remaining >= 0
@@ -297,6 +333,14 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
           </DetailRow>
         )}
       </dl>
+      {certificate.status === 'missing' && (
+        <p className="text-ink-2 mt-3 text-sm">
+          {t('infrastructure.certificateMissing')}{' '}
+          <Link to="/" className="text-accent hover:underline">
+            {t('infrastructure.toSetup')}
+          </Link>
+        </p>
+      )}
       {certificate.key_matches === false && (
         <p className="text-danger mt-3 text-sm">{t('infrastructure.keyMismatch')}</p>
       )}
@@ -341,7 +385,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('settings.title')} />
+      <PageHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('settings.general')}>
@@ -387,7 +431,11 @@ export function SettingsPage() {
               </span>
             </DetailRow>
             <DetailRow label={t('settings.runtimeState')}>
-              <Mono>{capabilities?.runtime_state ?? '—'}</Mono>
+              {capabilities
+                ? t(`settings.runtimeStates.${capabilities.runtime_state}`, {
+                    defaultValue: capabilities.runtime_state,
+                  })
+                : '—'}
             </DetailRow>
           </dl>
         </Card>
@@ -435,7 +483,7 @@ export function NotFoundPage() {
   return (
     <Card>
       <EmptyState
-        title={t('errors.common.not_found', { resource: 'Page', id: location.pathname })}
+        title={t('notFound.title', { path: location.pathname })}
         action={
           <Link to="/" className="text-accent text-sm">
             {t('nav.dashboard')}

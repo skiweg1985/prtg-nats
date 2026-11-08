@@ -163,6 +163,7 @@ export function UpdatesPage() {
     <div className="space-y-4">
       <PageHeader
         title={t('updates.title')}
+        subtitle={t('updates.subtitle')}
         action={
           data.available && !running ? (
             <Button
@@ -249,7 +250,7 @@ function VersionCard({ data }: { data: StackVersion }) {
           )}
         </DetailRow>
         <DetailRow label={t('updates.branch')}>
-          <Mono>{data.branch}</Mono>
+          <Mono>{data.branch || '—'}</Mono>
           {data.remote_commit && (
             <Mono className="text-ink-3 ml-2">{short(data.remote_commit)}</Mono>
           )}
