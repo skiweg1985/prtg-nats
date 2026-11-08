@@ -21,6 +21,8 @@ from app.api.schemas.sensor_logs import (
     RecordResult,
     SensorLogPageOut,
     SensorLogRecordOut,
+    SensorLogSegmentOut,
+    SensorLogStreamOut,
     SensorLogSummaryOut,
 )
 from app.api.sse import KEEPALIVE, event_stream, follow, sse
@@ -75,6 +77,49 @@ async def list_sensor_logs(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/streams", response_model=list[SensorLogStreamOut])
+async def sensor_log_streams(
+    store: SensorLogStoreDep,
+    _: ReadGuard,
+    probe: Annotated[str, Query(min_length=1)],
+    since: Annotated[datetime | None, Query()] = None,
+    until: Annotated[datetime | None, Query()] = None,
+    segments: Annotated[int, Query(ge=1, le=50)] = 8,
+) -> list[SensorLogStreamOut]:
+    """One probe's runs per sensor and network, runs in a row folded together.
+
+    What the probe page shows. The full list stays at ``GET /sensor-logs``.
+    Without ``since`` the last 24 hours are folded.
+    """
+    end = _aware(until) if until else datetime.now(UTC)
+    start = _aware(since) if since else end - DEFAULT_WINDOW
+    streams = await asyncio.to_thread(
+        store.streams,
+        SensorLogFilter(since=start, until=end, probe=probe),
+        segments=segments,
+    )
+    return [
+        SensorLogStreamOut(
+            sensor=stream.sensor,
+            ssid=stream.ssid,
+            total=stream.total,
+            results=stream.results,
+            segments=[
+                SensorLogSegmentOut(
+                    result=segment.result,
+                    code=segment.code,
+                    count=segment.count,
+                    first=SensorLogSummaryOut.model_validate(segment.first),
+                    last=SensorLogSummaryOut.model_validate(segment.last),
+                )
+                for segment in stream.segments
+            ],
+            more_segments=stream.more_segments,
+        )
+        for stream in streams
+    ]
 
 
 @router.get("/events")

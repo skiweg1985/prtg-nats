@@ -248,6 +248,34 @@ describe('the sensor log page', () => {
     expect(hours).toBeLessThan(1.1)
   })
 
+  it('pages through more runs than fit on one page', async () => {
+    // A minute-by-minute sensor writes over a thousand runs a day; "load
+    // more" stopped at 500, so the rest could not be reached at all.
+    server.use(
+      http.get('/api/v1/sensor-logs', ({ request }) => {
+        const params = new URL(request.url).searchParams
+        listRequests.push(params)
+        const offset = Number(params.get('offset') ?? 0)
+        return HttpResponse.json({
+          items: [record({ id: `run-${offset}` })],
+          total: 1440,
+          limit: 100,
+          offset,
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    wrap('/sensor-logs')
+
+    expect(await screen.findByText('Page 1 of 15')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Previous/ })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: /Next/ }))
+    expect(await screen.findByText('Page 2 of 15')).toBeInTheDocument()
+    expect(lastRequest().get('offset')).toBe('100')
+    expect(screen.getByText('101–101 of 1,440')).toBeInTheDocument()
+  })
+
   it('takes its filters from the address', async () => {
     wrap('/sensor-logs?result=gap&ssid=guest&range=7d')
     await screen.findByText('No runs match these filters')
@@ -379,32 +407,88 @@ describe('the sensor tab of a probe', () => {
     )
   }
 
-  it('lists the runs of each sensor and network on this probe', async () => {
+  function segment(
+    result: 'ok' | 'error' | 'gap',
+    count: number,
+    first: string,
+    last: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      result,
+      code: result === 'ok' ? null : 'dhcp_timeout',
+      count,
+      first: record({ id: `${first}-first`, time: first, result, ...overrides }),
+      last: record({ id: `${last}-last`, time: last, result, ...overrides }),
+    }
+  }
+
+  it('folds runs in a row into one line and keeps a failure as its own', async () => {
+    // wlan-auth every minute: 85 runs on one network would have been 85
+    // rows. Three lines say the same, and the failure stays visible.
+    let streamRequests = 0
     server.use(
       http.get('/api/v1/probes/P1', () => HttpResponse.json(probeDetail())),
       http.get('/api/v1/probes/P1/wireless-interfaces', () => HttpResponse.json([])),
+      http.get('/api/v1/sensor-logs/streams', ({ request }) => {
+        streamRequests += 1
+        expect(new URL(request.url).searchParams.get('probe')).toBe('mpp-berlin-01')
+        return HttpResponse.json([
+          {
+            sensor: 'wlan-auth',
+            ssid: 'corp-wifi',
+            total: 85,
+            results: { ok: 84, error: 1 },
+            segments: [
+              segment('ok', 74, '2026-11-08T08:04:00Z', '2026-11-08T09:17:00Z', {
+                summary: 'corp signed in',
+              }),
+              segment('error', 1, '2026-11-08T08:03:00Z', '2026-11-08T08:03:00Z', {
+                summary: 'corp failed',
+              }),
+              segment('ok', 10, '2026-11-08T07:53:00Z', '2026-11-08T08:02:00Z'),
+            ],
+            more_segments: 0,
+          },
+          {
+            sensor: 'wlan-auth',
+            ssid: 'guest',
+            total: 1,
+            results: { ok: 1 },
+            segments: [
+              segment('ok', 1, '2026-11-08T09:00:00Z', '2026-11-08T09:00:00Z', {
+                ssid: 'guest',
+              }),
+            ],
+            more_segments: 0,
+          },
+        ])
+      }),
     )
-    listItems = [
-      record({ id: 'a', ssid: 'corp-wifi', summary: 'corp failed' }),
-      record({ id: 'b', ssid: 'guest', result: 'ok', summary: 'guest signed in' }),
-      record({ id: 'c', ssid: 'corp-wifi', result: 'ok', summary: 'corp signed in' }),
-    ]
     wrapProbe()
 
     const corp = (await screen.findByRole('heading', { name: 'wlan-auth · corp-wifi' }))
       .closest('section') as HTMLElement
+    expect(within(corp).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(corp).getByText('74 runs')).toBeInTheDocument()
+    expect(within(corp).getByText(/^since /)).toBeInTheDocument()
+    expect(within(corp).getByText('corp failed')).toBeInTheDocument()
+    expect(within(corp).getByText('85 runs · 1 failed')).toBeInTheDocument()
+    expect(
+      within(corp).getByRole('link', { name: 'Show all 85 in the sensor log' }),
+    ).toHaveAttribute('href', '/sensor-logs?probe=mpp-berlin-01&sensor=wlan-auth&ssid=corp-wifi')
+
     const guest = screen
       .getByRole('heading', { name: 'wlan-auth · guest' })
       .closest('section') as HTMLElement
-    expect(within(corp).getByText('corp failed')).toBeInTheDocument()
-    expect(within(corp).getByText('corp signed in')).toBeInTheDocument()
-    expect(within(corp).queryByText('guest signed in')).toBeNull()
-    expect(within(guest).getByText('guest signed in')).toBeInTheDocument()
+    expect(within(guest).queryByText('corp failed')).toBeNull()
+    // The full list is not fetched for the probe page.
+    expect(listRequests).toHaveLength(0)
 
-    expect(lastRequest().get('probe')).toBe('mpp-berlin-01')
-    expect(FakeEventSource.instances.at(-1)?.url).toBe(
-      '/api/v1/sensor-logs/events?probe=mpp-berlin-01',
-    )
+    // A new run asks for the folded view again.
+    const before = streamRequests
+    FakeEventSource.instances.at(-1)?.emit('sensor_log.record', record({ id: 'new' }))
+    await waitFor(() => expect(streamRequests).toBeGreaterThan(before))
   })
 })
 

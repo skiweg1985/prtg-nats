@@ -168,12 +168,12 @@ export const activity = {
           'Sensors that support it write to the sensor log; of those that ship with the platform, that is <code>wlan-auth</code>. A probe holds its runs back while it cannot reach the platform and delivers them afterwards.',
         ),
         L(
-          'Das Sensor-Log reicht 14 Tage zurück. Die Filter stehen in der Adresse der Seite, so dass du auch eine gefilterte Ansicht als Link weitergeben kannst.',
-          'The sensor log goes back 14 days. The filters are part of the page address, so you can pass on a filtered view as a link too.',
+          'Das Sensor-Log reicht 14 Tage zurück und zeigt 100 Läufe je Seite; mit {ui:sensorLogs.previous} und {ui:sensorLogs.next} blätterst du. Filter und Seite stehen in der Adresse der Seite, so dass du auch eine gefilterte Ansicht als Link weitergeben kannst.',
+          'The sensor log goes back 14 days and shows 100 runs per page; {ui:sensorLogs.previous} and {ui:sensorLogs.next} turn the pages. The filters and the page are part of the page address, so you can pass on a filtered view as a link too.',
         ),
         L(
-          'Die Läufe einer einzelnen Probe stehen auf ihrer Seite im Reiter {ui:probes.tabs.sensors} unter {ui:sensorLogs.probeCard}.',
-          'The runs of a single probe are on its page in the {ui:probes.tabs.sensors} tab under {ui:sensorLogs.probeCard}.',
+          'Die Läufe einer einzelnen Probe stehen auf ihrer Seite im Reiter {ui:probes.tabs.sensors} unter {ui:sensorLogs.probeCard}. Dort sind Läufe in Folge mit demselben Ergebnis zu einer Zeile zusammengefasst, etwa „seit 16:04, 74 Läufe“; ein Fehler dazwischen steht in einer eigenen Zeile. Alle Läufe öffnest du von dort im Sensor-Log.',
+          'The runs of a single probe are on its page in the {ui:probes.tabs.sensors} tab under {ui:sensorLogs.probeCard}. There, runs in a row with the same result share one line, such as “since 16:04, 74 runs”; a failure in between gets a line of its own. Every run opens from there in the sensor log.',
         ),
         L(
           'Passwörter entfernt die Probe, bevor sie einen Lauf meldet. Identität, SSID und Adressen bleiben stehen, damit du einen Lauf etwa mit dem RADIUS-Server abgleichen kannst.',

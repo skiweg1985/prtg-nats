@@ -93,10 +93,8 @@
     "withDeviations": "With deviations",
     "failedJobs": "Failed jobs (24 h)",
     "runningJobs": "Running jobs",
-    "expiringCertificates": "Expiring certificates",
     "recentJobs": "Recent jobs",
     "recentActivity": "Recent administrative actions",
-    "activeWarnings": "Active warnings",
     "connections": "Connections",
     "streams": "Streams",
     "messages": "Messages",
@@ -108,8 +106,29 @@
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
     "setupAction": "Initialise now",
-    "pendingEnrolled": "Enrollment open",
-    "prtgMissing": "PRTG missing"
+    "attention": {
+      "title": "Needs attention",
+      "unreachable_one": "One probe is not answering",
+      "unreachable_other": "{{count}} probes are not answering",
+      "degraded_one": "One probe is degraded",
+      "degraded_other": "{{count}} probes are degraded",
+      "channelSilent_one": "One probe has stopped delivering over its return channel",
+      "channelSilent_other": "{{count}} probes have stopped delivering over their return channel",
+      "failedJobs_one": "One job failed in the last 24 hours",
+      "failedJobs_other": "{{count}} jobs failed in the last 24 hours",
+      "certificatesExpired_one": "One certificate has expired",
+      "certificatesExpired_other": "{{count}} certificates have expired",
+      "certificatesExpiring_one": "One certificate expires soon",
+      "certificatesExpiring_other": "{{count}} certificates expire soon",
+      "certificatesMismatched_one": "One certificate does not match its key",
+      "certificatesMismatched_other": "{{count}} certificates do not match their keys",
+      "pending_one": "One probe has an open enrollment",
+      "pending_other": "{{count}} probes have an open enrollment",
+      "prtgMissing_one": "One probe is not registered in PRTG yet",
+      "prtgMissing_other": "{{count}} probes are not registered in PRTG yet",
+      "more_one": "and one more",
+      "more_other": "and {{count}} more"
+    }
   },
   "probes": {
     "title": "Probes",
@@ -119,6 +138,7 @@
     "filters": {
       "helperOutdated": "Helper outdated only",
       "deviations": "With deviations only",
+      "prtgMissing": "Not in PRTG only",
       "empty": "No probe matches these filters."
     },
     "fleet": {
@@ -1572,8 +1592,7 @@
     "subtitle": "Every sensor run on every probe, with its output",
     "empty": "No runs in this period",
     "emptyFiltered": "No runs match these filters",
-    "count": "{{shown}} of {{total}}",
-    "loadMore": "Load more",
+    "count": "{{from}}–{{to}} of {{total}}",
     "noBody": "This run carries no output",
     "output": "Output",
     "all": "Show all in the sensor log",
@@ -1685,6 +1704,20 @@
       "supplicant": "wpa_supplicant output",
       "dhcp": "DHCP client output",
       "events": "Helper events"
-    }
+    },
+    "streams": {
+      "runs_one": "1 run",
+      "runs_other": "{{count}} runs",
+      "failed_one": "1 failed",
+      "failed_other": "{{count}} failed",
+      "since": "since {{time}}",
+      "span": "{{from}} to {{to}}",
+      "all_one": "Show in the sensor log",
+      "all_other": "Show all {{count}} in the sensor log"
+    },
+    "pagination": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}} of {{pages}}"
   }
 }
