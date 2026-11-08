@@ -763,6 +763,17 @@ export function useSetup() {
   })
 }
 
+export function useChangePassword() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api.post<void>('/auth/change-password', body),
+    // The server ends every session of the account and hands out a fresh one,
+    // so everything cached under the old one is reloaded.
+    onSuccess: () => client.invalidateQueries(),
+  })
+}
+
 export function useLogout() {
   const client = useQueryClient()
   return useMutation({

@@ -16,9 +16,10 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.ids import new_id
 from app.core.logging import get_correlation_id, get_logger
+from app.core.permissions import Permission
 from app.core.redaction import redact, redact_text
 from app.domain.enums import JobStatus, JobStepStatus, LogLevel
 from app.persistence.models.jobs import Job, JobEvent, JobStep, ResourceLock
@@ -130,10 +131,33 @@ class JobService:
         await self._db.flush()
         return job
 
+    @staticmethod
+    def ensure_may_retry(job: Job, principal: Principal) -> None:
+        """Refuse a retry the caller could not have started as a new job.
+
+        job.retry alone would let anyone who holds it repeat any finished job,
+        including ones only an administrator may start. The job's definition
+        names what its creating route checks, so the retry asks for the same.
+        """
+        # Imported here: the registry's handlers import this module.
+        from app.workers.handlers import get_definition
+
+        definition = get_definition(job.type)
+        required = definition.retry_permissions() if definition else None
+        if required is None:
+            raise ConflictError(
+                params={"resource": "job", "id": job.id},
+                details=f"a {job.type} job cannot be run again; start it anew",
+            )
+        for name in required:
+            permission = Permission(name)
+            if not principal.has(permission):
+                raise PermissionDeniedError.of(permission.value)
+
     async def retry(
         self,
         job_id: str,
-        principal: Principal | None = None,
+        principal: Principal,
         *,
         payload_override: dict[str, Any] | None = None,
         resources_override: tuple[ResourceRef, ...] | None = None,
@@ -148,6 +172,7 @@ class JobService:
         The caller that knows those records passes the corrected pieces.
         """
         original = await self.get(job_id)
+        self.ensure_may_retry(original, principal)
         if not original.status.is_terminal:
             raise ConflictError(
                 params={"job_id": job_id, "status": original.status.value},

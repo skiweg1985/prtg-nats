@@ -2,14 +2,15 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ApiError } from '@/api/client'
-import { useLogin, useSetup } from '@/api/hooks'
+import { useChangePassword, useLogin, useLogout, useSetup } from '@/api/hooks'
 import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Button, Card, Field, Input, Skeleton } from '@/components/ui/primitives'
 import { guideHomeHref } from '@/utils/guide'
 
 /**
- * Decides between three screens: first-run setup, sign-in, or the application.
+ * Decides between four screens: first-run setup, sign-in, the password change
+ * an account still owes, or the application.
  *
  * The server answers that question in one call, so the browser never guesses
  * and never flashes a login form at somebody who is already signed in.
@@ -28,6 +29,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (state.setup_required) return <SetupScreen />
   if (!state.authenticated) return <LoginScreen />
+  // The server refuses everything else for such a session; this screen only
+  // spares the user a page full of refusals.
+  if (state.principal?.must_change_password) return <ChangePasswordScreen />
   return <>{children}</>
 }
 
@@ -133,20 +137,12 @@ function SetupScreen() {
             autoComplete="name"
           />
         </Field>
-        <Field
+        <NewPasswordField
           label={t('auth.password')}
-          hint={t('auth.passwordHint')}
-          error={passwordProblems.map((problem) => t(`validation.${problem}`)).join(' ')}
-        >
-          <Input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="new-password"
-            minLength={12}
-            required
-          />
-        </Field>
+          value={password}
+          onChange={setPassword}
+          problems={passwordProblems}
+        />
 
         {error && passwordProblems.length === 0 && <ErrorDetails error={error} />}
 
@@ -155,5 +151,91 @@ function SetupScreen() {
         </Button>
       </form>
     </CenteredCard>
+  )
+}
+
+function ChangePasswordScreen() {
+  const { t } = useTranslation()
+  const change = useChangePassword()
+  const logout = useLogout()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+
+  const error = change.error instanceof ApiError ? change.error : null
+  const passwordProblems = (error?.body.params.problems as string[] | undefined) ?? []
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    change.mutate({ current_password: currentPassword, new_password: newPassword })
+  }
+
+  return (
+    <CenteredCard title={t('auth.changePassword')}>
+      <form onSubmit={submit} className="space-y-4">
+        <p className="text-ink-2 text-sm">{t('auth.mustChangePassword')}</p>
+
+        <Field label={t('auth.currentPassword')}>
+          <Input
+            type="password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            autoComplete="current-password"
+            autoFocus
+            required
+          />
+        </Field>
+        <NewPasswordField
+          label={t('auth.newPassword')}
+          value={newPassword}
+          onChange={setNewPassword}
+          problems={passwordProblems}
+        />
+
+        {error && passwordProblems.length === 0 && <ErrorDetails error={error} />}
+
+        <Button type="submit" variant="primary" className="w-full" disabled={change.isPending}>
+          {change.isPending ? t('common.loading') : t('auth.changePassword')}
+        </Button>
+        <Button
+          type="button"
+          className="w-full"
+          onClick={() => logout.mutate()}
+          disabled={logout.isPending}
+        >
+          {t('auth.signOut')}
+        </Button>
+      </form>
+    </CenteredCard>
+  )
+}
+
+/** A password being chosen, with the server's objections to it beneath. */
+function NewPasswordField({
+  label,
+  value,
+  onChange,
+  problems,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  problems: string[]
+}) {
+  const { t } = useTranslation()
+  return (
+    <Field
+      label={label}
+      hint={t('auth.passwordHint')}
+      error={problems.map((problem) => t(`validation.${problem}`)).join(' ')}
+    >
+      <Input
+        type="password"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="new-password"
+        minLength={12}
+        required
+      />
+    </Field>
   )
 }
