@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Wrench } from 'lucide-react'
 
 import { useDashboard, useSetupStack } from '@/api/hooks'
-import type { Alert, Certificate, Dashboard } from '@/api/types'
+import type { Dashboard } from '@/api/types'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
@@ -18,9 +18,9 @@ import {
 } from '@/components/ui/primitives'
 import { PermissionGate } from '@/app/providers'
 import { Button } from '@/components/ui/primitives'
-import { CertificateStatusBadge, JobStatusBadge } from '@/components/ui/status'
+import { JobStatusBadge } from '@/components/ui/status'
 import { formatBytes, formatNumber, formatRelative } from '@/utils/format'
-import { useProbeNames } from '@/features/probes/probeName'
+import { AttentionList, useAttentionItems } from '@/features/dashboard/AttentionList'
 
 /**
  * One question: is the platform operational, and is there anything to do?
@@ -34,6 +34,7 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { data, isLoading, error, refetch } = useDashboard()
   const setup = useSetupStack()
+  const attention = useAttentionItems(data)
 
   if (isLoading) {
     return (
@@ -49,21 +50,6 @@ export function DashboardPage() {
     return <ErrorDetails error={error} onRetry={() => void refetch()} />
   }
   if (!data) return null
-
-  // Certificate warnings have their own card; showing them twice on one
-  // screen reads as two problems rather than one.
-  const probeAlerts = data.alerts.filter(
-    (alert) => alert.object_type !== 'certificate',
-  )
-
-  const attention =
-    data.probe_unreachable +
-    data.probe_degraded +
-    data.probe_pending +
-    data.probe_prtg_missing +
-    data.failed_jobs_24h +
-    data.expiring_certificates.length +
-    data.alerts.length
 
   return (
     <div className="space-y-4">
@@ -103,40 +89,16 @@ export function DashboardPage() {
       {!data.system.nats.available && data.system.site.is_configured && (
         <Banner tone="danger">{t('dashboard.natsUnavailable')}</Banner>
       )}
-      {attention === 0 && data.system.nats.healthy && (
+      {attention.length === 0 && data.system.nats.healthy && (
         <Banner tone="ok">{t('dashboard.allClear')}</Banner>
       )}
+      {attention.length > 0 && <AttentionList items={attention} />}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <NatsCard dashboard={data} />
         <ProbeCard dashboard={data} />
         <JobCard dashboard={data} />
       </div>
-
-      {(probeAlerts.length > 0 || data.expiring_certificates.length > 0) && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* What the card lists, not what the dashboard counts: with every
-              warning a certificate one, this drew an empty card. */}
-          {probeAlerts.length > 0 && (
-            <Card title={t('dashboard.activeWarnings')} dense>
-              <ul>
-                {probeAlerts.map((alert) => (
-                  <AlertRow key={alert.id} alert={alert} />
-                ))}
-              </ul>
-            </Card>
-          )}
-          {data.expiring_certificates.length > 0 && (
-            <Card title={t('dashboard.expiringCertificates')} dense>
-              <ul>
-                {data.expiring_certificates.map((certificate) => (
-                  <CertificateRow key={certificate.kind} certificate={certificate} />
-                ))}
-              </ul>
-            </Card>
-          )}
-        </div>
-      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('dashboard.recentJobs')} dense>
@@ -319,25 +281,6 @@ function ProbeCard({ dashboard }: { dashboard: Dashboard }) {
               : undefined
           }
         />
-        {/* The probes no other number counted: stuck mid-enrolment, or done
-            here and never entered in PRTG - green on this side, invisible on
-            the other. "All good" used to show over both. */}
-        {dashboard.probe_pending > 0 && (
-          <Metric
-            label={t('dashboard.pendingEnrolled')}
-            value={dashboard.probe_pending}
-            tone="warn"
-            to="/probes"
-          />
-        )}
-        {dashboard.probe_prtg_missing > 0 && (
-          <Metric
-            label={t('dashboard.prtgMissing')}
-            value={dashboard.probe_prtg_missing}
-            tone="warn"
-            to="/probes"
-          />
-        )}
       </div>
     </Card>
   )
@@ -368,44 +311,5 @@ function JobCard({ dashboard }: { dashboard: Dashboard }) {
         />
       </div>
     </Card>
-  )
-}
-
-function AlertRow({ alert }: { alert: Alert }) {
-  const { t } = useTranslation()
-  // A probe alert carries the NATS account; the warning names the probe the
-  // way the list does.
-  const { nameOf } = useProbeNames()
-  const label = alert.object_type === 'probe' ? nameOf(alert.object_ref) : alert.object_label
-  return (
-    <li className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0">
-      <Dot tone={alert.severity === 'critical' ? 'danger' : 'warn'} />
-      <span className="text-ink min-w-0 flex-1 truncate text-sm">
-        {t(`alerts.${alert.kind}`, {
-          ...alert.params,
-          probe: label,
-          certificate: label,
-          defaultValue: alert.kind,
-        })}
-      </span>
-      <span className="text-ink-3 text-xs whitespace-nowrap">
-        {formatRelative(alert.first_seen_at)}
-      </span>
-    </li>
-  )
-}
-
-function CertificateRow({ certificate }: { certificate: Certificate }) {
-  const { t } = useTranslation()
-  return (
-    <li className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0">
-      <CertificateStatusBadge status={certificate.status} />
-      <span className="text-ink flex-1 text-sm">{certificate.subject ?? certificate.kind}</span>
-      <span className="text-ink-3 text-xs whitespace-nowrap">
-        {certificate.days_remaining !== null && certificate.days_remaining >= 0
-          ? t('infrastructure.expiresIn', { count: certificate.days_remaining })
-          : t('infrastructure.expired')}
-      </span>
-    </li>
   )
 }

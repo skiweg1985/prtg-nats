@@ -91,10 +91,8 @@
     "withDeviations": "With deviations",
     "failedJobs": "Failed jobs (24 h)",
     "runningJobs": "Running jobs",
-    "expiringCertificates": "Expiring certificates",
     "recentJobs": "Recent jobs",
     "recentActivity": "Recent administrative actions",
-    "activeWarnings": "Active warnings",
     "connections": "Connections",
     "streams": "Streams",
     "messages": "Messages",
@@ -106,8 +104,29 @@
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
     "setupAction": "Initialise now",
-    "pendingEnrolled": "Enrollment open",
-    "prtgMissing": "PRTG missing"
+    "attention": {
+      "title": "Needs attention",
+      "unreachable_one": "One probe is not answering",
+      "unreachable_other": "{{count}} probes are not answering",
+      "degraded_one": "One probe is degraded",
+      "degraded_other": "{{count}} probes are degraded",
+      "channelSilent_one": "One probe has stopped delivering over its return channel",
+      "channelSilent_other": "{{count}} probes have stopped delivering over their return channel",
+      "failedJobs_one": "One job failed in the last 24 hours",
+      "failedJobs_other": "{{count}} jobs failed in the last 24 hours",
+      "certificatesExpired_one": "One certificate has expired",
+      "certificatesExpired_other": "{{count}} certificates have expired",
+      "certificatesExpiring_one": "One certificate expires soon",
+      "certificatesExpiring_other": "{{count}} certificates expire soon",
+      "certificatesMismatched_one": "One certificate does not match its key",
+      "certificatesMismatched_other": "{{count}} certificates do not match their keys",
+      "pending_one": "One probe has an open enrollment",
+      "pending_other": "{{count}} probes have an open enrollment",
+      "prtgMissing_one": "One probe is not registered in PRTG yet",
+      "prtgMissing_other": "{{count}} probes are not registered in PRTG yet",
+      "more_one": "and one more",
+      "more_other": "and {{count}} more"
+    }
   },
   "probes": {
     "title": "Probes",
@@ -117,6 +136,7 @@
     "filters": {
       "helperOutdated": "Helper outdated only",
       "deviations": "With deviations only",
+      "prtgMissing": "Not in PRTG only",
       "empty": "No probe matches these filters."
     },
     "fleet": {

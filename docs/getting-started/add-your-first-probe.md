@@ -1,7 +1,7 @@
 ---
 title: Add your first probe
 role: deployer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Add your first probe
@@ -123,8 +123,8 @@ connection settings and restart `prtg.mpprobe.service` on the host.
 Once both steps are done, tick **Registered in PRTG** on the probe's page or
 in the access key dialog. The platform cannot see PRTG, so the tick is the
 operator's own record - until it is set, the probe carries a "PRTG missing"
-badge and counts on the dashboard, instead of standing green while PRTG shows
-nothing.
+badge and is listed under "Needs attention" on the dashboard, instead of
+standing green while PRTG shows nothing.
 
 ## Completion check
 

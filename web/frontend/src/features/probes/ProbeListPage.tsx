@@ -71,6 +71,12 @@ const STATUS_DOT: Partial<Record<ProbeStatus, string>> = {
   degraded: 'bg-warn',
 }
 
+/** The same rule as the dashboard's count: a pending probe has an earlier
+    problem than PRTG, so it is not counted here. */
+function isPrtgMissing(row: ProbeSummary): boolean {
+  return !row.prtg_registered && row.status !== 'pending' && row.status !== 'enrolled'
+}
+
 function isProbeStatus(value: string): value is ProbeStatus {
   return (STATUS_ORDER as string[]).includes(value)
 }
@@ -106,6 +112,7 @@ export function ProbeListPage() {
   const active = new Set(params.getAll('filter'))
   const onlyHelperOutdated = active.has('helper')
   const onlyDeviations = active.has('deviations')
+  const onlyPrtgMissing = active.has('prtg')
   const statuses = new Set(params.getAll('status').filter(isProbeStatus))
   const [actionError, setActionError] = useState<ApiError | Error | null>(null)
 
@@ -125,7 +132,7 @@ export function ProbeListPage() {
     return next
   }
 
-  function toggleFilter(name: 'helper' | 'deviations') {
+  function toggleFilter(name: 'helper' | 'deviations' | 'prtg') {
     setParamValues('filter', toggleIn(active, name))
   }
 
@@ -139,6 +146,7 @@ export function ProbeListPage() {
     (row) =>
       (!onlyHelperOutdated || row.helper_outdated) &&
       (!onlyDeviations || row.deviation_count > 0) &&
+      (!onlyPrtgMissing || isPrtgMissing(row)) &&
       (statuses.size === 0 || statuses.has(row.status)),
   )
   // Counted over the whole fleet, so a chip keeps its number while another
@@ -150,7 +158,8 @@ export function ProbeListPage() {
   // Out of the full list, not out of the filtered one: a probe that was picked
   // before a filter was set is still picked, and the confirmation names it.
   const selectedProbes = (data ?? []).filter((row) => selected.has(row.id))
-  const filtered = onlyHelperOutdated || onlyDeviations || statuses.size > 0
+  const filtered =
+    onlyHelperOutdated || onlyDeviations || onlyPrtgMissing || statuses.size > 0
 
   // Leaves the search term alone: it has a clear button of its own.
   function clearFilters() {
@@ -379,6 +388,11 @@ export function ProbeListPage() {
               active={onlyDeviations}
               onToggle={() => toggleFilter('deviations')}
             />
+            <FilterToggle
+              label={t('probes.filters.prtgMissing')}
+              active={onlyPrtgMissing}
+              onToggle={() => toggleFilter('prtg')}
+            />
             {filtered && (
               <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
                 {t('common.clearFilters')}
@@ -431,11 +445,7 @@ function StatusBadges({ row }: { row: ProbeSummary }) {
       {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
       {/* Green here and invisible in PRTG is exactly what the status
           colour hides; a pending probe has an earlier problem. */}
-      {!row.prtg_registered &&
-        row.status !== 'pending' &&
-        row.status !== 'enrolled' && (
-          <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>
-        )}
+      {isPrtgMissing(row) && <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>}
     </div>
   )
 }

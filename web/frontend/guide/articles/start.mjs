@@ -89,19 +89,19 @@ export const start = {
       appPaths: ['/'],
       steps: [
         {
-          title: L('NATS-Server und Probes', 'NATS server and probes'),
+          title: L('Was gerade ansteht', 'What needs attention'),
           text: L(
-            '<p>Oben steht der Zustand des NATS-Servers mit seinen Verbindungen und dem Speicher von JetStream, daneben die Probes nach Zustand: in Ordnung, beeinträchtigt, nicht erreichbar oder mit Abweichungen. Ein Klick auf eine Zahl öffnet die passend gefilterte Liste der Probes.</p>',
-            '<p>At the top you see the state of the NATS server with its connections and JetStream storage, and next to it the probes by state: healthy, degraded, unreachable or with deviations. Clicking a number opens the probe list filtered accordingly.</p>',
+            '<p>Gibt es etwas zu tun, steht oben die Liste {ui:dashboard.attention.title}. Jede Zeile ist eine Art von Problem, etwa Probes, die nicht antworten, fehlgeschlagene Jobs, bald ablaufende Zertifikate oder Probes, die in PRTG noch nicht eingetragen sind. Betrifft es mehrere Probes, stehen sie in einer Zeile mit ihren Namen darunter. Ein Klick führt dorthin, wo du es erledigst: zur Probe selbst oder zur passend gefilterten Liste.</p>',
+            '<p>When there is something to do, the {ui:dashboard.attention.title} list is at the top. Each row is one kind of problem, for example probes that are not answering, failed jobs, certificates about to expire or probes not yet registered in PRTG. When several probes are affected they share one row, with their names below it. A click takes you to where you deal with it: the probe itself, or the list filtered accordingly.</p>',
           ),
           image: 'dashboard',
-          alt: L('Die Übersicht mit NATS-Server, Probes und letzten Jobs', 'The dashboard with NATS server, probes and recent jobs'),
+          alt: L('Die Übersicht mit der Liste der offenen Punkte, NATS-Server und Probes', 'The dashboard with the attention list, NATS server and probes'),
         },
         {
-          title: L('Warnungen und Jobs', 'Warnings and jobs'),
+          title: L('NATS-Server, Probes und Jobs', 'NATS server, probes and jobs'),
           text: L(
-            '<p>Aktive Warnungen nennen, was gerade nicht stimmt, zum Beispiel bald ablaufende Zertifikate oder eine Probe, die noch in PRTG bestätigt werden muss. Darunter stehen die laufenden und die zuletzt beendeten Jobs. Was fehlgeschlagen ist, öffnest du dort direkt.</p>',
-            '<p>Active warnings name what is wrong right now, for example certificates about to expire or a probe that still needs approval in PRTG. Below them are the running and most recently finished jobs. Anything that failed opens straight from there.</p>',
+            '<p>Darunter stehen der Zustand des NATS-Servers mit seinen Verbindungen und dem Speicher von JetStream, die Probes nach Zustand und die Jobs. Die zuletzt gelaufenen Jobs öffnest du direkt aus der Liste.</p>',
+            '<p>Below it are the state of the NATS server with its connections and JetStream storage, the probes by state, and the jobs. The most recent jobs open straight from their list.</p>',
           ),
         },
         {

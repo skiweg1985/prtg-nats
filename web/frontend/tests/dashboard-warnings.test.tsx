@@ -10,11 +10,9 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { changeLanguage } from '@/i18n'
 
 /**
- * A certificate about to expire is one problem, and it has a card of its own.
- *
- * The warnings card left those out of its list and then decided whether to
- * draw itself from the unfiltered count - so a run of certificate warnings
- * put an empty card on the dashboard.
+ * The dashboard answers "is there anything to do?" with one list: a row per
+ * kind of problem, each leading to the page where it is dealt with. The
+ * counters stay below it for the overview.
  */
 
 const CERTIFICATE = {
@@ -108,73 +106,118 @@ function wrap() {
   )
 }
 
-describe('the warnings card', () => {
-  it('stays away when every warning already has its own card', async () => {
+const BERLIN = {
+  id: 'P1',
+  nats_username: 'mpp-berlin-01',
+  display_name: 'Berlin office',
+  probe_name: 'berlin-01',
+}
+
+const UNREACHABLE_ALERT = {
+  ...DASHBOARD.alerts[0],
+  id: 'A2',
+  kind: 'probe.unreachable',
+  severity: 'critical',
+  object_type: 'probe',
+  object_ref: 'mpp-berlin-01',
+  object_label: 'mpp-berlin-01',
+}
+
+function rowFor(text: string | RegExp) {
+  return screen.getByText(text).closest('a') as HTMLAnchorElement
+}
+
+describe('the attention list', () => {
+  it('lists an expiring certificate once, by name, and leads to the certificates', async () => {
     await changeLanguage('en')
     wrap()
 
-    expect(await screen.findByText('Expiring certificates')).toBeInTheDocument()
-    expect(screen.queryByText('Active warnings')).not.toBeInTheDocument()
+    expect(await screen.findByText('Needs attention')).toBeInTheDocument()
+    expect(screen.getByText('One certificate expires soon')).toBeInTheDocument()
+    expect(screen.getByText('CN=nats.example.test')).toBeInTheDocument()
+    expect(rowFor('One certificate expires soon')).toHaveAttribute(
+      'href',
+      '/infrastructure/certificates',
+    )
+    // The stored warning about the same certificate is not a second row.
+    expect(screen.queryByText(/expires in 5 days/)).not.toBeInTheDocument()
   })
 
-  it('appears for a warning that is about a probe', async () => {
+  it('names a single unreachable probe and opens it', async () => {
     await changeLanguage('en')
     server.use(
+      http.get('/api/v1/probes', () => HttpResponse.json([BERLIN])),
       http.get('/api/v1/dashboard', () =>
         HttpResponse.json({
           ...DASHBOARD,
-          alerts: [
-            ...DASHBOARD.alerts,
-            {
-              ...DASHBOARD.alerts[0],
-              id: 'A2',
-              kind: 'probe.unreachable',
-              severity: 'critical',
-              object_type: 'probe',
-              object_label: 'mpp-berlin-01',
-            },
-          ],
+          probe_unreachable: 1,
+          alerts: [UNREACHABLE_ALERT],
         }),
       ),
     )
     wrap()
 
-    expect(await screen.findByText('Active warnings')).toBeInTheDocument()
-  })
-
-  it('names the probe the way the fleet list does, not by its NATS account', async () => {
-    await changeLanguage('en')
-    server.use(
-      http.get('/api/v1/probes', () =>
-        HttpResponse.json([
-          {
-            id: 'P1',
-            nats_username: 'mpp-berlin-01',
-            display_name: 'Berlin office',
-            probe_name: 'berlin-01',
-          },
-        ]),
-      ),
-      http.get('/api/v1/dashboard', () =>
-        HttpResponse.json({
-          ...DASHBOARD,
-          alerts: [
-            {
-              ...DASHBOARD.alerts[0],
-              id: 'A2',
-              kind: 'probe.unreachable',
-              severity: 'critical',
-              object_type: 'probe',
-              object_ref: 'mpp-berlin-01',
-              object_label: 'mpp-berlin-01',
-            },
-          ],
-        }),
-      ),
-    )
-    wrap()
-
+    // The way the fleet list names it, not by its NATS account.
     expect(await screen.findByText('Berlin office is not answering')).toBeInTheDocument()
+    expect(rowFor('Berlin office is not answering')).toHaveAttribute('href', '/probes/P1')
+  })
+
+  it('folds several probes with the same problem into one row', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes', () => HttpResponse.json([BERLIN])),
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({
+          ...DASHBOARD,
+          probe_unreachable: 2,
+          alerts: [
+            UNREACHABLE_ALERT,
+            { ...UNREACHABLE_ALERT, id: 'A3', object_ref: 'mpp-hamburg-01' },
+          ],
+        }),
+      ),
+    )
+    wrap()
+
+    expect(await screen.findByText('2 probes are not answering')).toBeInTheDocument()
+    expect(screen.getByText('Berlin office, mpp-hamburg-01')).toBeInTheDocument()
+    expect(rowFor('2 probes are not answering')).toHaveAttribute(
+      'href',
+      '/probes?status=unreachable',
+    )
+  })
+
+  it('trusts the live count over a warning the sync has not cleared yet', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({
+          ...DASHBOARD,
+          expiring_certificates: [],
+          alerts: [UNREACHABLE_ALERT],
+        }),
+      ),
+    )
+    wrap()
+
+    expect(await screen.findByText('Nothing needs attention.')).toBeInTheDocument()
+    expect(screen.queryByText(/not answering/)).not.toBeInTheDocument()
+  })
+
+  it('leads failed jobs to the filtered job list', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({ ...DASHBOARD, failed_jobs_24h: 3 }),
+      ),
+    )
+    wrap()
+
+    expect(await screen.findByText('3 jobs failed in the last 24 hours')).toBeInTheDocument()
+    expect(rowFor('3 jobs failed in the last 24 hours')).toHaveAttribute(
+      'href',
+      '/jobs?status=failed',
+    )
   })
 })
 
@@ -183,7 +226,7 @@ describe('the warnings card', () => {
  * number at all: "all good" showed over both.
  */
 describe('the probes no status colour counts', () => {
-  it('shows the two catch-up tiles only when they are non-zero', async () => {
+  it('lists both, each leading to the probes it counts', async () => {
     await changeLanguage('en')
     server.use(
       http.get('/api/v1/dashboard', () =>
@@ -192,17 +235,24 @@ describe('the probes no status colour counts', () => {
     )
     wrap()
 
-    expect(await screen.findByText('Enrollment open')).toBeInTheDocument()
-    expect(screen.getByText('PRTG missing')).toBeInTheDocument()
+    expect(await screen.findByText('One probe has an open enrollment')).toBeInTheDocument()
+    expect(rowFor('One probe has an open enrollment')).toHaveAttribute(
+      'href',
+      '/probes?status=pending&status=enrolled',
+    )
+    expect(rowFor('2 probes are not registered in PRTG yet')).toHaveAttribute(
+      'href',
+      '/probes?filter=prtg',
+    )
   })
 
   it('keeps them away at zero', async () => {
     await changeLanguage('en')
     wrap()
 
-    await screen.findByText(/certificate/i)
-    expect(screen.queryByText('Enrollment open')).not.toBeInTheDocument()
-    expect(screen.queryByText('PRTG missing')).not.toBeInTheDocument()
+    await screen.findByText('Needs attention')
+    expect(screen.queryByText(/open enrollment/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/not registered in PRTG/)).not.toBeInTheDocument()
   })
 })
 
@@ -236,7 +286,7 @@ describe('the initialisation banner', () => {
     await changeLanguage('en')
     wrap()
 
-    await screen.findByText('Expiring certificates')
+    await screen.findByText('Needs attention')
     expect(
       screen.queryByText('This installation has not been initialised'),
     ).not.toBeInTheDocument()
