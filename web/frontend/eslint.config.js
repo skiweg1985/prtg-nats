@@ -27,8 +27,18 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'guide/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
+  },
+  {
+    // Node scripts, but parts of them run inside the page they drive.
+    files: ['guide/shots/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
+    // Served to the browser as they are, without a bundler.
+    files: ['guide/static/**/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
   },
   {
     files: ['tests/**/*.{ts,tsx}'],

@@ -19,7 +19,8 @@
     "updates": "Updates",
     "system": "Wartung",
     "overlay": "Overlay",
-    "sensorLogs": "Sensor-Log"
+    "sensorLogs": "Sensor-Log",
+    "guide": "Anleitung"
   },
   "common": {
     "cancel": "Abbrechen",

@@ -1,7 +1,7 @@
 ---
 title: The stack updates itself from a container that outlives it
 role: developer
-updated: 2026-08-27
+updated: 2026-11-08
 status: accepted
 ---
 
@@ -142,3 +142,12 @@ whose image and configuration did not change - so the page stays served and
 switches to a waiting state instead of showing a connection error. It comes
 back on its own, and reloads once, because the code in the browser is by then
 the build that was replaced.
+
+A changed `Caddyfile` is the exception compose cannot see. The file is bound
+on its own, compose compares the bind's path rather than its content, and git
+replaces the file on checkout, so the running proxy kept the old one: the
+first change to it, the guide under `/docs`, arrived on disk and never in the
+proxy. The updater therefore compares what the proxy reads with the file bound
+into it after the recreate, and recreates the proxy alone when they differ.
+For those few seconds the page is not served at all; every update that leaves
+the configuration alone keeps the waiting page.

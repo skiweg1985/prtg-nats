@@ -25,6 +25,9 @@
 #   4. --remove-orphans did not collect it
 #   5. the labelled service really was replaced, so 2-4 are not vacuous
 #
+# And one the ADR's design left open: the proxy stays up through an update,
+# so a changed Caddyfile must recreate it - and only then.
+#
 # Needs Docker and the updater image. Runs in seconds.
 
 set -Eeuo pipefail
@@ -200,6 +203,86 @@ after="$(docker compose --project-directory "${WORK_DIR}" -p "${PROJECT_NAME}" \
   ps -q victim 2>/dev/null || printf '')"
 check "the labelled service was in fact replaced" \
   bash -c '[[ -n "$1" && "$1" != "$2" ]]' _ "${after}" "${before}"
+
+printf '\n== A changed proxy configuration ==\n'
+
+# The update recreates the stack without --force-recreate, and a proxy whose
+# Caddyfile changed kept serving the old one: the file is bound on its own,
+# git replaces it on checkout, and compose sees an unchanged bind. This runs
+# the real update.sh against a stack shaped like ours in the one part that
+# matters - a web-proxy service with a single-file bind of web/Caddyfile.
+PROXY_PROJECT="${PROJECT_NAME}-proxy"
+PROXY_DIR="$(mktemp -d)"
+mkdir -p "${PROXY_DIR}/web"
+printf 'version one\n' > "${PROXY_DIR}/web/Caddyfile"
+cat > "${PROXY_DIR}/compose.yaml" <<COMPOSE
+name: ${PROXY_PROJECT}
+services:
+  web-proxy:
+    image: ${STACK_IMAGE}
+    command: ["sleep", "600"]
+    restart: "no"
+    volumes:
+      - type: bind
+        source: ./web/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+COMPOSE
+# update.sh insists on a real repository with a commit to stamp.
+git -C "${PROXY_DIR}" init -q
+git -C "${PROXY_DIR}" -c user.name=e2e -c user.email=e2e@example.test \
+  commit -q --allow-empty -m 'e2e'
+
+proxy_cleanup() {
+  docker compose --project-directory "${PROXY_DIR}" -p "${PROXY_PROJECT}" \
+    down --timeout 1 >/dev/null 2>&1 || true
+  rm -rf "${PROXY_DIR}"
+}
+trap 'proxy_cleanup; cleanup' EXIT
+
+docker compose --project-directory "${PROXY_DIR}" up -d >/dev/null 2>&1
+proxy_before="$(docker compose --project-directory "${PROXY_DIR}" ps -q web-proxy)"
+
+run_recreate() {
+  docker run --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${PROXY_DIR}:${PROXY_DIR}" \
+    -e "PRTG_NATS_CHECKOUT=${PROXY_DIR}" \
+    "${UPDATER_IMAGE}" recreate 2>&1
+}
+
+# Unchanged: the proxy must stay up, or every update would cut the browser off.
+unchanged_log="$(run_recreate || printf 'updater-failed')"
+proxy_same="$(docker compose --project-directory "${PROXY_DIR}" ps -q web-proxy)"
+check "an unchanged Caddyfile leaves the proxy running" \
+  test "${proxy_same}" = "${proxy_before}"
+check "and says nothing about the proxy" \
+  bash -c '[[ "$1" != *"proxy configuration changed"* && "$1" != *updater-failed* ]]' \
+  _ "${unchanged_log}"
+
+# Replaced the way git replaces it: a new file moved over the old one.
+printf 'version two\n' > "${PROXY_DIR}/web/Caddyfile.new"
+mv "${PROXY_DIR}/web/Caddyfile.new" "${PROXY_DIR}/web/Caddyfile"
+stale="$(docker exec "${proxy_before}" cat /etc/caddy/Caddyfile 2>/dev/null || printf '')"
+if [[ "${stale}" != "version one" ]]; then
+  # Docker Desktop shares files from the Mac through a layer that shows the
+  # new file to the running container, so there is nothing stale to fix and
+  # nothing to prove. A Linux host - the servers this runs on - keeps the old
+  # one. Skipped loudly rather than passed: a pass here would be a lie.
+  printf '  skip  this Docker host shows a replaced file to a running container;
+'
+  printf '        run on Linux, or inside the Docker VM with TMPDIR on its disk
+'
+else
+  changed_log="$(run_recreate || printf 'updater-failed')"
+  proxy_after="$(docker compose --project-directory "${PROXY_DIR}" ps -q web-proxy)"
+  check "a changed Caddyfile recreates the proxy" \
+    bash -c '[[ -n "$1" && "$1" != "$2" ]]' _ "${proxy_after}" "${proxy_before}"
+  seen="$(docker exec "${proxy_after}" cat /etc/caddy/Caddyfile 2>/dev/null || printf '')"
+  check "and the new proxy reads the new file" test "${seen}" = "version two"
+  check "the updater says why it recreated the proxy" \
+    contains "${changed_log}" "proxy configuration changed"
+fi
 
 printf '\n== Result ==\n'
 printf '  passed: %d\n' "${passed}"

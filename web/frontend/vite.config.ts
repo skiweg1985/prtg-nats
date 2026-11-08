@@ -22,9 +22,12 @@ export default defineConfig({
     // The API is same-origin behind the reverse proxy in production, so the
     // client always calls /api/v1 relative. In development the proxy stands in
     // for that, which also keeps the session cookie first-party.
+    //
+    // VITE_API_PROXY_TARGET points it elsewhere, for the guide's demo
+    // installation (guide/demo/) or a second backend beside one on 8100.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8100',
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8100',
         changeOrigin: false,
       },
     },

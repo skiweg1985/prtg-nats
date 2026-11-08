@@ -57,11 +57,12 @@ flowchart LR
     CLI["prtg-nats CLI"] <--> Runtime
 ```
 
-Caddy serves the interface and the public CA. The API runs jobs, manages the
-runtime state, and talks to probes through a forced-command SSH helper that
-cannot open a shell. NATS sees only its configuration, certificates, and
-bcrypt password hashes. Certificates, credentials, probe inventory, jobs, and
-audit data live in the `prtg-nats-runtime` volume.
+Caddy serves the interface, the user guide under `/docs` and the public CA. The
+API runs jobs, manages the runtime state, and talks to probes through a
+forced-command SSH helper that cannot open a shell. NATS sees only its
+configuration, certificates, and bcrypt password hashes. Certificates,
+credentials, probe inventory, jobs, and audit data live in the
+`prtg-nats-runtime` volume.
 
 The full component and trust-boundary map is in
 [Architecture overview](docs/architecture/overview.md). The durable reasons
@@ -72,6 +73,7 @@ behind it are recorded in
 
 | I want to... | Go to... |
 | --- | --- |
+| learn what the interface can do, in German or English | the guide on the server itself, `https://<server>/docs` |
 | install or verify the server | [Install the server](docs/getting-started/install-the-server.md) |
 | add or recover a probe | [Add your first probe](docs/getting-started/add-your-first-probe.md) |
 | deploy or configure sensors | [Deploy sensors](docs/guides/deploy-sensors.md) |

@@ -84,7 +84,7 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--gateway ADDRESS\|none` | which address to ping after DHCP; empty means the one from the lease |
 | `--mac auto\|permanent\|ADDRESS` | client address: one per network (default), the radio's own, or a fixed one |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
-| `--max-age SECONDS` | oldest measurement this sensor accepts, default 300 |
+| `--max-age SECONDS` | optional upper bound for the measurement age; unset (default), the probe plans by itself |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
 
 Every parameter name starts with two plain hyphens. A line typed on a
@@ -167,6 +167,8 @@ paths.
 | 18 | Failure Code | see the table below |
 | 19 | Gateway Reachable | lookup, absent with `--gateway none` |
 | 20 | Gateway Time | ms, absent with `--gateway none` |
+| 21 | Round Time | s, one pass over every job on the radio |
+| 22 | Jobs on Radio | count |
 
 **Auth Result** works well as the primary channel; it can be set in the
 sensor settings. A failed sign-in does not set the sensor to *Down*; it sets
@@ -174,8 +176,8 @@ this channel — that keeps the history of the timing channels readable. The
 alarm is set up through a limit on the channel.
 
 The third value is neither: `3` means nothing was measured, either because
-the job was only just registered or because the last measurement is older
-than `--max-age`. It uses the standard lookup
+the job was only just registered or because the last measurement is
+stale. It uses the standard lookup
 `prtg.standardlookups.netapp.nichealth`, whose `3` alarms on nothing — a
 value that does not exist must not read as a failed sign-in, and must not
 read as a successful one either.
@@ -257,10 +259,13 @@ to the server.
 > the radio's address, set `--mac permanent` or the reserved address with
 > `--mac ADDRESS`.
 
-**Measurement Age** says how old the reported measurement is. It is the
-channel that shows whether the radio keeps up with what the sensors ask of
-it, and a limit on it is the alarm for that. It exists from the first scan,
-reading zero until something has been measured.
+**Measurement Age** says how old the reported measurement is. With a
+healthy schedule it stays below the scanning interval plus a round.
+**Round Time** is how long one pass over every job on the radio takes, and
+**Jobs on Radio** how many share it - a round that grows is a network that
+started failing or one network too many. The three exist from the first
+scan, reading zero until something has been measured. See
+[what the radio can deliver](#what-the-radio-can-deliver).
 
 If the sign-in fails, the association time is still kept. That makes it
 possible to tell whether the radio link stood and only the authentication
@@ -282,8 +287,8 @@ was rejected.
 | `auth-timeout` | 9 | key negotiation not completed |
 | `assoc-lost` | 10 | the link changed while DHCP was running |
 | `not-measured` | 11 | registered, not measured yet |
-| `result-stale` | 12 | the last measurement is older than `--max-age` |
-| `max-age-too-low` | 13 | `--max-age` is below what the radio can keep: a round plus a minute |
+| `result-stale` | 12 | the last measurement is older than about two rounds, or than `--max-age` where that is set |
+| `max-age-too-low` | 13 | retired: a `--max-age` the radio cannot keep is a warning in the message now |
 | `gateway-unreachable` | 14 | the lease is valid, but the gateway does not answer |
 
 The message line is a row of short parts, the network and its verdict
@@ -298,7 +303,8 @@ Office: OK; client 02:91:0b:7e:12:c4; AP 00:00:5e:00:53:c0; IP 198.51.100.26 fro
 Office: no DHCP answer; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; code dhcp-timeout; age 20 s
 Office: association rejected by AP (status 17); client 02:3f:a1:9c:44:e7; code assoc-rejected; age 9 s
 Office: waiting for first measurement
-Set --max-age >= 180 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
+Office: measurement 9 min old, round currently 4 min, 4 jobs on wlan0
+--max-age 60 s cannot be kept, the radio needs 120 s for 2 jobs on wlan0; Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
 ```
 
 The DHCP server is named alongside the address because the address alone
@@ -325,12 +331,14 @@ state says nothing about the Wi-Fi.
 1. Add a **Script v2 sensor** on the probe's device.
 2. Select `wlan-auth.py` as the script.
 3. Enter the parameters, see above.
-4. Set the scanning interval to one minute. The sensor collects a stored
-   result, so asking often costs the radio nothing.
+4. Set the scanning interval to how often this network should be
+   measured — five minutes is a sound default. The probe measures the
+   network about that often, never more than once a minute.
 5. Leave the timeout at its default. Collecting needs no patience — the
    script gives up after 30 seconds of its own.
-6. Set `--max-age` to the freshness this network needs, and put a limit on
-   the **Measurement Age** channel a little above it.
+6. Leave `--max-age` unset. A result that is too old already turns the
+   failure code to 12; a limit on **Round Time** warns earlier, when the
+   radio is getting crowded.
 
 One sensor checks exactly one network. For several SSIDs, create several
 sensors, on the same interface too: they no longer compete for the radio,
@@ -452,9 +460,12 @@ A sensor registers by asking, and nothing else:
    yet" — `Auth Result` reads 3, which alarms on nothing.
 2. The service measures it as soon as the radio is free.
 3. Every further request is answered with that measurement and its age. The
-   service renews it before it reaches `--max-age`.
-4. A job nobody asks for any more expires, after three times `--max-age` and
-   at least five minutes. Deleting or pausing the sensor in PRTG therefore
+   service reads off the requests how often PRTG asks, and measures the
+   job about that often.
+4. A job nobody asks for any more expires, after three of its intervals and
+   at least an hour - long enough that a sensor polled every half hour, or
+   one whose interval was just raised, never loses its job between two
+   scans. Deleting or pausing the sensor in PRTG therefore
    ends the measuring, and leaves nothing to clean up on the probe.
 
 The credentials live in the memory of that service and nowhere else. They
@@ -488,49 +499,59 @@ One measurement then runs like this:
 
 ### What the radio can deliver
 
-The interval in PRTG no longer decides when the radio is used. It decides
-how often a sensor asks, and asking is free. What a sensor needs is
-`--max-age`, and whether the radio can hold that is arithmetic: a failing
-test uses its budget in full — `--timeout` seconds, 45 by default — plus up
-to half of it again, at most 15 seconds, waiting for the radio. So a
-network of 45 seconds costs 60 per round, two cost 120 and three 180.
+The scanning interval in PRTG is the one setting. The service reads it off
+the requests and measures each network about that often: a sensor polled
+every five minutes is measured about every five minutes and leaves the
+airtime in between to the others. A network is never measured more than
+once a minute, however often its sensor asks — an access point that sees
+the same radio sign in every few seconds starts turning it away, seen on a
+probe with two jobs on one network, rejected with status 16 until nothing
+got through. After every sign-in the radio rests ten seconds before it
+takes the next network.
 
-Where the jobs do not fit into their `--max-age`, the service shares the
+A round is what the jobs on the radio really take. The service keeps the
+duration of the last three runs of every job and plans with the slowest,
+plus the rest after it. A good sign-in takes 8 to 15 seconds, so two
+healthy networks cost about 50 seconds a round. A failing one uses its
+whole `--timeout`, 45 seconds by default, and lengthens the round for
+everyone with its first long run — intended, because it has to stay
+measured, and visible on **Round Time**. After a restart the service plans
+with the worst case, the timeout plus the wait for the radio, until every
+job has run once.
+
+Where the jobs do not fit into their intervals, the service shares the
 radio out evenly and all of them age together, instead of one network
-starving while another stays fresh. That shows on the **Measurement Age**
-channel of every affected sensor at once, which is why the limit belongs on
-that channel. Past `--max-age` the sensor stops offering the old value as a
-result at all: `Auth Result` goes to 3 and the failure code to 12.
-
-The radio is never driven without a break. A network is measured at most
-once a minute, and after every sign-in the radio rests ten seconds before
-it takes the next network. An access point that sees the same radio sign
-in every few seconds starts turning it away — seen on a probe with two
-jobs on one network and `--max-age 60`, rejected with status 16 until
-nothing got through. So what the radio can keep is a round plus that
-minute: 120 seconds for one network, 180 for two, 300 for four, which is
-the default.
-
-A `--max-age` below that is a different case, and the sensor names it
-rather than letting it look like a fault on the Wi-Fi. No schedule can
-serve such a setting, so instead of reddening every few scans the sensor
-reports failure code 13 and the number to set:
+starving while another stays fresh. A result counts as stale once it is
+older than twice its interval, or twice the round where the round is
+longer. Past that, `Auth Result` goes to 3, the failure code to 12, and
+the message says what to look at:
 
 ```text
-Set --max-age >= 180 s (2 networks on this radio); Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
+Office: measurement 9 min old, round currently 4 min, 4 jobs on wlan0
 ```
 
-The measurement that did arrive still counts — `Auth Result` keeps its
-value and the timing channels keep their history. Only the cause changes,
-from a result that happens to be too old to the setting that made it so.
+That is a hint at a real problem — a stuck service, a radio with too many
+networks — not at a setting.
 
-The renewal starts a whole round before the limit, not at some fraction of
-it: a result renewed at `--max-age` would already be too old by the time
-the round is over. With the default `--max-age 300` and two networks of 45
-seconds, a result is renewed once it is 180 seconds old — not every minute,
-however often PRTG asks. **A scanning interval of one minute no longer means a
-measurement every minute**, and no setting gets one network measured more
-often than that.
+`--max-age` is still accepted, as an upper bound for sensors that need one
+or were set up before. The network is then measured at least a round
+before the bound. What the radio can keep is a round of waiting on top of
+the once-a-minute floor, or two rounds where the round is longer. A value
+below that is a warning first in the message, not a red sensor:
+
+```text
+--max-age 60 s cannot be kept, the radio needs 120 s for 2 jobs on wlan0; Office: OK; client 02:3f:a1:9c:44:e7; age 61 s
+```
+
+The measurement keeps its own result and failure code, and is judged
+against what the radio can keep. Removing `--max-age` hands the schedule
+to the probe. Failure code 13, which this case raised before, is retired.
+
+> **A sensor at the one-minute interval is now measured every minute.**
+> Before this change it was renewed every three to four minutes, whatever
+> it asked. Set the scanning interval to how often the network should be
+> measured. The background is in
+> [ADR 0014](../../docs/architecture/decisions/0014-the-helper-plans-the-radio-from-what-it-measures.md).
 
 The state on a probe is readable where the measuring happens, which is the
 only place it exists:
@@ -546,9 +567,10 @@ print(s.recv(65536).decode())
 PY
 ```
 
-It names every registered job with the freshness it asked for, the age it
-holds, when it is renewed and when it expires unasked — and never the
-credentials it signs in with.
+It names every registered job with how often it is asked for, how often
+it is measured, what a run is expected to take, the age it holds, when it
+counts as stale and when it expires unasked — and the round over the
+radio. Never the credentials it signs in with.
 
 Each job also carries the address of its last run and the DHCP server that
 handed it out. On a probe with several networks on one radio that is the
