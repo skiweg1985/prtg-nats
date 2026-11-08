@@ -1,0 +1,12 @@
+# Advisories accepted for a time, each with the reason it does not apply here
+# and the date it has to be looked at again. An entry past its date stops
+# ignoring and the scan fails, which is the reminder.
+vulnerabilities:
+  - id: CVE-2026-78661
+    paths:
+      - usr/bin/caddy
+    statement: >-
+      golang.org/x/net in Caddy 2.11.9, in its HTML parser. Caddy uses that
+      parser for templates and Markdown rendering; web/Caddyfile uses neither.
+      Remove once a Caddy release ships x/net 0.62 or newer.
+    expired_at: 2027-02-08

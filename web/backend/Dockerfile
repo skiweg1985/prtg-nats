@@ -84,7 +84,11 @@ WORKDIR /app
 # the lock - not even a build backend fetched in whatever version is current.
 # scripts/lock-dependencies.sh refreshes the lock.
 COPY web/backend/requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    # The base image's setuptools and wheel are build tools; nothing at
+    # runtime imports them, and their vendored copies are what image scans
+    # flag. pip stays for the recovery commands.
+    && pip uninstall --yes setuptools wheel
 
 COPY web/backend/app ./app
 COPY web/backend/alembic.ini ./
