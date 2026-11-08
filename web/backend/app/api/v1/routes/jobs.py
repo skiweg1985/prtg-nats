@@ -23,7 +23,7 @@ from app.api.deps.common import (
 from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
 from app.api.sse import END, KEEPALIVE, event_stream, follow, sse
-from app.core.errors import ConflictError
+from app.core.errors import ConflictError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
 from app.persistence.models.inventory import (
@@ -33,7 +33,7 @@ from app.persistence.models.inventory import (
 )
 from app.services.events import job_topic
 from app.services.jobs import JobService, ResourceRef
-from app.workers.handlers import deploy_sensor, iperf_provisioning
+from app.workers.handlers import deploy_sensor, get_definition, iperf_provisioning
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -65,7 +65,10 @@ async def get_job(
     _: Annotated[object, Depends(require_permission(Permission.JOB_READ))],
 ) -> JobDetailOut:
     job = await jobs.get(job_id)
-    return JobDetailOut.model_validate(job)
+    detail = JobDetailOut.model_validate(job)
+    definition = get_definition(job.type)
+    detail.retry_permission = definition.permission if definition else None
+    return detail
 
 
 @router.get("/{job_id}/log", response_model=list[JobEventOut])
@@ -196,6 +199,19 @@ async def retry_job(
     finished half of the history while its link kept pointing at the old job.
     """
     original = await jobs.get(job_id)
+    # job.retry alone would let anyone who holds it repeat any finished job,
+    # including ones only an administrator may start. The definition carries
+    # the permission the creating route checks, so the retry asks for it too -
+    # and before anything below writes a row.
+    job_definition = get_definition(original.type)
+    if job_definition is None:
+        raise ConflictError(
+            params={"resource": "job", "id": job_id},
+            details=f"job type {original.type} is no longer known; start it anew",
+        )
+    required = Permission(job_definition.permission)
+    if not principal.has(required):
+        raise PermissionDeniedError.of(required.value)
     if original.type == iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE:
         raise ConflictError(
             params={"resource": "job", "id": job_id},

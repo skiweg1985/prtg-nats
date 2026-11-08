@@ -282,21 +282,23 @@ export function JobDetailPage() {
               </Button>
             </PermissionGate>
           )}
-          {!running && !needsForeignPassword && (
+          {!running && !needsForeignPassword && job.retry_permission && (
             <PermissionGate permission="job.retry">
-              <Button
-                icon={RotateCw}
-                size="sm"
-                variant="primary"
-                onClick={() =>
-                  retry.mutate(jobId, {
-                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                  })
-                }
-                disabled={retry.isPending}
-              >
-                {t('jobs.retry')}
-              </Button>
+              <PermissionGate permission={job.retry_permission}>
+                <Button
+                  icon={RotateCw}
+                  size="sm"
+                  variant="primary"
+                  onClick={() =>
+                    retry.mutate(jobId, {
+                      onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                    })
+                  }
+                  disabled={retry.isPending}
+                >
+                  {t('jobs.retry')}
+                </Button>
+              </PermissionGate>
             </PermissionGate>
           )}
           {!running &&

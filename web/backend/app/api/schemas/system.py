@@ -434,6 +434,10 @@ class JobDetailOut(JobSummaryOut):
     error_params: dict[str, Any] | None = None
     error_details: str | None = None
     retry_of_job_id: str | None = None
+    # What a retry asks for on top of job.retry, so the interface can hide the
+    # button instead of offering a refusal. None for a type with no definition,
+    # which cannot be retried at all.
+    retry_permission: str | None = None
 
 
 # --- Audit ------------------------------------------------------------------

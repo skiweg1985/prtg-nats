@@ -1,7 +1,7 @@
 ---
 title: Jobs and deployments
 role: operator
-updated: 2026-08-04
+updated: 2026-11-08
 ---
 
 # Jobs and deployments
@@ -117,6 +117,12 @@ first pass reaches it.
 A retry is a new job with the same inputs, pointing back at the one it repeats.
 The failed run stays in the history, which is what makes "it failed twice for
 the same reason" visible.
+
+Retrying asks for the same permission as starting that kind of job, on top
+of `job.retry`. An operator can repeat a rollout but not a certificate renewal
+or a stack update an administrator started, and the interface shows the button
+only to those who may use it. A job whose type a newer release no longer has
+cannot be retried; start it anew from where it came from.
 
 Only a finished job can be retried. A running one can be cancelled: a queued
 job stops immediately, and a running one is asked to stop and checks between

@@ -1,7 +1,7 @@
 ---
 title: Roles and permissions
 role: operator
-updated: 2026-08-28
+updated: 2026-11-08
 ---
 
 # Roles and permissions
@@ -53,6 +53,9 @@ Two tests keep that true:
   with a short list of documented exceptions such as signing in;
 - one signs in as each role in turn and checks that the boundaries hold end to
   end.
+
+Retrying a job is not a way around this: it needs `job.retry` and the
+permission of the job it repeats.
 
 A refusal names the permission that was missing, so an operator can ask for the
 right thing rather than reporting "access denied".
