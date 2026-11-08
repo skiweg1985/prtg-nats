@@ -266,7 +266,8 @@ The delegation needs the backend installed once:
 
 ```bash
 python3 -m venv web/backend/.venv
-web/backend/.venv/bin/pip install -e web/backend
+web/backend/.venv/bin/pip install --require-hashes -r web/backend/requirements.lock
+web/backend/.venv/bin/pip install --no-deps -e web/backend
 ```
 
 Without it, every recovery command explains exactly that instead of failing

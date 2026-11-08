@@ -75,4 +75,5 @@ def test_the_development_lock_carries_the_runtime_versions_too() -> None:
 def test_the_image_installs_from_the_lock() -> None:
     dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
     assert "--require-hashes -r requirements.lock" in dockerfile
-    assert "pip install --no-cache-dir --no-deps ." in dockerfile
+    # Installing the project would resolve or build outside the lock.
+    assert not re.search(r"pip install[^\n]*\s\.(\s|$)", dockerfile)
