@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=12
+HELPER_VERSION=13
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -680,6 +680,7 @@ probe_info() {
   fi
   print_overlay_fields
   printf 'channel_cert=%s\n' "$(return_channel_expiry)"
+  printf 'channel_cert_issued=%s\n' "$(return_channel_issued)"
   printf 'channel_service=%s\n' "$(return_channel_service_state)"
   printf 'addresses=%s\n' "$(own_addresses)"
   if [[ -f "${TOML_CONFIG}" ]]; then
@@ -752,6 +753,63 @@ return_channel_expiry() {
   date -u -d "${end}" +%F 2>/dev/null || printf 'none\n'
 }
 
+# When the installed certificate was issued, to the second, or none. The
+# platform counts a channel that never delivered as silent from here.
+return_channel_issued() {
+  local start=""
+
+  if [[ ! -s "${RETURN_CHANNEL_CERT}" ]] ||
+     ! command -v openssl >/dev/null 2>&1; then
+    printf 'none\n'
+    return 0
+  fi
+  start="$(openssl x509 -in "${RETURN_CHANNEL_CERT}" -noout -startdate \
+    2>/dev/null)" || start=""
+  start="${start#notBefore=}"
+  if [[ -z "${start}" ]]; then
+    printf 'none\n'
+    return 0
+  fi
+  date -u -d "${start}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'none\n'
+}
+
+# What the platform sets in channel.env besides the address: the interface's
+# own address, which the wlan-auth helper puts in front of the link to a run,
+# and the size of the buffer. Checked here because the file is read by root
+# services; "none" leaves the interface address out.
+validate_channel_settings() {
+  local web_url="$1"
+  local buffer_bytes="$2"
+  local web_pattern='^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$'
+
+  [[ "${web_url}" == "none" || "${web_url}" =~ ${web_pattern} ]] ||
+    die "The interface address must be an https URL with host and port"
+  [[ "${buffer_bytes}" =~ ^[0-9]{1,10}$ ]] ||
+    die "The buffer size must be a number of bytes"
+}
+
+# channel.env, rewritten whole: the platform's values first, then what an
+# operator tuned on the probe itself, which survives a new certificate.
+write_channel_config() {
+  local platform_url="$1"
+  local web_url="$2"
+  local buffer_bytes="$3"
+
+  {
+    printf 'PLATFORM_URL=%s\n' "${platform_url}"
+    if [[ "${web_url}" != "none" ]]; then
+      printf 'WEB_URL=%s\n' "${web_url}"
+    fi
+    printf 'BUFFER_LIMIT_BYTES=%s\n' "${buffer_bytes}"
+    if [[ -f "${RETURN_CHANNEL_CONFIG}" ]]; then
+      grep -E '^(SERVER_CA|HEARTBEAT_SECONDS)=' "${RETURN_CHANNEL_CONFIG}" ||
+        true
+    fi
+  } > "${RETURN_CHANNEL_CONFIG}.new"
+  chmod 0644 "${RETURN_CHANNEL_CONFIG}.new"
+  mv -f "${RETURN_CHANNEL_CONFIG}.new" "${RETURN_CHANNEL_CONFIG}"
+}
+
 channel_csr() {
   local csr=""
 
@@ -799,6 +857,8 @@ return_channel_key_for() {
 
 channel_install() {
   local platform_url="$1"
+  local web_url="$2"
+  local buffer_bytes="$3"
   local staged="${STATE_DIR}/return-channel-candidate.pem"
   local scratch=""
   local key=""
@@ -806,6 +866,7 @@ channel_install() {
 
   [[ "${platform_url}" =~ ${url_pattern} ]] ||
     die "channel-install requires an https URL with host and port"
+  validate_channel_settings "${web_url}" "${buffer_bytes}"
   require_openssl
   read_limited_input "${staged}"
   [[ "$(grep -c 'BEGIN CERTIFICATE' "${staged}")" == "2" ]] ||
@@ -841,17 +902,7 @@ channel_install() {
     mv -f "${RETURN_CHANNEL_PENDING_KEY}" "${RETURN_CHANNEL_KEY}"
   fi
   chmod 0600 "${RETURN_CHANNEL_KEY}"
-  {
-    printf 'PLATFORM_URL=%s\n' "${platform_url}"
-    # The address is the platform's to set; what an operator tuned on the
-    # probe itself survives a new certificate.
-    if [[ -f "${RETURN_CHANNEL_CONFIG}" ]]; then
-      grep -E '^(BUFFER_LIMIT_BYTES|SERVER_CA)=' "${RETURN_CHANNEL_CONFIG}" ||
-        true
-    fi
-  } > "${RETURN_CHANNEL_CONFIG}.new"
-  chmod 0644 "${RETURN_CHANNEL_CONFIG}.new"
-  mv -f "${RETURN_CHANNEL_CONFIG}.new" "${RETURN_CHANNEL_CONFIG}"
+  write_channel_config "${platform_url}" "${web_url}" "${buffer_bytes}"
   rm -rf -- "${scratch}"
 
   install_return_channel_service
@@ -863,10 +914,24 @@ channel_install() {
 # The service on its own, for a probe whose certificate is already in place:
 # a helper update brings a new version of the service with it, and this is
 # what puts that version to work without issuing a certificate nobody needs.
+# With the interface address and the buffer size it also brings channel.env
+# up to date; the address to report to stays as channel-install wrote it.
 channel_service() {
+  local web_url="${1:-}"
+  local buffer_bytes="${2:-}"
+  local platform_url=""
+
   [[ -s "${RETURN_CHANNEL_CERT}" && -s "${RETURN_CHANNEL_KEY}" &&
      -s "${RETURN_CHANNEL_CONFIG}" ]] ||
     die "The return channel has no certificate yet"
+  if [[ -n "${web_url}" ]]; then
+    validate_channel_settings "${web_url}" "${buffer_bytes}"
+    platform_url="$(sed -n 's/^PLATFORM_URL=//p' "${RETURN_CHANNEL_CONFIG}" |
+      head -n 1)"
+    [[ -n "${platform_url}" ]] ||
+      die "The return channel has no platform address yet"
+    write_channel_config "${platform_url}" "${web_url}" "${buffer_bytes}"
+  fi
   install_return_channel_service
   printf 'OK channel-service\n'
   printf 'channel_service=%s\n' "$(return_channel_service_state)"
@@ -1033,6 +1098,12 @@ BATCH_BYTES = 4 * 1024 * 1024
 COMPACT_AFTER = 1024 * 1024
 BACKOFF_FIRST = 2
 BACKOFF_LONGEST = 300
+# With nothing to deliver, an empty batch goes out this often anyway, so the
+# platform can tell a quiet probe from a broken channel. The platform's
+# silence threshold defaults to three of these; HEARTBEAT_SECONDS in
+# channel.env changes it on one probe.
+DEFAULT_HEARTBEAT = 300
+MINIMUM_HEARTBEAT = 30
 # Day 60 of a 90-day certificate.
 RENEW_AT = 2 / 3
 SELF_SENSOR = "return-channel"
@@ -1430,14 +1501,16 @@ class DeliveryError(Exception):
     pass
 
 
-def deliver_once(buffer, post):
+def deliver_once(buffer, post, heartbeat=False):
     """Send the oldest batch. True when something went, False when idle.
 
-    ``post(path, document)`` returns the status and the decoded answer, and
-    raises OSError when the platform cannot be reached at all.
+    With ``heartbeat`` an empty buffer still sends an empty batch, the
+    channel's sign of life. ``post(path, document)`` returns the status and
+    the decoded answer, and raises OSError when the platform cannot be
+    reached at all.
     """
     batch = buffer.batch()
-    if not batch:
+    if not batch and not heartbeat:
         return False
     status, answer = post(RECORDS_PATH, {"records": batch,
                                          "buffer": buffer.stats()})
@@ -1629,6 +1702,24 @@ def read_config(path):
     return values
 
 
+def heartbeat_interval(config):
+    try:
+        return max(int(config.get("HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT)),
+                   MINIMUM_HEARTBEAT)
+    except ValueError:
+        log("HEARTBEAT_SECONDS is no number, using %d" % DEFAULT_HEARTBEAT)
+        return DEFAULT_HEARTBEAT
+
+
+def heartbeat_due(last_sent, now, interval):
+    """Whether the platform has heard nothing for a whole interval.
+
+    Due at once after a start, so a freshly installed channel shows up on
+    the platform without waiting for a sensor or for the first interval.
+    """
+    return last_sent is None or now - last_sent >= interval
+
+
 def buffer_limit(config):
     try:
         return max(int(config.get("BUFFER_LIMIT_BYTES", DEFAULT_LIMIT)),
@@ -1696,10 +1787,11 @@ def next_delay(previous):
     return delay * random.uniform(0.8, 1.0)
 
 
-def run(buffer, platform):
+def run(buffer, platform, heartbeat=DEFAULT_HEARTBEAT):
     delay = 0
     renewal_check = 0.0
     renewal_failed = False
+    last_sent = None
     while True:
         if platform is None:
             buffer.wait(3600)
@@ -1714,8 +1806,13 @@ def run(buffer, platform):
                 renewal_check = time.monotonic() + 900
                 renewal_failed = True
         try:
-            if not deliver_once(buffer, platform.post):
-                buffer.wait(60)
+            now = time.monotonic()
+            if deliver_once(buffer, platform.post,
+                            heartbeat=heartbeat_due(last_sent, now,
+                                                    heartbeat)):
+                last_sent = time.monotonic()
+            else:
+                buffer.wait(max(1, min(60, last_sent + heartbeat - now)))
             if delay and renewal_failed:
                 # The platform is back after an outage; a renewal that
                 # failed because of it need not wait for its next turn.
@@ -1743,7 +1840,7 @@ def main():
         # Records are still taken and kept; they leave once the helper has
         # written a usable address and restarted the service.
         log("Not delivering: %s" % error)
-    run(buffer, platform)
+    run(buffer, platform, heartbeat_interval(config))
 
 
 if __name__ == "__main__":
@@ -4771,13 +4868,18 @@ case "${command_name}" in
     channel_csr
     ;;
   channel-install)
-    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
-      die "channel-install requires one platform URL"
-    channel_install "${argument_one}"
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -n "${argument_three:-}" ]] ||
+      die "channel-install requires platform URL, interface URL and buffer size"
+    channel_install "${argument_one}" "${argument_two}" "${argument_three}"
     ;;
   channel-service)
-    [[ -z "${argument_one:-}" ]] || die "channel-service takes no arguments"
-    channel_service
+    # Without arguments for a platform that predates them; then channel.env
+    # stays as it is.
+    [[ -z "${argument_one:-}" ||
+       ( -n "${argument_two:-}" && -z "${argument_three:-}" ) ]] ||
+      die "channel-service takes the interface URL and the buffer size"
+    channel_service "${argument_one:-}" "${argument_two:-}"
     ;;
   helper-update)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||

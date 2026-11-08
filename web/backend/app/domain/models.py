@@ -97,6 +97,10 @@ class ObservedProbeState:
     # where the probe has none, or a helper too old to say.
     channel_cert: str | None = None
     channel_service: str | None = None
+    # When that certificate was issued, as ISO 8601 UTC. From helper version
+    # 13 on, the one that also sends heartbeats: only with both can a probe
+    # that never delivered be told apart from one that has nothing to say.
+    channel_cert_issued: str | None = None
 
     @property
     def helper_outdated(self) -> bool:
@@ -140,6 +144,7 @@ class ObservedProbeState:
             "platform": self.platform,
             "channel_cert": self.channel_cert,
             "channel_service": self.channel_service,
+            "channel_cert_issued": self.channel_cert_issued,
             "sensors": [
                 {
                     "name": sensor.name,
@@ -188,6 +193,7 @@ class ObservedProbeState:
             platform=document.get("platform"),
             channel_cert=document.get("channel_cert"),
             channel_service=document.get("channel_service"),
+            channel_cert_issued=document.get("channel_cert_issued"),
             sensors=tuple(
                 InstalledSensor(
                     name=entry.get("name", ""),
@@ -232,6 +238,7 @@ def parse_probe_info(
         platform=normalise_optional(response.value("platform")),
         channel_cert=normalise_optional(response.value("channel_cert")),
         channel_service=normalise_optional(response.value("channel_service")),
+        channel_cert_issued=normalise_optional(response.value("channel_cert_issued")),
     )
 
 
@@ -403,10 +410,13 @@ class ProbeSummary:
     # count as current. The list marks these so a probe whose tunnel quietly
     # stopped carrying management stands out from the ones it still does.
     managed_over_tunnel: bool = False
-    # The return channel delivered before and has been quiet for longer than
-    # the silence threshold. Carried in the row so the alert derivation and
-    # the automatic repair read it from the same summary the list shows.
+    # The return channel has been quiet for longer than the silence
+    # threshold. Carried in the row so the alert derivation and the automatic
+    # repair read it from the same summary the list shows.
     channel_silent: bool = False
+    # The probe reported a client certificate that has expired. The channel
+    # cannot deliver with it, so the repair need not wait for the silence.
+    channel_certificate_expired: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +445,8 @@ class ReturnChannelState:
     last_gap_at: datetime | None = None
     observed_at: datetime | None = None
     certificate_expires: str | None = None
+    certificate_issued_at: datetime | None = None
+    certificate_expired: bool = False
     service: str | None = None
     silent: bool = False
 

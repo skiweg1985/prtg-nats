@@ -1,11 +1,18 @@
 """The state of each probe's return channel (ADR 0013, issue #176).
 
 Observed state per ADR 0002: written by every delivery a probe makes, read by
-the probe's page, the alert derivation and the automatic repair. The channel
-has no heartbeat - the service on the probe posts when a sensor wrote
-something - so only a probe that has delivered before can fall silent. One
-that never delivered may simply have no sensor that writes to the log, and
-warning about it would put a permanent alert on every such probe.
+the probe's page, the alert derivation and the automatic repair. Besides the
+records a sensor wrote, the service on the probe sends an empty batch at
+least every HEARTBEAT_INTERVAL, so a working channel is never quiet for long
+whether or not a sensor writes to the log.
+
+A channel is silent once nothing arrived for the silence threshold, counted
+from its last delivery or from when its certificate was issued, whichever is
+later: a probe that got a certificate and never delivered is as broken as
+one that stopped. The issue time comes from probe-info of helper 13 and
+later, the version that brought the heartbeat; an older probe that never
+delivered may simply have no sensor that writes to the log, and is left
+alone.
 """
 
 from __future__ import annotations
@@ -20,17 +27,57 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.domain.models import ObservedProbeState, ReturnChannelState
 from app.persistence.models.inventory import ProbeRecord, ProbeReturnChannel
+from app.services.sensor_logs import parse_time
 
 # What the service on the probe calls itself in the gap records it sends.
 GAP_SENSOR = "return-channel"
+
+# How often the service on the probe sends a heartbeat when it has nothing
+# else to deliver - HEARTBEAT_SECONDS in its channel.env, this by default.
+# The silence threshold defaults to three of these.
+HEARTBEAT_INTERVAL = timedelta(minutes=5)
+# How long a running service may stay quiet before the repair blames the
+# certificate: one heartbeat and a minute for it to arrive.
+HEARTBEAT_WINDOW = HEARTBEAT_INTERVAL + timedelta(minutes=1)
 
 
 def silence_threshold(settings: Settings) -> timedelta:
     return timedelta(minutes=settings.probe_channel_silence_minutes)
 
 
-def is_silent(last_contact_at: datetime, settings: Settings, now: datetime) -> bool:
-    return now - last_contact_at > silence_threshold(settings)
+def last_sign_of_life(
+    last_contact_at: datetime | None, certificate_issued_at: datetime | None
+) -> datetime | None:
+    """Since when the channel should have delivered, or None if unknown."""
+    known = [moment for moment in (last_contact_at, certificate_issued_at) if moment]
+    return max(known) if known else None
+
+
+def is_silent(since: datetime | None, settings: Settings, now: datetime) -> bool:
+    return since is not None and now - since > silence_threshold(settings)
+
+
+def needs_new_certificate(
+    *,
+    certificate: str | None,
+    service: str | None,
+    since: datetime | None,
+    now: datetime,
+) -> bool:
+    """Whether the repair has to issue a certificate rather than refresh
+    the service.
+
+    A missing or expired certificate, of course. Beyond that only a running
+    service that let a heartbeat window pass without a delivery: the proxy
+    refuses a bad certificate before the backend sees it, so that is the
+    one way a rejected certificate shows. A probe that delivers keeps its
+    certificate, however often a repair is started.
+    """
+    if not certificate_usable(certificate, now.date()):
+        return True
+    if service != "active":
+        return False
+    return since is None or now - since > HEARTBEAT_WINDOW
 
 
 def certificate_usable(expires: str | None, today: date) -> bool:
@@ -41,6 +88,15 @@ def certificate_usable(expires: str | None, today: date) -> bool:
         return date.fromisoformat(expires) > today
     except ValueError:
         return False
+
+
+async def last_contact(session: AsyncSession, nats_username: str) -> datetime | None:
+    """When the probe last delivered anything, heartbeats included."""
+    return await session.scalar(
+        select(ProbeReturnChannel.last_contact_at)
+        .join(ProbeRecord, ProbeRecord.id == ProbeReturnChannel.probe_id)
+        .where(ProbeRecord.nats_username == nats_username)
+    )
 
 
 async def record_delivery(
@@ -72,9 +128,10 @@ async def record_delivery(
         session.add(row)
 
     gaps = [
-        _parse_time(entry["time"])
+        moment
         for entry in stored
         if entry.get("result") == "gap" and entry.get("sensor") == GAP_SENSOR
+        if (moment := parse_time(entry.get("time"))) is not None
     ]
     row.last_contact_at = now
     row.observed_at = now
@@ -99,6 +156,7 @@ async def channel_states(
     a certificate. ``observed`` is keyed by probe id like the result.
     """
     now = datetime.now(UTC)
+    today = now.date()
     rows = {
         row.probe_id: row
         for row in await session.scalars(
@@ -113,25 +171,20 @@ async def channel_states(
         service = info.channel_service if info is not None else None
         if row is None and certificate is None:
             continue
-        if row is None:
-            states[probe_id] = ReturnChannelState(
-                certificate_expires=certificate, service=service
-            )
-            continue
+        issued = parse_time(info.channel_cert_issued) if info is not None else None
+        last_contact = row.last_contact_at if row is not None else None
         states[probe_id] = ReturnChannelState(
-            last_contact_at=row.last_contact_at,
-            buffer_bytes=row.buffer_bytes,
-            buffer_limit=row.buffer_limit,
-            gap_count=row.gap_count,
-            last_gap_at=row.last_gap_at,
-            observed_at=row.observed_at,
+            last_contact_at=last_contact,
+            buffer_bytes=row.buffer_bytes if row is not None else None,
+            buffer_limit=row.buffer_limit if row is not None else None,
+            gap_count=row.gap_count if row is not None else 0,
+            last_gap_at=row.last_gap_at if row is not None else None,
+            observed_at=row.observed_at if row is not None else None,
             certificate_expires=certificate,
+            certificate_issued_at=issued,
+            certificate_expired=certificate is not None
+            and not certificate_usable(certificate, today),
             service=service,
-            silent=is_silent(row.last_contact_at, settings, now),
+            silent=is_silent(last_sign_of_life(last_contact, issued), settings, now),
         )
     return states
-
-
-def _parse_time(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

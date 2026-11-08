@@ -411,16 +411,21 @@ is looked up by in the RADIUS and gateway logs. Very long output is
 shortened to the first and last lines so that a record stays below the
 service's 64 KB limit.
 
-The PRTG message of a failed run ends with the path of its record:
+The PRTG message of a failed run ends with the link to its record:
 
 ```text
-Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; code dhcp-timeout; age 20 s; log /sensor-logs/3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10
+Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; code dhcp-timeout; age 20 s; log https://nats.example.test/sensor-logs/3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10
 ```
 
-Put it after the address you open the platform with. The probe does not
-know that address — the return channel talks to a port of its own — so the
-message carries the path only. The message stays within PRTG's 2000
-characters; the path is never the part that is cut.
+The platform writes its interface address (`WEB_URL`) into the return
+channel's `channel.env` whenever it installs the channel or refreshes its
+service. That directory is readable by root only, so the privileged helper
+builds the link and hands it to the sensor script with the result. A probe
+whose channel has no interface address yet — an older helper, or a platform
+without `WEB_FQDN` and `NATS_FQDN` — gets the path alone
+(`log /sensor-logs/<id>`); put it after the address you open the platform
+with. The message stays within PRTG's 2000 characters; the link is never
+the part that is cut.
 
 ## How the test runs
 

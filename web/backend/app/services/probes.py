@@ -722,6 +722,8 @@ class ProbeService:
             and route.over_overlay
             and not route.stale,
             channel_silent=channel is not None and channel.silent,
+            channel_certificate_expired=channel is not None
+            and channel.certificate_expired,
         )
 
 

@@ -213,7 +213,7 @@ once, which is what the comma is for.
 
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
-| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `443` | no | `9443` |
+| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy. Also part of the interface address probes put into the links to a sensor log run | port | `443` | no | `9443` |
 | `PROBE_CHANNEL_PORT` | Host port where probes report back over the return channel; requires a client certificate from the probe CA | port | `8443` | no | `8444` |
 | `WEB_FQDN` | Name the certificate of the web interface is issued for | hostname | value of `NATS_FQDN` | no | `admin.example.com` |
 
@@ -351,7 +351,8 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
 | `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` | How many days of [sensor logs](#sensor-logs) are kept. At least `1` | int | `14` | no |
-| `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` | How long a probe whose return channel has delivered before may stay quiet before it counts as silent, raises a warning and gets a repair job. See [sensor logs](#sensor-logs). At least `1` | int | `15` | no |
+| `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` | How long a probe's return channel may stay quiet before it counts as silent, raises a warning and gets a repair job. Keep it well above the probe's 5-minute heartbeat. See [sensor logs](#sensor-logs). At least `1` | int | `15` | no |
+| `PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB` | How much the return channel on each probe buffers while the platform is out of reach; beyond it the oldest records are dropped and reported as a gap. Reaches a probe with its next channel install, helper update or repair. `1` to `1024` | int | `20` | no |
 | `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Empty means the one the checkout is on, which is what an operator who ran `git checkout dev` expects; set it to pin an installation to a branch on purpose | string | – | no |
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
@@ -386,15 +387,19 @@ Once a day, and once at startup, the API deletes the day files older than
 `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS`, judged by the date in the file
 name. The shell tooling knows the directory as `SENSOR_LOG_DIR`.
 
-Each delivery also counts as contact. A probe that has delivered before and
-then stays quiet for longer than
-`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` is marked silent, and the
-platform repairs its channel over the management access. The value is one
-for all probes on purpose: a fitting threshold would be a multiple of the
-shortest scanning interval of the probe's sensors, and those intervals are
-set in PRTG, out of the platform's sight. The default is the floor such a
-threshold would have. Raise it when a probe's sensors run less often than
-that, or every quiet stretch between two runs looks like an outage. See
+Each delivery also counts as contact, and the service on the probe sends an
+empty batch as a heartbeat at least every five minutes
+(`HEARTBEAT_SECONDS` in [channel.env](#return-channel-on-the-probe)), so a
+working channel is never quiet for long, whether or not a sensor writes to
+the log. A probe that stays quiet for longer than
+`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` - counted from its last
+delivery, or from when its certificate was issued if it never delivered -
+is marked silent, and the platform repairs its channel over the management
+access. The default of 15 minutes is three missed heartbeats, so one late
+request raises no alarm; a value at or below the heartbeat interval marks
+healthy probes silent between two heartbeats. Probes on a helper older than
+version 13 send no heartbeat and do not report when their certificate was
+issued; they only count as silent once they delivered and then stopped. See
 [the API reference](api.md#sensor-logs) and
 [ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
 
@@ -450,14 +455,18 @@ Preview the rendered result without changing any system:
 
 The return channel service reads
 `/etc/prtg-nats/return-channel/channel.env` on the probe when it starts. The
-helper writes `PLATFORM_URL` during enrolment and helper updates; the other
-two keys are set by hand on the probe and survive a new certificate. Restart
-`prtg-nats-return-channel.service` after a change.
+helper writes `PLATFORM_URL`, `WEB_URL` and `BUFFER_LIMIT_BYTES` whenever the
+platform installs the channel or refreshes its service - during enrolment,
+helper updates and repairs - so change those through the platform's
+settings. `SERVER_CA` and `HEARTBEAT_SECONDS` are set by hand on the probe
+and survive both. Restart `prtg-nats-return-channel.service` after a change.
 
 | Name | Description | Type | Default | Required |
 | --- | --- | --- | --- | --- |
 | `PLATFORM_URL` | Where records are delivered, `https://HOST:PROBE_CHANNEL_PORT` | URL | written by the helper | yes |
-| `BUFFER_LIMIT_BYTES` | Hard limit of the buffer under `/var/lib/prtg-nats-return-channel/`; the oldest records are dropped first, values below 262144 are raised to it | bytes | `20971520` | no |
+| `WEB_URL` | The interface address, `https://WEB_FQDN` plus `:WEB_HTTPS_PORT` when that is not `443`. The `wlan-auth` sensor builds the link to a run in its PRTG message from it; without it the message carries the path only | URL | written by the helper | no |
+| `BUFFER_LIMIT_BYTES` | Hard limit of the buffer under `/var/lib/prtg-nats-return-channel/`; the oldest records are dropped first, values below 262144 are raised to it | bytes | `PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB`, written by the helper | no |
+| `HEARTBEAT_SECONDS` | How often an empty batch goes out when there is nothing else to deliver; values below 30 are raised to it. Keep the platform's silence threshold at a multiple of it | seconds | `300` | no |
 | `SERVER_CA` | CA the platform's certificate is checked against | path | `/etc/paessler/mpprobe/certs/nats-docker-ca.pem` | no |
 
 The default CA is the stack CA the probe already trusts for NATS; it issued

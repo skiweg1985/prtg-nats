@@ -33,6 +33,7 @@ from app.core.logging import get_logger
 from app.infrastructure import known_hosts
 from app.infrastructure.probe_helper.protocol import (
     UNSUPPORTED_REQUEST_MESSAGE,
+    ChannelSettings,
     HelperCommand,
     HelperRequest,
     HelperResponse,
@@ -403,7 +404,7 @@ class ProbeHelperClient:
         *,
         certificate_pem: str,
         client_ca_pem: str,
-        platform_url: str,
+        settings: ChannelSettings,
     ) -> HelperResponse:
         """Store the signed certificate, the client CA and where to report to.
 
@@ -413,18 +414,28 @@ class ProbeHelperClient:
         return await self._call(
             connection,
             HelperCommand.CHANNEL_INSTALL,
-            platform_url,
+            settings.platform_url,
+            *settings.service_arguments(),
             payload=certificate_pem.rstrip("\n") + "\n" + client_ca_pem,
             timeout=60,
         )
 
-    async def channel_service(self, connection: ProbeConnection) -> HelperResponse:
+    async def channel_service(
+        self, connection: ProbeConnection, settings: ChannelSettings
+    ) -> HelperResponse:
         """Rewrite and restart the return channel service on the probe.
 
         For a probe that keeps its certificate: the service is part of the
         helper, so a new helper only runs its new service once this is asked.
+        The interface address and the buffer size go along, so a changed
+        setting reaches the probe without a new certificate.
         """
-        return await self._call(connection, HelperCommand.CHANNEL_SERVICE, timeout=60)
+        return await self._call(
+            connection,
+            HelperCommand.CHANNEL_SERVICE,
+            *settings.service_arguments(),
+            timeout=60,
+        )
 
     # --- Overlay ------------------------------------------------------------
 

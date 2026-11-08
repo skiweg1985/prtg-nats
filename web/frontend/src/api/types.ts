@@ -258,6 +258,8 @@ export interface ReturnChannel {
   last_gap_at: string | null
   observed_at: string | null
   certificate_expires: string | null
+  certificate_issued_at?: string | null
+  certificate_expired?: boolean
   service: string | null
   silent: boolean
 }

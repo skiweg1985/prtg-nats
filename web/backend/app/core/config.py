@@ -120,12 +120,17 @@ class Settings(BaseSettings):
     # How long sensor logs stay in the runtime volume, in days. The cleanup
     # runs once a day and goes by the date in the file name.
     sensor_log_retention_days: int = Field(default=14, ge=1)
-    # How long a probe whose return channel has delivered before may stay
-    # quiet before it counts as silent and gets a repair job. One value for
-    # every probe: the platform does not know the scanning intervals PRTG
-    # sets for a probe's sensors, which is what a per-probe threshold would
-    # be derived from, so this is the floor such a threshold would have.
+    # How long a probe's return channel may stay quiet before it counts as
+    # silent and gets a repair job. The service on the probe sends a
+    # heartbeat every 5 minutes, so the default is three missed heartbeats:
+    # one late request is no alarm. A value at or below the heartbeat
+    # interval turns every healthy probe silent between two heartbeats.
     probe_channel_silence_minutes: int = Field(default=15, ge=1)
+    # How much the return channel on each probe may hold while the platform
+    # is out of reach, in MB. Set on the probe whenever its channel is
+    # installed or its service refreshed; what is over it is dropped oldest
+    # first and reported as a gap.
+    probe_channel_buffer_mb: int = Field(default=20, ge=1, le=1024)
 
     # --- Development conveniences ------------------------------------------
     # Skips authentication and acts as a built-in administrator. Refused

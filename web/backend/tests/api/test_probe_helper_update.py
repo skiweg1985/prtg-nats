@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
+import pytest
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -324,8 +325,37 @@ async def test_a_probe_that_already_has_a_certificate_keeps_it(
     assert "channel-csr" not in transport.commands()
     assert "jobs.probe.return_channel_present" in [e.code for e in job.events]
     # The new helper brings a new version of the service; the certificate
-    # stays, the service is rewritten and restarted.
+    # stays, the service is rewritten and restarted with current settings.
     assert transport.commands()[3] == "channel-service"
+    refresh = transport.calls[3][1]
+    assert refresh.arguments == ("https://nats.example.test", "20971520")
+
+
+async def test_the_service_refresh_carries_the_interface_port_and_buffer_size(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEB_HTTPS_PORT", "9443")
+    monkeypatch.setattr(settings, "probe_channel_buffer_mb", 5)
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = (
+        PROBE_INFO.replace(
+            "helper_version=1", f"helper_version={RETURN_CHANNEL_HELPER_VERSION}"
+        )
+        + "channel_cert=2027-02-06\n"
+    )
+    transport.responses["helper-update"] = "OK helper-updated version=13 sha256=bb\n"
+
+    job = await _update(client, settings, session_factory, transport)
+
+    assert job.status is JobStatus.SUCCESSFUL, job.error_details
+    refresh = transport.calls[3][1]
+    assert refresh.command.value == "channel-service"
+    assert refresh.arguments == ("https://nats.example.test:9443", "5242880")
 
 
 async def test_a_helper_too_old_for_the_channel_is_noted_not_failed(

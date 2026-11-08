@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.logging import get_logger
@@ -23,6 +25,7 @@ from app.domain.enums import (
     JobStatus,
     ProbeStatus,
 )
+from app.domain.models import ProbeSummary
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import ProbeHelperClient
@@ -181,8 +184,11 @@ class InventorySync:
         await asyncio.gather(*(refresh(name) for name in usernames))
         logger.info("refreshed probe state", extra={"count": len(usernames)})
 
-    async def _start_channel_repairs(self, db, summaries) -> None:  # type: ignore[no-untyped-def]
-        """Queue a repair for every probe whose return channel fell silent.
+    async def _start_channel_repairs(
+        self, db: AsyncSession, summaries: Sequence[ProbeSummary]
+    ) -> None:
+        """Queue a repair for every probe whose return channel fell silent
+        or whose certificate expired.
 
         Not for a probe management cannot reach: the repair goes over that
         access, and the job would only fail. The unreachable alert already
@@ -191,7 +197,8 @@ class InventorySync:
         silent = [
             summary
             for summary in summaries
-            if summary.channel_silent and summary.status is not ProbeStatus.UNREACHABLE
+            if (summary.channel_silent or summary.channel_certificate_expired)
+            and summary.status is not ProbeStatus.UNREACHABLE
         ]
         if not silent:
             return

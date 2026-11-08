@@ -141,6 +141,17 @@ RUN_DIR = "/run"
 # waits on the record: a service that hangs must not hold up the radio.
 RETURN_CHANNEL_SOCKET = "/run/prtg-nats-return-channel.sock"
 RETURN_CHANNEL_TIMEOUT = 2.0
+# Where the prtg-nats helper writes the platform's interface address
+# (WEB_URL). The directory is root's alone; this helper runs as root and
+# puts the full link to a run into its answer, so the sensor script, which
+# does not, never has to read the file.
+RETURN_CHANNEL_CONFIG = "/etc/prtg-nats/return-channel/channel.env"
+RUN_LINK_PATH = "/sensor-logs/%s"
+# Kept short enough that the link always fits into PRTG's message beside
+# the text it explains.
+WEB_URL_PATTERN = re.compile(
+    r"https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?")
+WEB_URL_LENGTH = 255
 # The service refuses a line above 64 KB. The raw output is what gives way
 # to stay below it, never the fields around it, and a single line is cut
 # where it runs on - a hex dump, a scan result.
@@ -1453,6 +1464,23 @@ def send_record(record):
     return isinstance(answer, dict) and answer.get("ok") is True
 
 
+def web_url():
+    """The interface address from channel.env, or None."""
+    try:
+        with open(RETURN_CHANNEL_CONFIG, encoding="utf-8") as stream:
+            for line in stream:
+                key, _, value = line.strip().partition("=")
+                if key == "WEB_URL":
+                    value = value.strip().strip("\"'")
+                    if (len(value) <= WEB_URL_LENGTH
+                            and WEB_URL_PATTERN.fullmatch(value)):
+                        return value
+                    return None
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
 def report_run(job, result, log):
     """Write the run to the sensor log and point the result at the record.
 
@@ -1463,8 +1491,12 @@ def report_run(job, result, log):
     try:
         record = fit_record(redact_record(build_record(job, result, log),
                                           job))
+        result.pop("record_link", None)
         if send_record(record):
             result["record_id"] = record["id"]
+            base = web_url()
+            if base:
+                result["record_link"] = base + RUN_LINK_PATH % record["id"]
     except Exception:
         # Never printed, like every other exception here: it could carry
         # what the record was about to hide.

@@ -1,11 +1,11 @@
 """Channel state, the silence warning and the repair job (issue #176).
 
 What a probe delivers over its return channel is the only sign of life the
-channel gives: the service on the probe posts when a sensor wrote something.
-The platform keeps the last contact, the buffer fill level and the gaps the
-probe reported as observed state (ADR 0002), warns when a probe that has
-delivered before falls silent, and repairs the channel over the management
-access.
+channel gives: the service on the probe posts when a sensor wrote something,
+and an empty batch as a heartbeat every few minutes. The platform keeps the
+last contact, the buffer fill level and the gaps the probe reported as
+observed state (ADR 0002), warns when a probe falls silent, and repairs the
+channel over the management access.
 """
 
 from __future__ import annotations
@@ -28,7 +28,11 @@ from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import CURRENT_HELPER_VERSION, ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
-from app.persistence.models.inventory import Alert, ProbeReturnChannel
+from app.persistence.models.inventory import (
+    Alert,
+    ProbeObservedState,
+    ProbeReturnChannel,
+)
 from app.persistence.models.jobs import Job
 from app.services.events import get_broadcaster
 from app.workers.inventory_sync import InventorySync
@@ -41,8 +45,20 @@ REPAIR = "probe.channel_repair"
 
 
 def probe_info(
-    *, channel_cert: str = "2099-01-31", channel_service: str = "active"
+    *,
+    channel_cert: str = "2099-01-31",
+    channel_service: str = "active",
+    issued_ago: timedelta | None = None,
 ) -> str:
+    # What a helper from version 13 on adds: when the certificate in place
+    # was issued, so a probe that never delivered can fall silent too.
+    issued = (
+        ""
+        if issued_ago is None
+        else "channel_cert_issued="
+        + (datetime.now(UTC) - issued_ago).strftime("%Y-%m-%dT%H:%M:%SZ")
+        + "\n"
+    )
     return (
         "OK probe-info\n"
         "package=2.1.0\n"
@@ -52,6 +68,7 @@ def probe_info(
         "config=/etc/paessler/mpprobe/config.yaml\n"
         f"channel_cert={channel_cert}\n"
         f"channel_service={channel_service}\n"
+        f"{issued}"
     )
 
 
@@ -136,6 +153,15 @@ async def last_contact_ago(
         await db.execute(
             update(ProbeReturnChannel).values(last_contact_at=datetime.now(UTC) - age)
         )
+        await db.commit()
+
+
+async def observed_state_due(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Have the next sync pass ask the probe again rather than wait."""
+    async with session_factory() as db:
+        await db.execute(update(ProbeObservedState).values(refresh_due=True))
         await db.commit()
 
 
@@ -236,15 +262,65 @@ async def test_a_probe_quiet_past_the_threshold_is_silent_and_raises_an_alert(
     assert detail["summary"]["channel_silent"] is True
 
 
-async def test_a_probe_that_never_delivered_is_not_silent(
+async def test_an_empty_batch_is_a_heartbeat(
+    client: AsyncClient, project_dir: Path, as_probe: None
+) -> None:
+    """The service sends one every few minutes with nothing in it, so the
+    last contact moves without any sensor writing to the log."""
+    write_probe_inventory(project_dir, PROBE)
+    response = await client.post(
+        "/probe/v1/records",
+        json={"records": [], "buffer": {"bytes": 0, "limit": 20971520}},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"stored": [], "duplicates": []}
+
+    await sign_in(client)
+    channel = (await probe_detail(client))["return_channel"]
+    assert channel["buffer_bytes"] == 0
+    assert channel["buffer_limit"] == 20971520
+    assert channel["gap_count"] == 0
+    contact = datetime.fromisoformat(channel["last_contact_at"])
+    assert datetime.now(UTC) - contact < timedelta(minutes=1)
+
+
+async def test_a_probe_that_never_delivered_is_silent_once_its_certificate_is_old(
     client: AsyncClient,
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     project_dir: Path,
     transport: ScriptedTransport,
 ) -> None:
-    """A certificate alone says nothing: the probe may have no sensor that
-    writes to the log, and there is no heartbeat to miss."""
+    """With a heartbeat, a certificate and a running service that never
+    produced a single delivery is a channel that does not work."""
+    write_probe_inventory(project_dir, PROBE)
+    sync = build_sync(settings, transport)
+
+    transport.responses["probe-info"] = probe_info(issued_ago=timedelta(minutes=5))
+    await sync.run_once()
+    assert "probe.channel_silent" not in await alert_kinds(session_factory)
+    assert await repair_jobs(session_factory) == []
+
+    transport.responses["probe-info"] = probe_info(issued_ago=timedelta(minutes=16))
+    await observed_state_due(session_factory)
+    await sync.run_once()
+    assert "probe.channel_silent" in await alert_kinds(session_factory)
+    assert [job.trigger for job in await repair_jobs(session_factory)] == ["system"]
+    await sign_in(client)
+    channel = (await probe_detail(client))["return_channel"]
+    assert channel["silent"] is True
+    assert channel["last_contact_at"] is None
+
+
+async def test_a_probe_whose_helper_does_not_say_when_it_was_issued_is_not_silent(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """A helper before version 13 sends no heartbeat either; its probe may
+    simply have no sensor that writes to the log."""
     write_probe_inventory(project_dir, PROBE)
     transport.responses["probe-info"] = probe_info()
     await build_sync(settings, transport).run_once()
@@ -254,8 +330,28 @@ async def test_a_probe_that_never_delivered_is_not_silent(
     await sign_in(client)
     channel = (await probe_detail(client))["return_channel"]
     assert channel["silent"] is False
-    assert channel["last_contact_at"] is None
     assert channel["service"] == "active"
+
+
+async def test_an_expired_certificate_starts_a_repair(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    as_probe: None,
+    transport: ScriptedTransport,
+) -> None:
+    """Not waiting for the silence threshold: a probe that just delivered
+    with a certificate that expires today will not deliver again."""
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = probe_info(channel_cert="2020-01-31")
+    await client.post(
+        "/probe/v1/records",
+        json={"records": [record("11111111-0000-4000-8000-000000000001")]},
+    )
+    await build_sync(settings, transport).run_once()
+
+    assert [job.trigger for job in await repair_jobs(session_factory)] == ["system"]
 
 
 # --- Repair --------------------------------------------------------------------
@@ -321,6 +417,30 @@ async def test_a_silent_probe_is_repaired_and_delivers_again(
     await build_sync(settings, transport).run_once()
     assert "probe.channel_silent" not in await alert_kinds(session_factory)
     assert (await probe_detail(client))["return_channel"]["silent"] is False
+
+
+async def test_a_repair_of_a_probe_that_still_delivers_keeps_its_certificate(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    as_probe: None,
+    transport: ScriptedTransport,
+) -> None:
+    """The service runs and the last heartbeat is recent: nothing points at
+    the certificate, so only the service is refreshed."""
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = probe_info()
+    await client.post("/probe/v1/records", json={"records": []})
+    await sign_in(client)
+
+    job_id = await start_repair(client)
+    await drain(build_runner(settings, transport))
+
+    assert (await finished(session_factory, job_id)).status is JobStatus.SUCCESSFUL
+    commands = transport.commands()
+    assert "channel-service" in commands
+    assert "channel-csr" not in commands
 
 
 async def test_a_stopped_service_is_reinstalled_without_a_new_certificate(

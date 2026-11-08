@@ -202,27 +202,35 @@ answer came over the tunnel and is not stale.
 the platform ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)):
 `last_contact_at`, `buffer_bytes` and `buffer_limit` from the probe's last
 batch, `gap_count` and `last_gap_at` from the gap records it delivered,
-`observed_at`, `certificate_expires` and `service` from its last
-`probe-info`, and `silent`. It is `null` for a probe that has neither
+`observed_at`, `certificate_expires`, `certificate_issued_at` and `service`
+from its last `probe-info`, `certificate_expired`, and `silent`. It is `null` for a probe that has neither
 delivered nor reported a certificate; the delivery fields stay `null` until
 the first batch arrives. The summary carries `channel_silent`.
 
-The channel has no heartbeat - the probe posts when a sensor wrote
-something - so only a probe that has delivered before can fall silent: once
-its last delivery is older than `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES`.
-The inventory sync then raises the alert `probe.channel_silent` and queues a
-repair (`trigger` `system`), at most one per probe every six hours and none
-for a probe management cannot reach.
+Besides what sensors write, the probe sends an empty batch as a heartbeat at
+least every five minutes. A channel falls silent once nothing arrived for
+`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES`, counted from its last delivery
+or, for a probe that never delivered, from `certificate_issued_at`. A probe
+on a helper older than version 13 reports no issue time and sends no
+heartbeat, so it only falls silent after it delivered once. The inventory
+sync then raises the alert `probe.channel_silent` and queues a repair
+(`trigger` `system`); a probe that reports an expired certificate gets one
+without waiting for the silence. At most one automatic repair per probe
+every six hours, and none for a probe management cannot reach.
 
 | | Permission | |
 | --- | --- | --- |
 | `POST /probes/{id}/return-channel/repair` | `probe.update` | repair the return channel → job `probe.channel_repair` |
 
 The repair asks the probe for its channel state first. A missing or expired
-certificate, or a service that runs while the probe stays quiet, gets a new
-certificate through the `install_return_channel` step, which rewrites and
-restarts the service as well; a stopped service with a valid certificate is
-reinstalled through `channel-service`. Audited as `probe.channel_repair`.
+certificate, or a service that runs while no delivery arrived for a
+heartbeat window (six minutes), gets a new certificate through the
+`install_return_channel` step, which rewrites and restarts the service as
+well. A stopped service with a valid certificate, or a probe that still
+delivers, keeps its certificate and has its service rewritten and restarted
+through `channel-service`. Both write the current interface address and
+buffer size into the probe's `channel.env`. Audited as
+`probe.channel_repair`.
 
 The route is recorded for the calls the web platform makes. A call from the
 shell tooling still updates the inventory's cached address when the probe
@@ -795,6 +803,11 @@ The record ID is a UUID set on the probe. Sending a batch again stores nothing
 twice: records already stored come back under `duplicates`, and the probe drops
 both lists from its buffer. A batch holds at most 500 records. A `probe` field
 in a record is ignored - who sent it is what the certificate says.
+
+A batch with no records is the channel's heartbeat: the service sends one
+with its buffer figures at least every five minutes when there is nothing
+else to deliver, and right after it starts. It is answered like any other
+batch, with two empty lists, and moves the probe's last contact.
 
 ```http
 POST /probe/v1/certificate

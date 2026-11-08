@@ -96,15 +96,21 @@ FIELD_SEPARATOR = "\t"
 # its certificate, probe-info reports channel_service and unenroll removes it.
 # The return channel requests move to 12 with it - a certificate without the
 # service that uses it is of no use to anyone.
-CURRENT_HELPER_VERSION = 12
+#
+# Version 13 makes the service send a heartbeat, reports channel_cert_issued
+# in probe-info, and has channel-install and channel-service take the
+# interface address and the buffer size for channel.env. The return channel
+# requests move to 13 with it: a platform that counts silence from the
+# heartbeat must not install a service that never sends one.
+CURRENT_HELPER_VERSION = 13
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
 # told it cannot be put on the overlay when it can.
 OVERLAY_HELPER_VERSION = 9
-# The return channel requests arrived with version 11 and its service with 12,
-# asked for separately for the same reason.
-RETURN_CHANNEL_HELPER_VERSION = 12
+# The return channel requests arrived with version 11, its service with 12
+# and the heartbeat with 13, asked for separately for the same reason.
+RETURN_CHANNEL_HELPER_VERSION = 13
 
 # Where a variant's files land on the probe. The helper builds the same path
 # from its own validated tokens - this side only needs to know it, because the
@@ -192,6 +198,29 @@ class HelperCommand(StrEnum):
     ENDPOINT_INFO = "endpoint-info"
     ENDPOINT_SETUP = "endpoint-setup"
     ENDPOINT_REMOVE = "endpoint-remove"
+
+
+# What the helper writes to channel.env where the platform knows no address
+# for the interface. An empty argument would vanish on the probe: it splits
+# the request on tabs, and runs of them collapse.
+NO_WEB_URL = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelSettings:
+    """What the platform sets in the return channel's channel.env.
+
+    The address to report to, the interface address the wlan-auth helper
+    builds its links to a run from, and the buffer size in bytes.
+    """
+
+    platform_url: str
+    web_url: str | None
+    buffer_bytes: int
+
+    def service_arguments(self) -> tuple[str, str]:
+        """The two arguments channel-install and channel-service share."""
+        return (self.web_url or NO_WEB_URL, str(self.buffer_bytes))
 
 
 @dataclass(frozen=True, slots=True)

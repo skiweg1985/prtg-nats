@@ -874,6 +874,36 @@ def check_wlan_auth_output():
                len(message) <= 2000)
     check_true("and still ends on the link",
                message.endswith("; log /sensor-logs/%s" % run))
+    link = "https://nats.example.test:9443/sensor-logs/%s" % run
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run, "record_link": link,
+    }
+    check("with the platform's address it is a full link",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; log %s" % link)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "auth-failed-eap",
+        "message": "x" * 3000, "timings": {}, "details": {"ssid": "Guest"},
+        "record_id": run, "record_link": link,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("a full link keeps the message within what PRTG shows",
+               len(message) <= 2000)
+    check_true("and is never the part that is cut",
+               message.endswith("; log %s" % link))
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run,
+        "record_link": "https://elsewhere.example.test/sensor-logs/%s"
+                       % "00000000-0000-4000-8000-000000000000",
+    }
+    check("a link to another run falls back to the path",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "log /sensor-logs/%s" % run)
     module.call_helper = lambda job, timeout: {
         "result": "ok", "code": "ok", "message": "OK", "timings": {},
         "details": {"ssid": "Guest"}, "age": 5.0, "record_id": run,
@@ -1305,6 +1335,28 @@ def check_wlan_auth_sensor_log():
               module.job_identity(job)[:12])
         check("the result points the sensor at its record",
               entry["result"].get("record_id"), record.get("id"))
+        check("without an interface address it carries no full link",
+              "record_link" in entry["result"], False)
+
+        # The helper has written the interface address into channel.env,
+        # which only root may read: the daemon builds the link, so the
+        # unprivileged sensor script needs no access to the file.
+        config = os.path.join(lock_directory, "channel.env")
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("PLATFORM_URL=https://nats.example.test:8443\n"
+                         "WEB_URL=https://nats.example.test:9443\n")
+        module.RETURN_CHANNEL_CONFIG = config
+        scheduler.measure(entry)
+        linked = stored()[-1]
+        check("with one the result carries the full link to the run",
+              entry["result"].get("record_link"),
+              "https://nats.example.test:9443/sensor-logs/%s" % linked["id"])
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("WEB_URL=javascript:alert(1)\n")
+        scheduler.measure(entry)
+        check("an address that is no https URL gives no link",
+              "record_link" in entry["result"], False)
+        module.RETURN_CHANNEL_CONFIG = os.path.join(lock_directory, "absent")
         check("the body names network, method and interface",
               (body.get("ssid"), body.get("auth"), body.get("interface")),
               ("Example-Guest", "psk", "wlan0"))
@@ -1347,10 +1399,12 @@ def check_wlan_auth_sensor_log():
             "wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"Example-Guest\" "
             "auth_failures=1 duration=10 reason=WRONG_KEY",
         ], dhcp="", events=["supplicant started"])
+        before = len(stored())
         scheduler.measure(entry)
         record = stored()[-1]
         serialised = json.dumps(record)
-        check("a failed sign-in leaves a record too", len(stored()), 2)
+        check("a failed sign-in leaves a record too", len(stored()),
+              before + 1)
         check("and it is an error", (record["result"], record["code"]),
               ("error", "auth-failed-psk"))
         check("the passphrase is not in it", psk in serialised, False)
@@ -3742,6 +3796,24 @@ def check_return_channel_delivery():
               platform.stored, identities)
         check("an empty buffer sends nothing",
               module.deliver_once(buffer, platform.post), False)
+        sent = len(platform.requests)
+        check("unless a heartbeat is due",
+              module.deliver_once(buffer, platform.post, heartbeat=True), True)
+        check("which is one empty batch with the buffer's fill level",
+              (len(platform.requests) - sent, platform.requests[-1][1]),
+              (1, {"records": [], "buffer": buffer.stats()}))
+        check("a heartbeat is due before the first delivery",
+              module.heartbeat_due(None, 10.0, 300), True)
+        check("not within the interval after a delivery",
+              module.heartbeat_due(100.0, 399.0, 300), False)
+        check("and again once the interval has passed",
+              module.heartbeat_due(100.0, 400.0, 300), True)
+        check("the interval comes from channel.env",
+              module.heartbeat_interval({"HEARTBEAT_SECONDS": "120"}), 120)
+        check("and defaults to five minutes",
+              module.heartbeat_interval({}), 300)
+        check("a broken value falls back to the default",
+              module.heartbeat_interval({"HEARTBEAT_SECONDS": "often"}), 300)
 
         reopened = module.Buffer(path, limit=module.MINIMUM_LIMIT)
         check("and stays empty after a restart", reopened.pending(), False)

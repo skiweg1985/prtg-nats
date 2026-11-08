@@ -73,7 +73,12 @@ def format_time(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _parse_time(value: object) -> datetime | None:
+def parse_time(value: object) -> datetime | None:
+    """An ISO 8601 time as an aware datetime, UTC if it named no zone.
+
+    None for anything else, so a stored line with a broken time is skipped
+    rather than failing the whole read.
+    """
     if not isinstance(value, str):
         return None
     try:
@@ -123,7 +128,7 @@ class SensorLogStore:
             pending: dict[Path, list[dict[str, Any]]] = {}
             for raw in records:
                 entry = {**raw, "probe": probe}
-                when = _parse_time(entry.get("time"))
+                when = parse_time(entry.get("time"))
                 sensor = entry.get("sensor")
                 if when is None or not isinstance(sensor, str):
                     raise ValueError("record without a time or a sensor")
@@ -159,7 +164,7 @@ class SensorLogStore:
         matches: list[tuple[datetime, dict[str, Any]]] = []
         for path in self._day_files(filters):
             for entry in self._read_file(path):
-                when = _parse_time(entry.get("time"))
+                when = parse_time(entry.get("time"))
                 if when is None or not filters.since <= when <= filters.until:
                     continue
                 if filters.result and entry.get("result") != filters.result:

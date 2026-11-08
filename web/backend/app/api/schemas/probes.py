@@ -146,6 +146,8 @@ class ReturnChannelOut(ApiModel):
     last_gap_at: datetime | None = None
     observed_at: datetime | None = None
     certificate_expires: str | None = None
+    certificate_issued_at: datetime | None = None
+    certificate_expired: bool = False
     service: str | None = None
     silent: bool = False
 

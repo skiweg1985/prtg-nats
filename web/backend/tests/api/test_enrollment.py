@@ -1283,7 +1283,13 @@ async def test_enrolment_leaves_a_client_certificate_naming_the_probe(
     )
     lifetime = certificate.not_valid_after_utc - certificate.not_valid_before_utc
     assert lifetime == timedelta(days=90)
-    assert install.arguments == ("https://nats.example.test:8443",)
+    # Where to report to, the interface address the wlan-auth helper builds
+    # links to a run from, and the buffer size (20 MB by default).
+    assert install.arguments == (
+        "https://nats.example.test:8443",
+        "https://nats.example.test",
+        "20971520",
+    )
 
     # Strict RFC 5280 path validation against the copy in web-certs/ the
     # proxy trusts - which is not the NATS CA.

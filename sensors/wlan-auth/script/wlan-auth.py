@@ -318,24 +318,34 @@ def lookup_value(condition) -> int:
 # PRTG keeps a sensor message up to this length.
 MESSAGE_LIMIT = 2000
 
-# Where the platform shows one run of the sensor log. The probe does not know
-# the platform's address - the return channel talks to a port of its own - so
-# the message carries the path, and the operator puts it after the address
-# they open the platform with.
+# Where the platform shows one run of the sensor log. The privileged helper
+# answers with the full link when the platform told the probe its interface
+# address; without one the message carries the path, and the operator puts
+# it after the address they open the platform with.
 RUN_PATH = "/sensor-logs/%s"
 RECORD_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
                        r"[0-9a-f]{12}")
+RUN_LINK = re.compile(r"https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])"
+                      r"(:[0-9]{1,5})?/sensor-logs/(?P<id>%s)"
+                      % RECORD_ID.pattern)
+RUN_LINK_LENGTH = 320
 
 
-def with_run_link(message: str, record_id: Any) -> str:
+def with_run_link(message: str, record_id: Any, record_link: Any = None) -> str:
     """The message, cut to PRTG's limit, ending on the run in the log.
 
     The link goes last and is never the part that is cut: on a failed run
-    it is the way to the raw supplicant and DHCP output.
+    it is the way to the raw supplicant and DHCP output. A full link is
+    used only when it points at this very run.
     """
     if not isinstance(record_id, str) or not RECORD_ID.fullmatch(record_id):
         return message[:MESSAGE_LIMIT]
-    link = "; log " + RUN_PATH % record_id
+    target = RUN_PATH % record_id
+    if isinstance(record_link, str) and len(record_link) <= RUN_LINK_LENGTH:
+        matched = RUN_LINK.fullmatch(record_link)
+        if matched and matched.group("id") == record_id:
+            target = record_link
+    link = "; log " + target
     return message[:MESSAGE_LIMIT - len(link)] + link
 
 
@@ -410,7 +420,7 @@ def work(args: dict[str, Any]):
         fail(with_run_link(
             "Test could not run (%s): %s"
             % (answer.get("code", "unknown"), answer.get("message", "")),
-            answer.get("record_id")))
+            answer.get("record_id"), answer.get("record_link")))
 
     outcome = answer.get("result")
     timings = answer.get("timings") or {}
@@ -566,7 +576,8 @@ def work(args: dict[str, Any]):
     # says nothing about a run.
     failed = outcome == "failed" and not stale
     message = with_run_link(message,
-                            answer.get("record_id") if failed else None)
+                            answer.get("record_id") if failed else None,
+                            answer.get("record_link"))
 
     # A failed sign-in remains a valid measurement: the sensor keeps
     # delivering values and the "Auth Result" channel carries the alarm.

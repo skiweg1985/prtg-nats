@@ -21,6 +21,7 @@ from app.infrastructure.probe_helper import (
 )
 from app.infrastructure.probe_helper.protocol import (
     RETURN_CHANNEL_HELPER_VERSION,
+    ChannelSettings,
     normalise_optional,
 )
 from app.infrastructure.runtime_files import RuntimeFileStore
@@ -54,6 +55,30 @@ class ChannelContext(Protocol):
     ) -> None: ...
 
 
+def channel_settings(context: ChannelContext, username: str) -> ChannelSettings:
+    """What the probe's channel.env should say, from the settings as they are.
+
+    Built for every install and every service refresh, so a changed buffer
+    size or interface address reaches a probe with its next one.
+    """
+    inventory = context.runtime.read_probe(username)
+    site = context.runtime.site_settings()
+    return ChannelSettings(
+        platform_url=site.probe_channel_url(inventory.nats_host_override),
+        web_url=site.web_url,
+        buffer_bytes=context.settings.probe_channel_buffer_mb * 1024 * 1024,
+    )
+
+
+async def refresh_service(
+    context: ChannelContext, username: str, connection: ProbeConnection
+) -> HelperResponse:
+    """Rewrite and restart the probe's service, its certificate untouched."""
+    return await context.helper.channel_service(
+        connection, channel_settings(context, username)
+    )
+
+
 async def install_return_channel(
     context: ChannelContext, username: str, connection: ProbeConnection
 ) -> str:
@@ -67,15 +92,13 @@ async def install_return_channel(
     csr_pem = await context.helper.channel_csr(connection)
     certificate_pem = pki.sign_probe_csr(csr_pem, username)
 
-    inventory = context.runtime.read_probe(username)
-    url = context.runtime.site_settings().probe_channel_url(
-        inventory.nats_host_override
-    )
+    settings = channel_settings(context, username)
+    url = settings.platform_url
     await context.helper.channel_install(
         connection,
         certificate_pem=certificate_pem,
         client_ca_pem=pki.probe_ca_pem(),
-        platform_url=url,
+        settings=settings,
     )
     expires = (
         x509.load_pem_x509_certificate(certificate_pem.encode("ascii"))
@@ -129,7 +152,7 @@ async def install_if_missing(
         # The service is written by the helper, so the helper that was just
         # installed brings its own version of it. Rewritten and restarted
         # here; the certificate stays as it is.
-        await context.helper.channel_service(connection)
+        await refresh_service(context, username, connection)
         return present
 
     return await install_return_channel(context, username, connection)

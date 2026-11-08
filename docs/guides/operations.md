@@ -142,6 +142,14 @@ Probes enrolled before the return channel existed have no client certificate
 yet. They get one with their next helper update - in the interface, or for
 the whole fleet with `sudo ./prtg-nats probe helper-update --all`.
 
+From helper version 13 on, each probe sends a heartbeat over the channel at
+least every five minutes, and the platform marks a probe silent after 15
+minutes without one (`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES`). Until
+the port is open, every such probe raises the warning and gets a repair job
+every six hours, so open the port before rolling out the helper update. A
+changed buffer size (`PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB`) or interface
+address reaches a probe with its next helper update or repair.
+
 ## Monitoring the stack
 
 Container health checks, the PRTG sensors that watch NATS and JetStream, the

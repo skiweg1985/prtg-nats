@@ -238,6 +238,9 @@ class SiteSettings:
     # Where probes report back (ADR 0013): its own port on the proxy, because
     # that site demands a client certificate and the interface must not.
     probe_channel_port: int = 8443
+    # Where the interface answers. Only used to build addresses that point
+    # into it, such as the link to a run a sensor puts in its PRTG message.
+    web_https_port: int = 443
 
     # The overlay is deliberately not here. It is configured through the
     # interface, so its settings live in the runtime where the API can write
@@ -250,6 +253,22 @@ class SiteSettings:
     @property
     def web_fqdn(self) -> str:
         return self.web_fqdn_override or self.nats_fqdn or ""
+
+    @property
+    def web_url(self) -> str | None:
+        """The address the interface is opened under, or None if unknown.
+
+        Without the port where it is the HTTPS default, so a link reads the
+        way an operator types the address.
+        """
+        host = self.web_fqdn
+        if not host:
+            return None
+        if ":" in host:
+            host = f"[{host}]"
+        if self.web_https_port == 443:
+            return f"https://{host}"
+        return f"https://{host}:{self.web_https_port}"
 
     def probe_channel_url(self, host_override: str | None = None) -> str:
         """The address a probe reports back to.
@@ -299,6 +318,7 @@ class RuntimeFileStore:
             "MPP_SSH_SOURCE_CIDR",
             "IPERF_SSH_SOURCE_CIDR",
             "WEB_FQDN",
+            "WEB_HTTPS_PORT",
             "PROBE_CHANNEL_PORT",
         ):
             from_environment = os.environ.get(key)
@@ -320,6 +340,7 @@ class RuntimeFileStore:
             iperf_ssh_source_cidr=values.get("IPERF_SSH_SOURCE_CIDR") or None,
             web_fqdn_override=values.get("WEB_FQDN") or None,
             probe_channel_port=_as_int(values.get("PROBE_CHANNEL_PORT"), 8443),
+            web_https_port=_as_int(values.get("WEB_HTTPS_PORT"), 443),
         )
 
     # --- Runtime completeness ----------------------------------------------
