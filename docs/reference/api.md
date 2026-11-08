@@ -1,12 +1,13 @@
 ---
 title: REST API
 role: developer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # REST API
 
-Everything lives under `/api/v1`. The OpenAPI schema is served at
+Everything lives under `/api/v1`, apart from the routes a probe calls (see
+[Return channel](#return-channel)). The OpenAPI schema is served at
 `/api/openapi.json`, and outside production there is a browsable version at
 `/api/docs`.
 
@@ -592,6 +593,59 @@ finished half of the history while its link kept pointing at the first job.
 A cancelled rollout marks the probes it never reached as `cancelled` instead
 of leaving them queued forever.
 
+### Sensor logs
+
+What probes report over their return channel, one record per finished sensor
+run ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+Every route needs `sensor_log.read`, which every role holds.
+
+| | |
+| --- | --- |
+| `GET /sensor-logs` | records, newest first, without their body |
+| `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
+| `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
+
+`GET /sensor-logs` takes these filters, all optional and combined with AND:
+
+| Parameter | Matches |
+| --- | --- |
+| `probe` | the probe's NATS account |
+| `sensor` | the sensor name, e.g. `wlan-auth` |
+| `ssid` | the network the run was about, from the body |
+| `result` | `ok`, `error` or `gap` |
+| `since`, `until` | ISO 8601 times; without `since` the last 24 hours |
+| `q` | case-insensitive text in the summary, the error code and the body |
+| `limit`, `offset` | paging, `limit` up to 500, default 100 |
+
+The answer is `{"items": [...], "total": n, "limit": n, "offset": n}`.
+`total` counts every match, not only the page. An item carries the envelope
+of the record and the `ssid` from its body:
+
+```json
+{
+  "id": "0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10",
+  "probe": "mpp-probe-01",
+  "sensor": "wlan-auth",
+  "job": "a1b2c3d4e5f6",
+  "time": "2026-11-08T09:15:00Z",
+  "result": "error",
+  "code": "eap_failure",
+  "summary": "EAP authentication failed",
+  "ssid": "Example-Corp"
+}
+```
+
+`result` is `gap` for a record the probe wrote when its buffer was full and it
+had to drop older records; its body names the time range and how many were
+lost. The detail adds `body`, whose content depends on the sensor.
+
+The event stream sends only what arrives while it is open - a page loads the
+list first and adds what the stream announces. `?probe=` and `?sensor=` narrow
+it. Each event's data has the same shape as a list item.
+
+Records are kept as JSON Lines in the runtime, see
+[the configuration reference](configuration.md#sensor-logs).
+
 ### NATS accounts
 
 | | |
@@ -662,6 +716,49 @@ declaration, so a sensor calling it `--variant` is quoted with `--variant`.
 `GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`. The first administrator is
 created through `POST /auth/setup` instead, which is refused once one exists.
 Which role may call what is in [Roles and permissions](../web/roles.md).
+
+### Return channel
+
+The routes a probe calls, under `/probe/v1` instead of `/api/v1`. They answer
+only on the probe channel port, where the proxy requires a client certificate
+issued to the probe and passes its identity on as `X-Probe-Identity`. The web
+port never forwards `/probe/v1`. No session and no permission apply: the
+identity is checked against the probe inventory on every request, and one the
+inventory does not hold is refused with `403` and `auth.probe_not_enrolled`.
+
+| | |
+| --- | --- |
+| `POST /probe/v1/records` | hand over a batch of sensor log records |
+
+```http
+POST /probe/v1/records
+Content-Type: application/json
+
+{
+  "records": [
+    {
+      "id": "0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10",
+      "sensor": "wlan-auth",
+      "job": "a1b2c3d4e5f6",
+      "time": "2026-11-08T09:15:00Z",
+      "result": "error",
+      "code": "eap_failure",
+      "summary": "EAP authentication failed",
+      "body": {"ssid": "Example-Corp", "supplicant_lines": ["…"]}
+    }
+  ],
+  "buffer": {"bytes": 18432, "limit": 20971520}
+}
+```
+
+```json
+{"stored": ["0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10"], "duplicates": []}
+```
+
+The record ID is a UUID set on the probe. Sending a batch again stores nothing
+twice: records already stored come back under `duplicates`, and the probe drops
+both lists from its buffer. A batch holds at most 500 records. A `probe` field
+in a record is ignored - who sent it is what the certificate says.
 
 ### Removed endpoints
 

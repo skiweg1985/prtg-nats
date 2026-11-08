@@ -1245,7 +1245,8 @@
       "invalid_credentials": "Benutzername oder Passwort ist falsch.",
       "account_locked": "Zu viele Fehlversuche. In {{retry_after_seconds}} Sekunden erneut versuchen.",
       "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
-      "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen."
+      "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen.",
+      "probe_not_enrolled": "Diese Probe ist auf dieser Plattform nicht eingebunden."
     },
     "probe": {
       "unreachable": "Die Probe „{{probe}}“ hat über den Management-Kanal nicht geantwortet.",

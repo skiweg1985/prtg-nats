@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Configuration reference
@@ -331,6 +331,7 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS` | How often `runtime/` is re-read | int | `60` | no |
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
+| `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` | How many days of [sensor logs](#sensor-logs) are kept. At least `1` | int | `14` | no |
 | `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Empty means the one the checkout is on, which is what an operator who ran `git checkout dev` expects; set it to pin an installation to a branch on purpose | string | – | no |
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
@@ -346,6 +347,26 @@ key at all, a public repository over HTTPS is unaffected and a private one
 reports itself unreachable rather than silently up to date. See
 [the API reference](api.md#system) and
 [ADR 0007](../architecture/decisions/0007-update-the-stack-from-the-interface.md).
+
+### Sensor logs
+
+What probes report over their return channel is stored in
+`runtime/sensor-logs/`, one JSON Lines file per probe, sensor and day:
+
+```text
+runtime/sensor-logs/PROBE/SENSOR/YYYY-MM-DD.jsonl
+```
+
+The day is the UTC day of the record's time. Each line is one record with the
+envelope `id`, `probe`, `sensor`, `job`, `time`, `result`, `code`, `summary`
+and the sensor-specific `body`. The files are output, not state: nothing else
+refers to them, and deleting one loses only what it holds.
+
+Once a day, and once at startup, the API deletes the day files older than
+`PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS`, judged by the date in the file
+name. The shell tooling knows the directory as `SENSOR_LOG_DIR`. See
+[the API reference](api.md#sensor-logs) and
+[ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
 
 ### Development only
 

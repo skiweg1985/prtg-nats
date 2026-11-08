@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     update_check_interval_seconds: int = 3600
     observed_state_stale_after_seconds: int = 300
     certificate_expiry_warning_days: int = 30
+    # How long sensor logs stay in the runtime volume, in days. The cleanup
+    # runs once a day and goes by the date in the file name.
+    sensor_log_retention_days: int = Field(default=14, ge=1)
 
     # --- Development conveniences ------------------------------------------
     # Skips authentication and acts as a built-in administrator. Refused
@@ -178,6 +181,14 @@ class Settings(BaseSettings):
     @property
     def sensor_profile_dir(self) -> Path:
         return self.runtime_dir / "sensor-profiles"
+
+    @property
+    def sensor_log_dir(self) -> Path:
+        """What probes report over the return channel, one file per day.
+
+        Output, not state: kept for sensor_log_retention_days and then gone.
+        """
+        return self.runtime_dir / "sensor-logs"
 
     @property
     def web_cert_dir(self) -> Path:

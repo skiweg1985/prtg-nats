@@ -164,6 +164,7 @@ def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -
     from fastapi import FastAPI
     from fastapi.exceptions import RequestValidationError
 
+    from app.api.probe.router import probe_router
     from app.api.v1.router import api_router
     from app.core.errors import (
         AppError,
@@ -174,6 +175,7 @@ def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -
 
     application = FastAPI()
     application.include_router(api_router)
+    application.include_router(probe_router)
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_exception_handler(Exception, unhandled_error_handler)
