@@ -52,7 +52,8 @@
     "stale": "Cached, last checked {{time}}",
     "unknown": "Unknown",
     "updated": "Updated",
-    "apply": "Apply"
+    "apply": "Apply",
+    "moreActions": "More actions"
   },
   "auth": {
     "signIn": "Sign in",
@@ -341,7 +342,7 @@
       "sensorsValue_other": "{{count}} deployed",
       "endpoints": "iperf endpoints",
       "none": "none",
-      "manage": "Manage →"
+      "manage": "Manage"
     },
     "account": {
       "showPassword": "Show password"
@@ -377,8 +378,10 @@
         "rejected": "PRTG refused the API token.",
         "not_found": "PRTG no longer has a probe with object id {{id}}.",
         "ok": "—"
-      }
-    }
+      },
+      "unlinkConfirm": "The link to PRTG object {{id}} is removed. The probe is then shown under its enrollment name again; nothing changes in PRTG."
+    },
+    "removeSensorConfirm": "{{sensor}} is removed from this probe. The sensor in PRTG reports an error until it is deleted or rolled out again."
   },
   "sensors": {
     "title": "Sensors",

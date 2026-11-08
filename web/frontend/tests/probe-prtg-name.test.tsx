@@ -274,6 +274,31 @@ describe('linking a probe to its object in PRTG', () => {
   })
 })
 
+describe('unlinking a probe from PRTG', () => {
+  it('asks before it drops the link', async () => {
+    await changeLanguage('en')
+    let unlinked = 0
+    server.use(
+      http.delete('/api/v1/probes/P1/prtg-link', () => {
+        unlinked += 1
+        return HttpResponse.json(nameAnswer({ state: 'not_linked', object_id: null }))
+      }),
+    )
+    const user = userEvent.setup()
+    wrap('/probes/P1')
+
+    const row = await prtgRow()
+    await user.click(await within(row).findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Remove link' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/object 2041/)).toBeInTheDocument()
+    expect(unlinked).toBe(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Remove link' }))
+    await waitFor(() => expect(unlinked).toBe(1))
+  })
+})
+
 describe('the name in PRTG in the probe list', () => {
   it('is the name the list shows, with nothing beside it', async () => {
     server.use(
