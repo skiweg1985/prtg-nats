@@ -53,6 +53,7 @@ import {
   KeyRound,
   Lock,
   LockOpen,
+  PackageCheck,
   Plus,
   RefreshCw,
   Settings2,
@@ -64,6 +65,7 @@ import {
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { PrtgNameRow } from '@/features/probes/PrtgName'
+import { PackageUpdateBadge } from '@/features/probes/PackageUpdateBadge'
 import { probeName } from '@/features/probes/probeName'
 import { ReturnChannelRow } from '@/features/probes/ReturnChannelRow'
 import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
@@ -127,6 +129,7 @@ export function ProbeDetailPage() {
   const installCa = useProbeAction('install-ca')
   const validate = useProbeAction('validate')
   const updateHelper = useProbeAction('helper-update')
+  const upgradeMpp = useProbeAction('mpp-upgrade')
   const configure = useConfigureProbe()
   const unenroll = useUnenrollProbe()
   const updateProbe = useUpdateProbe()
@@ -151,6 +154,7 @@ export function ProbeDetailPage() {
   const listSearch = listParams.toString()
   const backToList = `/probes${listSearch ? `?${listSearch}` : ''}`
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
+  const [confirmUpgrade, setConfirmUpgrade] = useState(false)
   // Every option starts off. Retiring a probe is destructive enough on its
   // own; what else goes has to be chosen, not merely left checked.
   const [cleanup, setCleanup] = useState<Required<UnenrollOptions>>({
@@ -166,7 +170,7 @@ export function ProbeDetailPage() {
   // Every button in the header reports its failure, and the most recent one is
   // the one on screen: a refresh that failed an hour ago must not stand in
   // front of the CA install that failed a second ago.
-  const lastFailure = [refresh, validate, installCa, updateHelper, configure]
+  const lastFailure = [refresh, validate, installCa, updateHelper, upgradeMpp, configure]
     .map((mutation) => ({ error: mutation.error, at: mutation.submittedAt }))
     .filter((entry) => entry.error !== null)
     .sort((left, right) => right.at - left.at)
@@ -276,6 +280,20 @@ export function ProbeDetailPage() {
                       disabled: updateHelper.isPending || !helperUpdatable,
                       onSelect: () => updateHelper.mutate(probeId, toJob),
                     },
+                    // Offered without a known newer version too: the fleet
+                    // only knows what its probes' caches have seen, and the
+                    // upgrade asks the repository itself.
+                    ...(summary.package_version
+                      ? [
+                          {
+                            key: 'mpp-upgrade',
+                            label: t('probes.mppUpgrade.action'),
+                            icon: PackageCheck,
+                            disabled: upgradeMpp.isPending || !helperUpdatable,
+                            onSelect: () => setConfirmUpgrade(true),
+                          },
+                        ]
+                      : []),
                   ]
                 : []),
               ...(can('probe.delete')
@@ -359,6 +377,42 @@ export function ProbeDetailPage() {
               disabled={unenroll.isPending}
             >
               {t('probes.unenroll')}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+
+      {confirmUpgrade && (
+        <Dialog
+          title={t('probes.mppUpgrade.confirmTitle', { probe: name })}
+          onClose={() => setConfirmUpgrade(false)}
+        >
+          <p className="text-ink-2 text-sm">
+            {summary.package_update
+              ? t('probes.mppUpgrade.confirmBody', {
+                  current: summary.package_version,
+                  target: summary.package_update,
+                })
+              : t('probes.mppUpgrade.confirmBodyLatest', {
+                  current: summary.package_version,
+                })}
+          </p>
+          <p className="text-ink-2 mt-3 text-sm">{t('probes.mppUpgrade.restartNote')}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmUpgrade(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() =>
+                upgradeMpp.mutate(probeId, {
+                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                  onSettled: () => setConfirmUpgrade(false),
+                })
+              }
+              disabled={upgradeMpp.isPending}
+            >
+              {t('probes.mppUpgrade.action')}
             </Button>
           </div>
         </Dialog>
@@ -600,9 +654,12 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
               <ObservedStateCell kind="service" value={summary.service} dated={dated} />
             </DetailRow>
             <DetailRow label={t('probes.columns.version')}>
-              <Mono className={dated ? 'text-ink-3' : undefined}>
-                {summary.package_version ?? '—'}
-              </Mono>
+              <span className="flex flex-wrap items-center gap-2">
+                <Mono className={dated ? 'text-ink-3' : undefined}>
+                  {summary.package_version ?? '—'}
+                </Mono>
+                <PackageUpdateBadge version={summary.package_update} />
+              </span>
             </DetailRow>
             {/* Asked of the NATS server on every load, not of the probe, so
                 it stays current - and green beside an unreachable management

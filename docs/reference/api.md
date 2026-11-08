@@ -173,6 +173,7 @@ shapes:
 | `POST /probes/actions/validate` | → job |
 | `POST /probes/actions/install-ca` | → job |
 | `POST /probes/actions/helper-update` | renew the helper on a selection → job |
+| `POST /probes/actions/mpp-upgrade` | upgrade the probe package on a selection → job |
 | `POST /probes/actions/configure` | roll the configuration out → job |
 | `POST /probes/actions/reconcile` | execute the plan, never a preview → job |
 
@@ -259,6 +260,16 @@ carries no key to verify against and answers this endpoint with
 `probe.helper_outdated` - it has to be enrolled once more over the bootstrap
 path. See
 [ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
+
+The summary also carries `package_update`: the newest `prtgmpprobe` version
+any enrolled probe of the same platform reports, installed or offered by its
+package cache, when it is newer than the one this probe has - `null`
+otherwise. Versions are ordered the way dpkg orders them, epoch and `~`
+included; Debian and RPM versions are never compared with each other. `POST /probes/actions/mpp-upgrade` acts on it:
+the job renews an older helper, upgrades the package from the Paessler
+repository, restarts the probe service and fails when the service does not
+come back. A probe already on the newest version is logged as current, not as
+a failure.
 
 `DELETE /probes/{id}` removes the management access and the inventory; the
 probe keeps running and stays connected - but its NATS account always goes:

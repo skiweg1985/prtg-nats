@@ -376,6 +376,33 @@ async def update_helper_on_selected_probes(
 
 
 @router.post(
+    "/actions/mpp-upgrade",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def upgrade_mpp_on_selected_probes(
+    payload: ProbeActionIn,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    """Upgrade the probe package on a selection, one probe after another."""
+    records = await _selected_records(probes, payload)
+    return await _fleet_job(
+        records,
+        jobs,
+        audit,
+        principal,
+        job_type=probe_actions.MPP_UPGRADE_JOB_TYPE,
+        steps=probe_actions.MPP_UPGRADE_STEPS,
+        action="probe.mpp_upgrade",
+    )
+
+
+@router.post(
     "/actions/configure",
     response_model=JobAccepted,
     status_code=status.HTTP_202_ACCEPTED,

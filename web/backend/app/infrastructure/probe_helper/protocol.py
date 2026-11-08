@@ -102,7 +102,9 @@ FIELD_SEPARATOR = "\t"
 # interface address and the buffer size for channel.env. The return channel
 # requests move to 13 with it: a platform that counts silence from the
 # heartbeat must not install a service that never sends one.
-CURRENT_HELPER_VERSION = 13
+#
+# Version 14 adds mpp-upgrade and reports package_available in probe-info.
+CURRENT_HELPER_VERSION = 14
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
@@ -189,6 +191,7 @@ class HelperCommand(StrEnum):
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"
+    MPP_UPGRADE = "mpp-upgrade"
     # Spoken by both helpers, and meaning the same thing on both: remove the
     # management access from the host side. It is always the last request a
     # channel carries.

@@ -449,6 +449,14 @@
       "gaps_other": "{{count}} gaps, the last {{time}}",
       "certificateExpired": "Certificate expired",
       "noGaps": "No gaps"
+    },
+    "mppUpgrade": {
+      "action": "Upgrade probe software",
+      "badge": "{{version}} available",
+      "confirmTitle": "Upgrade the probe software on {{probe}}",
+      "confirmBody": "The probe moves from {{current}} to {{target}}.",
+      "confirmBodyLatest": "The probe has {{current}}. It installs the newest version the Paessler repository offers, if there is a newer one.",
+      "restartNote": "The probe service restarts, and measuring pauses for about a minute. Check beforehand that the new version fits your PRTG core."
     }
   },
   "sensors": {
@@ -651,7 +659,9 @@
       "remove_endpoint": "Remove the endpoint",
       "reserve": "Reserve the interface",
       "setup_endpoint": "Set up the endpoint",
-      "write_record": "Write the record"
+      "write_record": "Write the record",
+      "ensure_helper": "Check the helper",
+      "upgrade": "Upgrade the probe software"
     },
     "events": {
       "started": "Job started: {{type}}",
@@ -702,7 +712,10 @@
         "channel_found": "{{probe}}: return channel certificate {{certificate}}, service {{service}}",
         "channel_service_reinstalled": "{{probe}}: return channel service reinstalled and restarted",
         "channel_repaired": "{{probe}}: the return channel service is running again",
-        "channel_service_not_running": "{{probe}}: the return channel service is still not running ({{service}})"
+        "channel_service_not_running": "{{probe}}: the return channel service is still not running ({{service}})",
+        "mpp_upgraded": "{{probe}}: probe software upgraded from {{from}} to {{to}}",
+        "mpp_current": "{{probe}}: probe software {{version}} is already the newest",
+        "mpp_service_down": "{{probe}}: probe software {{version}} is installed, but its service is not running"
       },
       "sensor": {
         "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
@@ -849,7 +862,8 @@
         "refresh": "Check the state",
         "unenroll": "Unenroll a probe",
         "validate": "Create a check report",
-        "channel_repair": "Set up the return channel again"
+        "channel_repair": "Set up the return channel again",
+        "mpp_upgrade": "Upgrade the probe software"
       },
       "sensor": {
         "deploy": "Deploy a sensor",
@@ -935,7 +949,8 @@
         "set_desired_state": "Desired state changed",
         "update": "Probe updated",
         "validate": "Check report created",
-        "channel_repair": "Return channel set up again"
+        "channel_repair": "Return channel set up again",
+        "mpp_upgrade": "Probe software upgraded"
       },
       "sensor": {
         "deploy": "Sensor deployed",

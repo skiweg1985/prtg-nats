@@ -41,6 +41,7 @@ class ProbeSummaryOut(ApiModel):
     error_code: str | None = None
     helper_version: int | None = None
     helper_outdated: bool = False
+    package_update: str | None = None
     prtg_registered: bool = False
     managed_over_tunnel: bool = False
     channel_silent: bool = False

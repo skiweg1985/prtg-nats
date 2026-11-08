@@ -169,9 +169,7 @@ async def deploy_one(
             target=username,
         )
         if not dry_run:
-            info = await _ensure_sensor_deployment_helper(
-                context, connection, username, info
-            )
+            info = await ensure_current_helper(context, connection, username, info)
 
         artifact: ToolArtifact | None = None
         tool_source: str | None = None
@@ -382,7 +380,7 @@ def _reported_active_transaction(error: AppError) -> str | None:
     return active_transaction
 
 
-async def _ensure_sensor_deployment_helper(
+async def ensure_current_helper(
     context: JobContext,
     connection: ProbeConnection,
     username: str,

@@ -10,13 +10,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.errors import AppError, ProbeUnreachableError, RuntimeStateError
-from app.domain.enums import LogLevel
+from app.core.errors import (
+    AppError,
+    ProbePackageMissingError,
+    ProbeRejectedError,
+    ProbeUnreachableError,
+    RuntimeStateError,
+)
+from app.domain.enums import LogLevel, ServiceState
 from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.probe_helper import ProbeConnection
 from app.services.probes import ProbeService
 from app.workers.context import JobContext
 from app.workers.handlers import return_channel
+from app.workers.handlers.deploy_sensor import ensure_current_helper
 from app.workers.handlers.fanout import over_targets
 
 INSTALL_CA_STEPS: tuple[str, ...] = ("check_reachable", "install_ca", "verify")
@@ -32,6 +39,14 @@ HELPER_UPDATE_STEPS: tuple[str, ...] = (
     return_channel.STEP,
 )
 HELPER_UPDATE_JOB_TYPE = "probe.helper_update"
+
+MPP_UPGRADE_STEPS: tuple[str, ...] = (
+    "check_reachable",
+    "ensure_helper",
+    "upgrade",
+    "verify",
+)
+MPP_UPGRADE_JOB_TYPE = "probe.mpp_upgrade"
 
 # Refreshing one probe stays a synchronous request - it is one round trip while
 # the operator watches. A selection of them is a dozen, so it becomes a job for
@@ -136,6 +151,83 @@ async def helper_update_on(context: JobContext, username: str) -> dict[str, Any]
         "helper_version": version,
         "helper_sha256": after.value("helper_sha256"),
         "channel_cert": channel_cert,
+    }
+
+
+async def mpp_upgrade(context: JobContext) -> dict[str, Any]:
+    return await over_targets(context, mpp_upgrade_on)
+
+
+async def mpp_upgrade_on(context: JobContext, username: str) -> dict[str, Any]:
+    """Upgrade the probe package to what its repository offers.
+
+    Started by an operator on purpose rather than left to unattended upgrades:
+    the probe version has to fit the PRTG core, so someone decides when a
+    probe moves.
+    """
+    connection = _connection(context, username)
+
+    await context.step("check_reachable")
+    info = await context.helper.probe_info(connection)
+    before = info.value("package") or "none"
+    if before == "none":
+        raise ProbePackageMissingError(
+            params={"probe": username},
+            details="no prtgmpprobe package on the probe, so there is none to upgrade",
+        )
+    await context.log(
+        "jobs.probe.reachable", params={"probe": username, "package": before}
+    )
+
+    await context.step("ensure_helper")
+    info = await ensure_current_helper(context, connection, username, info)
+
+    await context.step("upgrade")
+    response = await context.helper.mpp_upgrade(connection)
+    fields = response.header_fields
+    after = fields.get("to", "unknown")
+    if fields.get("state") == "current":
+        await context.log(
+            "jobs.probe.mpp_current",
+            params={"probe": username, "version": after},
+            raw=response.raw,
+        )
+    else:
+        await context.log(
+            "jobs.probe.mpp_upgraded",
+            params={"probe": username, "from": fields.get("from", before), "to": after},
+            raw=response.raw,
+        )
+
+    await context.step("verify")
+    # Asked again rather than believed, and stored, so the list stops offering
+    # the update the moment it is done.
+    probes = ProbeService(
+        context.db,
+        context.settings,
+        context.runtime,
+        context.helper,
+        context.catalog,
+    )
+    observed = await probes.refresh_observed_state(username)
+    was_running = (fields.get("was") or info.value("service")) == (
+        ServiceState.ACTIVE.value
+    )
+    if was_running and observed.service is not ServiceState.ACTIVE:
+        await context.log(
+            "jobs.probe.mpp_service_down",
+            level=LogLevel.ERROR,
+            params={"probe": username, "version": observed.package_version or after},
+        )
+        raise ProbeRejectedError(
+            params={"probe": username},
+            details=f"prtgmpprobe {after} is installed but its service is not active",
+        )
+    return {
+        "probe": username,
+        "package_before": before,
+        "package_version": observed.package_version,
+        "service": observed.service.value,
     }
 
 

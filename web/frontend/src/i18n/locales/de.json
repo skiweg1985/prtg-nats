@@ -449,6 +449,14 @@
       "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
       "certificateExpired": "Zertifikat abgelaufen",
       "noGaps": "Keine Lücken"
+    },
+    "mppUpgrade": {
+      "action": "Probe-Software aktualisieren",
+      "badge": "{{version}} verfügbar",
+      "confirmTitle": "Probe-Software auf {{probe}} aktualisieren",
+      "confirmBody": "Die Probe wechselt von {{current}} auf {{target}}.",
+      "confirmBodyLatest": "Die Probe hat {{current}}. Sie installiert die neueste Version, die das Paessler-Repository anbietet, falls es eine neuere gibt.",
+      "restartNote": "Der Probe-Dienst startet dabei neu, und die Messungen pausieren für etwa eine Minute. Prüfe vorher, ob die neue Version zu deinem PRTG-Core passt."
     }
   },
   "sensors": {
@@ -651,7 +659,9 @@
       "remove_endpoint": "Messpunkt abbauen",
       "reserve": "Interface reservieren",
       "setup_endpoint": "Messpunkt einrichten",
-      "write_record": "Eintrag schreiben"
+      "write_record": "Eintrag schreiben",
+      "ensure_helper": "Helper prüfen",
+      "upgrade": "Probe-Software aktualisieren"
     },
     "events": {
       "started": "Job gestartet: {{type}}",
@@ -702,7 +712,10 @@
         "channel_found": "{{probe}}: Zertifikat für den Rückkanal {{certificate}}, Dienst {{service}}",
         "channel_service_reinstalled": "{{probe}}: Dienst des Rückkanals neu installiert und gestartet",
         "channel_repaired": "{{probe}}: Der Dienst des Rückkanals läuft wieder",
-        "channel_service_not_running": "{{probe}}: Der Dienst des Rückkanals läuft noch immer nicht ({{service}})"
+        "channel_service_not_running": "{{probe}}: Der Dienst des Rückkanals läuft noch immer nicht ({{service}})",
+        "mpp_upgraded": "{{probe}}: Probe-Software von {{from}} auf {{to}} aktualisiert",
+        "mpp_current": "{{probe}}: Probe-Software {{version}} ist bereits die neueste",
+        "mpp_service_down": "{{probe}}: Probe-Software {{version}} ist installiert, der Dienst läuft aber nicht"
       },
       "sensor": {
         "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
@@ -849,7 +862,8 @@
         "refresh": "Zustand prüfen",
         "unenroll": "Probe ausbinden",
         "validate": "Prüfbericht erstellen",
-        "channel_repair": "Rückkanal neu einrichten"
+        "channel_repair": "Rückkanal neu einrichten",
+        "mpp_upgrade": "Probe-Software aktualisieren"
       },
       "sensor": {
         "deploy": "Sensor ausrollen",
@@ -935,7 +949,8 @@
         "set_desired_state": "Soll-Zustand geändert",
         "update": "Probe geändert",
         "validate": "Prüfbericht erstellt",
-        "channel_repair": "Rückkanal neu eingerichtet"
+        "channel_repair": "Rückkanal neu eingerichtet",
+        "mpp_upgrade": "Probe-Software aktualisiert"
       },
       "sensor": {
         "deploy": "Sensor ausgerollt",

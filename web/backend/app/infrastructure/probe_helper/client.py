@@ -705,6 +705,13 @@ class ProbeHelperClient:
         """
         return await self._call(connection, HelperCommand.MPP_UNINSTALL, timeout=900)
 
+    async def mpp_upgrade(self, connection: ProbeConnection) -> HelperResponse:
+        """Bring the probe package up to the newest version its repository has.
+
+        As generous as the uninstall, for the same package-manager lock.
+        """
+        return await self._call(connection, HelperCommand.MPP_UPGRADE, timeout=900)
+
     async def unenroll(self, connection: ProbeConnection) -> HelperResponse:
         """Remove the management access from the probe side."""
         return await self._call(connection, HelperCommand.UNENROLL)

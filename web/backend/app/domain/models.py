@@ -7,6 +7,7 @@ and without a probe.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -78,6 +79,9 @@ class ObservedProbeState:
     reachable: bool
     service: ServiceState = ServiceState.UNKNOWN
     package_version: str | None = None
+    # The newest version the probe's package manager would install, from its
+    # local cache. Older helpers do not report it.
+    package_available: str | None = None
     hostname: str | None = None
     ca_sha256: str | None = None
     config_path: str | None = None
@@ -133,6 +137,7 @@ class ObservedProbeState:
         return {
             "service": self.service.value,
             "package_version": self.package_version,
+            "package_available": self.package_available,
             "hostname": self.hostname,
             "ca_sha256": self.ca_sha256,
             "config_path": self.config_path,
@@ -182,6 +187,7 @@ class ObservedProbeState:
             reachable=reachable,
             service=_service_state(document.get("service")),
             package_version=document.get("package_version"),
+            package_available=document.get("package_available"),
             hostname=document.get("hostname"),
             ca_sha256=document.get("ca_sha256"),
             config_path=document.get("config_path"),
@@ -227,6 +233,7 @@ def parse_probe_info(
         reachable=True,
         service=_service_state(response.value("service")),
         package_version=normalise_optional(response.value("package")),
+        package_available=normalise_optional(response.value("package_available")),
         hostname=normalise_optional(response.value("hostname")),
         ca_sha256=normalise_optional(response.value("ca_sha256")),
         config_path=normalise_optional(response.value("config")),
@@ -240,6 +247,87 @@ def parse_probe_info(
         channel_service=normalise_optional(response.value("channel_service")),
         channel_cert_issued=normalise_optional(response.value("channel_cert_issued")),
     )
+
+
+def _order(char: str) -> int:
+    # dpkg's character order: "~" sorts before everything, even the end of
+    # the string, letters before other characters.
+    if char == "~":
+        return -1
+    if char.isalpha():
+        return ord(char)
+    return ord(char) + 256
+
+
+def _compare_part(left: str, right: str) -> int:
+    """dpkg's verrevcmp for one upstream version or revision."""
+    i = j = 0
+    while i < len(left) or j < len(right):
+        while (i < len(left) and not left[i].isdigit()) or (
+            j < len(right) and not right[j].isdigit()
+        ):
+            a = _order(left[i]) if i < len(left) and not left[i].isdigit() else 0
+            b = _order(right[j]) if j < len(right) and not right[j].isdigit() else 0
+            if a != b:
+                return -1 if a < b else 1
+            i += 1
+            j += 1
+        start_i, start_j = i, j
+        while i < len(left) and left[i].isdigit():
+            i += 1
+        while j < len(right) and right[j].isdigit():
+            j += 1
+        a_num = int(left[start_i:i] or "0")
+        b_num = int(right[start_j:j] or "0")
+        if a_num != b_num:
+            return -1 if a_num < b_num else 1
+    return 0
+
+
+def _split_version(version: str) -> tuple[int, str, str]:
+    epoch, _, rest = version.rpartition(":") if ":" in version else ("0", "", version)
+    upstream, _, revision = rest.rpartition("-") if "-" in rest else (rest, "", "")
+    return (int(epoch) if epoch.isdigit() else 0), upstream, revision
+
+
+def compare_package_versions(left: str, right: str) -> int:
+    """-1, 0 or 1, the way dpkg orders Debian versions.
+
+    RPM versions as reported here are plain dotted numbers, which this orders
+    the same way rpm does.
+    """
+    left_epoch, left_upstream, left_revision = _split_version(left)
+    right_epoch, right_upstream, right_revision = _split_version(right)
+    if left_epoch != right_epoch:
+        return -1 if left_epoch < right_epoch else 1
+    return _compare_part(left_upstream, right_upstream) or _compare_part(
+        left_revision, right_revision
+    )
+
+
+def newer_package_version(
+    installed: str | None, known: Iterable[str | None]
+) -> str | None:
+    """The newest of ``known`` if it is newer than ``installed``, else None.
+
+    ``known`` is what the probes of the same platform report, installed and
+    available alike. A probe whose package cache is weeks old still learns
+    about a release once another probe like it has seen it.
+    """
+    if installed is None:
+        return None
+    # Debian versions carry a revision ("3.11.0-1"), RPM versions as reported
+    # here do not ("3.11.0"). Only versions of the same kind are compared.
+    has_revision = "-" in installed
+    newest: str | None = None
+    for version in known:
+        if version is None or ("-" in version) != has_revision:
+            continue
+        if compare_package_versions(version, installed) <= 0:
+            continue
+        if newest is None or compare_package_versions(version, newest) > 0:
+            newest = version
+    return newest
 
 
 def _helper_version(value: str | None) -> int | None:
@@ -401,6 +489,9 @@ class ProbeSummary:
     # In the row rather than only on the detail page: an operator should see
     # which probes will refuse the next job before starting it.
     helper_outdated: bool = False
+    # A newer probe package than the installed one, as far as the fleet knows,
+    # or None when the probe is current.
+    package_update: str | None = None
     # The operator's tick that the access key was entered in PRTG and the
     # probe approved there. Not part of the status: a probe without it is
     # healthy here and invisible over there, which is exactly why it needs

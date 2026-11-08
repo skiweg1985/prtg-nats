@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=13
+HELPER_VERSION=14
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -297,6 +297,29 @@ installed_package_version() {
   fi
   if [[ -z "${version}" ]] && command -v rpm >/dev/null 2>&1; then
     version="$(rpm -q --queryformat '%{VERSION}' prtgmpprobe 2>/dev/null || true)"
+  fi
+  printf '%s\n' "${version:-none}"
+}
+
+# The newest version the package manager would install, from what it already
+# knows. No network: probe-info runs on every page view, and a refresh there
+# would put the Paessler mirror into the path of rendering a table. The cache
+# may be days old; the platform compares across the fleet to make up for that,
+# and the upgrade itself refreshes before it installs.
+available_package_version() {
+  local version=""
+
+  if command -v apt-cache >/dev/null 2>&1; then
+    version="$(
+      LC_ALL=C apt-cache policy "${MPP_PACKAGE}" 2>/dev/null |
+        awk '$1 == "Candidate:" { print $2; exit }'
+    )"
+    [[ "${version}" == "(none)" ]] && version=""
+  elif command -v dnf >/dev/null 2>&1; then
+    version="$(
+      dnf -q -C repoquery --latest-limit 1 --queryformat '%{VERSION}' \
+        "${MPP_PACKAGE}" 2>/dev/null | tail -n 1 || true
+    )"
   fi
   printf '%s\n' "${version:-none}"
 }
@@ -658,6 +681,7 @@ probe_info() {
   systemctl is-active --quiet "${MPP_SERVICE}" && service_state="active"
   printf 'OK probe-info\n'
   printf 'package=%s\n' "$(installed_package_version)"
+  printf 'package_available=%s\n' "$(available_package_version)"
   printf 'service=%s\n' "${service_state}"
   # Before the early returns below, so the answer carries it even on a probe
   # whose configuration is still missing. A helper too old to know these
@@ -4187,6 +4211,87 @@ uninstall_mpp() {
     "$(installed_sensor_count)"
 }
 
+# Brings the installed package up to the newest version its repository
+# offers, and nothing else: only the Paessler source is refreshed, and only
+# this package is touched, so an upgrade never drags the rest of the host along.
+# The configuration this platform wrote stays as it is (--force-confold).
+#
+# A probe already on the newest version is a finished upgrade, not an error.
+upgrade_mpp() {
+  local before=""
+  local after=""
+  local state="upgraded"
+  local service_state="inactive"
+  local was_active="false"
+  local refresh_output=""
+  local attempt=0
+
+  before="$(installed_package_version)"
+  [[ "${before}" != "none" ]] ||
+    die "${MPP_PACKAGE} is not installed on this probe"
+  systemctl is-active --quiet "${MPP_SERVICE}" && was_active="true"
+
+  if command -v apt-get >/dev/null 2>&1; then
+    [[ -f "${MPP_REPOSITORY_FILES[0]}" ]] ||
+      die "The Paessler repository is not registered on this probe"
+    # apt exits 0 when a source cannot be fetched and only prints a warning.
+    # Taken at its word, an unreachable mirror would read as "already
+    # current", so any W: or E: line counts as a failed refresh.
+    refresh_output="$(
+      LC_ALL=C apt-get update \
+        -o DPkg::Lock::Timeout=300 \
+        -o Dir::Etc::sourcelist="${MPP_REPOSITORY_FILES[0]}" \
+        -o Dir::Etc::sourceparts=- \
+        -o APT::Get::List-Cleanup=0 2>&1
+    )" || die "Could not refresh the Paessler repository"
+    if grep -qE '^(W|E|Err):' <<<"${refresh_output}"; then
+      die "Could not refresh the Paessler repository: $(
+        grep -E '^(W|E|Err):' <<<"${refresh_output}" | head -n 1
+      )"
+    fi
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confold "${MPP_PACKAGE}" >/dev/null 2>&1 ||
+      die "Could not upgrade the ${MPP_PACKAGE} package"
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf upgrade -y --refresh "${MPP_PACKAGE}" >/dev/null 2>&1 ||
+      die "Could not upgrade the ${MPP_PACKAGE} package"
+  else
+    die "No supported package manager to upgrade ${MPP_PACKAGE}"
+  fi
+
+  after="$(installed_package_version)"
+  [[ "${after}" != "${before}" ]] || state="current"
+
+  # The package scripts may or may not restart the service, depending on the
+  # release. Restarting here makes the new binary run either way. Only a
+  # service that was running is restarted: one the operator had stopped
+  # stays stopped.
+  if [[ "${was_active}" == "true" ]]; then
+    if [[ "${state}" == "upgraded" ]]; then
+      systemctl restart "${MPP_SERVICE}" >/dev/null 2>&1 ||
+        die "${MPP_PACKAGE} ${after} is installed but its service did not restart"
+    fi
+    # "active" right after a restart says little about a simple service that
+    # crashes a second later, so it has to hold for a few seconds in a row.
+    while ((attempt < 30)); do
+      if systemctl is-active --quiet "${MPP_SERVICE}"; then
+        sleep 5
+        if systemctl is-active --quiet "${MPP_SERVICE}"; then
+          service_state="active"
+          break
+        fi
+      fi
+      attempt=$((attempt + 1))
+      sleep 2
+    done
+  fi
+
+  printf 'OK mpp-upgraded from=%s to=%s state=%s service=%s was=%s\n' \
+    "${before}" "${after}" "${state}" "${service_state}" \
+    "$([[ "${was_active}" == "true" ]] && printf active || printf inactive)"
+}
+
 # ---------------------------------------------------------------------------
 # The overlay
 #
@@ -4889,6 +4994,10 @@ case "${command_name}" in
   mpp-uninstall)
     [[ -z "${argument_one:-}" ]] || die "mpp-uninstall takes no arguments"
     uninstall_mpp
+    ;;
+  mpp-upgrade)
+    [[ -z "${argument_one:-}" ]] || die "mpp-upgrade takes no arguments"
+    upgrade_mpp
     ;;
   unenroll)
     [[ -z "${argument_one:-}" ]] || die "unenroll takes no arguments"
