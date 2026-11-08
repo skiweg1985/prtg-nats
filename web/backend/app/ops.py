@@ -76,8 +76,11 @@ async def _any_web_user() -> bool:
     from sqlalchemy.exc import OperationalError
 
     from app.persistence.models.identity import WebUser
-    from app.persistence.session import session_scope
+    from app.persistence.session import dispose_engine, init_engine, session_scope
 
+    # This runs as its own process, not inside the API, so it opens the
+    # database itself - the same way the application does at startup.
+    init_engine(_settings())
     try:
         async with session_scope() as db:
             count = await db.scalar(select(func.count()).select_from(WebUser))
@@ -85,6 +88,8 @@ async def _any_web_user() -> bool:
         # No schema yet: the API has not migrated the database, so nobody can
         # have signed up either.
         return False
+    finally:
+        await dispose_engine()
     return bool(count)
 
 
