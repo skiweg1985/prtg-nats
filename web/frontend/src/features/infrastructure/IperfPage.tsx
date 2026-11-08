@@ -208,6 +208,7 @@ export function IperfPage() {
         rowKey={(row) => row.name}
         isLoading={isLoading}
         emptyTitle={t('infrastructure.iperfEmpty')}
+        emptyHint={t('infrastructure.iperfEmptyHint')}
         rowHref={(row) => `/infrastructure/iperf/${row.name}`}
       />
 

@@ -107,7 +107,7 @@ const server = setupServer(
         username: 'admin',
         display_name: 'admin',
         roles: ['administrator'],
-        permissions: ['probe.read', 'probe.update', 'probe.delete', 'probe.reconcile'],
+        permissions: ['probe.read', 'probe.update', 'probe.delete', 'probe.reconcile', 'sensor.remove'],
         locale: 'en',
         is_development: false,
         must_change_password: false,
@@ -313,6 +313,40 @@ describe('the actions in the header', () => {
     await user.click(await screen.findByRole('button', { name: 'Weitere Aktionen' }))
     await user.click(screen.getByRole('menuitem', { name: 'Ausbinden' }))
     expect(screen.getByRole('dialog', { name: 'berlin-01 ausbinden?' })).toBeInTheDocument()
+  })
+
+  it('counts the sensors it would remove, and offers nothing without any', async () => {
+    // "alle 1 Sensoren" read like a template that nobody had looked at.
+    await changeLanguage('de')
+    const sensor = {
+      name: 'dns-resolve',
+      status: 'ok',
+      desired_version: '5',
+      installed_version: '5',
+      installed_sha256: null,
+      expected_sha256: null,
+      installed_helper_sha256: null,
+      interfaces: [],
+      helper_state: null,
+      tool_name: null,
+    }
+    serve(detail({ sensors: [sensor] }))
+    const user = userEvent.setup()
+    const { unmount } = wrap()
+
+    await user.click(await screen.findByRole('button', { name: 'Weitere Aktionen' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Ausbinden' }))
+    const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByText(/Nimmt den Sensor von der Probe/)).toBeInTheDocument()
+    unmount()
+
+    serve(detail())
+    wrap()
+    await user.click(await screen.findByRole('button', { name: 'Weitere Aktionen' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Ausbinden' }))
+    expect(
+      within(screen.getByRole('dialog')).queryByText('Sensoren entfernen'),
+    ).not.toBeInTheDocument()
   })
 })
 

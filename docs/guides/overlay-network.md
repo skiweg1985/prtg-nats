@@ -1,7 +1,7 @@
 ---
 title: Connect probes over the overlay
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Connect probes over the overlay
@@ -66,7 +66,7 @@ private one never leaves it. Its ordinary address stays exactly as it was,
 and the management key gains the hub's address instead of losing the old one.
 A probe whose tunnel breaks is reachable the way it always was.
 
-In the interface the same thing is **Infrastructure → Overlay → Add probes**,
+In the interface the same thing is **Infrastructure → Overlay → Add to the overlay**,
 for one probe or for a whole site at once. A single probe can also be put on
 the overlay from the Overlay row on its own page.
 
@@ -212,7 +212,9 @@ it.
 **Turn off** on the same page - or `./prtg-nats overlay disable` - stops the
 hub without touching a single peer. Re-enabling does not mean visiting every
 probe again. Put any probe in mode `on` back to `auto` first, though, or it
-will be looking for a tunnel that is no longer there.
+will be looking for a tunnel that is no longer there. The confirmation in the
+interface names those probes, and the ones that are on the tunnel right now
+because their ordinary route is down - they lose this host with the hub.
 
 ## What to keep
 

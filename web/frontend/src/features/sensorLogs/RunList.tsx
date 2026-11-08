@@ -111,10 +111,12 @@ export function RunTable({
                       <ProbeLink username={run.probe} />
                     </td>
                   )}
-                  <td className="px-3 py-3 text-sm">
+                  {/* A name is one token: wrapped at its hyphen, "wlan-auth"
+                      reads as two words. */}
+                  <td className="px-3 py-3 text-sm whitespace-nowrap">
                     <Mono>{run.sensor}</Mono>
                   </td>
-                  <td className="px-3 py-3 text-sm">
+                  <td className="px-3 py-3 text-sm whitespace-nowrap">
                     <Mono>{run.ssid ?? '—'}</Mono>
                   </td>
                   <td className="px-3 py-3">
@@ -384,6 +386,8 @@ interface Field {
   /** Null for a key this page has no words for. */
   label: string | null
   value: (value: unknown) => string
+  /** True where the value is shown as words rather than as sent. */
+  worded: (value: unknown) => boolean
 }
 
 function useFields(sensor: string | undefined): (key: string) => Field {
@@ -397,6 +401,7 @@ function useFields(sensor: string | undefined): (key: string) => Field {
         const word = typeof value === 'string' ? info?.values?.[value] : undefined
         return word ? t(word) : withUnit(value, info?.unit)
       },
+      worded: (value) => typeof value === 'string' && !!info?.values?.[value],
     }
   }
 }
@@ -524,7 +529,15 @@ function Values({
       {known.map(([key, value]) => (
         <Fragment key={key}>
           <dt className="text-ink-2 text-xs">{field(key).label}</dt>
-          <dd className="text-ink min-w-0 font-mono text-xs break-all">
+          {/* A sentence in mono reads like a machine value; only what the
+              sensor sent as it is stays in the code face. */}
+          <dd
+            className={
+              field(key).worded(value)
+                ? 'text-ink min-w-0 text-sm'
+                : 'text-ink min-w-0 font-mono text-xs break-all'
+            }
+          >
             {field(key).value(value)}
           </dd>
         </Fragment>

@@ -139,7 +139,7 @@ describe('the PRTG registration tick', () => {
     wrap()
 
     expect(await screen.findByText(/confirmed by admin/)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Undo the mark' }))
     expect(patches).toEqual([{ prtg_registered: false }])
   })
 })

@@ -21,6 +21,7 @@ import {
   Button,
   ButtonLink,
   Card,
+  ConfirmDialog,
   DetailRow,
   EmptyState,
   Mono,
@@ -316,6 +317,31 @@ function ActionCard({
   busy: boolean
 }) {
   const { t } = useTranslation()
+  // The stack goes away for minutes and the interface with it. One click on
+  // a button beside a commit list is too little for that.
+  const [confirming, setConfirming] = useState<'update' | 'rebuild' | null>(null)
+
+  const dialog = confirming && (
+    <ConfirmDialog
+      title={t(
+        confirming === 'update' ? 'updates.confirm.title' : 'updates.confirm.rebuildTitle',
+      )}
+      body={
+        confirming === 'update'
+          ? `${t('updates.confirm.body', { count: data.commits.length })} ${t('updates.what_happens')}`
+          : t('updates.what_happens')
+      }
+      confirmLabel={t(confirming === 'update' ? 'updates.confirm.action' : 'updates.rebuild')}
+      cancelLabel={t('common.cancel')}
+      tone="primary"
+      pending={busy}
+      onConfirm={() => {
+        onStart(confirming)
+        setConfirming(null)
+      }}
+      onClose={() => setConfirming(null)}
+    />
+  )
 
   if (data.state === 'current')
     return (
@@ -326,59 +352,65 @@ function ActionCard({
 
   if (data.state === 'rebuild_pending')
     return (
-      <Card
-        title={t('updates.changes')}
-        action={
-          <Button
-            variant="primary"
-            icon={Hammer}
-            onClick={() => void onStart('rebuild')}
-            disabled={busy}
-          >
-            {t('updates.rebuild')}
-          </Button>
-        }
-      >
-        <Banner tone="warn" title={t('updates.rebuild_pending.title')}>
-          {t('updates.rebuild_pending.body')}
-        </Banner>
-      </Card>
+      <>
+        <Card
+          title={t('updates.changes')}
+          action={
+            <Button
+              variant="primary"
+              icon={Hammer}
+              onClick={() => setConfirming('rebuild')}
+              disabled={busy}
+            >
+              {t('updates.rebuild')}
+            </Button>
+          }
+        >
+          <Banner tone="warn" title={t('updates.rebuild_pending.title')}>
+            {t('updates.rebuild_pending.body')}
+          </Banner>
+        </Card>
+        {dialog}
+      </>
     )
 
   if (data.state !== 'update_available') return null
 
   return (
-    <Card
-      title={t('updates.changes')}
-      action={
-        <Button
-          variant="primary"
-          icon={Download}
-          onClick={() => void onStart('update')}
-          disabled={busy || data.checkout_dirty}
-        >
-          {t('updates.install')}
-        </Button>
-      }
-    >
-      {data.checkout_dirty && (
-        <Banner tone="warn" title={t('updates.dirty_blocks.title')}>
-          {t('updates.dirty_blocks.body')}
-        </Banner>
-      )}
-      <ul className="divide-rule divide-y">
-        {data.commits.map((commit) => (
-          <li key={commit.sha} className="flex items-baseline gap-3 py-1.5">
-            <Mono className="text-ink-3 shrink-0 text-xs">{short(commit.sha)}</Mono>
-            <span className="min-w-0 flex-1 truncate text-sm">{commit.subject}</span>
-            <span className="text-ink-3 shrink-0 text-xs">
-              {formatRelative(commit.date)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <p className="text-ink-3 mt-3 text-xs">{t('updates.what_happens')}</p>
-    </Card>
+    <>
+      <Card
+        title={t('updates.changes')}
+        action={
+          <Button
+            variant="primary"
+            icon={Download}
+            onClick={() => setConfirming('update')}
+            disabled={busy || data.checkout_dirty}
+          >
+            {t('updates.install')}
+          </Button>
+        }
+      >
+        {data.checkout_dirty && (
+          <Banner tone="warn" title={t('updates.dirty_blocks.title')}>
+            {t('updates.dirty_blocks.body')}
+          </Banner>
+        )}
+        <ul className="divide-rule divide-y">
+          {data.commits.map((commit) => (
+            <li key={commit.sha} className="flex items-baseline gap-3 py-1.5">
+              <Mono className="text-ink-3 shrink-0 text-xs">{short(commit.sha)}</Mono>
+              <span className="min-w-0 flex-1 truncate text-sm">{commit.subject}</span>
+              <span className="text-ink-3 shrink-0 text-xs">
+                {formatRelative(commit.date)}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-ink-3 mt-3 text-xs">{t('updates.what_happens')}</p>
+      </Card>
+      {dialog}
+    </>
   )
 }
 

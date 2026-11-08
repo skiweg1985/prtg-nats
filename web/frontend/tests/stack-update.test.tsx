@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter } from 'react-router-dom'
@@ -200,6 +201,43 @@ describe('UpdatesPage', () => {
     expect(
       screen.getByRole('button', { name: 'Install the update' }),
     ).toBeEnabled()
+  })
+
+  it('asks before it takes the stack down', async () => {
+    /**
+     * The update recreates every container, the interface included. The
+     * button sits beside a commit list; a click there must not be the whole
+     * decision.
+     */
+    await changeLanguage('en')
+    const starts: unknown[] = []
+    server.use(
+      http.post('/api/v1/system/update', async ({ request }) => {
+        starts.push(await request.json())
+        return HttpResponse.json({ job_id: 'J1' }, { status: 202 })
+      }),
+    )
+    version = {
+      ...BASE,
+      state: 'update_available',
+      remote_commit: 'cccccccccccc3333',
+      commits: [
+        { sha: 'cccccccccccc3333', subject: 'A new sensor', date: '2026-08-26T09:00:00Z' },
+        { sha: 'dddddddddddd4444', subject: 'Fix the lookup', date: '2026-08-25T09:00:00Z' },
+      ],
+    }
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Install the update' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/2 changes will be installed/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(starts).toEqual([])
+
+    await user.click(screen.getByRole('button', { name: 'Install the update' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Install' }))
+    await waitFor(() => expect(starts).toEqual([{ mode: 'update' }]))
   })
 
   it('explains itself instead of offering a button it cannot honour', async () => {

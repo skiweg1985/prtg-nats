@@ -19,7 +19,6 @@ import {
   useRemoveSensorFromProbe,
   useReserveInterface,
   useRevealAccessKey,
-  useRevealNatsPassword,
   useSensorProfiles,
   useSensors,
   useUpdateProbe,
@@ -257,7 +256,7 @@ export function ProbeDetailPage() {
                 onClick={() => configure.mutate(probeId, toJob)}
                 disabled={configure.isPending}
               >
-                <span className="max-md:sr-only">{t('probes.configure')}</span>
+                {t('probes.configure')}
               </Button>
             </PermissionGate>
           )}
@@ -336,18 +335,20 @@ export function ProbeDetailPage() {
 
           <fieldset className="mt-4 space-y-3 border-t pt-3">
             <legend className="sr-only">{t('probes.cleanup.legend')}</legend>
-            <PermissionGate permission="sensor.remove">
-              <CleanupOption
-                label={t('probes.cleanup.removeSensors')}
-                hint={t('probes.cleanup.removeSensorsHint', {
-                  count: data.sensors.length,
-                })}
-                checked={cleanup.removeSensors}
-                onChange={(checked) =>
-                  setCleanup({ ...cleanup, removeSensors: checked })
-                }
-              />
-            </PermissionGate>
+            {data.sensors.length > 0 && (
+              <PermissionGate permission="sensor.remove">
+                <CleanupOption
+                  label={t('probes.cleanup.removeSensors')}
+                  hint={t('probes.cleanup.removeSensorsHint', {
+                    count: data.sensors.length,
+                  })}
+                  checked={cleanup.removeSensors}
+                  onChange={(checked) =>
+                    setCleanup({ ...cleanup, removeSensors: checked })
+                  }
+                />
+              </PermissionGate>
+            )}
             <PermissionGate permission="probe.update">
               <CleanupOption
                 label={t('probes.cleanup.uninstallMpp')}
@@ -446,25 +447,28 @@ export function ProbeDetailPage() {
           </Banner>
         )}
       {summary.prtg_registered && data.prtg_registered_by && (
-        <p className="text-ink-3 text-xs">
-          {t('probes.prtg.markedBy', {
-            by: data.prtg_registered_by,
-            when: data.prtg_registered_at
-              ? formatRelative(data.prtg_registered_at)
-              : '—',
-          })}{' '}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-ink-3 text-xs">
+            {t('probes.prtg.markedBy', {
+              by: data.prtg_registered_by,
+              when: data.prtg_registered_at
+                ? formatRelative(data.prtg_registered_at)
+                : '—',
+            })}
+          </p>
           <PermissionGate permission="probe.update">
-            <button
-              type="button"
-              className="hover:text-ink underline"
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={updateProbe.isPending}
               onClick={() =>
                 updateProbe.mutate({ id: probeId, prtg_registered: false })
               }
             >
               {t('probes.prtg.markUndone')}
-            </button>
+            </Button>
           </PermissionGate>
-        </p>
+        </div>
       )}
 
       {/* The strip scrolls sideways on a phone rather than squeezing a
@@ -513,12 +517,13 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
   // A mutation, not a query: nothing refetches it, and closing the dialog
   // drops the value out of both this state and the mutation's own.
   const [accessKey, setAccessKey] = useState<string | null>(null)
-  const revealPassword = useRevealNatsPassword()
-  const [password, setPassword] = useState<string | null>(null)
+  const [accessKeyOpen, setAccessKeyOpen] = useState(false)
+  const [revealingPassword, setRevealingPassword] = useState(false)
   const [rotating, setRotating] = useState(false)
   const announcedName = observed?.probe_name ?? inventory.probe_name
 
   function hideAccessKey() {
+    setAccessKeyOpen(false)
     setAccessKey(null)
     reveal.reset()
   }
@@ -541,12 +546,7 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
                       size="sm"
                       variant="ghost"
                       icon={Eye}
-                      onClick={() =>
-                        revealPassword.mutate(summary.nats_username, {
-                          onSuccess: (data) => setPassword(data.password),
-                        })
-                      }
-                      disabled={revealPassword.isPending}
+                      onClick={() => setRevealingPassword(true)}
                     >
                       {t('probes.account.showPassword')}
                     </Button>
@@ -586,12 +586,7 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
                       size="sm"
                       variant="ghost"
                       icon={Eye}
-                      onClick={() =>
-                        reveal.mutate(summary.id, {
-                          onSuccess: (revealed) => setAccessKey(revealed.access_key),
-                        })
-                      }
-                      disabled={reveal.isPending}
+                      onClick={() => setAccessKeyOpen(true)}
                     >
                       {t('common.reveal')}
                     </Button>
@@ -708,14 +703,10 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
         </Card>
       </div>
 
-      {password !== null && (
+      {revealingPassword && (
         <RevealPasswordDialog
           username={summary.nats_username}
-          password={password}
-          onClose={() => {
-            setPassword(null)
-            revealPassword.reset()
-          }}
+          onClose={() => setRevealingPassword(false)}
         />
       )}
       {rotating && (
@@ -725,9 +716,8 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
           onClose={() => setRotating(false)}
         />
       )}
-      {revealPassword.error && <ErrorDetails error={revealPassword.error} />}
 
-      {accessKey !== null && (
+      {accessKeyOpen && (
         <Dialog
           title={t('probes.accessKeyRevealTitle', {
             probe: announcedName ?? summary.nats_username,
@@ -735,37 +725,67 @@ function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean })
           onClose={hideAccessKey}
           size="md"
         >
-          <p className="text-ink-2 mb-3 text-sm">
-            {t('probes.accessKeyHint')} {t('probes.accessKeyAudited')}
-          </p>
-          <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
-            <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
-            <CopyButton value={accessKey} />
-          </div>
-          <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
-          <div className="mt-4 flex items-center justify-between gap-2">
-            {/* The dialog is open because somebody is working in PRTG right
-                now - the tick belongs where the work happens. */}
-            {!summary.prtg_registered ? (
-              <PermissionGate permission="probe.update">
+          {accessKey === null ? (
+            <>
+              <p className="text-ink-2 text-sm">{t('probes.accessKeyIntro')}</p>
+              {reveal.error && (
+                <div className="mt-3">
+                  <ErrorDetails error={reveal.error} />
+                </div>
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="ghost" onClick={hideAccessKey}>
+                  {t('common.cancel')}
+                </Button>
                 <Button
-                  size="sm"
                   variant="primary"
-                  disabled={updateProbe.isPending}
+                  icon={Eye}
+                  disabled={reveal.isPending}
                   onClick={() =>
-                    updateProbe.mutate({ id: summary.id, prtg_registered: true })
+                    reveal.mutate(summary.id, {
+                      onSuccess: (revealed) => setAccessKey(revealed.access_key),
+                    })
                   }
                 >
-                  {t('probes.accessKeyMarkDone')}
+                  {t('probes.accessKeyShow')}
                 </Button>
-              </PermissionGate>
-            ) : (
-              <span className="text-ink-3 text-xs">
-                {t('probes.prtg.alreadyMarked')}
-              </span>
-            )}
-            <Button onClick={hideAccessKey}>{t('common.close')}</Button>
-          </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-ink-2 mb-3 text-sm">
+                {t('probes.accessKeyHint')} {t('probes.accessKeyAudited')}
+              </p>
+              <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
+                <Mono className="min-w-0 flex-1 break-all">{accessKey}</Mono>
+                <CopyButton value={accessKey} />
+              </div>
+              <p className="text-ink-3 mt-3 text-xs">{t('probes.accessKeyPrtgPath')}</p>
+              <div className="mt-4 flex items-center justify-between gap-2">
+                {/* The dialog is open because somebody is working in PRTG right
+                    now - the tick belongs where the work happens. */}
+                {!summary.prtg_registered ? (
+                  <PermissionGate permission="probe.update">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={updateProbe.isPending}
+                      onClick={() =>
+                        updateProbe.mutate({ id: summary.id, prtg_registered: true })
+                      }
+                    >
+                      {t('probes.accessKeyMarkDone')}
+                    </Button>
+                  </PermissionGate>
+                ) : (
+                  <span className="text-ink-3 text-xs">
+                    {t('probes.prtg.alreadyMarked')}
+                  </span>
+                )}
+                <Button onClick={hideAccessKey}>{t('common.close')}</Button>
+              </div>
+            </>
+          )}
         </Dialog>
       )}
     </>

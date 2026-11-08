@@ -6,7 +6,6 @@ import {
   useCreateNatsAccount,
   useDeleteNatsAccount,
   useNatsAccounts,
-  useRevealNatsPassword,
 } from '@/api/hooks'
 import type { NatsAccount } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
@@ -42,12 +41,9 @@ export function CredentialsPage() {
   const { data, isLoading, error, refetch } = useNatsAccounts()
   const create = useCreateNatsAccount()
   const remove = useDeleteNatsAccount()
-  const reveal = useRevealNatsPassword()
 
   const [newUsername, setNewUsername] = useState('')
-  const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(
-    null,
-  )
+  const [revealing, setRevealing] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   // Rotating cuts a probe's current credentials and hands it new ones. It ran
   // on a single click, while deleting - the one the server refuses outright
@@ -99,11 +95,7 @@ export function CredentialsPage() {
               size="sm"
               variant="ghost"
               icon={Eye}
-              onClick={() =>
-                reveal.mutate(row.username, {
-                  onSuccess: (data) => setRevealed(data),
-                })
-              }
+              onClick={() => setRevealing(row.username)}
             >
               {t('common.reveal')}
             </Button>
@@ -175,14 +167,8 @@ export function CredentialsPage() {
         </Card>
       </PermissionGate>
 
-      {reveal.error && <ErrorDetails error={reveal.error} />}
-
-      {revealed && (
-        <RevealPasswordDialog
-          username={revealed.username}
-          password={revealed.password}
-          onClose={() => setRevealed(null)}
-        />
+      {revealing && (
+        <RevealPasswordDialog username={revealing} onClose={() => setRevealing(null)} />
       )}
 
       {confirmRotate && (
