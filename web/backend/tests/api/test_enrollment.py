@@ -130,7 +130,7 @@ async def test_the_one_liner_path_is_one_the_proxy_actually_forwards(
 ) -> None:
     """The two halves of the public URL live in different files.
 
-    The command says https://host:8443/enroll/... ; the API serves
+    The command says https://host:9443/enroll/... ; the API serves
     /api/v1/enroll/... ; Caddy bridges the two. Nothing in either file knows
     about the other, so this compares them - the first real enrolment failed
     with a 404 for exactly this reason.

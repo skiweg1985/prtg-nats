@@ -1,7 +1,7 @@
 ---
 title: Install the web platform
 role: operator
-updated: 2026-08-27
+updated: 2026-11-08
 ---
 
 # Install the web platform
@@ -48,6 +48,25 @@ That builds three images and starts five services:
 The interface is then at `https://<NATS_FQDN>`. The port is configurable with
 `WEB_HTTPS_PORT` in `.env`; whoever calls the host over plain HTTP is sent
 there, so the port never has to be guessed.
+
+## Network access
+
+The reverse proxy opens three ports on `NATS_HOST_IP`. Besides the NATS port
+itself, these are what a firewall in front of the platform host has to let
+through:
+
+| Port | From | What for |
+| --- | --- | --- |
+| `443/tcp` (`WEB_HTTPS_PORT`) | administrators, and probes while they enrol | the interface, the API and the enrolment one-liner |
+| `80/tcp` (`CA_HTTP_PORT`) | probes, the PRTG core | the public CA and the health endpoint, plain HTTP |
+| `8443/tcp` (`PROBE_CHANNEL_PORT`) | every probe | the return channel: probes send sensor logs and renew their channel certificate |
+
+The return channel port accepts a connection only with a client certificate
+from the probe CA, and it serves nothing but the probe routes - a firewall rule
+for the probe networks opens nothing of the interface. The port is
+configurable with `PROBE_CHANNEL_PORT` and must differ from `WEB_HTTPS_PORT`;
+see the
+[configuration reference](../reference/configuration.md#web-platform).
 
 ## First sign-in
 

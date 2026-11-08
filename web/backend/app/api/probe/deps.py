@@ -14,6 +14,13 @@ from app.core.errors import NotFoundError, ProbeNotEnrolledError
 # listens on loopback only, so nothing else can put it there.
 PROBE_IDENTITY_HEADER = "X-Probe-Identity"
 
+# What Caddy writes into the header: {http.request.tls.client.subject}, the
+# subject as Go prints it. The probe CA issues CN-only subjects, so that is
+# exactly "CN=<identity>". Anything else did not come from a certificate this
+# installation signed and is refused rather than picked apart; the name rules
+# themselves are left to the inventory lookup.
+_SUBJECT_PREFIX = "CN="
+
 
 async def get_probe_identity(
     runtime: RuntimeDep,
@@ -25,8 +32,11 @@ async def get_probe_identity(
     was retired keeps a valid certificate until it expires, and the inventory
     in the runtime is what decides who belongs to this installation (ADR 0002).
     """
-    if not identity:
+    if not identity or not identity.startswith(_SUBJECT_PREFIX):
         raise ProbeNotEnrolledError()
+    # A second attribute or an escaped character leaves a value no NATS
+    # username can have, so read_probe refuses it without any DN parsing here.
+    identity = identity.removeprefix(_SUBJECT_PREFIX)
     try:
         runtime.read_probe(identity)
     except NotFoundError:

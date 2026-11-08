@@ -188,7 +188,7 @@ async def test_an_enrolled_probe_is_known_by_the_header_the_proxy_sets(
     response = await client.post(
         "/probe/v1/records",
         json={"records": [record()]},
-        headers={"X-Probe-Identity": PROBE},
+        headers={"X-Probe-Identity": f"CN={PROBE}"},
     )
     assert response.status_code == 200, response.text
 
@@ -201,8 +201,8 @@ async def test_an_enrolled_probe_is_known_by_the_header_the_proxy_sets(
     "headers",
     [
         pytest.param({}, id="no identity"),
-        pytest.param({"X-Probe-Identity": "mpp-unknown-09"}, id="not enrolled"),
-        pytest.param({"X-Probe-Identity": "../probes/mpp-berlin-01"}, id="a path"),
+        pytest.param({"X-Probe-Identity": "CN=mpp-unknown-09"}, id="not enrolled"),
+        pytest.param({"X-Probe-Identity": "CN=../probes/mpp-berlin-01"}, id="a path"),
     ],
 )
 async def test_an_unknown_identity_is_rejected(
@@ -224,7 +224,7 @@ async def test_a_retired_probe_is_rejected_on_its_next_request(
     client: AsyncClient, project_dir: Path, settings: Settings
 ) -> None:
     write_probe_inventory(project_dir, PROBE)
-    headers = {"X-Probe-Identity": PROBE}
+    headers = {"X-Probe-Identity": f"CN={PROBE}"}
     first = await client.post(
         "/probe/v1/records", json={"records": [record()]}, headers=headers
     )

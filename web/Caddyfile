@@ -1,9 +1,10 @@
 # The reverse proxy in front of the management platform.
 #
-# Two listeners. The HTTPS one serves the interface and the API. The plain-HTTP
-# one serves exactly two files: the CA a probe fetches before it trusts
-# anything, and the health CGI the PRTG core polls. That second listener is
-# what the separate busybox server used to be.
+# Three listeners. The HTTPS one serves the interface and the API. The probe
+# channel takes reports from probes and admits nobody without a client
+# certificate (ADR 0013). The plain-HTTP one serves exactly two files: the CA a
+# probe fetches before it trusts anything, and the health CGI the PRTG core
+# polls. That last listener is what the separate busybox server used to be.
 #
 # The backend never speaks TLS and never listens on a routable address; this
 # file is the only thing an operator has to open up.
@@ -29,6 +30,19 @@ https://{$WEB_FQDN}:{$WEB_HTTPS_PORT}, https://{$WEB_BIND_IP}:{$WEB_HTTPS_PORT} 
 	tls /etc/caddy/certs/web.pem /etc/caddy/certs/web-key.pem
 
 	encode gzip zstd
+
+	# The probe identity is the probe channel's business alone. Nothing on
+	# this site sets it, so whatever a browser sends under that name is
+	# dropped before it can reach the backend.
+	request_header -X-Probe-Identity
+
+	# Never forwarded from here: the probe routes trust X-Probe-Identity, and
+	# only the probe channel below has verified a certificate behind it. A
+	# probe pointed at the wrong port gets a plain 404 rather than the
+	# interface's front page.
+	handle /probe/* {
+		respond 404
+	}
 
 	# The API. Loopback because web-api joins the host network namespace.
 	handle /api/* {
@@ -69,6 +83,53 @@ https://{$WEB_FQDN}:{$WEB_HTTPS_PORT}, https://{$WEB_BIND_IP}:{$WEB_HTTPS_PORT} 
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# The probe channel (ADR 0013). Its own port because the TLS handshake here
+# demands a client certificate signed by the probe CA, which no browser has;
+# the interface must not ask for one. Same server certificate as the
+# interface, so a probe verifies this end with the CA it already trusts.
+#
+# Both names, like the interface: a probe that cannot resolve the name is
+# given the address instead.
+https://{$WEB_FQDN}:{$PROBE_CHANNEL_PORT}, https://{$WEB_BIND_IP}:{$PROBE_CHANNEL_PORT} {
+	bind {$WEB_BIND_IP}
+
+	tls /etc/caddy/certs/web.pem /etc/caddy/certs/web-key.pem {
+		client_auth {
+			# A handshake without a certificate from this CA fails before
+			# any request exists. Whether the probe is still enrolled is the
+			# backend's call, on every request: a retired probe keeps a
+			# valid certificate until it expires.
+			mode require_and_verify
+			trust_pool file /etc/caddy/certs/probe-ca.pem
+		}
+	}
+
+	# Only the probe routes. The interface and its API are not reachable on
+	# this port, so a probe certificate never opens anything but these.
+	handle /probe/v1/* {
+		reverse_proxy 127.0.0.1:8100 {
+			# The verified certificate's subject, which the probe CA issues
+			# as CN=<NATS username> and nothing else. Setting the header
+			# replaces whatever the client sent under that name.
+			header_up X-Probe-Identity {http.request.tls.client.subject}
+		}
+	}
+
+	handle {
+		respond 404
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
 		-Server
 	}
 

@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # Where the reverse proxy answers. Not used to listen - used to tell a
     # probe where to come back to, so it has to match what compose publishes.
     web_https_port: int = Field(default=443, validation_alias="WEB_HTTPS_PORT")
+    # Where the same proxy takes probe connections (ADR 0013). Only read here
+    # to refuse a collision with the port above; the probe channel address
+    # itself comes from the site settings, like every other probe-facing one.
+    probe_channel_port: int = Field(default=8443, validation_alias="PROBE_CHANNEL_PORT")
 
     # --- Sessions -----------------------------------------------------------
     session_cookie_name: str = "prtg_nats_session"
@@ -270,6 +274,11 @@ class Settings(BaseSettings):
         if self.dev_auth_enabled and self.environment == "production":
             raise RuntimeError(
                 "PRTG_NATS_WEB_DEV_AUTH_ENABLED must not be set in production"
+            )
+        if self.probe_channel_port == self.web_https_port:
+            raise RuntimeError(
+                "PROBE_CHANNEL_PORT must differ from WEB_HTTPS_PORT: the probe "
+                "channel demands a client certificate the interface must not"
             )
 
 

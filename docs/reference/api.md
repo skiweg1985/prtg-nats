@@ -720,15 +720,25 @@ Which role may call what is in [Roles and permissions](../web/roles.md).
 ### Return channel
 
 The routes a probe calls, under `/probe/v1` instead of `/api/v1`. They answer
-only on the probe channel port, where the proxy requires a client certificate
-issued to the probe and passes its identity on as `X-Probe-Identity`. The web
-port never forwards `/probe/v1`. No session and no permission apply: the
-identity is checked against the probe inventory on every request, and one the
-inventory does not hold is refused with `403` and `auth.probe_not_enrolled`.
+only on the probe channel port (`PROBE_CHANNEL_PORT`, default `8443`). The web
+port answers `/probe/*` with `404`, and the probe channel port answers
+everything outside `/probe/v1` with `404`.
+
+How the identity is established: the reverse proxy completes the TLS handshake
+only with a client certificate signed by the probe CA, which issues it with
+the subject `CN=<NATS username>`. It drops any `X-Probe-Identity` the client
+sent and sets it to the verified certificate's subject, exactly as Go prints
+it - `X-Probe-Identity: CN=mpp-berlin-01`. The backend takes the identity from
+that header and from nothing else; a value that is not a single `CN=`
+attribute is refused. No session and no permission apply: the identity is
+checked against the probe inventory on every request, and one the inventory
+does not hold is refused with `403` and `auth.probe_not_enrolled` - a retired
+probe keeps a valid certificate until it expires.
 
 | | |
 | --- | --- |
 | `POST /probe/v1/records` | hand over a batch of sensor log records |
+| `POST /probe/v1/certificate` | renew the probe's client certificate |
 
 ```http
 POST /probe/v1/records
@@ -759,6 +769,29 @@ The record ID is a UUID set on the probe. Sending a batch again stores nothing
 twice: records already stored come back under `duplicates`, and the probe drops
 both lists from its buffer. A batch holds at most 500 records. A `probe` field
 in a record is ignored - who sent it is what the certificate says.
+
+```http
+POST /probe/v1/certificate
+Content-Type: application/json
+
+{"csr": "-----BEGIN CERTIFICATE REQUEST-----\n…\n-----END CERTIFICATE REQUEST-----\n"}
+```
+
+```json
+{
+  "certificate": "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----\n",
+  "not_after": "2027-02-06T09:15:00Z"
+}
+```
+
+The probe renews over the channel its current certificate still opens. The
+CSR is a PEM, EC or RSA, signed with the new key; it proves possession of
+that key and contributes nothing else. The certificate is issued for the
+calling probe, valid for 90 days, whatever subject the CSR names. An
+unreadable CSR or one whose signature does not verify is refused with `422`
+and `common.validation_failed`. Once a certificate has expired the probe can
+no longer reach this route; a new one then comes through the management
+channel, the way enrolment issued the first.
 
 ### Removed endpoints
 

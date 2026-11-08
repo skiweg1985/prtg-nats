@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Operations and maintenance
@@ -127,6 +127,16 @@ dedicated command for it any more, because it added nothing:
 ```bash
 docker compose --project-directory /opt/prtg-nats config
 ```
+
+## Firewall after an update
+
+An update that brings a new listener needs a firewall rule before the feature
+behind it works. The return channel is one: probes connect to the platform on
+`8443/tcp` (`PROBE_CHANNEL_PORT`) to hand over sensor logs and renew their
+channel certificate. Allow it from every probe network to `NATS_HOST_IP`. The
+port only completes a TLS handshake with a probe's client certificate and
+serves nothing of the interface. The full list of ports is in
+[Installing the web platform](../web/install.md#network-access).
 
 ## Monitoring the stack
 

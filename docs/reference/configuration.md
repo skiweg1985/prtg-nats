@@ -213,7 +213,8 @@ once, which is what the comma is for.
 
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
-| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `443` | no | `8443` |
+| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `443` | no | `9443` |
+| `PROBE_CHANNEL_PORT` | Host port where probes report back over the return channel; requires a client certificate from the probe CA | port | `8443` | no | `8444` |
 | `WEB_FQDN` | Name the certificate of the web interface is issued for | hostname | value of `NATS_FQDN` | no | `admin.example.com` |
 
 The default for `WEB_FQDN` is right for a single-server installation. Set it
@@ -224,6 +225,16 @@ endpoint.
 enough client networks to make it a poor default - and a browser that reaches
 `CA_HTTP_PORT` over plain HTTP is redirected to whatever this port is, so
 moving it stays invisible to whoever only types the host name.
+
+`PROBE_CHANNEL_PORT` is the return channel's listener on the same reverse
+proxy ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+It serves the interface certificate, but the TLS handshake completes only with
+a client certificate signed by the probe CA, and only the `/probe/v1` routes
+answer there. A browser has no such certificate, which is why the port cannot
+be shared with the interface: the API refuses to start when
+`PROBE_CHANNEL_PORT` equals `WEB_HTTPS_PORT`. Probes have to reach this port
+on the platform host - see the firewall requirements in
+[Installing the web platform](../web/install.md).
 
 ## Where the shell tooling looks for the runtime
 

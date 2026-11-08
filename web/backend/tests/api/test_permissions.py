@@ -81,6 +81,10 @@ PROBE_CHANNEL: dict[tuple[str, str], str] = {
         "POST",
         "/probe/v1/records",
     ): "a probe hands over sensor log records; its certificate is its identity",
+    (
+        "POST",
+        "/probe/v1/certificate",
+    ): "a probe renews the client certificate it is calling with",
 }
 
 
