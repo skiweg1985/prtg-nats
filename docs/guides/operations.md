@@ -150,6 +150,10 @@ every six hours, so open the port before rolling out the helper update. A
 changed buffer size (`PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB`) or interface
 address reaches a probe with its next helper update or repair.
 
+The probe page offers "Repair" on the return channel row only when there is
+something to repair: the channel is silent, its certificate has expired, or
+it reported a gap within the last day.
+
 ## Monitoring the stack
 
 Container health checks, the PRTG sensors that watch NATS and JetStream, the

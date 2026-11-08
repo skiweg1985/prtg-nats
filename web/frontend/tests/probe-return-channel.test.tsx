@@ -218,6 +218,53 @@ describe('the return channel on the probe page', () => {
     expect(requested).toBe(true)
   })
 
+  it('offers no repair on a healthy channel', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes/P1', () =>
+        HttpResponse.json(
+          detail(
+            channel({
+              gap_count: 3,
+              // Gaps from last week are history, not something to repair.
+              last_gap_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+            }),
+          ),
+        ),
+      ),
+    )
+    wrap()
+
+    const row = await channelRow('Return channel')
+    expect(within(row).getByText(/3 gaps/)).toBeInTheDocument()
+    expect(
+      within(row).queryByRole('button', { name: 'Repair' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the repair once the certificate has expired', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes/P1', () =>
+        HttpResponse.json(
+          detail(
+            channel({
+              gap_count: 0,
+              last_gap_at: null,
+              certificate_expires: '2020-01-31',
+              certificate_expired: true,
+            }),
+          ),
+        ),
+      ),
+    )
+    wrap()
+
+    const row = await channelRow('Return channel')
+    expect(within(row).getByText('Certificate expired')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Repair' })).toBeInTheDocument()
+  })
+
   it('offers no repair without the permission for it', async () => {
     await changeLanguage('en')
     server.use(

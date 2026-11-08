@@ -51,7 +51,7 @@
     "selected_other": "{{count}} ausgewählt",
     "showAll": "Alle anzeigen",
     "showTechnicalDetails": "Technische Details anzeigen",
-    "stale": "Zwischenspeicher, zuletzt geprüft {{time}}",
+    "stale": "Stand {{time}}",
     "unknown": "Unbekannt",
     "updated": "Stand",
     "apply": "Übernehmen",
@@ -151,7 +151,7 @@
     "accessKeyAudited": "Diese Anzeige wurde im Protokoll festgehalten.",
     "caFingerprint": "CA-Fingerabdruck",
     "installCa": "CA installieren",
-    "validate": "Prüfung starten",
+    "validate": "Prüfung als Job starten",
     "refreshState": "Zustand aktualisieren",
     "helper": "Probe-Helper",
     "pendingTransaction": "Offene Transaktion",
@@ -160,8 +160,8 @@
     "helperOutdated": "veraltet",
     "updateHelper": "Helper aktualisieren",
     "helperOutdatedTitle": "Der Probe-Helper ist älter als diese Plattform",
-    "helperOutdatedBody": "Er lehnt Anfragen ab, die er noch nicht kennt. „Helper aktualisieren“ ersetzt ihn über den Verwaltungskanal; die Probe prüft die Signatur, bevor sie etwas schreibt.",
-    "helperUnsignedBody": "Diese Probe wurde eingebunden, bevor Helper-Updates signiert wurden, und trägt keinen Prüfschlüssel. Binde sie erneut ein - per neuer Einladung oder „probe enroll ADMIN@HOST --reenroll“ -, danach wirkt der Knopf unten.",
+    "helperOutdatedBody": "Neuere Aktionen schlagen auf dieser Probe fehl, bis du ihn mit „Helper aktualisieren“ ersetzt.",
+    "helperUnsignedBody": "Diese Probe kann ihren Helper nicht über die Plattform erneuern. Binde sie einmal neu ein - per neuer Einladung oder „probe enroll ADMIN@HOST --reenroll“ -, danach geht „Helper aktualisieren“.",
     "notes": "Notizen",
     "displayName": "Anzeigename",
     "deviationsTitle": "Abweichungen",
@@ -175,6 +175,29 @@
     "configure": "Konfiguration anwenden",
     "unenroll": "Ausbinden",
     "unenrollWarning": "Damit werden Management-Zugang, Inventar und NATS-Konto von {{probe}} entfernt. Die Probe verliert ihre Verbindung; bindest du sie später neu ein, bekommt sie einen neuen PRTG Access Key.",
+    "unenrollTitle": "{{probe}} ausbinden?",
+    "fault": {
+      "unreachableTitle": "Die Probe antwortet nicht",
+      "lastContact": "Letzter Kontakt {{time}} über {{route}} {{host}}.",
+      "neverAnswered": "Sie hat noch nie geantwortet.",
+      "lastAttempt": "Letzter Versuch {{time}}.",
+      "nextStep": "Prüfe, ob der Host läuft und unter {{host}} erreichbar ist, und frag dann mit „Zustand aktualisieren“ erneut an.",
+      "details": "Technische Details",
+      "datedTitle": "Diese Werte sind nicht mehr aktuell",
+      "datedBody": "Die Probe wurde zuletzt {{time}} abgefragt. „Zustand aktualisieren“ fragt sie jetzt ab."
+    },
+    "diag": {
+      "hostname": "Hostname",
+      "configPath": "Konfigurationsdatei",
+      "caSha256": "CA-Fingerabdruck (SHA-256)",
+      "errorDetails": "Letzte Fehlermeldung"
+    },
+    "planStep": {
+      "install": "{{sensor}} in Version {{to}} installieren",
+      "update": "{{sensor}} von Version {{from}} auf {{to}} bringen",
+      "redeploy": "{{sensor}} in Version {{to}} neu ausrollen"
+    },
+    "deviationVersions": "({{from}} → {{to}})",
     "cleanup": {
       "legend": "Zusätzlich aufräumen",
       "removeSensors": "Sensoren entfernen",
@@ -369,6 +392,7 @@
       "link": "Verknüpfen",
       "relink": "Verknüpfung ändern",
       "unlink": "Verknüpfung lösen",
+      "unlinkTitle": "Verknüpfung mit PRTG lösen?",
       "listMissing": "Namen in PRTG fehlen: {{reason}}",
       "dialogTitle": "Mit der Probe in PRTG verknüpfen",
       "dialogIntro": "Wähle diese Probe so, wie PRTG sie führt. Probes, die schon mit einer anderen Probe hier verknüpft sind, stehen nicht in der Liste. In PRTG wird nichts geändert.",
@@ -387,6 +411,7 @@
       "unlinkConfirm": "Die Verknüpfung mit dem PRTG-Objekt {{id}} wird gelöst. Die Probe heißt hier dann wieder so wie bei der Einbindung; in PRTG ändert sich nichts."
     },
     "removeSensorConfirm": "{{sensor}} wird von dieser Probe entfernt. Der Sensor in PRTG meldet danach einen Fehler, bis er gelöscht oder neu ausgerollt ist.",
+    "removeSensorTitle": "{{sensor}} von der Probe entfernen?",
     "returnChannel": {
       "label": "Rückkanal",
       "lastReport": "Letzte Meldung {{time}}",
@@ -396,6 +421,7 @@
       "buffer": "Puffer zu {{percent}} belegt",
       "gaps_one": "{{count}} Lücke, {{time}}",
       "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
+      "certificateExpired": "Zertifikat abgelaufen",
       "noGaps": "Keine Lücken"
     }
   },

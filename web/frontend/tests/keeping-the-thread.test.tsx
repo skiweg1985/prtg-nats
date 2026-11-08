@@ -198,7 +198,7 @@ describe('the tab of the probe detail page', () => {
     await changeLanguage('en')
     wrap('/probes/P1?tab=diagnostics')
 
-    expect(await screen.findByText('hostname')).toBeInTheDocument()
+    expect(await screen.findByText('Host name')).toBeInTheDocument()
   })
 
   it('falls back to the overview for a tab that does not exist', async () => {
