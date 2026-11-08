@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Check, Copy } from 'lucide-react'
 
 import { Button } from './primitives'
 
@@ -29,15 +30,17 @@ export function CopyButton({
   }, [copied])
 
   return (
+    // A drawn check, not a "✓" glyph: icons come from one family.
     <Button
       size={size}
       variant="ghost"
+      icon={copied ? Check : Copy}
       aria-live="polite"
       onClick={() => {
         void navigator.clipboard.writeText(value).then(() => setCopied(true))
       }}
     >
-      {copied ? `✓ ${t('common.copied')}` : (label ?? t('common.copy'))}
+      {copied ? t('common.copied') : (label ?? t('common.copy'))}
     </Button>
   )
 }

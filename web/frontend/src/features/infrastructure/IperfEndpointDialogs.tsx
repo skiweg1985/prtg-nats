@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -19,6 +19,7 @@ import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
   Banner,
   Button,
+  ButtonLink,
   CheckboxField,
   DetailRow,
   Dialog,
@@ -491,11 +492,9 @@ function InviteProgress({
           tone="ok"
           title={t('infrastructure.iperf.inviteDoneTitle')}
           action={
-            <Link to={`/infrastructure/iperf/${name}`} onClick={onClose}>
-              <Button size="sm" variant="primary">
-                {t('infrastructure.iperf.inviteToEndpoint')}
-              </Button>
-            </Link>
+            <ButtonLink to={`/infrastructure/iperf/${name}`} onClick={onClose} size="sm" variant="primary">
+              {t('infrastructure.iperf.inviteToEndpoint')}
+            </ButtonLink>
           }
         >
           {t('infrastructure.iperf.startedNext')}

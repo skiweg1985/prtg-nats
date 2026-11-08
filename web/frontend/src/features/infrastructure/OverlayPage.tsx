@@ -1,5 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  Plus,
+  Power,
+  PowerOff,
+  RefreshCw,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react'
 
 import {
   useOverlay,
@@ -18,6 +26,7 @@ import type { Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
+  ActionMenu,
   Badge,
   Banner,
   Button,
@@ -134,7 +143,7 @@ export function OverlayPage() {
           title={t('infrastructure.overlay.disabled.title')}
           action={
             <PermissionGate permission="overlay.enable">
-              <Button size="sm" onClick={() => setDialog('enable')}>
+              <Button size="sm" icon={Power} onClick={() => setDialog('enable')}>
                 {t('infrastructure.overlay.enable.action')}
               </Button>
             </PermissionGate>
@@ -154,7 +163,7 @@ export function OverlayPage() {
         action={
           data?.enabled ? (
             <PermissionGate permission="overlay.enable">
-              <Button size="sm" variant="ghost" onClick={() => setDialog('disable')}>
+              <Button size="sm" variant="ghost" icon={PowerOff} onClick={() => setDialog('disable')}>
                 {t('infrastructure.overlay.disable.action')}
               </Button>
             </PermissionGate>
@@ -190,19 +199,32 @@ export function OverlayPage() {
           onChange: setSelected,
           actions: (
             <PermissionGate permission="overlay.manage">
-              <Button size="sm" onClick={() => setDialog('mode')}>
-                {t('infrastructure.overlay.actions.mode')}
-              </Button>
               <Button
                 size="sm"
                 variant="ghost"
+                icon={RefreshCw}
                 onClick={() => void refresh.mutate({ probe_ids: selectedIds() })}
               >
                 {t('infrastructure.overlay.actions.refresh')}
               </Button>
-              <Button size="sm" variant="danger" onClick={() => setDialog('remove')}>
-                {t('infrastructure.overlay.actions.remove')}
+              <Button size="sm" icon={SlidersHorizontal} onClick={() => setDialog('mode')}>
+                {t('infrastructure.overlay.actions.mode')}
               </Button>
+              {/* Taking probes off the tunnel is destructive: in the menu, in
+                  danger text, behind its own confirmation. */}
+              <ActionMenu
+                label={t('common.moreActions')}
+                variant="secondary"
+                actions={[
+                  {
+                    key: 'remove',
+                    label: t('infrastructure.overlay.actions.remove'),
+                    icon: Trash2,
+                    tone: 'danger',
+                    onSelect: () => setDialog('remove'),
+                  },
+                ]}
+              />
             </PermissionGate>
           ),
         }}
@@ -222,7 +244,7 @@ export function OverlayPage() {
                   count: offOverlay.length,
                 })}
               </p>
-              <Button onClick={() => setDialog('add')} disabled={!data?.enabled}>
+              <Button icon={Plus} onClick={() => setDialog('add')} disabled={!data?.enabled}>
                 {t('infrastructure.overlay.add.action')}
               </Button>
             </>

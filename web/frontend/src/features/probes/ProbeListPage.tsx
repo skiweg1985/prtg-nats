@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Plus, Upload, X } from 'lucide-react'
 
 import { useInvitations, useProbes, usePrtgProbeNames } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
@@ -11,6 +12,7 @@ import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
   Button,
+  FilterChip,
   Mono,
   PageHeader,
 } from '@/components/ui/primitives'
@@ -224,6 +226,7 @@ export function ProbeListPage() {
               <Button
                 variant="primary"
                 size="sm"
+                icon={Plus}
                 onClick={() => navigate('/probes/new')}
               >
                 {t('probes.enroll.action')}
@@ -264,7 +267,8 @@ export function ProbeListPage() {
             </Button>
           ) : (
             <PermissionGate permission="probe.create">
-              <Button variant="primary" onClick={() => navigate('/probes/new')}>
+              {/* Secondary: the page header already carries the primary. */}
+              <Button icon={Plus} onClick={() => navigate('/probes/new')}>
                 {t('probes.enroll.action')}
               </Button>
             </PermissionGate>
@@ -285,7 +289,7 @@ export function ProbeListPage() {
               onToggle={() => toggleFilter('deviations')}
             />
             {filtered && (
-              <Button size="sm" variant="ghost" onClick={clearFilters}>
+              <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
                 {t('common.clearFilters')}
               </Button>
             )}
@@ -297,7 +301,7 @@ export function ProbeListPage() {
           actions: (
             <>
               <PermissionGate permission="deployment.create">
-                <Button size="sm" variant="primary" onClick={() => setDeploying(true)}>
+                <Button size="sm" icon={Upload} onClick={() => setDeploying(true)}>
                   {t('sensors.deploy')}
                 </Button>
               </PermissionGate>
@@ -335,13 +339,8 @@ function FilterToggle({
   onToggle: () => void
 }) {
   return (
-    <Button
-      size="sm"
-      variant={active ? 'primary' : 'ghost'}
-      aria-pressed={active}
-      onClick={onToggle}
-    >
+    <FilterChip pressed={active} onClick={onToggle}>
       {label}
-    </Button>
+    </FilterChip>
   )
 }

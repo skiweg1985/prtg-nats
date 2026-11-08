@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Eye, KeyRound, Trash2 } from 'lucide-react'
 
 import {
   useCreateNatsAccount,
@@ -12,6 +13,7 @@ import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Button,
   Card,
@@ -20,6 +22,7 @@ import {
   Input,
   Mono,
   PageHeader,
+  RowActions,
 } from '@/components/ui/primitives'
 
 import { RevealPasswordDialog, RotateAccountDialog } from './NatsAccountDialogs'
@@ -91,10 +94,11 @@ export function CredentialsPage() {
       align: 'right',
       cell: (row) => (
         <PermissionGate permission="credential.rotate">
-          <span className="flex justify-end gap-2">
+          <RowActions>
             <Button
               size="sm"
               variant="ghost"
+              icon={Eye}
               onClick={() =>
                 reveal.mutate(row.username, {
                   onSuccess: (data) => setRevealed(data),
@@ -103,21 +107,31 @@ export function CredentialsPage() {
             >
               {t('common.reveal')}
             </Button>
-            <Button size="sm" onClick={() => setConfirmRotate(row)}>
-              {t('credentials.rotate')}
-            </Button>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => setConfirmDelete(row.username)}
-              disabled={row.probe_enrolled || row.is_shared}
-              title={
-                row.probe_enrolled ? t('credentials.deleteBlockedProbe') : undefined
-              }
-            >
-              {t('credentials.delete')}
-            </Button>
-          </span>
+            {/* Rotating and deleting are rare and consequential; both ask
+                first. The shared Core account cannot be deleted at all. */}
+            <ActionMenu
+              label={t('common.moreActions')}
+              actions={[
+                {
+                  key: 'rotate',
+                  label: t('credentials.rotate'),
+                  icon: KeyRound,
+                  onSelect: () => setConfirmRotate(row),
+                },
+                ...(row.is_shared || row.probe_enrolled
+                  ? []
+                  : [
+                      {
+                        key: 'delete',
+                        label: t('credentials.delete'),
+                        icon: Trash2,
+                        tone: 'danger' as const,
+                        onSelect: () => setConfirmDelete(row.username),
+                      },
+                    ]),
+              ]}
+            />
+          </RowActions>
         </PermissionGate>
       ),
     },

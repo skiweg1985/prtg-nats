@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Archive, DatabaseBackup, Download, RotateCcw, ShieldCheck } from 'lucide-react'
 
 import {
   useBackups,
@@ -13,6 +14,7 @@ import { PermissionGate, useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Button,
+  ButtonLink,
   Card,
   ConfirmDialog,
   EmptyState,
@@ -46,13 +48,15 @@ export function SystemPage() {
     <div className="space-y-4">
       <PageHeader title={t('system.title')} subtitle={t('system.subtitle')} />
 
+      {/* Three independent maintenance tasks, none of them the obvious next
+          step - so no primary button on this page. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
           title={t('system.verify.title')}
           action={
             <Button
               size="sm"
-              variant="primary"
+              icon={ShieldCheck}
               disabled={verify.isPending}
               onClick={() => verify.mutate(undefined, { onSuccess: toJob })}
             >
@@ -68,7 +72,7 @@ export function SystemPage() {
           <Card
             title={t('system.restart.title')}
             action={
-              <Button size="sm" onClick={() => setConfirming('restart')}>
+              <Button size="sm" icon={RotateCcw} onClick={() => setConfirming('restart')}>
                 {t('system.restart.run')}
               </Button>
             }
@@ -84,12 +88,12 @@ export function SystemPage() {
           title={t('system.backup.title')}
           action={
             <span className="flex gap-2">
-              <Button size="sm" onClick={() => setConfirming('export')}>
+              <Button size="sm" icon={Archive} onClick={() => setConfirming('export')}>
                 {t('system.backup.export')}
               </Button>
               <Button
                 size="sm"
-                variant="primary"
+                icon={DatabaseBackup}
                 disabled={backup.isPending}
                 onClick={() => backup.mutate(undefined, { onSuccess: toJob })}
               >
@@ -178,13 +182,9 @@ function BackupsCard({ downloadable }: { downloadable: boolean }) {
               {/* A plain same-origin link: the session is an HttpOnly cookie
                   and travels with the navigation - no blob dance needed. */}
               {downloadable && (
-                <a
-                  href={file.download_url}
-                  download
-                  className="text-accent text-sm hover:underline"
-                >
+                <ButtonLink to={file.download_url} reloadDocument download icon={Download}>
                   {t('system.backups.download')}
-                </a>
+                </ButtonLink>
               )}
             </li>
           ))}

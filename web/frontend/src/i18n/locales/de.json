@@ -1128,7 +1128,8 @@
       "caBundleStored": "Ein CA-Bundle ist hinterlegt. Lass das Feld leer, um es zu behalten.",
       "removeToken": "Token entfernen",
       "removeCaBundle": "CA-Bundle entfernen"
-    }
+    },
+    "deleteUserConfirm": "{{user}} wird gelöscht und kann sich nicht mehr anmelden. Die Einträge im Audit-Protokoll bleiben erhalten."
   },
   "roles": {
     "viewer": "Betrachter",
@@ -1354,7 +1355,6 @@
     "rotateWarning": "Für {{account}} wird ein neues Passwort erzeugt. Das bisherige gilt sofort nicht mehr.",
     "rotateProbeHint": "Die eingebundene Probe bekommt das neue Passwort im selben Job und verbindet sich damit neu.",
     "delete": "Löschen",
-    "deleteBlockedProbe": "Für dieses Konto ist eine Probe eingebunden.",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Passwort für {{account}}",
     "revealHint": "Diese Anzeige wurde im Protokoll festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen.",

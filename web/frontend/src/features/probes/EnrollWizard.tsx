@@ -26,9 +26,11 @@ import { CopyBlock, useCountdown } from '@/components/ui/CopyBlock'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
+  BackLink,
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   CheckboxField,
   DetailRow,
@@ -109,9 +111,7 @@ export function EnrollWizard() {
       <header>
         {/* The only page under /probes without one. From step two on, the
             browser's own button was the way out. */}
-        <Link to="/probes" className="text-ink-3 text-xs">
-          ← {t('probes.title')}
-        </Link>
+        <BackLink to="/probes">{t('probes.title')}</BackLink>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-lg">{t('probes.enroll.title')}</h1>
           <p className="text-ink-3 text-sm">{t('probes.enroll.subtitle')}</p>
@@ -626,19 +626,15 @@ function ProgressStep({
               {/* The body promises "sensors deploy like on any other probe";
                   this is the button that starts exactly that. */}
               {probeId && (
-                <Link to={`/probes/${probeId}?tab=sensors`}>
-                  <Button variant="primary" size="sm">
-                    {t('probes.enroll.step3.toDeploy')}
-                  </Button>
-                </Link>
+                <ButtonLink to={`/probes/${probeId}?tab=sensors`} size="sm" variant="primary">
+                  {t('probes.enroll.step3.toDeploy')}
+                </ButtonLink>
               )}
-              <Link to={probeId ? `/probes/${probeId}` : '/probes'}>
-                <Button size="sm">
-                  {probeId
-                    ? t('probes.enroll.step3.toProbe')
-                    : t('probes.enroll.step3.toProbes')}
-                </Button>
-              </Link>
+              <ButtonLink to={probeId ? `/probes/${probeId}` : '/probes'} size="sm" variant="secondary">
+                {probeId
+                  ? t('probes.enroll.step3.toProbe')
+                  : t('probes.enroll.step3.toProbes')}
+              </ButtonLink>
               <Link to={`/jobs/${jobId}`}>
                 <Button size="sm">{t('probes.enroll.step3.toJob')}</Button>
               </Link>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { ClipboardPlus, KeyRound, Plus, SquareTerminal, Trash2 } from 'lucide-react'
 
 import {
   useIperfEndpoints,
@@ -16,9 +17,11 @@ import type { Column } from '@/components/ui/DataTable'
 import { CopyBlock } from '@/components/ui/CopyBlock'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   DetailRow,
   Dialog,
@@ -130,18 +133,40 @@ export function IperfPage() {
       align: 'right',
       cell: (row) => (
         <PermissionGate permission="iperf.manage">
-          <span
-            className="flex justify-end gap-2"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <PasswordButton
-              endpoint={row}
-              onRotate={() => setRotating(row)}
-              onUpdateForeign={() => setUpdatingCredentials(row)}
+          {/* The row opens the endpoint; its rare and destructive actions
+              wait in the menu, each behind its own dialog. */}
+          <span className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+            <ActionMenu
+              label={t('common.moreActions')}
+              actions={[
+                ...(row.managed
+                  ? [
+                      {
+                        key: 'rotate',
+                        label: t('infrastructure.iperf.rotate'),
+                        icon: KeyRound,
+                        onSelect: () => setRotating(row),
+                      },
+                    ]
+                  : row.username && row.has_public_key
+                    ? [
+                        {
+                          key: 'credentials',
+                          label: t('infrastructure.iperf.updateForeign'),
+                          icon: KeyRound,
+                          onSelect: () => setUpdatingCredentials(row),
+                        },
+                      ]
+                    : []),
+                {
+                  key: 'remove',
+                  label: t('common.remove'),
+                  icon: Trash2,
+                  tone: 'danger' as const,
+                  onSelect: () => setRemoving(row),
+                },
+              ]}
             />
-            <Button size="sm" variant="ghost" onClick={() => setRemoving(row)}>
-              {t('common.remove')}
-            </Button>
           </span>
         </PermissionGate>
       ),
@@ -156,15 +181,20 @@ export function IperfPage() {
         action={
           <PermissionGate permission="iperf.manage">
           <span className="flex gap-2">
-            <Button size="sm" onClick={() => setDialog('register')}>
+            <Button size="sm" icon={ClipboardPlus} onClick={() => setDialog('register')}>
               {t('infrastructure.iperf.register')}
             </Button>
             {/* The third way in, for the host this platform cannot reach:
                 the endpoint runs a command and reports back, like a probe. */}
-            <Button size="sm" onClick={() => setDialog('invite')}>
+            <Button size="sm" icon={SquareTerminal} onClick={() => setDialog('invite')}>
               {t('infrastructure.iperf.invite')}
             </Button>
-            <Button size="sm" variant="primary" onClick={() => setDialog('provision')}>
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Plus}
+              onClick={() => setDialog('provision')}
+            >
               {t('infrastructure.iperf.add')}
             </Button>
           </span>
@@ -306,11 +336,9 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
             {/* No link to the endpoint page: the record is written by the job,
                 so until it finishes there is nothing there to look at. */}
             <p>{t('infrastructure.iperf.startedNext')}</p>
-            <Link to={`/jobs/${started}`}>
-              <Button size="sm" variant="primary">
-                {t('probes.enroll.step3.toJob')}
-              </Button>
-            </Link>
+            <ButtonLink to={`/jobs/${started}`} size="sm" variant="primary">
+              {t('probes.enroll.step3.toJob')}
+            </ButtonLink>
           </div>
         </Banner>
       ) : (
@@ -749,28 +777,5 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
 }
 
 // --- Rotating and removing ---------------------------------------------------
-
-function PasswordButton({
-  endpoint,
-  onRotate,
-  onUpdateForeign,
-}: {
-  endpoint: IperfEndpoint
-  onRotate: () => void
-  onUpdateForeign: () => void
-}) {
-  const { t } = useTranslation()
-
-  if (!endpoint.managed && (!endpoint.username || !endpoint.has_public_key)) {
-    return null
-  }
-  return (
-    <Button size="sm" onClick={endpoint.managed ? onRotate : onUpdateForeign}>
-      {endpoint.managed
-        ? t('infrastructure.iperf.rotate')
-        : t('infrastructure.iperf.updateForeign')}
-    </Button>
-  )
-}
 
 // --- Bits --------------------------------------------------------------------

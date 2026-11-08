@@ -5,8 +5,17 @@ import { useTranslation } from 'react-i18next'
 import { useFleetAction, type FleetAction } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
 import type { ProbeSummary } from '@/api/types'
-import { PermissionGate } from '@/app/providers'
-import { Button, Dialog, Mono } from '@/components/ui/primitives'
+import {
+  ArrowUpCircle,
+  FileBadge,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
+import { useAuth } from '@/app/providers'
+import { ActionMenu, Button, Dialog, Mono } from '@/components/ui/primitives'
 
 /**
  * The six probe actions, applied to a selection.
@@ -20,6 +29,14 @@ import { Button, Dialog, Mono } from '@/components/ui/primitives'
 interface Spec {
   action: FleetAction
   labelKey: string
+  icon: LucideIcon
+  /**
+   * Rare actions wait in the overflow menu, as on the probe page. The fleet
+   * bar keeps a different set in view than the detail page: renewing helpers
+   * and fixing deviations are what a selection is usually made for - the
+   * list has a filter for each.
+   */
+  rare?: boolean
   permission: string
   /**
    * Whether this action can do anything for that probe. An action nothing in
@@ -32,24 +49,30 @@ interface Spec {
 const SPECS: Spec[] = [
   {
     action: 'refresh',
+    icon: RefreshCw,
     labelKey: 'probes.refreshState',
     permission: 'probe.read',
     appliesTo: () => true,
   },
   {
     action: 'validate',
+    icon: ShieldCheck,
+    rare: true,
     labelKey: 'probes.validate',
     permission: 'probe.read',
     appliesTo: () => true,
   },
   {
     action: 'install-ca',
+    icon: FileBadge,
+    rare: true,
     labelKey: 'probes.installCa',
     permission: 'probe.update',
     appliesTo: () => true,
   },
   {
     action: 'helper-update',
+    icon: ArrowUpCircle,
     labelKey: 'probes.updateHelper',
     permission: 'probe.update',
     // A helper that reports no version at all predates signed updates, so the
@@ -59,12 +82,14 @@ const SPECS: Spec[] = [
   },
   {
     action: 'configure',
+    icon: Settings2,
     labelKey: 'probes.configure',
     permission: 'probe.update',
     appliesTo: () => true,
   },
   {
     action: 'reconcile',
+    icon: Wrench,
     labelKey: 'probes.fixDeviations',
     permission: 'probe.reconcile',
     // Nothing to reconcile is a job that plans, finds nothing and stops.
@@ -85,6 +110,7 @@ export function FleetActionBar({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const run = useFleetAction()
+  const { can } = useAuth()
   const [confirming, setConfirming] = useState<Spec | null>(null)
 
   function targetsOf(spec: Spec): ProbeSummary[] {
@@ -120,17 +146,38 @@ export function FleetActionBar({
     else execute(spec)
   }
 
-  const offered = SPECS.filter((spec) => targetsOf(spec).length > 0)
+  const offered = SPECS.filter(
+    (spec) => targetsOf(spec).length > 0 && can(spec.permission),
+  )
 
   return (
     <>
-      {offered.map((spec) => (
-        <PermissionGate key={spec.action} permission={spec.permission}>
-          <Button size="sm" onClick={() => start(spec)} disabled={run.isPending}>
+      {offered
+        .filter((spec) => !spec.rare)
+        .map((spec) => (
+          <Button
+            key={spec.action}
+            size="sm"
+            icon={spec.icon}
+            onClick={() => start(spec)}
+            disabled={run.isPending}
+          >
             {t(spec.labelKey)}
           </Button>
-        </PermissionGate>
-      ))}
+        ))}
+      <ActionMenu
+        label={t('common.moreActions')}
+        variant="secondary"
+        actions={offered
+          .filter((spec) => spec.rare)
+          .map((spec) => ({
+            key: spec.action,
+            label: t(spec.labelKey),
+            icon: spec.icon,
+            disabled: run.isPending,
+            onSelect: () => start(spec),
+          }))}
+      />
 
       {confirming && (
         <ConfirmFleetAction

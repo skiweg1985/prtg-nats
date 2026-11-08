@@ -215,7 +215,7 @@ describe('the way back to the list', () => {
     const user = userEvent.setup()
     wrap('/probes/P1?filter=deviations&q=hamburg&tab=sensors')
 
-    await user.click(await screen.findByRole('link', { name: '← Probes' }))
+    await user.click(await screen.findByRole('link', { name: 'Probes' }))
     // The tab belongs to the detail page and stays behind; the rest is what
     // the list was showing.
     expect(address()).toBe('/probes?filter=deviations&q=hamburg')
@@ -226,7 +226,7 @@ describe('the way back to the list', () => {
     const user = userEvent.setup()
     wrap('/probes/P1')
 
-    await user.click(await screen.findByRole('link', { name: '← Probes' }))
+    await user.click(await screen.findByRole('link', { name: 'Probes' }))
     expect(address()).toBe('/probes')
   })
 })
