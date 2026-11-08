@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Configuration reference
@@ -133,7 +133,7 @@ to be put on the overlay again.
 ## PRTG core
 
 Optional. With it, the platform reads the name each probe has in PRTG today
-and shows it next to the enrollment name; without it nothing changes. Set it
+and shows the probe under that name; without it the enrollment name is used. Set it
 under **Settings → PRTG core**. Like the overlay, it lives in the runtime and
 not in `.env`, so an administrator does not need a shell to change it.
 Nothing is ever written to PRTG.

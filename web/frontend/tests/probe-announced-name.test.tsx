@@ -98,36 +98,25 @@ function wrap(path: string) {
   )
 }
 
-describe('the name a probe announced at enrollment', () => {
-  it('is labelled as such on the probe page, not as the name in PRTG', async () => {
+describe('the stored name of a probe not linked to PRTG', () => {
+  it('heads the page and is not repeated as a row of its own', async () => {
     await changeLanguage('en')
     wrap('/probes/P1')
 
-    const label = await screen.findByText('Enrollment name')
-    expect(label.closest('div')).toHaveTextContent('berlin-01')
-    // The name in PRTG has a row of its own (#137); this one never claims it.
-    expect(label.closest('div')).not.toHaveTextContent(/name in PRTG/i)
-    expect(screen.getByText(/PRTG may call it something else.*probe id/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'berlin-01' })).toBeInTheDocument()
+    expect(screen.getAllByText('berlin-01')).toHaveLength(1)
+    expect(screen.queryByText('Enrollment name')).not.toBeInTheDocument()
   })
 
-  it('says the same in German', async () => {
-    await changeLanguage('de')
-    wrap('/probes/P1')
-
-    const label = await screen.findByText('Name bei der Einbindung')
-    expect(label.closest('div')).not.toHaveTextContent(/Name in PRTG/)
-    expect(screen.getByText(/In PRTG kann sie anders heißen.*Probe-Id/)).toBeInTheDocument()
-  })
-
-  it('is marked as the enrollment name where the probe list shows it', async () => {
+  it('is the name the list shows, without a hover note', async () => {
     await changeLanguage('en')
     wrap('/probes')
 
     const name = await screen.findByText('berlin-01')
-    expect(name).toHaveAttribute('title', expect.stringMatching(/^Enrollment name/))
+    expect(name).not.toHaveAttribute('title')
   })
 
-  it('leaves a display name somebody chose here unmarked', async () => {
+  it('gives way to a display name somebody chose here', async () => {
     await changeLanguage('en')
     server.use(
       http.get('/api/v1/probes', () =>
@@ -136,7 +125,7 @@ describe('the name a probe announced at enrollment', () => {
     )
     wrap('/probes')
 
-    const name = await screen.findByText('Berlin office')
-    expect(name).not.toHaveAttribute('title')
+    expect(await screen.findByText('Berlin office')).toBeInTheDocument()
+    expect(screen.queryByText('berlin-01')).not.toBeInTheDocument()
   })
 })

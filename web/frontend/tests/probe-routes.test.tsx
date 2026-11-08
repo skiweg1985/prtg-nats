@@ -138,6 +138,13 @@ describe('the routes on the probe page', () => {
     expect(within(management).getByText('10.99.0.2')).toBeInTheDocument()
     expect(management.querySelector('dd > span')).not.toHaveClass('text-ink-3')
     expect(within(row('NATS via')).getByText('Direct')).toBeInTheDocument()
+    // The site address sits under the route as its fallback, and nowhere
+    // else on the card: there is no separate host row any more.
+    expect(
+      within(management).getByText('Fallback: site address 198.51.100.29'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText(/198\.51\.100\.29/)).toHaveLength(1)
+    expect(screen.queryByText('Management host', { selector: 'dt' })).not.toBeInTheDocument()
   })
 
   it('dims a route older than the staleness window', async () => {
@@ -175,6 +182,7 @@ describe('the routes on the probe page', () => {
     expect(
       within(row('Management über')).getByText('Noch nicht erreicht'),
     ).toBeInTheDocument()
+    expect(within(row('Management über')).getByText('198.51.100.29')).toBeInTheDocument()
     expect(within(row('NATS über')).getByText('Unbekannt')).toBeInTheDocument()
   })
 })

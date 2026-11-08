@@ -157,12 +157,12 @@ function wrap(path: string) {
 }
 
 async function prtgRow() {
-  const label = await screen.findByText('Name in PRTG')
+  const label = await screen.findByText('PRTG link')
   return label.closest('div') as HTMLElement
 }
 
 describe('the name in PRTG on the probe page', () => {
-  it('sits next to the enrollment name and marks a difference as a note', async () => {
+  it('is the one name the page shows once the probe is linked', async () => {
     server.use(
       http.get('/api/v1/probes/P1/prtg-name', () =>
         HttpResponse.json(nameAnswer({ name_in_prtg: 'Berlin Office', differs: true })),
@@ -170,18 +170,13 @@ describe('the name in PRTG on the probe page', () => {
     )
     wrap('/probes/P1')
 
-    const row = await prtgRow()
-    expect(await within(row).findByText('Berlin Office')).toBeInTheDocument()
-    expect(within(row).getByText('Differs from the enrollment name')).toBeInTheDocument()
-    expect(screen.getByText('Enrollment name').closest('div')).toHaveTextContent('berlin-01')
-  })
-
-  it('shows no note when the names agree', async () => {
-    wrap('/probes/P1')
-
-    const row = await prtgRow()
-    await within(row).findByText('berlin-01')
-    expect(within(row).queryByText(/Differs/)).not.toBeInTheDocument()
+    // PRTG is where probes are named, so its name heads the page - and it
+    // appears there only, not again as a row, a badge or the enrollment name.
+    expect(await screen.findByRole('heading', { name: 'Berlin Office' })).toBeInTheDocument()
+    expect(screen.getAllByText('Berlin Office')).toHaveLength(1)
+    expect(screen.queryByText('berlin-01')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Differs/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Enrollment name')).not.toBeInTheDocument()
   })
 
   it('names the link by the object id, the one term for it', async () => {
@@ -217,11 +212,10 @@ describe('the name in PRTG on the probe page', () => {
     )
     wrap('/probes/P1')
 
-    const label = await screen.findByText('Name in PRTG')
+    expect(await screen.findByRole('heading', { name: 'Berlin Office' })).toBeInTheDocument()
+    const label = await screen.findByText('PRTG-Verknüpfung')
     const row = label.closest('div') as HTMLElement
-    expect(
-      await within(row).findByText('Weicht vom Namen bei der Einbindung ab'),
-    ).toBeInTheDocument()
+    expect(await within(row).findByText('Objekt-Id 2041')).toBeInTheDocument()
   })
 })
 
@@ -281,7 +275,7 @@ describe('linking a probe to its object in PRTG', () => {
 })
 
 describe('the name in PRTG in the probe list', () => {
-  it('appears under the probe when it differs', async () => {
+  it('is the name the list shows, with nothing beside it', async () => {
     server.use(
       http.get('/api/v1/prtg/probe-names', () =>
         HttpResponse.json({
@@ -299,7 +293,9 @@ describe('the name in PRTG in the probe list', () => {
     )
     wrap('/probes')
 
-    expect(await screen.findByText('In PRTG: Berlin Office')).toBeInTheDocument()
+    expect(await screen.findByText('Berlin Office')).toBeInTheDocument()
+    expect(screen.queryByText(/In PRTG:/)).not.toBeInTheDocument()
+    expect(screen.queryByText('berlin-01')).not.toBeInTheDocument()
   })
 
   it('says why the names are missing when PRTG cannot be reached', async () => {
