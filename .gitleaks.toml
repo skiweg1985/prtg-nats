@@ -1,0 +1,23 @@
+# Gitleaks with its default rules, minus the test fixtures that look like
+# secrets on purpose: example access keys and protocol samples the tests
+# compare against, and the deliberately truncated PEM block the redaction
+# test feeds in. Listed by file and rule, so a real key anywhere else - or a
+# different kind of secret in these files - still fails the scan.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Example keys in tests, never valid anywhere"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(^|/)web/backend/tests/conftest\.py$''',
+  '''(^|/)web/backend/tests/api/test_probe_access_key\.py$''',
+  '''(^|/)web/backend/tests/api/test_probe_retirement\.py$''',
+  '''(^|/)web/backend/tests/unit/test_probe_helper_protocol\.py$''',
+  '''(^|/)web/frontend/tests/probe-access-key\.test\.tsx$''',
+]
+
+[[allowlists]]
+description = "A truncated PEM block the redaction test must catch"
+targetRules = ["private-key"]
+paths = ['''(^|/)web/backend/tests/unit/test_redaction\.py$''']

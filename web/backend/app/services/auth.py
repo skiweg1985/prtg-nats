@@ -52,6 +52,10 @@ class Principal:
     locale: str
     session_id: str | None = None
     is_development: bool = False
+    # Set for an account still on the password somebody else chose for it.
+    # Such a session may only change that password or sign out; get_principal
+    # refuses it everywhere else.
+    must_change_password: bool = False
 
     def has(self, permission: Permission) -> bool:
         return permission in self.permissions
@@ -322,6 +326,7 @@ class AuthService:
             permissions=permissions_for_roles(roles),
             locale=user.locale,
             session_id=session_id,
+            must_change_password=user.must_change_password,
         )
 
 

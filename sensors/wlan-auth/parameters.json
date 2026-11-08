@@ -109,8 +109,7 @@
     {
       "name": "--max-age",
       "type": "integer",
-      "default": 300,
-      "description": "The oldest measurement this sensor accepts, in seconds."
+      "description": "Optional upper bound for the measurement age in seconds; unset, the probe plans by itself."
     },
     {
       "name": "--measure-now",

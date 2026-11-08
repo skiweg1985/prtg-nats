@@ -87,6 +87,20 @@ https://{$WEB_FQDN}:{$WEB_HTTPS_PORT}, https://{$WEB_BIND_IP}:{$WEB_HTTPS_PORT} 
 		reverse_proxy 127.0.0.1:8100
 	}
 
+	# The guide, built from web/frontend/guide into the same static files as
+	# the interface. Readable without a session on purpose: it describes what
+	# the platform does and holds nothing an account would protect, and the
+	# sign-in page links to it.
+	#
+	# Its own block for one reason: no fallback to index.html. A guide page
+	# that does not exist is a 404, not the interface's front page, which
+	# would read like the link went somewhere.
+	redir /docs /docs/ 308
+	handle /docs/* {
+		root * /srv/www
+		file_server
+	}
+
 	# Everything else is the single-page interface.
 	handle {
 		root * /srv/www

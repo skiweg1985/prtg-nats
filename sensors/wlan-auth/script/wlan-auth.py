@@ -52,6 +52,9 @@ FAILURE_CODES = {
     "assoc-lost": 10,
     "not-measured": 11,
     "result-stale": 12,
+    # Retired with #192: a --max-age the radio cannot keep is a warning in
+    # the message now. The number stays taken so no old alert means
+    # something new.
     "max-age-too-low": 13,
     "gateway-unreachable": 14,
 }
@@ -207,8 +210,8 @@ def setup():
                            help="The client address: auto for one per network, permanent for the radio's own, or a fixed address.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
-    argparser.add_argument("--max-age", type=int, default=300,
-                           help="The oldest measurement this sensor accepts, in seconds.")
+    argparser.add_argument("--max-age", type=int, default=None,
+                           help="Optional upper bound for the measurement age in seconds; unset, the probe plans by itself.")
     argparser.add_argument("--measure-now", action="store_true",
                            help="Measure on the spot instead of collecting the scheduled result.")
     argparser.add_argument("--self-check", action="store_true",
@@ -349,6 +352,19 @@ def with_run_link(message: str, record_id: Any, record_link: Any = None) -> str:
     return message[:MESSAGE_LIMIT - len(link)] + link
 
 
+# What counts as stale when the helper does not say - one from before
+# #192. Twice the old default --max-age.
+LEGACY_STALE_SECONDS = 600
+
+
+def span(seconds) -> str:
+    """A duration the way an operator reads it in a message."""
+    seconds = int(seconds or 0)
+    if seconds < 120:
+        return "%d s" % seconds
+    return "%d min" % round(seconds / 60.0)
+
+
 def age_part(age) -> list[str]:
     """How long ago this was measured, where there is an age at all."""
     return [] if age is None else ["age %d s" % int(age)]
@@ -431,29 +447,34 @@ def work(args: dict[str, Any]):
     # and the message still has to name the cause the radio saw.
     observed = code
     age = answer.get("age")
+    explicit = args["max_age"]
+    round_seconds = answer.get("round_time") or 0
+    sharing = answer.get("job_count") or 0
 
-    # A measurement older than this sensor asked for is not a measurement
-    # any more. Serving it anyway would let the sensor stay green on a
-    # sign-in from hours ago - a failure that looks like nothing is wrong,
-    # and therefore worse than one that shows.
-    stale = age is not None and age > args["max_age"]
+    # A --max-age the radio cannot keep used to be failure code 13, and a
+    # sensor went red on its own parameter whenever a network was added on
+    # the same probe. Now it is a warning in the message, and the bound
+    # the result is judged by is what the radio can keep. Only the helper
+    # knows that number: it is the one place that sees every job.
+    reachable = answer.get("min_max_age")
+    cannot_keep = (not args["measure_now"] and explicit is not None
+                   and reachable is not None and reachable > explicit)
 
-    # A round over every network on this radio takes as long as it takes,
-    # and the helper measures one network at most once a minute. Asking for
-    # a value fresher than both together is a setting no schedule can meet,
-    # so the sensor would go red on its own parameter rather than on the
-    # Wi-Fi - and periodically, which reads like an intermittent fault. The
-    # helper reports the smallest max_age it can keep because only it sees
-    # the other sensors; a helper from before the floor reports only the
-    # round. This is where the setting is judged and named.
-    budget = answer.get("min_max_age") or answer.get("round_budget")
-    sharing = answer.get("job_count") or 1
-    unreachable = (not args["measure_now"] and budget is not None
-                   and budget > args["max_age"])
+    # A measurement past its bound is not a measurement any more. Serving
+    # it anyway would let the sensor stay green on a sign-in from hours
+    # ago - a failure that looks like nothing is wrong, and therefore
+    # worse than one that shows. Without --max-age the helper names the
+    # bound, about two rounds; a helper from before #192 names none, and
+    # the old default stands in for it.
+    if args["measure_now"]:
+        limit = None
+    elif explicit is not None:
+        limit = max(explicit, reachable or 0)
+    else:
+        limit = answer.get("stale_after") or LEGACY_STALE_SECONDS
+    stale = limit is not None and age is not None and age > limit
 
-    if unreachable:
-        code = "max-age-too-low"
-    elif outcome == "pending":
+    if outcome == "pending":
         code = "not-measured"
     elif stale:
         code = "result-stale"
@@ -483,6 +504,12 @@ def work(args: dict[str, Any]):
         channel(17, "Measurement Age", int(age or 0),
                 kind="custom", display_unit="s"),
         channel(18, "Failure Code", FAILURE_CODES.get(code, 99)),
+        # The schedule is visible instead of configured. A round that
+        # grows is a failing network or one too many on the radio, and
+        # both show here before they show as stale results.
+        channel(21, "Round Time", int(round_seconds),
+                kind="custom", display_unit="s"),
+        channel(22, "Jobs on Radio", int(sharing), kind="count"),
     ]
     if args["stage"] == "dhcp":
         channels.append(channel(14, "DHCP Time",
@@ -543,9 +570,16 @@ def work(args: dict[str, Any]):
 
     if outcome == "pending":
         parts = ["%s: waiting for first measurement" % network]
-    elif stale:
+    elif stale and (explicit is not None or "stale_after" not in answer):
         parts = ["%s: last measurement %d s old, limit %d s"
-                 % (network, int(age), args["max_age"])] + link_parts()[:1]
+                 % (network, int(age), limit)] + link_parts()[:1]
+    elif stale:
+        # Nobody set a limit, so the age points at the schedule itself -
+        # a stuck helper, a crowded radio. The words say which numbers to
+        # look at without opening the sensor.
+        parts = ["%s: measurement %s old, round currently %s, %d %s on %s"
+                 % (network, span(age), span(round_seconds), sharing,
+                    "job" if sharing == 1 else "jobs", args["interface"])]
     elif outcome == "ok":
         parts = ["%s: OK" % network] + link_parts()
         # The address says a server answered; this says the network
@@ -564,12 +598,15 @@ def work(args: dict[str, Any]):
         parts = ["%s: %s" % (network, answer.get("message") or "failed")]
         parts += link_parts() + ["code %s" % observed] + age_part(age)
 
-    # First in the line, because it is the one thing an operator has to
-    # act on: nothing about the schedule improves until the setting fits
-    # the radio.
-    if unreachable:
-        parts.insert(0, "Set --max-age >= %d s (%d %s on this radio)" % (
-            budget, sharing, "network" if sharing == 1 else "networks"))
+    # First in the line, because it is the one thing an operator can act
+    # on: the setting asks for more than the radio has. Removing it hands
+    # the schedule to the probe.
+    if cannot_keep:
+        parts.insert(0, "--max-age %d s cannot be kept, the radio needs "
+                        "%d s for %d %s on %s" % (
+                            explicit, reachable, sharing,
+                            "job" if sharing == 1 else "jobs",
+                            args["interface"]))
     message = "; ".join(parts)
     # Only a failed run carries the way to its record: a green sensor sends
     # nobody looking, and a stored result that is too old or not there yet

@@ -19,7 +19,8 @@
     "updates": "Updates",
     "system": "Maintenance",
     "overlay": "Overlay",
-    "sensorLogs": "Sensor log"
+    "sensorLogs": "Sensor log",
+    "guide": "Guide"
   },
   "common": {
     "cancel": "Cancel",
@@ -72,6 +73,8 @@
     "setupTitle": "Create the first administrator",
     "setupIntro": "No account exists yet. The account you create here administers the platform.",
     "displayName": "Display name",
+    "setupCode": "Setup code",
+    "setupCodeHint": "Printed at the end of \"sudo ./prtg-nats setup\". \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
     "createAccount": "Create account",
     "passwordHint": "At least 12 characters. Length matters more than symbols.",
     "developmentBanner": "Development authentication is active. Every request runs as an administrator without signing in.",
@@ -709,6 +712,8 @@
       "iperf": {
         "host_key_pinned": "{{host}}: host key {{fingerprints}} (new: {{new}})",
         "access_installed": "{{endpoint}}: management access installed on {{host}} as {{admin}}, allowed from {{allowed}}",
+        "release_iperf3": "{{endpoint}}: shipped the release build of iperf3 {{version}} for {{platform}}",
+        "system_iperf3": "{{endpoint}}: no release build for {{platform}}, the system iperf3 applies",
         "access_verified": "{{endpoint}}: {{host}} answered over the management channel, iperf3 {{iperf3}}, service {{service}}",
         "seen_from": "{{endpoint}} sees us arrive from {{peer}}, allowed is {{allowed}}",
         "endpoint_ready": "{{endpoint}}: iperf3 set up on {{host}}:{{port}}, user {{username}}",
@@ -1351,7 +1356,9 @@
       "account_locked": "Too many failed attempts. Try again in {{retry_after_seconds}} seconds.",
       "permission_denied": "This action needs the permission \"{{permission}}\".",
       "setup_required": "No account exists yet. Create the first administrator.",
-      "probe_not_enrolled": "This probe is not enrolled on this platform."
+      "probe_not_enrolled": "This probe is not enrolled on this platform.",
+      "setup_code_invalid": "The setup code is wrong or has expired. \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
+      "password_change_required": "Change your password before you continue."
     },
     "probe": {
       "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",

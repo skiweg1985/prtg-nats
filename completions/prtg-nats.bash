@@ -11,7 +11,7 @@
 
 _prtg_nats_commands='backup ca-info ca-path ca-show completion config help init
 install-mpp iperf-server logs mpp-info overlay probe renew-certificate restart
-self sensor setup ssh-key start status stop update user verify'
+self sensor setup setup-code ssh-key start status stop update user verify'
 
 # Old names: still accepted, but no longer suggested. They stand here so the
 # drift check in tests/check-static.sh knows them and does not wrongly report

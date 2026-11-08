@@ -43,6 +43,20 @@ class JobDefinition:
     # cost of being wrong is one round trip to a host that answered seconds
     # ago. Off only where there is nothing left to ask.
     refreshes_probes: bool = True
+    # Whether "run again" may repeat this job. Off where the route that starts
+    # the job checks more than a permission - that nothing else is running,
+    # that the runtime is still empty - because a retry would skip exactly
+    # those checks. Such a job is started anew from where it came from.
+    retryable: bool = True
+    # Permissions a retry needs on top of `permission`: what the creating
+    # route checks besides it, for records the retry writes as well.
+    retry_also_requires: tuple[str, ...] = ()
+
+    def retry_permissions(self) -> tuple[str, ...] | None:
+        """What a retry asks of the caller, or None if it cannot be retried."""
+        if not self.retryable:
+            return None
+        return (self.permission, *self.retry_also_requires)
 
 
 REGISTRY: dict[str, JobDefinition] = {
@@ -78,6 +92,9 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=deploy_sensor.STEPS,
         handler=deploy_sensor.run,
         permission="sensor.deploy",
+        # The retry writes a deployment row of its own, which is what
+        # POST /deployments guards with this permission.
+        retry_also_requires=("deployment.create",),
     ),
     probe_actions.INSTALL_CA_JOB_TYPE: JobDefinition(
         type=probe_actions.INSTALL_CA_JOB_TYPE,
@@ -181,6 +198,8 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=system_actions.SETUP_STEPS,
         handler=system_actions.setup_runtime,
         permission="system.settings",
+        # The route refuses once the runtime is complete; a retry would not.
+        retryable=False,
     ),
     system_actions.RENEW_CERTIFICATE_JOB_TYPE: JobDefinition(
         type=system_actions.RENEW_CERTIFICATE_JOB_TYPE,
@@ -280,6 +299,9 @@ REGISTRY: dict[str, JobDefinition] = {
         steps=stack_update.STEPS,
         handler=stack_update.run,
         permission="system.update",
+        # The route refuses while other jobs run or no update is possible; a
+        # retry would replace the stack under a running rollout.
+        retryable=False,
         # This job touches no probe, and the moment it ends is the worst
         # possible one to ask the whole fleet about itself: the service has
         # just come back up and would answer an SSH round trip per host while

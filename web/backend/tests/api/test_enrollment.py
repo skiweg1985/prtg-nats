@@ -31,7 +31,7 @@ from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import EnrollmentToken
 from app.services.events import get_broadcaster
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, channel_csr_answer, probe_csr
+from tests.conftest import SETUP_CODE, ScriptedTransport, channel_csr_answer, probe_csr
 
 PASSWORD = "correct-horse-battery"
 
@@ -58,7 +58,8 @@ async def _sign_in(
     client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR
 ) -> None:
     first = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert first.status_code == 201, first.text
     if role is RoleName.ADMINISTRATOR:

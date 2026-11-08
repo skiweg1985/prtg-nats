@@ -20,6 +20,8 @@ class SetupIn(ApiModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=12, max_length=512)
     display_name: str = Field(default="", max_length=128)
+    # Printed on the host by `prtg-nats setup` or `prtg-nats setup-code`.
+    setup_code: str = Field(min_length=1, max_length=64)
 
 
 class ChangePasswordIn(ApiModel):

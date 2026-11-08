@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.persistence.models.audit import AuditEvent
+from app.services.setup_code import SetupCodeStore
+from tests.conftest import SETUP_CODE
 
 PASSWORD = "correct-horse-battery"
 
@@ -25,7 +27,12 @@ async def test_setup_creates_an_administrator_and_signs_them_in(
 ) -> None:
     response = await client.post(
         "/api/v1/auth/setup",
-        json={"username": "admin", "password": PASSWORD, "display_name": "Admin"},
+        json={
+            "setup_code": SETUP_CODE,
+            "username": "admin",
+            "password": PASSWORD,
+            "display_name": "Admin",
+        },
     )
     assert response.status_code == 201
     body = response.json()
@@ -34,13 +41,23 @@ async def test_setup_creates_an_administrator_and_signs_them_in(
     assert settings.session_cookie_name in response.cookies
 
 
-async def test_setup_runs_only_once(client: AsyncClient) -> None:
+async def test_setup_runs_only_once(client: AsyncClient, settings: Settings) -> None:
     """The window closes with the first account, so this cannot add a second."""
-    payload = {"username": "admin", "password": PASSWORD}
+    payload = {"username": "admin", "password": PASSWORD, "setup_code": SETUP_CODE}
     assert (await client.post("/api/v1/auth/setup", json=payload)).status_code == 201
 
+    # The code was spent on the first account.
+    reused = await client.post(
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "other", "password": PASSWORD},
+    )
+    assert reused.status_code == 403
+
+    # And even a fresh code from the host does not add a second one.
+    fresh = SetupCodeStore(settings).issue()
     second = await client.post(
-        "/api/v1/auth/setup", json={"username": "other", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": fresh, "username": "other", "password": PASSWORD},
     )
     assert second.status_code == 409
     assert second.json()["error"]["code"] == "common.conflict"
@@ -48,7 +65,8 @@ async def test_setup_runs_only_once(client: AsyncClient) -> None:
 
 async def test_login_rejects_a_wrong_password(client: AsyncClient) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     await client.post("/api/v1/auth/logout")
 
@@ -64,7 +82,8 @@ async def test_an_unknown_user_gets_the_same_error_as_a_wrong_password(
 ) -> None:
     """Otherwise the response enumerates which accounts exist."""
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
 
     unknown = await client.post(
@@ -81,7 +100,8 @@ async def test_repeated_failures_lock_the_account(
     client: AsyncClient, settings: Settings
 ) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
 
     for _ in range(settings.login_max_attempts):
@@ -101,7 +121,8 @@ async def test_a_password_never_reaches_the_audit_trail(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     await client.post(
         "/api/v1/auth/login", json={"username": "admin", "password": "s3cret-attempt"}
@@ -121,7 +142,8 @@ async def test_a_failed_sign_in_is_recorded(
 ) -> None:
     """It is the only trace an attempted intrusion leaves."""
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     await client.post(
         "/api/v1/auth/login", json={"username": "admin", "password": "wrong"}
@@ -138,7 +160,8 @@ async def test_a_failed_sign_in_is_recorded(
 
 async def test_logout_invalidates_the_session(client: AsyncClient) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert (await client.get("/api/v1/auth/state")).json()["authenticated"] is True
 
@@ -156,7 +179,8 @@ async def test_a_short_password_is_refused_with_the_field_named(
     client: AsyncClient,
 ) -> None:
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": "short"}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": "short"},
     )
     assert response.status_code == 422
     assert "password" in response.json()["error"]["fields"]
@@ -170,7 +194,8 @@ async def test_audit_events_cannot_be_modified(
     from sqlalchemy.exc import DatabaseError
 
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
 
     async with session_factory() as db:

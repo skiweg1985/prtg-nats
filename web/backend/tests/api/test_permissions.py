@@ -26,6 +26,7 @@ from app.api.v1.router import api_router
 from app.core.permissions import ROLE_PERMISSIONS, Permission, RoleName
 from app.main import create_app
 from app.workers.handlers import REGISTRY
+from tests.conftest import SETUP_CODE
 
 PASSWORD = "correct-horse-battery"
 
@@ -38,7 +39,7 @@ UNGUARDED: dict[tuple[str, str], str] = {
     (
         "POST",
         "/api/v1/auth/setup",
-    ): "creates the first account; refuses once one exists",
+    ): "creates the first account with the host's setup code; refuses once one exists",
     ("POST", "/api/v1/auth/change-password"): "changing one's own password",
     ("GET", "/api/v1/system/capabilities"): "what the interface may render at all",
     # A host being enrolled has no identity yet. The invitation token is its
@@ -318,7 +319,8 @@ async def _sign_in_as(
 ) -> None:
     """Create the first administrator, then a user in `role`, and sign in as them."""
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     if role is not RoleName.ADMINISTRATOR:
         response = await client.post(
@@ -398,7 +400,8 @@ async def test_the_last_administrator_cannot_be_demoted(
 ) -> None:
     """Losing it means editing the database by hand to get back in."""
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     state = await client.get("/api/v1/auth/state")
     user_id = state.json()["principal"]["user_id"]

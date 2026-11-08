@@ -31,6 +31,7 @@ does not settle, settle it here first.
 | WireGuard dial-in | Hub-Adresse / Endpoint des Overlays | hub address | — |
 | shipping a sensor | ausrollen (Verb), Rollout (Substantiv) | deploy / deployment | Ausrollvorgang, verteilen |
 | secret | Passwort | password | Kennwort |
+| one-time code for the first administrator, printed on the host | Einrichtungscode | setup code | Setup-Code, Bootstrap-Token, Token (for this sense) |
 | credentials | Zugangsdaten | credentials | Anmeldedaten |
 | async unit of work | Job | job | Vorgang, Auftrag |
 | job step log | Verlauf / Protokoll (job page only) | log | — |
@@ -55,6 +56,7 @@ does not settle, settle it here first.
 | the runtime volume's directory | Laufzeitverzeichnis | runtime directory | runtime-Verzeichnis, Runtime-Verzeichnis |
 | the stack's git working tree on the host | Installationsverzeichnis | installation directory | Checkout (in the interface) |
 | the branch updates come from | Update-Kanal | update channel | Branch (in the interface) |
+| the user guide served under `/docs` | Anleitung | guide | Doku, Hilfe, Handbuch |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server

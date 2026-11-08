@@ -235,6 +235,38 @@ for (const [language, rules] of Object.entries(FORBIDDEN_TERMS)) {
   }
 }
 
+// The guide under /docs speaks the same language as the interface. Its texts
+// are data in guide/articles, every one a { de, en } pair, so the same rules
+// reach them without a second list.
+const { groups } = await import('../guide/articles/index.mjs')
+function guideTexts(value, where, out = []) {
+  if (value && typeof value === 'object') {
+    if (typeof value.de === 'string' && typeof value.en === 'string') {
+      out.push([where, value])
+    } else {
+      for (const [key, entry] of Object.entries(value)) {
+        guideTexts(entry, `${where}.${key}`, out)
+      }
+    }
+  }
+  return out
+}
+for (const group of groups) {
+  for (const [where, text] of guideTexts(group, `guide:${group.id}`)) {
+    for (const [language, rules] of Object.entries(FORBIDDEN_TERMS)) {
+      for (const [needle] of rules) {
+        const value = text[language]
+        const hit = needle instanceof RegExp ? needle.test(value) : value.includes(needle)
+        if (hit) {
+          problems.push(
+            `${language}: ${where} uses the retired term ${needle} - see docs/web/terminology.md`,
+          )
+        }
+      }
+    }
+  }
+}
+
 // Written for a sysadmin: two sentences of body copy, one for a banner.
 // docs/web/terminology.md carries the budget; this only catches the runaway
 // cases. The allowlist is for strings whose length is the information -

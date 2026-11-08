@@ -139,6 +139,20 @@ class PermissionDeniedError(AppError):
         return cls(params={"permission": permission})
 
 
+class SetupCodeInvalidError(AppError):
+    """The first administrator needs the code printed on the host."""
+
+    code = "auth.setup_code_invalid"
+    http_status = status.HTTP_403_FORBIDDEN
+
+
+class PasswordChangeRequiredError(AppError):
+    """The session belongs to an account that still owes a password change."""
+
+    code = "auth.password_change_required"
+    http_status = status.HTTP_403_FORBIDDEN
+
+
 class SetupRequiredError(AppError):
     """No administrator exists yet; the first-run wizard has to run."""
 

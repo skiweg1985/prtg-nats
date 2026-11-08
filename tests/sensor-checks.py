@@ -552,7 +552,7 @@ def check_wlan_auth_output():
         "ca_cert": None, "domain_suffix_match": None, "no_verify_server": True,
         "client_cert": None, "private_key": None, "private_key_passwd": None,
         "bssid": None, "hidden": False, "stage": "dhcp", "timeout": 45,
-        "max_age": 300, "measure_now": False, "gateway": "", "mac": "auto",
+        "max_age": None, "measure_now": False, "gateway": "", "mac": "auto",
     }
     result = module.work(arguments)
     channels = {entry["id"]: entry for entry in result["channels"]}
@@ -712,91 +712,135 @@ def check_wlan_auth_output():
     check("the message says what it is waiting for",
           "waiting for first measurement" in result["message"], True)
 
-    # A measurement older than the sensor asked for is not a measurement.
-    # Serving it would keep the sensor green on a sign-in from hours ago.
+    # Nobody sets a freshness any more (#192): the helper says when a
+    # result counts as stale, about two rounds, and the sensor follows it.
+    # Serving an older one would keep the sensor green on a sign-in from
+    # hours ago.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
+        "details": {"ssid": "Corporate"}, "age": 540.0,
+        "round_time": 240.0, "stale_after": 480.0, "job_count": 4,
+        "min_max_age": 480.0,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("a result past what the helper allows stops counting",
+          channels[10]["value"], 3)
+    check("a stale result has its own failure code",
+          channels[18]["value"], 12)
+    check("the age channel carries the age", channels[17]["value"], 540)
+    # The message points at a real problem - a stuck helper, a radio that
+    # is crowded - in words an operator reads without opening anything.
+    check("the message names age, round and the jobs sharing the radio",
+          "Corporate: measurement 9 min old, round currently 4 min, "
+          "4 jobs on wlan0" in result["message"], True)
+
+    # The schedule is visible instead of configured: every radio sensor
+    # carries the round and how many jobs share it, from the first scan.
+    check("the round is a channel", channels[21]["value"], 240)
+    check("in seconds", channels[21].get("display_unit"), "s")
+    check("and so is the number of jobs on the radio",
+          channels[22]["value"], 4)
+
+    # The same age within what the helper allows is a result like any
+    # other.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {}, "details": {"ssid": "Corporate"}, "age": 420.0,
+        "round_time": 240.0, "stale_after": 480.0, "job_count": 4,
+        "min_max_age": 480.0,
+    }
+    result = module.work(dict(arguments))
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("an age inside the helper's bound is a result",
+          channels[10]["value"], 1)
+    check("and says nothing about the schedule",
+          "round currently" in result["message"], False)
+
+    # An explicit --max-age is still honoured as an upper bound, so
+    # sensors that set one keep working.
     module.call_helper = lambda job, timeout: {
         "result": "ok", "code": "ok", "message": "Authentication succeeded",
         "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
         "details": {"ssid": "Corporate"}, "age": 901.0,
+        "round_time": 60.0, "stale_after": 1800.0, "job_count": 1,
+        "min_max_age": 120.0,
     }
     result = module.work(dict(arguments, max_age=900))
     channels = {entry["id"]: entry for entry in result["channels"]}
-    check("a result past its freshness stops counting as a result",
-          channels[10]["value"], 3)
-    check("a stale result has its own failure code",
+    check("an explicit max-age still marks a result stale",
           channels[18]["value"], 12)
-    check("the age channel carries the age", channels[17]["value"], 901)
-    check("and the message names it",
+    check("and the message names the limit",
           "901 s old, limit 900 s" in result["message"], True)
 
-    # A freshness below what a round over the radio costs is a setting no
-    # schedule can meet. Left alone it shows up as a sensor that goes red
-    # every few scans for no reason an operator can see, so the cause is
-    # named instead - and the measurement that did arrive keeps counting.
+    # A --max-age the radio cannot keep used to be failure code 13, and a
+    # sensor turned red on its own parameter whenever a network was added
+    # on the same probe. Now it is a warning in the message: the
+    # measurement keeps its own code, and the bound the sensor judges by
+    # is what the radio can keep.
     module.call_helper = lambda job, timeout: {
         "result": "ok", "code": "ok", "message": "Authentication succeeded",
         "timings": {"total_ms": 3100, "assoc_ms": 900, "auth_ms": 300},
-        "details": {"ssid": "Corporate"}, "age": 30.0,
-        "round_budget": 120, "job_count": 2,
+        "details": {"ssid": "Corporate"}, "age": 150.0,
+        "round_time": 90.0, "stale_after": 600.0, "job_count": 2,
+        "min_max_age": 180.0,
     }
     result = module.work(dict(arguments, max_age=60))
     channels = {entry["id"]: entry for entry in result["channels"]}
-    check("a freshness the radio cannot serve has its own failure code",
-          channels[18]["value"], 13)
-    check("the fresh measurement still counts", channels[10]["value"], 1)
-    check("the message says what to set",
-          "Set --max-age >= 120 s" in result["message"], True)
-    check("and how many networks share the radio",
-          "(2 networks on this radio)" in result["message"], True)
-
-    # A helper with the once-a-minute floor reports the smallest max_age it
-    # can keep, a round plus that minute. The sensor judges against that,
-    # so 150 is too low for two networks although it covers the round.
-    module.call_helper = lambda job, timeout: {
-        "result": "ok", "code": "ok", "message": "OK",
-        "timings": {}, "details": {"ssid": "Corporate"}, "age": 30.0,
-        "round_budget": 120, "min_max_age": 180, "job_count": 2,
-    }
-    result = module.work(dict(arguments, max_age=150))
-    channels = {entry["id"]: entry for entry in result["channels"]}
-    check("the floor counts towards what the radio can keep",
-          channels[18]["value"], 13)
-    check("and the message names the round plus the floor",
-          "Set --max-age >= 180 s" in result["message"], True)
-    check("the default max_age keeps two networks",
-          {entry["id"]: entry for entry in module.work(
-              dict(arguments, max_age=300))["channels"]}[18]["value"], 0)
-
-    # The same answer with a freshness the radio can serve says nothing
-    # about it, or every sensor would carry advice it does not need.
-    result = module.work(dict(arguments, max_age=300))
-    channels = {entry["id"]: entry for entry in result["channels"]}
-    check("a freshness the radio can serve is not commented on",
+    check("a max-age the radio cannot keep is no failure code",
           channels[18]["value"], 0)
-    check("and the message stays about the Wi-Fi",
-          "--max-age" in result["message"], False)
+    check("the measurement still counts", channels[10]["value"], 1)
+    check("it is not stale against a bound the radio cannot keep",
+          "limit" in result["message"], False)
+    check("the message warns first and names what the radio can keep",
+          result["message"].startswith(
+              "--max-age 60 s cannot be kept, the radio needs 180 s for "
+              "2 jobs on wlan0"), True)
 
-    # The setting is named without hiding what the radio reported. Both
-    # belong in the message: one says what to fix, the other what broke.
+    # The warning does not swallow the cause the radio saw.
     module.call_helper = lambda job, timeout: {
         "result": "failed", "code": "dhcp-timeout",
         "message": "No DHCP offer arrived",
         "timings": {"total_ms": 45000, "assoc_ms": 900},
         "details": {"ssid": "Guest"}, "age": 20.0,
-        "round_budget": 120, "job_count": 2,
+        "round_time": 90.0, "stale_after": 600.0, "job_count": 2,
+        "min_max_age": 180.0,
     }
     result = module.work(dict(arguments, max_age=60))
-    check("the advice does not swallow the cause the radio saw",
+    channels = {entry["id"]: entry for entry in result["channels"]}
+    check("the warning keeps the radio's failure code",
+          channels[18]["value"], 8)
+    check("and its cause in the message",
           "dhcp-timeout" in result["message"], True)
-    check("and the advice comes first",
-          result["message"].startswith("Set --max-age"), True)
+
+    # Without --max-age there is nothing to warn about.
+    result = module.work(dict(arguments))
+    check("an automatic schedule carries no warning",
+          "--max-age" in result["message"], False)
+
+    # A helper from before #192 sends no stale bound and no round. The
+    # sensor then judges by twice the old default and does not invent a
+    # round of zero seconds.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {}, "details": {"ssid": "Corporate"}, "age": 700.0,
+        "round_budget": 120, "min_max_age": 180, "job_count": 2,
+    }
+    result = module.work(dict(arguments))
+    check("an old helper's result is stale past twice the old default",
+          {entry["id"]: entry for entry in result["channels"]}[18]["value"],
+          12)
+    check("and the message names the limit, not a round",
+          "700 s old, limit 600 s" in result["message"], True)
 
     # A hand-run diagnosis measures on the spot, so no schedule applies
     # and there is nothing to judge the setting against.
     result = module.work(dict(arguments, max_age=60, measure_now=True))
     channels = {entry["id"]: entry for entry in result["channels"]}
     check("--measure-now is not judged against a round",
-          channels[18]["value"], 8)
+          "--max-age" in result["message"], False)
+    check("and still carries the schedule channels", 22 in channels, True)
 
     # Within the freshness the age is a reading like any other, and the
     # message says how old what it reports is.
@@ -957,7 +1001,7 @@ def check_wlan_auth_output():
     module.work(dict(arguments))
     check("the sensor collects instead of measuring", asked["action"],
           "collect")
-    check("it passes the freshness it needs", asked["max_age"], 300)
+    check("it leaves the freshness to the helper", asked["max_age"], None)
     check("and waits only as long as a memory read takes",
           asked["timeout"], module.COLLECT_TIMEOUT)
     module.work(dict(arguments, measure_now=True))
@@ -1105,96 +1149,168 @@ def check_wlan_auth_scheduler():
           module.gateway_target({"new_ip_address": "198.51.100.19"}),
           ("", ""))
 
-    # Three missed requests are not a deleted sensor, and the floor keeps
-    # a sensor asking every half minute from expiring in 90 seconds.
-    check("a job outlives a few missed requests", module.job_ttl(300), 900)
+    # Three missed requests are not a deleted sensor. The floor is an hour
+    # because the scanning interval is the setting now: a job must survive
+    # the gap to its second request, and the first gap after somebody
+    # raised the interval, before the helper has seen either.
+    check("a job outlives a few missed requests", module.job_ttl(1800), 5400)
     check("and never expires faster than the floor", module.job_ttl(30),
           float(module.JOB_TTL_MINIMUM))
+    check("which covers a scan every half hour",
+          module.JOB_TTL_MINIMUM >= 1800, True)
 
     scheduler = module.Scheduler()
     now = time.monotonic()
 
-    def entry(max_age, measured, asked=0.0):
-        return {"job": job, "max_age": max_age, "asked": now - asked,
+    def entry(every, measured, asked=0.0, max_age=None, runs=(),
+              timeout=None):
+        """A job PRTG asks for every `every` seconds, measured `measured`
+        seconds ago - or never - whose last runs took `runs` seconds."""
+        asks = [now - asked - every * step for step in range(3, -1, -1)]
+        return {"job": job if timeout is None else dict(job, timeout=timeout),
+                "max_age": max_age, "asked": now - asked, "asks": asks,
+                "durations": list(runs),
                 "measured": None if measured is None else now - measured,
                 "result": None if measured is None else {"result": "ok"}}
+
+    # How often PRTG asks is the one setting there is (#192). The helper
+    # reads it off the requests instead of being told a second number
+    # that has to match it.
+    check("the request rate is read off the requests",
+          module.asked_interval(entry(300, 10)), 300.0)
+    check("a job asked once has no rate yet",
+          module.asked_interval(dict(entry(300, 10), asks=[now])), None)
+    # A scan that overran, or a probe that restarted, leaves one odd gap.
+    # The median keeps it from setting the pace.
+    uneven = dict(entry(300, 10), asks=[now - 1500, now - 900, now - 600,
+                                        now - 300, now])
+    check("one odd gap does not set the pace", module.asked_interval(uneven),
+          300.0)
+    # A raised interval is believed at its first gap, so the network is not
+    # measured at the old rate for another quarter of an hour. Lowering it
+    # waits for the median, which errs towards measuring less.
+    raised = dict(entry(60, 10), asks=[now - 1080, now - 1020, now - 960,
+                                       now - 900, now])
+    check("a raised interval counts from its first gap",
+          module.asked_interval(raised), 900.0)
+    # Asked every 15 minutes, the job survives to its next request.
+    slow = dict(entry(900, 10), asks=[now - 900])
+    check("a sensor polled every 15 minutes is not dropped before its "
+          "second request", module.ask_ttl(slow) > 900, True)
 
     scheduler._jobs = {"fresh": entry(300, 10), "new": entry(300, None)}
     check("a job that was never measured goes first",
           scheduler._due()["measured"], None)
 
-    # Measuring each age against the job's own freshness is what shares
-    # the radio out evenly: the one furthest past its share goes next, not
-    # the one that waited longest in seconds.
-    scheduler._jobs = {"patient": entry(300, 100), "demanding": entry(60, 100)}
-    check("the job furthest past its own freshness goes next",
-          scheduler._due()["max_age"], 60)
+    # A sensor polled every five minutes gets a measurement about every
+    # five minutes, and leaves the airtime in between to the others.
+    alone = {"only": entry(300, 0, runs=[12.0])}
+    check("a job is measured as often as it is asked for",
+          module.planned_interval(alone["only"], alone), 300.0)
+    scheduler._jobs = {"fresh": entry(300, 200, runs=[12.0])}
+    check("and not before its interval has passed", scheduler._due(), None)
+    scheduler._jobs = {"due": entry(300, 301, runs=[12.0])}
+    check("once it has, it is measured again",
+          scheduler._due()["measured"] is not None, True)
 
-    scheduler._jobs = {"fresh": entry(300, 10)}
-    check("a result well inside its freshness is not measured again",
-          scheduler._due(), None)
-    scheduler._jobs = {"ageing": entry(300, 280)}
-    check("one approaching its limit is renewed before it passes it",
-          scheduler._due()["max_age"], 300)
+    # Measuring each age against the job's own interval is what shares the
+    # radio out evenly: the one furthest past its share goes next, not the
+    # one that waited longest in seconds.
+    scheduler._jobs = {"patient": entry(300, 100, runs=[12.0]),
+                       "demanding": entry(60, 100, runs=[12.0])}
+    check("the job furthest past its own interval goes next",
+          module.asked_interval(scheduler._due()), 60.0)
 
-    # The renewal has to start early enough to finish in time, and how
-    # early is the time a round over every job takes - not a fraction.
-    # Measured on a probe: two jobs of 15 seconds with max_age 60 renewed
-    # at 48 under a fixed four fifths and finished at 58. One job more and
-    # the result would have passed max_age and been thrown away, although
-    # the scheduler did everything right.
-    two_short = {"a": dict(entry(120, 0), job=dict(job, timeout=15)),
-                 "b": dict(entry(120, 0), job=dict(job, timeout=15))}
-    # 15 seconds of measuring plus 7.5 of waiting out the lock, twice.
-    check("a round is as long as its jobs can take, waiting included",
-          module.round_budget(two_short), 45.0)
-    check("and the renewal starts a whole round before the limit",
-          module.refresh_threshold(120, two_short), 75.0)
-    scheduler._jobs = two_short
-    scheduler._jobs["a"]["measured"] = now - 76
-    scheduler._jobs["b"]["measured"] = now - 5
-    check("so a result one round short of the limit is renewed",
-          scheduler._due()["job"]["timeout"], 15)
-
-    # Where a round cannot fit into max_age at all, every job is overdue
-    # all the time. Measuring in turn is then correct, and they age
-    # together - which is what the age channel is there to show.
-    crowded = {str(i): dict(entry(60, 10), job=dict(job, timeout=45))
-               for i in range(4)}
-    check("an over-subscribed radio keeps measuring, at the floor",
-          module.refresh_threshold(60, crowded),
-          module.REFRESH_FLOOR_SECONDS)
-
-    # A max_age below what the radio can keep used to drive the renewal
-    # down to a second, and the radio signed in without a break. Seen on a
-    # probe: two jobs on one SSID with max_age 60, and the access point
-    # answered with status 16 until nothing got through. One network is
-    # measured at most once a minute now, whatever the setting says, and
-    # the sensor names the setting instead.
+    # The floor stays: an access point answered a radio that signed in
+    # back to back with status 16 until nothing got through. However often
+    # a sensor asks, its network is measured at most once a minute.
     check("one network is measured at most once a minute",
           module.REFRESH_FLOOR_SECONDS, 60.0)
-    check("however small the max_age",
-          module.refresh_threshold(30, {"only": entry(30, 0)}), 60.0)
+    eager = {"only": entry(20, 0, runs=[12.0])}
+    check("however often PRTG asks",
+          module.planned_interval(eager["only"], eager), 60.0)
     check("the radio rests between two sign-ins",
           module.RADIO_PAUSE_SECONDS >= 10, True)
-    pair = {"a": entry(300, 0), "b": entry(300, 0)}
-    check("the smallest max_age it can keep is a round plus the floor",
-          module.min_max_age(pair), module.round_budget(pair) + 60.0)
-    check("which is 180 seconds for two networks of 45",
-          module.min_max_age(pair), 180.0)
+
+    # A round is what the jobs on this radio really take, plus the rest
+    # after each. On paper a sign-in may use its whole timeout; on a probe
+    # a good one takes 8 to 15 seconds, and planning with the worst case
+    # had two networks cost 120 seconds a round.
+    measured_pair = {"a": entry(300, 0, runs=[11.0, 14.0, 12.0]),
+                     "b": entry(300, 0, runs=[9.0])}
+    check("a round is the measured runs plus the rest after each",
+          module.round_time(measured_pair), 14.0 + 10.0 + 9.0 + 10.0)
+    # A failing network costs its full timeout and must stay measured, so
+    # its long run counts at once rather than averaged away.
+    check("the slowest recent run is what a job is expected to take",
+          module.expected_duration(entry(300, 0, runs=[8.0, 45.0, 9.0])),
+          45.0)
+    # Nothing measured yet - a new job, or a helper that just restarted -
+    # falls back to the worst case and converges within a round.
+    check("an unmeasured job is planned with its worst case",
+          module.expected_duration(entry(300, None, timeout=45)), 60.0)
+    check("which is its timeout plus the wait for the radio",
+          module.round_time({"a": entry(300, None, timeout=15),
+                             "b": entry(300, None, timeout=15)}),
+          (15 + 7.5 + 10) * 2)
+
+    # Where the radio cannot serve every job at its interval, all of them
+    # are overdue and are measured in turn - they age together.
+    crowded = {str(i): entry(60, 100, runs=[45.0]) for i in range(4)}
+    scheduler._jobs = crowded
+    check("every job is due once the round outlasts the interval",
+          scheduler._due() is not None, True)
+
+    # --max-age stays an upper bound for the sensors that set it. The
+    # renewal then starts a round early, so the result arrives in time.
+    bounded = {"a": entry(600, 0, max_age=300, runs=[20.0]),
+               "b": entry(600, 0, runs=[20.0])}
+    check("an explicit max-age caps the interval, a round early",
+          module.planned_interval(bounded["a"], bounded), 300.0 - 60.0)
+    check("the others keep their own pace",
+          module.planned_interval(bounded["b"], bounded), 600.0)
+
+    # A result counts as stale relative to the round, not to a number
+    # somebody typed: about two of what it should be.
+    check("stale means twice the interval",
+          module.stale_after(alone["only"], alone), 600.0)
+    check("or twice the round, where the round is longer",
+          module.stale_after(crowded["0"], crowded),
+          2 * module.round_time(crowded))
+
+    # What the radio can keep for a sensor that still sets --max-age: one
+    # round of waiting on top of the once-a-minute floor, or of the round
+    # itself where that is longer.
+    pair = {"a": entry(300, 0, runs=[20.0]), "b": entry(300, 0, runs=[20.0])}
+    check("the smallest max-age it can keep is the floor plus a round",
+          module.min_max_age(pair), 60.0 + 60.0)
+    check("or two rounds where a round outlasts the floor",
+          module.min_max_age(crowded), 2 * module.round_time(crowded))
+
+    # Every answer carries what the sensor needs to judge and show the
+    # schedule, because only this side sees the other jobs.
     scheduler._jobs = dict(pair)
     answer = scheduler._answer(pair["a"], now)
-    check("every answer carries it to the sensor",
-          answer.get("min_max_age"), 180.0)
+    check("an answer carries the round", answer.get("round_time"), 60.0)
+    check("how many jobs share it", answer.get("job_count"), 2)
+    check("when its result counts as stale", answer.get("stale_after"), 600.0)
+    check("and what an explicit max-age would have to be",
+          answer.get("min_max_age"), 120.0)
 
     # The snapshot is read by whoever debugs on the probe. It must name
     # the jobs without handing out what they sign in with.
-    scheduler._jobs = {"only": entry(300, 12)}
+    scheduler._jobs = {"only": entry(300, 12, runs=[12.0])}
     snapshot = scheduler.snapshot()
     serialised = json.dumps(snapshot)
     check("the snapshot names the network", snapshot["jobs"][0]["ssid"],
           "Corporate")
     check("and reports the age it holds", snapshot["jobs"][0]["age"], 12.0)
+    check("how often it is asked for", snapshot["jobs"][0]["asked_every"],
+          300.0)
+    check("how often it is measured", snapshot["jobs"][0]["interval"], 300.0)
+    check("what a run is expected to take",
+          snapshot["jobs"][0]["expected"], 12.0)
+    check("and the round over the radio", snapshot["round_time"], 22.0)
 
     # Which network answered is what a probe with several SSIDs on one
     # radio is debugged with. The address alone does not say it: a lease
@@ -1217,24 +1333,32 @@ def check_wlan_auth_scheduler():
           "secret" in serialised, False)
     check("nor does the identity", "monitor" in serialised, False)
 
-    # A sensor sets its own freshness and sees none of the other sensors
-    # on the radio, so every answer carries what a round costs. Only this
-    # side knows it, and without it a setting nobody can serve reaches
-    # PRTG as a sensor that reddens every few scans for no stated reason.
+    # Registering through collect: the requests are what the rate is read
+    # from, and a measurement is what the durations are read from.
     sharing = module.Scheduler()
-    sharing.collect(dict(job), 60)
-    answer = sharing.collect(dict(job, ssid="Guest"), 60)
-    check("an answer says what a round over the radio costs",
-          answer["round_budget"], 120.0)
-    check("and how many jobs share it", answer["job_count"], 2)
+    sharing.collect(dict(job), None)
+    answer = sharing.collect(dict(job, ssid="Guest"), None)
+    check("two jobs share the radio", answer["job_count"], 2)
+    check("planned with their worst case until measured",
+          answer["round_time"], (45 + 15 + 10) * 2.0)
     identity = module.job_identity(dict(job, ssid="Guest"))
-    sharing._jobs[identity]["result"] = {"result": "ok", "code": "ok"}
-    sharing._jobs[identity]["measured"] = time.monotonic()
-    answer = sharing.collect(dict(job, ssid="Guest"), 60)
-    check("a measured answer carries the round as well",
-          answer["round_budget"], 120.0)
+    sharing._measure = lambda job, log: {"result": "ok", "code": "ok",
+                                         "timings": {}, "details": {}}
+    keep_report = module.report_run
+    module.report_run = lambda job, result, log: result
+    try:
+        sharing.measure(sharing._jobs[identity])
+    finally:
+        module.report_run = keep_report
+    check("a measurement records how long it took",
+          len(sharing._jobs[identity]["durations"]), 1)
+    answer = sharing.collect(dict(job, ssid="Guest"), None)
+    check("and the round shrinks to what it really took",
+          answer["round_time"] < (45 + 15 + 10) * 2.0, True)
+    check("a request is remembered for the rate",
+          len(sharing._jobs[identity]["asks"]), 2)
 
-    scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
+    scheduler._jobs = {"abandoned": entry(300, 4000, asked=4000)}
     check("a job nobody asks for any more is dropped", scheduler._due(), None)
     check("and is gone from the scheduler",
           "abandoned" in scheduler._jobs, False)
@@ -2299,6 +2423,7 @@ def check_iperf_throughput_output():
     check_iperf_throughput_validation(module)
     check_iperf_throughput_credentials(module)
     check_iperf_throughput_endpoint_from_profile(module)
+    check_iperf_throughput_profile_hints(module)
     check_iperf_throughput_parsing(module)
     check_iperf_throughput_channels(module)
 
@@ -2486,6 +2611,63 @@ def check_iperf_throughput_endpoint_from_profile(module):
             iperf_arguments(profile="berlin", server=None, port=None))
         check("an unusable port in the variant does not break the run",
               merged["port"], 5201)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def check_iperf_throughput_profile_hints(module):
+    """Point at the profile when the parameters miss it.
+
+    Two mistakes made in the field: a probe with two endpoints has no
+    "default", so a sensor without --profile finds nothing; and the
+    endpoint's name typed into --server, which iperf3 answers with "Invalid
+    argument". Both messages name what to type instead.
+    """
+    print("\n== iperf-throughput: hints towards the profile ==")
+
+    directory = tempfile.mkdtemp()
+    try:
+        module.PROFILE_DIR = directory
+        check("no profiles keeps the generic message",
+              module.no_server_message(iperf_arguments(profile="default")),
+              module.NO_SERVER_MESSAGE)
+
+        for name, host in (("coder2", "203.0.113.10"),
+                           ("ec-2-benji-dev", "198.51.100.20"),
+                           ("default", "203.0.113.10")):
+            path = os.path.join(directory, "%s.env" % name)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("IPERF3_HOST=%s\nIPERF3_PASSWORD=secret\n" % host)
+            os.chmod(path, 0o640)
+
+        check("the alias is not offered as a choice",
+              module.available_profiles(), ["coder2", "ec-2-benji-dev"])
+        message = module.no_server_message(iperf_arguments(profile="default"))
+        check("without --profile the message lists the profiles",
+              "coder2, ec-2-benji-dev" in message and "--profile" in message,
+              True)
+        message = module.no_server_message(iperf_arguments(profile="ec2"))
+        check("a profile that is not there is named as missing",
+              message.startswith('There is no profile "ec2"')
+              and "coder2, ec-2-benji-dev" in message, True)
+
+        check("a profile name in --server is recognised",
+              module.server_names_a_profile(
+                  iperf_arguments(server="ec-2-benji-dev")),
+              "ec-2-benji-dev")
+        check("an address in --server is left alone",
+              module.server_names_a_profile(
+                  iperf_arguments(server="198.51.100.20")), None)
+
+        # A short host name that is also the profile's own host is a real
+        # address, not a mix-up.
+        path = os.path.join(directory, "iperf-south.env")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("IPERF3_HOST=iperf-south\nIPERF3_PASSWORD=secret\n")
+        os.chmod(path, 0o640)
+        check("a profile whose host is that same name is not a mix-up",
+              module.server_names_a_profile(
+                  iperf_arguments(server="iperf-south")), None)
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
