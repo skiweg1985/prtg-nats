@@ -208,7 +208,10 @@ export function SensorDetailPage() {
 
         <Card title={t('sensors.installedOn')}>
           {data.installations.length === 0 ? (
-            <EmptyState title={t('common.none')} />
+            <EmptyState
+              title={t('sensors.installedOnEmpty')}
+              hint={t('sensors.installedOnEmptyHint')}
+            />
           ) : (
             <ul className="space-y-1">
               {data.installations.map((entry) => (

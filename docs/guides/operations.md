@@ -150,9 +150,9 @@ every six hours, so open the port before rolling out the helper update. A
 changed buffer size (`PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB`) or interface
 address reaches a probe with its next helper update or repair.
 
-The probe page offers "Repair" on the return channel row only when there is
-something to repair: the channel is silent, its certificate has expired, or
-it reported a gap within the last day.
+The probe page offers "Set up again" on the return channel row only when
+there is something to repair: the channel is silent, its certificate has
+expired, or it reported a gap within the last day.
 
 ## Monitoring the stack
 
@@ -306,8 +306,9 @@ sudo ./prtg-nats probe show mpp-probe-01
 
 The web interface shows the same key on the probe's **Overview** tab behind a
 **Reveal** button, for the case where the key has to go into PRTG and nobody
-has a shell on the NATS host. Unlike the command above, that disclosure is
-recorded in the audit trail.
+has a shell on the NATS host. The dialog asks once more before it shows the
+value: unlike the command above, that disclosure is recorded in the audit
+trail. A NATS password is shown the same way.
 
 ## State of the whole fleet
 
@@ -452,10 +453,11 @@ The previous state is archived for a controlled rollback under
 ## Updating the repository
 
 **From the interface.** *Updates* shows which commit is installed, what the
-branch has, and what lies between the two. The button does what the commands
-below do, in that order, as a job with a log and an audit trail. The interface
-is unavailable for a few minutes while the containers are replaced; the page
-says so and comes back on its own.
+branch has, and what lies between the two. The button asks once more, with
+the number of changes, and then does what the commands below do, in that
+order, as a job with a log and an audit trail. The interface is unavailable
+for a few minutes while the containers are replaced; the page says so and
+comes back on its own.
 
 Two things it refuses, both on purpose. A checkout with uncommitted changes -
 an update would have to move over somebody's work. And any other job queued or

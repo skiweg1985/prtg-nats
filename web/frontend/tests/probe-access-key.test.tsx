@@ -122,7 +122,14 @@ describe('the access key on the probe detail', () => {
     expect(screen.queryByText(ACCESS_KEY)).not.toBeInTheDocument()
     expect(revealRequests).toBe(0)
 
+    // The first click only opens the dialog and says what showing it means;
+    // the audited request waits for the second.
     await user.click(screen.getByRole('button', { name: 'Reveal' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/recorded in the audit trail/)).toBeInTheDocument()
+    expect(revealRequests).toBe(0)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Show the access key' }))
 
     expect(await screen.findByText(ACCESS_KEY)).toBeInTheDocument()
     expect(revealRequests).toBe(1)
@@ -139,6 +146,7 @@ describe('the access key on the probe detail', () => {
 
     await screen.findByText('Hidden')
     await user.click(screen.getByRole('button', { name: 'Reveal' }))
+    await user.click(await screen.findByRole('button', { name: 'Show the access key' }))
     await screen.findByText(ACCESS_KEY)
 
     await user.click(screen.getByRole('button', { name: 'Close' }))
@@ -172,15 +180,16 @@ describe('the access key on the probe detail', () => {
 
     await screen.findByText('Hidden')
     await user.click(screen.getByRole('button', { name: 'Reveal' }))
+    await user.click(await screen.findByRole('button', { name: 'Show the access key' }))
     // Named, not "an unexpected error occurred" - the code has a translation.
-    const failure = await screen.findByText(/access_key .* does not exist/i)
+    expect((await screen.findAllByText(/access_key .* does not exist/i)).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     server.resetHandlers()
     await user.click(screen.getByRole('button', { name: 'Reveal' }))
-    await screen.findByText(ACCESS_KEY)
-    await user.click(screen.getByRole('button', { name: 'Close' }))
-
-    expect(failure).not.toBeInTheDocument()
+    expect(screen.queryAllByText(/access_key .* does not exist/i)).toHaveLength(0)
+    await user.click(await screen.findByRole('button', { name: 'Show the access key' }))
+    expect(await screen.findByText(ACCESS_KEY)).toBeInTheDocument()
   })
 
   it('offers no button to a caller who may not read credentials', async () => {
@@ -211,6 +220,9 @@ describe('the NATS account on the probe detail', () => {
     expect(screen.queryByText('n4ts-s3cret')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Show password' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(passwordRequests).toBe(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Show password' }))
     expect(await screen.findByText('n4ts-s3cret')).toBeInTheDocument()
     expect(passwordRequests).toBe(1)
 

@@ -186,6 +186,25 @@ describe('the overlay page', () => {
     expect(enableRequests).toEqual([{ endpoint_host: 'vpn.example.com' }])
   })
 
+  it('names the probes that turning the overlay off would cut off', async () => {
+    // A general sentence about tunnels is not enough to decide on. Hamburg
+    // reaches this host only through the tunnel right now, Köln is pinned to
+    // it; Berlin is on its ordinary route and loses nothing.
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    expect(await screen.findByText('mpp-berlin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Turn off' }))
+    const dialog = within(await screen.findByRole('dialog'))
+
+    const tunnel = dialog.getByText(/on the tunnel right now/).parentElement as HTMLElement
+    expect(within(tunnel).getByText('mpp-hamburg')).toBeInTheDocument()
+    const pinned = dialog.getByText(/set to "On"/).parentElement as HTMLElement
+    expect(within(pinned).getByText('mpp-koeln')).toBeInTheDocument()
+    expect(dialog.queryByText('mpp-berlin')).not.toBeInTheDocument()
+  })
+
   it('does not call the hub down when it simply cannot read it', async () => {
     // The API container answers null when it has no way to look. Painting a
     // red banner from that reported a healthy hub as broken for everyone who

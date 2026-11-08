@@ -149,6 +149,8 @@
     "accessKeyHint": "Diesen Wert als neue Zeile in die PRTG-Access-Key-Liste eintragen.",
     "accessKeyRevealTitle": "PRTG Access Key für {{probe}}",
     "accessKeyAudited": "Diese Anzeige wurde im Audit festgehalten.",
+    "accessKeyIntro": "Der Access Key wird angezeigt, und die Anzeige wird im Audit festgehalten.",
+    "accessKeyShow": "Access Key anzeigen",
     "caFingerprint": "CA-Fingerabdruck",
     "installCa": "CA installieren",
     "validate": "Prüfung als Job starten",
@@ -203,7 +205,8 @@
     "cleanup": {
       "legend": "Zusätzlich aufräumen",
       "removeSensors": "Sensoren entfernen",
-      "removeSensorsHint": "Nimmt alle {{count}} Sensoren von der Probe: Dienste, sudo-Regeln, Konfiguration und Zugangsdaten.",
+      "removeSensorsHint_one": "Nimmt den Sensor von der Probe: Dienst, sudo-Regeln, Konfiguration und Zugangsdaten.",
+      "removeSensorsHint_other": "Nimmt alle {{count}} Sensoren von der Probe: Dienste, sudo-Regeln, Konfiguration und Zugangsdaten.",
       "uninstallMpp": "Probe-Software deinstallieren",
       "uninstallMppHint": "Entfernt das Paket prtgmpprobe, seine Konfiguration samt NATS-CA und die Paessler-Paketquelle.",
       "sensorsSurviveHint": "Die Sensoren bleiben ohne Probe-Software als funktionslose Dienste zurück."
@@ -357,7 +360,7 @@
       "bannerTitle": "In PRTG ist diese Probe noch nicht eingetragen",
       "bannerBody": "Zwei Handgriffe kann die Plattform nicht übernehmen: den Access Key in PRTG hinterlegen (Setup → Systemverwaltung → Probes) und die Verbindungsanfrage genehmigen - ohne „Approve and auto-discover“. Danach hier abhaken.",
       "markDone": "Als eingetragen markieren",
-      "markUndone": "Zurücksetzen",
+      "markUndone": "Markierung zurücknehmen",
       "markedBy": "In PRTG eingetragen (bestätigt von {{by}}, {{when}}).",
       "alreadyMarked": "Als in PRTG eingetragen markiert."
     },
@@ -419,7 +422,7 @@
       "lastReport": "Letzte Meldung {{time}}",
       "nothingYet": "Noch nichts geliefert",
       "silent": "Stumm",
-      "repair": "Reparieren",
+      "repair": "Neu einrichten",
       "buffer": "Puffer zu {{percent}} belegt",
       "gaps_one": "{{count}} Lücke, {{time}}",
       "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
@@ -457,6 +460,8 @@
       "fromPrtgSection": "Von PRTG belegte Parameter"
     },
     "installedOn": "Installiert auf diesen Probes",
+    "installedOnEmpty": "Auf keiner Probe installiert",
+    "installedOnEmptyHint": "„Auf Probes ausrollen“ oben installiert den Sensor.",
     "remove": "Entfernen",
     "variants": {
       "title": "Varianten",
@@ -821,7 +826,7 @@
         "refresh": "Zustand aktualisieren",
         "unenroll": "Probe ausbinden",
         "validate": "Probe prüfen",
-        "channel_repair": "Rückkanal reparieren"
+        "channel_repair": "Rückkanal neu einrichten"
       },
       "sensor": {
         "deploy": "Sensor ausrollen",
@@ -907,7 +912,7 @@
         "set_desired_state": "Soll-Zustand geändert",
         "update": "Probe geändert",
         "validate": "Probe geprüft",
-        "channel_repair": "Rückkanal repariert"
+        "channel_repair": "Rückkanal neu eingerichtet"
       },
       "sensor": {
         "deploy": "Sensor ausgerollt",
@@ -966,6 +971,7 @@
     "iperfTitle": "Messpunkte",
     "iperfSubtitle": "Die Messpunkte, gegen die der Sensor iperf-throughput misst",
     "iperfEmpty": "Es ist kein Messpunkt eingerichtet.",
+    "iperfEmptyHint": "Oben die Plattform einen einrichten lassen, einen vorhandenen eintragen oder einen per Einladung einbinden.",
     "expiresIn_one": "Läuft in {{count}} Tag ab",
     "expiresIn_other": "Läuft in {{count}} Tagen ab",
     "expired": "Abgelaufen",
@@ -1154,10 +1160,11 @@
         "hint": "Unten eine hinzufügen. Ihre gewöhnliche Adresse bleibt in jedem Fall bestehen."
       },
       "add": {
-        "title": "Probes hinzufügen",
+        "title": "Noch nicht im Overlay",
         "body_one": "{{count}} eingebundene Probe ist noch nicht im Overlay.",
         "body_other": "{{count}} eingebundene Probes sind noch nicht im Overlay.",
-        "action": "Probes hinzufügen",
+        "action": "Ins Overlay holen",
+        "dialogTitle": "Probes ins Overlay holen",
         "dialog": "Die Probe erzeugt ihren eigenen Schlüssel und meldet die öffentliche Hälfte zurück. Ihre gewöhnliche Adresse bleibt unverändert.",
         "confirm": "Ins Overlay aufnehmen",
         "allOn": "Alle Probes sind im Overlay",
@@ -1173,7 +1180,12 @@
       "disable": {
         "action": "Ausschalten",
         "title": "Overlay ausschalten",
-        "body": "Der Hub wird gestoppt; jede Probe behält Adresse und Schlüssel und bleibt auf dem gewöhnlichen Weg erreichbar. Stell Probes im Modus „An“ vorher auf „Auto“ - ihr Tunnel ist danach weg."
+        "body": "Der Hub wird gestoppt; jede Probe behält Adresse und Schlüssel und bleibt auf dem gewöhnlichen Weg erreichbar. Stell Probes im Modus „An“ vorher auf „Auto“ - ihr Tunnel ist danach weg.",
+        "onTunnel_one": "Diese Probe läuft gerade über den Tunnel, weil ihr gewöhnlicher Weg gestört ist. Ohne Overlay erreicht sie diesen Host nicht mehr:",
+        "onTunnel_other": "Diese {{count}} Probes laufen gerade über den Tunnel, weil ihr gewöhnlicher Weg gestört ist. Ohne Overlay erreichen sie diesen Host nicht mehr:",
+        "modeOn_one": "Diese Probe steht auf „An“ und verliert ihren Tunnel:",
+        "modeOn_other": "Diese {{count}} Probes stehen auf „An“ und verlieren ihren Tunnel:",
+        "noneAffected": "Gerade ist keine Probe auf den Tunnel angewiesen."
       }
     }
   },
@@ -1453,6 +1465,7 @@
     "delete": "Löschen",
     "deleteWarning": "Das Konto {{account}} und seine Zugangsdaten werden vom Server entfernt. Ein Client, der sie noch verwendet, verliert beim nächsten Reconnect die Verbindung.",
     "revealTitle": "Passwort für {{account}}",
+    "revealIntro": "Das Passwort wird angezeigt, und die Anzeige wird im Audit festgehalten.",
     "revealHint": "Diese Anzeige wurde im Audit festgehalten. Den Wert dort einfügen, wo er gebraucht wird, und den Dialog schließen."
   },
   "updates": {
@@ -1505,7 +1518,14 @@
     },
     "last_update": "Zuletzt von hier aktualisiert",
     "view_log": "Protokoll ansehen",
-    "rebuild": "Jetzt neu bauen"
+    "rebuild": "Jetzt neu bauen",
+    "confirm": {
+      "title": "Update jetzt einspielen?",
+      "body_one": "{{count}} Änderung wird eingespielt.",
+      "body_other": "{{count}} Änderungen werden eingespielt.",
+      "action": "Einspielen",
+      "rebuildTitle": "Stack jetzt neu bauen?"
+    }
   },
   "system": {
     "title": "Wartung",

@@ -213,7 +213,7 @@ describe('the return channel on the probe page', () => {
     wrap()
 
     const row = await channelRow('Return channel')
-    await userEvent.click(within(row).getByRole('button', { name: 'Repair' }))
+    await userEvent.click(within(row).getByRole('button', { name: 'Set up again' }))
     expect(await screen.findByText('job page')).toBeInTheDocument()
     expect(requested).toBe(true)
   })
@@ -238,7 +238,7 @@ describe('the return channel on the probe page', () => {
     const row = await channelRow('Return channel')
     expect(within(row).getByText(/3 gaps/)).toBeInTheDocument()
     expect(
-      within(row).queryByRole('button', { name: 'Repair' }),
+      within(row).queryByRole('button', { name: 'Set up again' }),
     ).not.toBeInTheDocument()
   })
 
@@ -262,7 +262,7 @@ describe('the return channel on the probe page', () => {
 
     const row = await channelRow('Return channel')
     expect(within(row).getByText('Certificate expired')).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Repair' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Set up again' })).toBeInTheDocument()
   })
 
   it('offers no repair without the permission for it', async () => {
@@ -278,7 +278,7 @@ describe('the return channel on the probe page', () => {
     const row = await channelRow('Return channel')
     expect(within(row).getByText('Silent')).toBeInTheDocument()
     expect(
-      within(row).queryByRole('button', { name: 'Repair' }),
+      within(row).queryByRole('button', { name: 'Set up again' }),
     ).not.toBeInTheDocument()
   })
 })

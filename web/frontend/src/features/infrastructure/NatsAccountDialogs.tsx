@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Eye } from 'lucide-react'
 
-import { useRotateNatsAccount } from '@/api/hooks'
+import { useRevealNatsPassword, useRotateNatsAccount } from '@/api/hooks'
 import { CopyButton } from '@/components/ui/CopyBlock'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Button, Dialog, Mono } from '@/components/ui/primitives'
@@ -16,28 +17,56 @@ import { Button, Dialog, Mono } from '@/components/ui/primitives'
 
 export function RevealPasswordDialog({
   username,
-  password,
   onClose,
 }: {
   username: string
-  password: string
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  // Asked for only once the dialog has said what showing it means: every
+  // reveal lands in the audit, and a stray click on a row should not.
+  const reveal = useRevealNatsPassword()
+  const password = reveal.data?.password
   return (
     <Dialog
       title={t('credentials.revealTitle', { account: username })}
       onClose={onClose}
       size="md"
     >
-      <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
-      <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
-        <Mono className="min-w-0 flex-1 break-all">{password}</Mono>
-        <CopyButton value={password} />
-      </div>
-      <div className="mt-4 flex justify-end">
-        <Button onClick={onClose}>{t('common.close')}</Button>
-      </div>
+      {password === undefined ? (
+        <>
+          <p className="text-ink-2 text-sm">{t('credentials.revealIntro')}</p>
+          {reveal.error && (
+            <div className="mt-3">
+              <ErrorDetails error={reveal.error} />
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              icon={Eye}
+              disabled={reveal.isPending}
+              onClick={() => reveal.mutate(username)}
+            >
+              {t('probes.account.showPassword')}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-ink-2 mb-3 text-sm">{t('credentials.revealHint')}</p>
+          <div className="bg-surface-2 rounded-inset flex items-center gap-2 p-3">
+            <Mono className="min-w-0 flex-1 break-all">{password}</Mono>
+            <CopyButton value={password} />
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={onClose}>{t('common.close')}</Button>
+          </div>
+        </>
+      )}
     </Dialog>
   )
 }

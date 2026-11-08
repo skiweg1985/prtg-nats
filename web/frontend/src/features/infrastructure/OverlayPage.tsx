@@ -78,6 +78,11 @@ export function OverlayPage() {
     return probes.filter((probe: ProbeSummary) => !peers.has(probe.nats_username))
   }, [data?.peers, probes])
 
+  const onTunnel = (data?.peers ?? []).filter((peer) => peer.last_state === 'tunnel')
+  const pinnedOn = (data?.peers ?? []).filter(
+    (peer) => peer.mode === 'on' && peer.last_state !== 'tunnel',
+  )
+
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
   const selectedIds = () =>
@@ -262,7 +267,7 @@ export function OverlayPage() {
 
       {dialog === 'add' && (
         <OverlayAttachDialog
-          title={t('infrastructure.overlay.add.title')}
+          title={t('infrastructure.overlay.add.dialogTitle')}
           initial="auto"
           pending={attach.isPending}
           canConfirm={selected.size > 0}
@@ -362,6 +367,24 @@ export function OverlayPage() {
       {dialog === 'disable' && (
         <Dialog onClose={close} title={t('infrastructure.overlay.disable.title')}>
           <p className="text-sm">{t('infrastructure.overlay.disable.body')}</p>
+          {/* The general sentence is not enough to decide on: the probes
+              that are on the tunnel right now drop off this host, and those
+              set to "on" lose the path they were pinned to. */}
+          <AffectedPeers
+            peers={onTunnel}
+            text={t('infrastructure.overlay.disable.onTunnel', { count: onTunnel.length })}
+            tone="danger"
+          />
+          <AffectedPeers
+            peers={pinnedOn}
+            text={t('infrastructure.overlay.disable.modeOn', { count: pinnedOn.length })}
+            tone="warn"
+          />
+          {onTunnel.length === 0 && pinnedOn.length === 0 && (
+            <p className="text-ink-3 mt-3 text-sm">
+              {t('infrastructure.overlay.disable.noneAffected')}
+            </p>
+          )}
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" onClick={close}>
               {t('common.cancel')}
@@ -376,6 +399,32 @@ export function OverlayPage() {
           </div>
         </Dialog>
       )}
+    </div>
+  )
+}
+
+function AffectedPeers({
+  peers,
+  text,
+  tone,
+}: {
+  peers: OverlayPeer[]
+  text: string
+  tone: 'danger' | 'warn'
+}) {
+  const { nameOf } = useProbeNames()
+  if (peers.length === 0) return null
+  return (
+    <div className="mt-3">
+      <p className="text-sm">{text}</p>
+      <ul className="mt-1 space-y-0.5">
+        {peers.map((peer) => (
+          <li key={peer.nats_username} className="flex items-center gap-2 text-sm">
+            <Dot tone={tone} />
+            {nameOf(peer.nats_username)}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

@@ -149,6 +149,8 @@
     "accessKeyHint": "Add this value as a new line in the PRTG access-key list.",
     "accessKeyRevealTitle": "PRTG access key for {{probe}}",
     "accessKeyAudited": "This disclosure has been recorded in the audit trail.",
+    "accessKeyIntro": "The access key will be shown, and showing it is recorded in the audit trail.",
+    "accessKeyShow": "Show the access key",
     "caFingerprint": "CA fingerprint",
     "installCa": "Install CA",
     "validate": "Run check as job",
@@ -203,7 +205,8 @@
     "cleanup": {
       "legend": "Also clear",
       "removeSensors": "Remove sensors",
-      "removeSensorsHint": "Takes all {{count}} sensors off the probe: services, sudo rules, configuration and credentials.",
+      "removeSensorsHint_one": "Takes the sensor off the probe: its service, sudo rules, configuration and credentials.",
+      "removeSensorsHint_other": "Takes all {{count}} sensors off the probe: services, sudo rules, configuration and credentials.",
       "uninstallMpp": "Uninstall probe software",
       "uninstallMppHint": "Removes the prtgmpprobe package, its configuration including the NATS CA, and the Paessler package source.",
       "sensorsSurviveHint": "Without the probe software the sensors stay behind as services nothing calls."
@@ -357,7 +360,7 @@
       "bannerTitle": "This probe is not registered in PRTG yet",
       "bannerBody": "Two steps the platform cannot take for you: add the access key in PRTG (Setup → System Administration → Probes) and approve the connection request - without \"Approve and auto-discover\". Tick this off afterwards.",
       "markDone": "Mark as registered",
-      "markUndone": "Reset",
+      "markUndone": "Undo the mark",
       "markedBy": "Registered in PRTG (confirmed by {{by}}, {{when}}).",
       "alreadyMarked": "Marked as registered in PRTG."
     },
@@ -419,7 +422,7 @@
       "lastReport": "Last report {{time}}",
       "nothingYet": "Nothing delivered yet",
       "silent": "Silent",
-      "repair": "Repair",
+      "repair": "Set up again",
       "buffer": "Buffer {{percent}} full",
       "gaps_one": "{{count}} gap, {{time}}",
       "gaps_other": "{{count}} gaps, the last {{time}}",
@@ -457,6 +460,8 @@
       "fromPrtgSection": "Parameters PRTG fills in itself"
     },
     "installedOn": "Installed on these probes",
+    "installedOnEmpty": "Not installed on any probe",
+    "installedOnEmptyHint": "\"Deploy to probes\" above installs the sensor.",
     "remove": "Remove",
     "variants": {
       "title": "Variants",
@@ -821,7 +826,7 @@
         "refresh": "Refresh the state",
         "unenroll": "Unenroll a probe",
         "validate": "Validate a probe",
-        "channel_repair": "Repair the return channel"
+        "channel_repair": "Set up the return channel again"
       },
       "sensor": {
         "deploy": "Deploy a sensor",
@@ -907,7 +912,7 @@
         "set_desired_state": "Desired state changed",
         "update": "Probe updated",
         "validate": "Probe validated",
-        "channel_repair": "Return channel repaired"
+        "channel_repair": "Return channel set up again"
       },
       "sensor": {
         "deploy": "Sensor deployed",
@@ -966,6 +971,7 @@
     "iperfTitle": "iperf endpoints",
     "iperfSubtitle": "The measurement endpoints the iperf-throughput sensor measures against",
     "iperfEmpty": "No measurement endpoint is set up.",
+    "iperfEmptyHint": "Above, let the platform set one up, add one that already exists, or bring one in by invitation.",
     "expiresIn_one": "Expires in {{count}} day",
     "expiresIn_other": "Expires in {{count}} days",
     "expired": "Expired",
@@ -1154,10 +1160,11 @@
         "hint": "Add one below. It keeps its ordinary address either way."
       },
       "add": {
-        "title": "Add probes",
+        "title": "Not in the overlay yet",
         "body_one": "{{count}} enrolled probe is not on the overlay yet.",
         "body_other": "{{count}} enrolled probes are not on the overlay yet.",
-        "action": "Add probes",
+        "action": "Add to the overlay",
+        "dialogTitle": "Add probes to the overlay",
         "dialog": "The probe generates its own key and reports back the public half. Its ordinary address stays as it is.",
         "confirm": "Add to the overlay",
         "allOn": "Every probe is on the overlay",
@@ -1173,7 +1180,12 @@
       "disable": {
         "action": "Turn off",
         "title": "Turn the overlay off",
-        "body": "The hub stops; every probe keeps its address and key and stays reachable the ordinary way. Put probes in mode \"On\" back to \"Auto\" first - their tunnel is gone afterwards."
+        "body": "The hub stops; every probe keeps its address and key and stays reachable the ordinary way. Put probes in mode \"On\" back to \"Auto\" first - their tunnel is gone afterwards.",
+        "onTunnel_one": "This probe is on the tunnel right now because its ordinary route is down. Without the overlay it no longer reaches this host:",
+        "onTunnel_other": "These {{count}} probes are on the tunnel right now because their ordinary route is down. Without the overlay they no longer reach this host:",
+        "modeOn_one": "This probe is set to \"On\" and loses its tunnel:",
+        "modeOn_other": "These {{count}} probes are set to \"On\" and lose their tunnel:",
+        "noneAffected": "No probe depends on the tunnel right now."
       }
     }
   },
@@ -1453,6 +1465,7 @@
     "delete": "Delete",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
+    "revealIntro": "The password will be shown, and showing it is recorded in the audit trail.",
     "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
   },
   "updates": {
@@ -1505,7 +1518,14 @@
     },
     "last_update": "Last updated from here",
     "view_log": "view log",
-    "rebuild": "Rebuild now"
+    "rebuild": "Rebuild now",
+    "confirm": {
+      "title": "Install the update now?",
+      "body_one": "{{count}} change will be installed.",
+      "body_other": "{{count}} changes will be installed.",
+      "action": "Install",
+      "rebuildTitle": "Rebuild the stack now?"
+    }
   },
   "system": {
     "title": "Maintenance",

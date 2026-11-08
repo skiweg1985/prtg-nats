@@ -109,8 +109,8 @@ sudo ./prtg-nats probe return-channel mpp-berlin-01
 Without `--if-missing` the probe always gets a new certificate, which is how
 to replace one by hand. A failure leaves the rollout alone and says so: the
 probe still measures and reports to PRTG, only its sensor logs wait. The
-platform's repair job, **Repair** on the probe page, does the same from the
-interface.
+platform's repair job, **Set up again** on the probe page, does the same
+from the interface.
 
 ### The overlay
 
