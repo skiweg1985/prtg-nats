@@ -16,6 +16,12 @@
 #   3. The sudo rule keeps SSH_CLIENT. The platform cannot know which address
 #      it appears under from here, and that address is what "from=" has to
 #      name - so the endpoint reports it back rather than being guessed at.
+#
+# Optionally it also installs the release build of iperf3 the platform staged
+# for this host. Distributions ship releases older than the 3.17 authenticated
+# endpoints need, and an administrator who signed in to set the host up is the
+# one moment this can happen without the restricted channel learning to install
+# executables - which it must not.
 
 set -Eeuo pipefail
 
@@ -28,6 +34,14 @@ MANAGEMENT_HOME="/var/lib/prtg-nats-iperf"
 HELPER_PATH="/usr/local/sbin/prtg-nats-iperf-helper"
 SETUP_SCRIPT_PATH="/usr/local/sbin/setup-iperf3-endpoint.sh"
 SUDOERS_PATH="/etc/sudoers.d/prtg-nats-iperf"
+IPERF3_FILE=""
+IPERF3_SHA256=""
+IPERF3_VERSION=""
+IPERF3_PLATFORM=""
+# Kept apart from /opt/prtg-nats/tools, which belongs to the probe helper: a
+# host can be a probe and an endpoint at once, and the two must not move each
+# other's "current" link. setup-iperf3-endpoint.sh reads the same path.
+ENDPOINT_TOOL_DIR="/opt/prtg-nats/endpoint/iperf3"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -85,6 +99,22 @@ while [[ $# -gt 0 ]]; do
       SOURCE_CIDR="${2:-}"
       shift 2
       ;;
+    --iperf3)
+      IPERF3_FILE="${2:-}"
+      shift 2
+      ;;
+    --iperf3-sha256)
+      IPERF3_SHA256="${2:-}"
+      shift 2
+      ;;
+    --iperf3-version)
+      IPERF3_VERSION="${2:-}"
+      shift 2
+      ;;
+    --iperf3-platform)
+      IPERF3_PLATFORM="${2:-}"
+      shift 2
+      ;;
     *)
       die "Unknown option: $1"
       ;;
@@ -104,6 +134,49 @@ command -v passwd >/dev/null 2>&1 || die "passwd is required"
 command -v sudo >/dev/null 2>&1 || die "sudo is required"
 grep -E '^ssh-ed25519 [A-Za-z0-9+/=]+ ' "${PUBLIC_KEY_FILE}" >/dev/null ||
   die "Expected an Ed25519 public key"
+if [[ -n "${IPERF3_FILE}${IPERF3_SHA256}${IPERF3_VERSION}${IPERF3_PLATFORM}" ]]; then
+  # All four or none: a build without its digest is a build nobody checked.
+  [[ -f "${IPERF3_FILE}" ]] || die "The staged iperf3 build is missing"
+  [[ "${IPERF3_SHA256}" =~ ^[0-9a-f]{64}$ ]] || die "Invalid iperf3 digest"
+  [[ "${IPERF3_VERSION}" =~ ^[0-9]+(\.[0-9]+)+$ ]] || die "Invalid iperf3 version"
+  [[ "${IPERF3_PLATFORM}" =~ ^linux-[a-z0-9][a-z0-9_-]*-glibc$ ]] ||
+    die "Invalid iperf3 platform"
+  command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
+fi
+
+# Checks the staged build against the digest the platform sent and against the
+# version it claims, then switches "current" over in one rename. A build that
+# fails either check is not installed at all; the endpoint then keeps whatever
+# it had, and the setup's own version check decides whether that is enough.
+install_release_iperf3() {
+  local target_dir="${ENDPOINT_TOOL_DIR}/${IPERF3_VERSION}/${IPERF3_PLATFORM}"
+  local candidate=""
+  local reported=""
+
+  [[ "$(sha256sum "${IPERF3_FILE}" | awk '{print $1}')" == "${IPERF3_SHA256}" ]] ||
+    die "The staged iperf3 build does not match its digest"
+  install -d -o root -g root -m 0755 "${target_dir}"
+  candidate="$(mktemp "${target_dir}/.iperf3.XXXXXX")"
+  install -o root -g root -m 0755 "${IPERF3_FILE}" "${candidate}"
+  reported="$("${candidate}" --version 2>&1 | awk 'NR == 1 { print $2 }' || true)"
+  if [[ "${reported}" != "${IPERF3_VERSION}" ]]; then
+    rm -f -- "${candidate}"
+    die "The staged iperf3 build reports ${reported:-nothing} instead of ${IPERF3_VERSION}"
+  fi
+  if ! "${candidate}" --version 2>&1 | grep -qi 'authentication'; then
+    rm -f -- "${candidate}"
+    die "The staged iperf3 build lacks authentication support"
+  fi
+  mv -f -- "${candidate}" "${target_dir}/iperf3"
+  ln -sfn -- "${IPERF3_VERSION}/${IPERF3_PLATFORM}" "${ENDPOINT_TOOL_DIR}/.current.new"
+  mv -fT -- "${ENDPOINT_TOOL_DIR}/.current.new" "${ENDPOINT_TOOL_DIR}/current"
+  # Earlier releases go once nothing points at them any more. The running
+  # service keeps its open file until the setup restarts it on the new one.
+  find "${ENDPOINT_TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d \
+    ! -name "${IPERF3_VERSION}" -exec rm -rf -- {} +
+  printf 'Installed the release build of iperf3 %s (%s).\n' \
+    "${IPERF3_VERSION}" "${IPERF3_PLATFORM}"
+}
 
 if ! id "${MANAGEMENT_USER}" >/dev/null 2>&1; then
   useradd \
@@ -117,6 +190,9 @@ passwd -l "${MANAGEMENT_USER}" >/dev/null 2>&1 || true
 
 install -o root -g root -m 0755 "${HELPER_FILE}" "${HELPER_PATH}"
 install -o root -g root -m 0755 "${SETUP_SCRIPT_FILE}" "${SETUP_SCRIPT_PATH}"
+if [[ -n "${IPERF3_FILE}" ]]; then
+  install_release_iperf3
+fi
 install -d -o "${MANAGEMENT_USER}" -g "${MANAGEMENT_USER}" -m 0700 \
   "${MANAGEMENT_HOME}/.ssh"
 
