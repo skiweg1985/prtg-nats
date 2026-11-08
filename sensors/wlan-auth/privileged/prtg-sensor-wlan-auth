@@ -75,9 +75,13 @@ LOCK_WAIT_CEILING = 15
 LOCK_WAIT_SECONDS = 15
 
 # How a job's time to live is derived from how often it is asked for, and
-# the floor under it. See job_ttl.
+# the floor under it. See job_ttl. The floor is an hour because the PRTG
+# scanning interval is the setting now: a job has to survive the gap to
+# its second request, and the first gap after somebody raised the
+# interval, before the helper has seen either. A deleted sensor costs at
+# most an hour of measuring at its own pace.
 JOB_TTL_FACTOR = 3
-JOB_TTL_MINIMUM = 300
+JOB_TTL_MINIMUM = 3600
 
 # The helper plans the radio from what it sees (ADR 0014): how often PRTG
 # asks for a job, and how long its runs really take. Neither is configured.
@@ -1309,8 +1313,12 @@ def asked_interval(entry):
     asks = list(entry.get("asks") or ())
     if len(asks) < 2:
         return None
-    return float(statistics.median(
-        later - earlier for earlier, later in zip(asks, asks[1:])))
+    gaps = [later - earlier for earlier, later in zip(asks, asks[1:])]
+    # The median keeps one overrun scan from setting the pace. A raised
+    # interval is believed at its first gap, though - waiting for the
+    # median would measure at the old rate for several more requests,
+    # and a longer gap only ever means measuring less.
+    return float(max(statistics.median(gaps), gaps[-1]))
 
 
 def planned_interval(entry, jobs):
@@ -1718,7 +1726,8 @@ class Scheduler:
                     "timeout": entry["job"]["timeout"],
                     "max_age": entry.get("max_age"),
                     "age": None if age is None else round(now - age, 1),
-                    "asked_every": asked_interval(entry),
+                    "asked_every": None if asked_interval(entry) is None
+                    else round(asked_interval(entry), 1),
                     "interval": round(
                         planned_interval(entry, self._jobs), 1),
                     "expected": round(expected_duration(entry), 1),

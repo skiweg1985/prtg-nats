@@ -463,7 +463,9 @@ A sensor registers by asking, and nothing else:
    service reads off the requests how often PRTG asks, and measures the
    job about that often.
 4. A job nobody asks for any more expires, after three of its intervals and
-   at least five minutes. Deleting or pausing the sensor in PRTG therefore
+   at least an hour - long enough that a sensor polled every half hour, or
+   one whose interval was just raised, never loses its job between two
+   scans. Deleting or pausing the sensor in PRTG therefore
    ends the measuring, and leaves nothing to clean up on the probe.
 
 The credentials live in the memory of that service and nowhere else. They

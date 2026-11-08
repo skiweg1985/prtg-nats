@@ -40,7 +40,17 @@ often PRTG asks for a job off the requests themselves, as the median gap of
 the last six, and measures the job about that often. A sensor polled every
 five minutes is measured about every five minutes and leaves the airtime in
 between to the others. A job asked for the first time is measured at once,
-as before; until its second request it is planned with five minutes.
+as before; until its second request it is planned with five minutes. A
+raised interval counts from its first longer gap, so the job does not go
+on being measured at the old rate.
+
+**A job expires after three of its intervals, and never within an hour.**
+Before, the expiry followed `--max-age`. Now it has to survive the gap to
+a job's second request, and the first gap after an interval was raised,
+before the helper has seen either; a sensor polled every 15 minutes would
+otherwise be dropped between two scans and answer "not measured yet"
+forever. A deleted sensor therefore costs up to an hour of measuring at
+its own pace.
 
 **Rounds are measured, not assumed.** The helper keeps how long the last
 three runs of every job took, failed runs with their real, longer duration,

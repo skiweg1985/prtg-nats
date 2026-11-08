@@ -819,6 +819,21 @@ def check_wlan_auth_output():
     check("an automatic schedule carries no warning",
           "--max-age" in result["message"], False)
 
+    # A helper from before #192 sends no stale bound and no round. The
+    # sensor then judges by twice the old default and does not invent a
+    # round of zero seconds.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "Authentication succeeded",
+        "timings": {}, "details": {"ssid": "Corporate"}, "age": 700.0,
+        "round_budget": 120, "min_max_age": 180, "job_count": 2,
+    }
+    result = module.work(dict(arguments))
+    check("an old helper's result is stale past twice the old default",
+          {entry["id"]: entry for entry in result["channels"]}[18]["value"],
+          12)
+    check("and the message names the limit, not a round",
+          "700 s old, limit 600 s" in result["message"], True)
+
     # A hand-run diagnosis measures on the spot, so no schedule applies
     # and there is nothing to judge the setting against.
     result = module.work(dict(arguments, max_age=60, measure_now=True))
@@ -1134,11 +1149,15 @@ def check_wlan_auth_scheduler():
           module.gateway_target({"new_ip_address": "198.51.100.19"}),
           ("", ""))
 
-    # Three missed requests are not a deleted sensor, and the floor keeps
-    # a sensor asking every half minute from expiring in 90 seconds.
-    check("a job outlives a few missed requests", module.job_ttl(300), 900)
+    # Three missed requests are not a deleted sensor. The floor is an hour
+    # because the scanning interval is the setting now: a job must survive
+    # the gap to its second request, and the first gap after somebody
+    # raised the interval, before the helper has seen either.
+    check("a job outlives a few missed requests", module.job_ttl(1800), 5400)
     check("and never expires faster than the floor", module.job_ttl(30),
           float(module.JOB_TTL_MINIMUM))
+    check("which covers a scan every half hour",
+          module.JOB_TTL_MINIMUM >= 1800, True)
 
     scheduler = module.Scheduler()
     now = time.monotonic()
@@ -1167,6 +1186,17 @@ def check_wlan_auth_scheduler():
                                         now - 300, now])
     check("one odd gap does not set the pace", module.asked_interval(uneven),
           300.0)
+    # A raised interval is believed at its first gap, so the network is not
+    # measured at the old rate for another quarter of an hour. Lowering it
+    # waits for the median, which errs towards measuring less.
+    raised = dict(entry(60, 10), asks=[now - 1080, now - 1020, now - 960,
+                                       now - 900, now])
+    check("a raised interval counts from its first gap",
+          module.asked_interval(raised), 900.0)
+    # Asked every 15 minutes, the job survives to its next request.
+    slow = dict(entry(900, 10), asks=[now - 900])
+    check("a sensor polled every 15 minutes is not dropped before its "
+          "second request", module.ask_ttl(slow) > 900, True)
 
     scheduler._jobs = {"fresh": entry(300, 10), "new": entry(300, None)}
     check("a job that was never measured goes first",
@@ -1328,7 +1358,7 @@ def check_wlan_auth_scheduler():
     check("a request is remembered for the rate",
           len(sharing._jobs[identity]["asks"]), 2)
 
-    scheduler._jobs = {"abandoned": entry(300, 1000, asked=1000)}
+    scheduler._jobs = {"abandoned": entry(300, 4000, asked=4000)}
     check("a job nobody asks for any more is dropped", scheduler._due(), None)
     check("and is gone from the scheduler",
           "abandoned" in scheduler._jobs, False)

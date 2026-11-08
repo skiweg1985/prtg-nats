@@ -570,7 +570,7 @@ def work(args: dict[str, Any]):
 
     if outcome == "pending":
         parts = ["%s: waiting for first measurement" % network]
-    elif stale and explicit is not None:
+    elif stale and (explicit is not None or "stale_after" not in answer):
         parts = ["%s: last measurement %d s old, limit %d s"
                  % (network, int(age), limit)] + link_parts()[:1]
     elif stale:
