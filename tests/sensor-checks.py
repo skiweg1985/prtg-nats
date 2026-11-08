@@ -2423,6 +2423,7 @@ def check_iperf_throughput_output():
     check_iperf_throughput_validation(module)
     check_iperf_throughput_credentials(module)
     check_iperf_throughput_endpoint_from_profile(module)
+    check_iperf_throughput_profile_hints(module)
     check_iperf_throughput_parsing(module)
     check_iperf_throughput_channels(module)
 
@@ -2610,6 +2611,63 @@ def check_iperf_throughput_endpoint_from_profile(module):
             iperf_arguments(profile="berlin", server=None, port=None))
         check("an unusable port in the variant does not break the run",
               merged["port"], 5201)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def check_iperf_throughput_profile_hints(module):
+    """Point at the profile when the parameters miss it.
+
+    Two mistakes made in the field: a probe with two endpoints has no
+    "default", so a sensor without --profile finds nothing; and the
+    endpoint's name typed into --server, which iperf3 answers with "Invalid
+    argument". Both messages name what to type instead.
+    """
+    print("\n== iperf-throughput: hints towards the profile ==")
+
+    directory = tempfile.mkdtemp()
+    try:
+        module.PROFILE_DIR = directory
+        check("no profiles keeps the generic message",
+              module.no_server_message(iperf_arguments(profile="default")),
+              module.NO_SERVER_MESSAGE)
+
+        for name, host in (("coder2", "203.0.113.10"),
+                           ("ec-2-benji-dev", "198.51.100.20"),
+                           ("default", "203.0.113.10")):
+            path = os.path.join(directory, "%s.env" % name)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("IPERF3_HOST=%s\nIPERF3_PASSWORD=secret\n" % host)
+            os.chmod(path, 0o640)
+
+        check("the alias is not offered as a choice",
+              module.available_profiles(), ["coder2", "ec-2-benji-dev"])
+        message = module.no_server_message(iperf_arguments(profile="default"))
+        check("without --profile the message lists the profiles",
+              "coder2, ec-2-benji-dev" in message and "--profile" in message,
+              True)
+        message = module.no_server_message(iperf_arguments(profile="ec2"))
+        check("a profile that is not there is named as missing",
+              message.startswith('There is no profile "ec2"')
+              and "coder2, ec-2-benji-dev" in message, True)
+
+        check("a profile name in --server is recognised",
+              module.server_names_a_profile(
+                  iperf_arguments(server="ec-2-benji-dev")),
+              "ec-2-benji-dev")
+        check("an address in --server is left alone",
+              module.server_names_a_profile(
+                  iperf_arguments(server="198.51.100.20")), None)
+
+        # A short host name that is also the profile's own host is a real
+        # address, not a mix-up.
+        path = os.path.join(directory, "iperf-south.env")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("IPERF3_HOST=iperf-south\nIPERF3_PASSWORD=secret\n")
+        os.chmod(path, 0o640)
+        check("a profile whose host is that same name is not a mix-up",
+              module.server_names_a_profile(
+                  iperf_arguments(server="iperf-south")), None)
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
