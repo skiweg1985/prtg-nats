@@ -222,8 +222,10 @@ export function ProbeDetailPage() {
             needs it, otherwise applying the configuration. Everything rare -
             the check report, the CA, unenrolling - waits in the menu,
             unenrolling last, in danger text, behind its own confirmation.
-            On a phone the buttons grow to a finger's size. */}
-        <div className="flex flex-wrap items-center gap-2 max-md:[&_button]:h-11">
+            On a phone the buttons grow to a finger's size, and a button
+            that is not the primary keeps only its icon so the row - with the
+            menu - still fits one line; its name stays for screen readers. */}
+        <div className="flex flex-wrap items-center gap-2 max-md:[&_button]:h-11 max-md:[&_button]:min-w-11 max-md:[&_button]:justify-center">
           <Button
             size="sm"
             variant={refreshFirst ? 'primary' : 'ghost'}
@@ -231,7 +233,9 @@ export function ProbeDetailPage() {
             onClick={() => refresh.mutate(probeId)}
             disabled={refresh.isPending}
           >
-            {t('probes.refreshState')}
+            <span className={refreshFirst ? undefined : 'max-md:sr-only'}>
+              {t('probes.refreshState')}
+            </span>
           </Button>
           {helperVisible ? (
             <Button
@@ -241,7 +245,9 @@ export function ProbeDetailPage() {
               onClick={() => updateHelper.mutate(probeId, toJob)}
               disabled={updateHelper.isPending}
             >
-              {t('probes.updateHelper')}
+              <span className={helperPrimary ? undefined : 'max-md:sr-only'}>
+                {t('probes.updateHelper')}
+              </span>
             </Button>
           ) : (
             <PermissionGate permission="probe.update">
@@ -251,7 +257,7 @@ export function ProbeDetailPage() {
                 onClick={() => configure.mutate(probeId, toJob)}
                 disabled={configure.isPending}
               >
-                {t('probes.configure')}
+                <span className="max-md:sr-only">{t('probes.configure')}</span>
               </Button>
             </PermissionGate>
           )}

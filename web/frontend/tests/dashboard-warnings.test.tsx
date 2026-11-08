@@ -41,7 +41,7 @@ const DASHBOARD = {
       uptime: '1d',
       jetstream: null,
     },
-    capabilities: { docker: true, runtime_state: 'ready' },
+    capabilities: { docker: true, runtime_state: 'complete' },
     containers: [],
   },
   probe_total: 1,
@@ -168,5 +168,42 @@ describe('the probes no status colour counts', () => {
     await screen.findByText(/certificate/i)
     expect(screen.queryByText('Enrollment open')).not.toBeInTheDocument()
     expect(screen.queryByText('PRTG missing')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The certificates page sends anyone with a missing certificate to the
+ * dashboard to initialise. A half-initialised runtime must find the action
+ * there too, or that link leads nowhere.
+ */
+describe('the initialisation banner', () => {
+  it.each(['missing', 'partial'])('offers to initialise a %s runtime', async (state) => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/dashboard', () =>
+        HttpResponse.json({
+          ...DASHBOARD,
+          system: {
+            ...DASHBOARD.system,
+            capabilities: { docker: true, runtime_state: state },
+          },
+        }),
+      ),
+    )
+    wrap()
+
+    expect(
+      await screen.findByText('This installation has not been initialised'),
+    ).toBeInTheDocument()
+  })
+
+  it('stays away once the runtime is complete', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    await screen.findByText('Expiring certificates')
+    expect(
+      screen.queryByText('This installation has not been initialised'),
+    ).not.toBeInTheDocument()
   })
 })
