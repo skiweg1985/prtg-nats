@@ -49,6 +49,7 @@ import type {
   SensorLogPage,
   SensorLogRange,
   SensorLogRecord,
+  SensorLogStream,
   SensorLogSummary,
   SensorProfile,
   SensorProfileDetail,
@@ -95,9 +96,10 @@ export const keys = {
   probePrtgCandidates: (id: string) => ['probes', id, 'prtg-candidates'] as const,
   users: ['users'] as const,
   sensorLogs: ['sensor-logs', 'list'] as const,
-  sensorLogList: (filters: SensorLogFilters, limit: number) =>
-    ['sensor-logs', 'list', filters, limit] as const,
+  sensorLogList: (filters: SensorLogFilters, limit: number, offset: number) =>
+    ['sensor-logs', 'list', filters, limit, offset] as const,
   sensorLog: (id: string) => ['sensor-logs', 'record', id] as const,
+  sensorLogStreams: (probe: string) => ['sensor-logs', 'streams', probe] as const,
 }
 
 // Jobs move; a dashboard that only updates on reload is a dashboard nobody
@@ -1146,9 +1148,9 @@ export function rangeStart(range: SensorLogRange, now = Date.now()): Date {
  * is worked out when the request goes out, so a refetch an hour later covers
  * the hour that passed instead of a window frozen at the first load.
  */
-export function useSensorLogs(filters: SensorLogFilters, limit = 100) {
+export function useSensorLogs(filters: SensorLogFilters, limit = 100, offset = 0) {
   return useQuery({
-    queryKey: keys.sensorLogList(filters, limit),
+    queryKey: keys.sensorLogList(filters, limit, offset),
     queryFn: () =>
       api.get<SensorLogPage>('/sensor-logs', {
         probe: filters.probe,
@@ -1158,6 +1160,23 @@ export function useSensorLogs(filters: SensorLogFilters, limit = 100) {
         q: filters.q,
         since: rangeStart(filters.range).toISOString(),
         limit,
+        offset,
+      }),
+    placeholderData: (previous) => previous,
+  })
+}
+
+/**
+ * One probe's runs of the last day, per sensor and network, with runs in a
+ * row that ended the same way folded into one segment.
+ */
+export function useSensorLogStreams(probe: string) {
+  return useQuery({
+    queryKey: keys.sensorLogStreams(probe),
+    queryFn: () =>
+      api.get<SensorLogStream[]>('/sensor-logs/streams', {
+        probe,
+        since: rangeStart('24h').toISOString(),
       }),
     placeholderData: (previous) => previous,
   })
@@ -1193,7 +1212,10 @@ export function useSensorLogStream(scope: { probe?: string } = {}) {
     let dropped = false
 
     source.onopen = () => {
-      if (dropped) void client.invalidateQueries({ queryKey: keys.sensorLogs })
+      if (dropped) {
+        void client.invalidateQueries({ queryKey: keys.sensorLogs })
+        void client.invalidateQueries({ queryKey: ['sensor-logs', 'streams'] })
+      }
       dropped = false
     }
     source.onerror = () => {
@@ -1203,9 +1225,16 @@ export function useSensorLogStream(scope: { probe?: string } = {}) {
       const record = JSON.parse(
         (message as MessageEvent<string>).data,
       ) as SensorLogSummary
+      // Folding happens on the server, so a folded view asks again rather
+      // than trying to fold the new run in itself.
+      void client.invalidateQueries({ queryKey: keys.sensorLogStreams(record.probe) })
       for (const query of client.getQueryCache().findAll({ queryKey: keys.sensorLogs })) {
         const filters = query.queryKey[2] as SensorLogFilters | undefined
         if (!filters || !matchesFilters(record, filters)) continue
+        // A later page is a fixed window into the past. Putting the new run
+        // on top of it would push a row onto the next page while somebody is
+        // reading this one; the first page is where new runs belong.
+        if (query.queryKey[4]) continue
         if (filters.q) {
           void client.invalidateQueries({ queryKey: query.queryKey, exact: true })
           continue

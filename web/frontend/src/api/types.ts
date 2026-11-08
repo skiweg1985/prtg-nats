@@ -902,6 +902,26 @@ export interface SensorLogPage {
   offset: number
 }
 
+/** Runs in a row of one stream that ended the same way; `first` is the oldest. */
+export interface SensorLogSegment {
+  result: SensorLogResult
+  code: string | null
+  count: number
+  first: SensorLogSummary
+  last: SensorLogSummary
+}
+
+/** One sensor's runs for one network, folded into segments, newest first. */
+export interface SensorLogStream {
+  sensor: string
+  ssid: string | null
+  total: number
+  results: Partial<Record<SensorLogResult, number>>
+  segments: SensorLogSegment[]
+  /** Older segments the answer left out; the full log has them. */
+  more_segments: number
+}
+
 /** The time windows the log offers; the API defaults to the last day. */
 export type SensorLogRange = '1h' | '24h' | '7d' | '14d'
 

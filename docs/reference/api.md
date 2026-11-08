@@ -637,6 +637,7 @@ Every route needs `sensor_log.read`, which every role holds.
 | | |
 | --- | --- |
 | `GET /sensor-logs` | records, newest first, without their body |
+| `GET /sensor-logs/streams` | one probe's runs per sensor and network, runs in a row folded into segments |
 | `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
 | `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
 
@@ -673,6 +674,34 @@ of the record and the `ssid` from its body:
 `result` is `gap` for a record the probe wrote when its buffer was full and it
 had to drop older records; its body names the time range and how many were
 lost. The detail adds `body`, whose content depends on the sensor.
+
+`GET /sensor-logs/streams?probe=` is what the probe page shows. A sensor that
+runs every minute writes over a thousand records a day; listed one by one they
+buried the single failure in between. This folds consecutive records of one
+sensor and network that ended with the same `result` and `code` into a
+segment, newest segment first:
+
+```json
+[
+  {
+    "sensor": "wlan-auth",
+    "ssid": "Example-Corp",
+    "total": 85,
+    "results": {"ok": 84, "error": 1},
+    "segments": [
+      {"result": "ok", "code": null, "count": 74, "first": {...}, "last": {...}},
+      {"result": "error", "code": "dhcp-timeout", "count": 1, "first": {...}, "last": {...}}
+    ],
+    "more_segments": 0
+  }
+]
+```
+
+`first` and `last` are the oldest and the newest record of the segment, in the
+shape of a list item. `since` and `until` work as on the list, `segments`
+caps how many are returned per stream (default 8, up to 50), and
+`more_segments` counts the older ones left out. The records themselves stay
+at `GET /sensor-logs`.
 
 The event stream sends only what arrives while it is open - a page loads the
 list first and adds what the stream announces. `?probe=` and `?sensor=` narrow
