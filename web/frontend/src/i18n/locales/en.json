@@ -1507,6 +1507,32 @@
       "sensor": "Sensor",
       "anySensor": "All sensors",
       "network": "Network (SSID)"
+    },
+    "wlanAuth": {
+      "ssid": "Network (SSID)",
+      "auth": "Authentication",
+      "interface": "Interface",
+      "stage": "Stage",
+      "identity": "Identity",
+      "profile": "Profile",
+      "bssid": "Access point (BSSID)",
+      "clientMac": "Client address",
+      "clientMacKind": "Client address source",
+      "ipAddress": "Leased address",
+      "dhcpServer": "DHCP server",
+      "gateway": "Gateway",
+      "gatewayKind": "Gateway source",
+      "frequency": "Frequency (MHz)",
+      "signal": "Signal (dBm)",
+      "timings": "Stage timings",
+      "assocMs": "Association (ms)",
+      "authMs": "Authentication (ms)",
+      "dhcpMs": "DHCP (ms)",
+      "gatewayMs": "Gateway ping (ms)",
+      "totalMs": "Total (ms)",
+      "supplicant": "wpa_supplicant output",
+      "dhcp": "DHCP client output",
+      "events": "Helper events"
     }
   }
 }

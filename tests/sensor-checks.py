@@ -29,6 +29,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # The checks load the sensors as modules. Without this line a __pycache__
@@ -848,6 +849,52 @@ def check_wlan_auth_output():
           module.work(dict(arguments))["message"],
           "Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; "
           "code dhcp-timeout; age 20 s")
+
+    # A failed run points at its record in the sensor log, where the raw
+    # supplicant and DHCP output is. The platform's address is not known on
+    # the probe, so the path is what the message carries - the part after
+    # the address the operator opens the platform with.
+    run = "3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10"
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run,
+    }
+    check("a failed run names its record in the sensor log",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "log /sensor-logs/%s" % run)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "auth-failed-eap",
+        "message": "x" * 3000, "timings": {}, "details": {"ssid": "Guest"},
+        "record_id": run,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("a long message stays within what PRTG shows",
+               len(message) <= 2000)
+    check_true("and still ends on the link",
+               message.endswith("; log /sensor-logs/%s" % run))
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK", "timings": {},
+        "details": {"ssid": "Guest"}, "age": 5.0, "record_id": run,
+    }
+    check("a successful run does not", "/sensor-logs/" in module.work(
+        dict(arguments))["message"], False)
+    module.call_helper = lambda job, timeout: {
+        "result": "blocked", "code": "iface-down",
+        "message": "Could not power up wlan0", "timings": {}, "details": {},
+        "record_id": run,
+    }
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        try:
+            module.work(dict(arguments))
+        except SystemExit:
+            pass
+    check("a run that could not happen names its record too",
+          json.loads(printed.getvalue())["message"],
+          "Test could not run (iface-down): Could not power up wlan0; "
+          "log /sensor-logs/%s" % run)
     asked = {}
 
     def remember_mac(job, timeout):
@@ -1166,6 +1213,272 @@ def check_wlan_auth_scheduler():
                    encoding="utf-8").read()
     check("and the rollout asks for exactly that word",
           '"${mode}" == "daemon"' in rollout, True)
+
+
+@contextlib.contextmanager
+def return_channel_stub():
+    """The real return channel service on a socket of its own, in a thread.
+
+    The wlan-auth helper talks to it exactly as it would on a probe, so what
+    the checks see is what the buffer would hold - nothing the helper sends
+    gets past the service's own validation unnoticed.
+    """
+    # A short path: AF_UNIX names are limited to about a hundred bytes.
+    directory = tempfile.mkdtemp(prefix="rc.", dir="/tmp")
+    try:
+        channel = load_return_channel(directory)
+        buffer = channel.Buffer(os.path.join(directory, "buffer"),
+                                limit=channel.MINIMUM_LIMIT)
+        path = os.path.join(directory, "s")
+        listener = channel.listening_socket(path)
+        thread = threading.Thread(target=channel.serve,
+                                  args=(listener, buffer), daemon=True)
+        thread.start()
+        # The serving thread is left to die with the checks: closing the
+        # listener under its accept() would only print a traceback.
+        yield path, (lambda: buffer.batch(50))
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def wlan_auth_helper():
+    wrapper = os.path.join(
+        SENSOR_DIR, "wlan-auth", "privileged", "prtg-sensor-wlan-auth")
+    return load_module("prtg_sensor_wlan_auth_log", wrapper)
+
+
+def check_wlan_auth_sensor_log():
+    """Every run leaves one record in the sensor log, and no secret in it."""
+    print("\n== wlan-auth: sensor log records ==")
+    module = wlan_auth_helper()
+    job = module.validate_job({
+        "interface": "wlan0", "ssid": "Example-Guest", "auth": "psk",
+        "psk": "correct-horse-battery", "stage": "dhcp", "timeout": 45})
+
+    def measured(result, supplicant=(), dhcp="", events=()):
+        def fake(job, log):
+            for line in events:
+                log.event(line)
+            log.supplicant([(log.started + 0.5, line) for line in supplicant])
+            if dhcp:
+                log.dhcp(dhcp)
+            # A fresh answer per run, as perform_test builds one.
+            return json.loads(json.dumps(result))
+        return fake
+
+    success = {
+        "result": "ok", "code": "ok", "message": "OK",
+        "timings": {"assoc_ms": 900, "auth_ms": 300, "dhcp_ms": 700,
+                    "gateway_ms": 4, "total_ms": 2100},
+        "details": {"mac": "00:00:5e:00:53:10", "mac_kind": "auto",
+                    "bssid": "00:00:5e:00:53:c2", "ssid": "Example-Guest",
+                    "frequency_mhz": 5180, "signal_dbm": -58,
+                    "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.1",
+                    "gateway_kind": "dhcp server"},
+    }
+    lock_directory = tempfile.mkdtemp(prefix="wlan-auth.")
+    module.RUN_DIR = lock_directory
+    with return_channel_stub() as (path, stored):
+        module.RETURN_CHANNEL_SOCKET = path
+        module.perform_test = measured(
+            success,
+            supplicant=["wlan0: Associated with 00:00:5e:00:53:c2",
+                        "wlan0: CTRL-EVENT-CONNECTED - Connection to "
+                        "00:00:5e:00:53:c2 completed"],
+            dhcp="udhcpc: started, v1.36.1\nudhcpc: lease of 198.51.100.19 "
+                 "obtained from 198.51.100.1, lease time 28800\n",
+            events=["dhcp started"])
+        scheduler = module.Scheduler()
+        scheduler.collect(dict(job), 300)
+        entry = scheduler._due()
+        scheduler.measure(entry)
+        records = stored()
+        check("a successful run leaves one record", len(records), 1)
+        record = records[0] if records else {}
+        body = record.get("body") or {}
+        check("it is the wlan-auth sensor's", record.get("sensor"),
+              "wlan-auth")
+        check("and an ok run is an ok record", record.get("result"), "ok")
+        check("the job is the truncated identity", record.get("job"),
+              module.job_identity(job)[:12])
+        check("the result points the sensor at its record",
+              entry["result"].get("record_id"), record.get("id"))
+        check("the body names network, method and interface",
+              (body.get("ssid"), body.get("auth"), body.get("interface")),
+              ("Example-Guest", "psk", "wlan0"))
+        check("and what the run saw",
+              (body.get("bssid"), body.get("client_mac"),
+               body.get("ip_address"), body.get("dhcp_server"),
+               body.get("gateway"), body.get("frequency_mhz"),
+               body.get("signal_dbm")),
+              ("00:00:5e:00:53:c2", "00:00:5e:00:53:10", "198.51.100.19",
+               "198.51.100.1", "198.51.100.1", 5180, -58))
+        check("with the stage timings", body.get("timings"),
+              success["timings"])
+        check("the supplicant's own lines are kept",
+              [line.split(" ", 1)[1] for line in body.get("supplicant", [])],
+              ["wlan0: Associated with 00:00:5e:00:53:c2",
+               "wlan0: CTRL-EVENT-CONNECTED - Connection to "
+               "00:00:5e:00:53:c2 completed"])
+        check("and so are the DHCP client's",
+              body.get("dhcp"),
+              ["udhcpc: started, v1.36.1",
+               "udhcpc: lease of 198.51.100.19 obtained from 198.51.100.1, "
+               "lease time 28800"])
+        check_true("and the helper's own events for the run",
+                   any("dhcp started" in line
+                       for line in body.get("events", [])))
+
+        # A failed run carries the most raw output, and raw output is where
+        # a secret turns up: a supplicant that echoes its configuration, a
+        # derived key in a debug line. None of it may reach the platform,
+        # in whatever form the helper itself put it into the configuration.
+        psk = job["psk"]
+        derived = module.wpa_psk(psk, job["ssid"])
+        failure = {"result": "failed", "code": "auth-failed-psk",
+                   "message": "PSK rejected", "timings": {"assoc_ms": 800},
+                   "details": {"mac": "00:00:5e:00:53:10"}}
+        module.perform_test = measured(failure, supplicant=[
+            "wlan0: psk=\"%s\"" % psk,
+            "wlan0: PMK %s" % derived.upper(),
+            "wlan0: ssid/psk hex %s" % module.hex_value(psk),
+            "wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"Example-Guest\" "
+            "auth_failures=1 duration=10 reason=WRONG_KEY",
+        ], dhcp="", events=["supplicant started"])
+        scheduler.measure(entry)
+        record = stored()[-1]
+        serialised = json.dumps(record)
+        check("a failed sign-in leaves a record too", len(stored()), 2)
+        check("and it is an error", (record["result"], record["code"]),
+              ("error", "auth-failed-psk"))
+        check("the passphrase is not in it", psk in serialised, False)
+        check("nor the key derived from it, in any case",
+              derived in serialised.lower(), False)
+        check("nor the hex form the configuration carries",
+              module.hex_value(psk) in serialised, False)
+        check_true("the line that named the cause survives",
+                   any("WRONG_KEY" in line
+                       for line in record["body"]["supplicant"]))
+
+        enterprise = module.validate_job({
+            "interface": "wlan0", "ssid": "Example-Corp", "auth": "eap-tls",
+            "identity": "probe@example.test", "password": "peap-Secret-9",
+            "client_cert": "/etc/prtg-nats/sensors/wlan-auth/probe.pem",
+            "private_key": "/etc/prtg-nats/sensors/wlan-auth/probe.key",
+            "private_key_passwd": "key-Pass-7", "stage": "assoc"})
+        log = module.RunLog()
+        log.supplicant([(log.started, line) for line in (
+            "EAP: identity probe@example.test password peap-Secret-9",
+            "TLS: private key passphrase key-Pass-7",
+            "CTRL-EVENT-EAP-PEER-CERT depth=0 subject='/CN=radius.example.test'",
+        )])
+        record = module.build_record(enterprise, failure, log)
+        record = json.dumps(module.redact_record(record, enterprise))
+        check("the enterprise password is not in the record",
+              "peap-Secret-9" in record, False)
+        check("nor the private key passphrase", "key-Pass-7" in record,
+              False)
+        check("the identity stays - it is what the RADIUS log is searched by",
+              "probe@example.test" in record, True)
+        check("and so does the certificate subject",
+              "/CN=radius.example.test" in record, True)
+
+        # Blanking a two-letter secret would shred every line with those
+        # letters and still hint at the secret, so such a line goes whole -
+        # the rule aruba-uplink applies to its messages.
+        short = dict(enterprise, password="ab")
+        log = module.RunLog()
+        log.supplicant([(log.started, "EAP: answer ab sent"),
+                        (log.started, "EAP: method 25")])
+        lines = module.redact_record(
+            module.build_record(short, failure, log), short)["body"][
+                "supplicant"]
+        check("a line holding a secret too short to mask is dropped",
+              any("ab sent" in line for line in lines), False)
+        check("and the others stay readable",
+              any("method 25" in line for line in lines), True)
+
+        # A run that could not happen is a run too - the log is where an
+        # operator finds out why the radio was never used.
+        def blocked(job, log):
+            raise module.Blocked("iface-down", "Could not power up wlan0")
+        module.perform_test = blocked
+        scheduler.measure(entry)
+        record = stored()[-1]
+        check("a blocked run is logged as an error with its code",
+              (record["result"], record["code"]), ("error", "iface-down"))
+
+        # Busy means somebody tests by hand: nothing was measured, so
+        # nothing is logged and the stored result stays as it was.
+        def busy(job, log):
+            raise module.Blocked("iface-busy", "Another test is running")
+        module.perform_test = busy
+        before = len(stored())
+        scheduler.measure(entry)
+        check("a run that did not get the radio leaves no record",
+              len(stored()), before)
+
+        # Measuring on the spot is the other way a run happens, and the
+        # one somebody debugging on the probe looks for in the log.
+        module.perform_test = measured(dict(success))
+        answer = module.handle_request(json.dumps(dict(
+            job, action="test")))
+        check("a test run by hand is logged as well", len(stored()),
+              before + 1)
+        check("and its answer names the record",
+              answer.get("record_id"), stored()[-1]["id"])
+
+        # A supplicant stuck in a scan loop writes thousands of lines. The
+        # service refuses a line above 64 KB, so the raw output is what
+        # gives way - the oldest lines stay, they hold the start of the
+        # trouble, and the newest, which hold its end.
+        noise = ["wlan0: CTRL-EVENT-SCAN-RESULTS %04d %s" % (number, "x" * 200)
+                 for number in range(3000)]
+        module.perform_test = measured(dict(failure), supplicant=noise,
+                                       dhcp="\n".join(noise[:500]))
+        before = len(stored())
+        scheduler.measure(entry)
+        check("a run with endless output is still logged", len(stored()),
+              before + 1)
+        lines = stored()[-1]["body"]["supplicant"]
+        check_true("as a record the service takes",
+                   len(json.dumps(stored()[-1])) < 64 * 1024)
+        check_true("keeping the first lines",
+                   " 0000 " in lines[0])
+        check_true("and the last", " 2999 " in lines[-1])
+        check_true("and saying how many are left out",
+                   any("lines left out" in line for line in lines))
+
+    # Without the service the sensor works as it always did: the result is
+    # stored, PRTG gets it, and only the link to a record is missing.
+    module.perform_test = measured(dict(success))
+    module.RETURN_CHANNEL_SOCKET = os.path.join(lock_directory, "absent")
+    alone = module.Scheduler()
+    alone.collect(dict(job), 300)
+    entry = alone._due()
+    alone.measure(entry)
+    check("without the service the result is still stored",
+          entry["result"].get("result"), "ok")
+    check("and points at no record", "record_id" in entry["result"], False)
+
+    # A service that accepts and never answers must not hold the radio
+    # for longer than the short handover timeout.
+    silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    module.RETURN_CHANNEL_SOCKET = os.path.join(lock_directory, "silent")
+    silent.bind(module.RETURN_CHANNEL_SOCKET)
+    silent.listen(1)
+    module.RETURN_CHANNEL_TIMEOUT = 0.3
+    started = time.monotonic()
+    alone.measure(entry)
+    check("a service that hangs costs the record, not the measurement",
+          (entry["result"].get("result"), "record_id" in entry["result"]),
+          ("ok", False))
+    check_true("and only the short timeout",
+               time.monotonic() - started < 2)
+    silent.close()
+    shutil.rmtree(lock_directory, ignore_errors=True)
 
 
 def check_wlan_auth_configuration():
@@ -3595,6 +3908,7 @@ if __name__ == "__main__":
     check_wlan_auth_output()
     check_wlan_auth_configuration()
     check_wlan_auth_scheduler()
+    check_wlan_auth_sensor_log()
     check_internet_speed_output()
     check_iperf_throughput_output()
     check_link_quality_output()

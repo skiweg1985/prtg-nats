@@ -309,7 +309,7 @@ export function SensorLogRecordPage() {
         </dl>
       </Card>
       <Card title={t('sensorLogs.output')}>
-        <RecordBody body={data.body} />
+        <RecordBody body={data.body} sensor={data.sensor} />
       </Card>
     </div>
   )
