@@ -25,6 +25,9 @@ MANAGEMENT_HOME="/var/lib/prtg-nats-iperf"
 # from $0: under the forced command $0 is whatever sshd decided to call us.
 HELPER_PATH="/usr/local/sbin/prtg-nats-iperf-helper"
 SETUP_SCRIPT="/usr/local/sbin/setup-iperf3-endpoint.sh"
+# The release build iperf-enroll.sh installs when the package is too old. The
+# service runs this one whenever it exists, so it is the version to report.
+RELEASE_IPERF3="/opt/prtg-nats/endpoint/iperf3/current/iperf3"
 # Raised when a request is added or an answer changes meaning. The platform
 # compares it against what it expects; a helper from before the number existed
 # reports none at all, which counts as older than any of these.
@@ -56,12 +59,16 @@ validate_port() {
 
 iperf3_version() {
   local version=""
+  local binary="${RELEASE_IPERF3}"
 
-  command -v iperf3 >/dev/null 2>&1 || {
+  if [[ ! -x "${binary}" ]]; then
+    binary="$(command -v iperf3 2>/dev/null || true)"
+  fi
+  [[ -n "${binary}" ]] || {
     printf 'none'
     return 0
   }
-  version="$(iperf3 --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+  version="$("${binary}" --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
   printf '%s' "${version:-none}"
 }
 

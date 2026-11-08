@@ -16,6 +16,11 @@ CONFIG_DIR=/etc/iperf3
 DROP_IN_DIR=/etc/systemd/system/iperf3.service.d
 DROP_IN="${DROP_IN_DIR}/auth.conf"
 SERVICE=iperf3.service
+# A release build of iperf3, placed here by the platform's enrolment when the
+# distribution's package is too old. Preferred whenever it is there; the
+# package stays installed either way, because it brings the unit and the group.
+RELEASE_TOOL_DIR=/opt/prtg-nats/endpoint
+RELEASE_IPERF3="${RELEASE_TOOL_DIR}/iperf3/current/iperf3"
 
 user_name=prtg-probe
 password_file=""
@@ -55,7 +60,8 @@ who may sudo -- the script raises itself.
   --remove                take the endpoint back off this host: stop the
                           service, drop the authentication and delete the key
                           pair and the credentials. The iperf3 package stays
-                          installed -- something else may be using it.
+                          installed -- something else may be using it. A
+                          release build the platform installed goes with it.
   -h, --help              show this help
 
 Without either --force option the script keeps whatever is already in place
@@ -162,6 +168,9 @@ if [[ "${remove}" == "yes" ]]; then
   # The private key decrypts what the probes send; the credentials file is
   # the hash they authenticate against. Neither has any use here afterwards.
   rm -rf -- "${CONFIG_DIR}"
+  # Only this script's service ever ran it, and the service is gone.
+  rm -rf -- "${RELEASE_TOOL_DIR}"
+  rmdir -- "$(dirname -- "${RELEASE_TOOL_DIR}")" 2>/dev/null || true
   note "service stopped and disabled"
   note "authentication drop-in, key pair and credentials removed"
   note "the iperf3 package is still installed; remove it yourself if nothing"
@@ -180,6 +189,9 @@ else
     die "Could not install iperf3"
 fi
 IPERF_BIN="$(command -v iperf3)"
+if [[ -x "${RELEASE_IPERF3}" ]]; then
+  IPERF_BIN="${RELEASE_IPERF3}"
+fi
 [[ "${IPERF_BIN}" =~ ^/[A-Za-z0-9_./+-]+$ && -x "${IPERF_BIN}" ]] ||
   die "Could not resolve iperf3 to a safe absolute executable path"
 note "$("${IPERF_BIN}" --version | head -1) is installed at ${IPERF_BIN}"

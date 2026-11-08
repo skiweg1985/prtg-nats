@@ -707,6 +707,8 @@
       "iperf": {
         "host_key_pinned": "{{host}}: host key {{fingerprints}} (new: {{new}})",
         "access_installed": "{{endpoint}}: management access installed on {{host}} as {{admin}}, allowed from {{allowed}}",
+        "release_iperf3": "{{endpoint}}: shipped the release build of iperf3 {{version}} for {{platform}}",
+        "system_iperf3": "{{endpoint}}: no release build for {{platform}}, the system iperf3 applies",
         "access_verified": "{{endpoint}}: {{host}} answered over the management channel, iperf3 {{iperf3}}, service {{service}}",
         "seen_from": "{{endpoint}} sees us arrive from {{peer}}, allowed is {{allowed}}",
         "endpoint_ready": "{{endpoint}}: iperf3 set up on {{host}}:{{port}}, user {{username}}",
