@@ -64,13 +64,14 @@ else
     say "Creating the Python environment in ${VENV} ..."
     if command -v uv >/dev/null; then
       uv venv --quiet --python 3.11 "${VENV}"
-      # The dependencies from pyproject.toml, without installing the backend
-      # itself: it runs from this checkout, so a change shows on restart.
-      uv pip install --quiet --python "${VENV}/bin/python" \
-        -r "${REPO_DIR}/web/backend/pyproject.toml"
+      # The locked dependencies, without installing the backend itself: it
+      # runs from this checkout, so a change shows on restart.
+      uv pip sync --quiet --python "${VENV}/bin/python" \
+        "${REPO_DIR}/web/backend/requirements.lock"
     else
       python3.11 -m venv "${VENV}"
-      "${VENV}/bin/pip" install --quiet "${REPO_DIR}/web/backend"
+      "${VENV}/bin/pip" install --quiet --require-hashes \
+        -r "${REPO_DIR}/web/backend/requirements.lock"
     fi
   fi
 
