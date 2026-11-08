@@ -153,11 +153,14 @@ install_release_iperf3() {
   local candidate=""
   local reported=""
 
-  [[ "$(sha256sum "${IPERF3_FILE}" | awk '{print $1}')" == "${IPERF3_SHA256}" ]] ||
-    die "The staged iperf3 build does not match its digest"
   install -d -o root -g root -m 0755 "${target_dir}"
   candidate="$(mktemp "${target_dir}/.iperf3.XXXXXX")"
   install -o root -g root -m 0755 "${IPERF3_FILE}" "${candidate}"
+  # The copy is what gets checked, so what runs is exactly what was hashed.
+  if [[ "$(sha256sum "${candidate}" | awk '{print $1}')" != "${IPERF3_SHA256}" ]]; then
+    rm -f -- "${candidate}"
+    die "The staged iperf3 build does not match its digest"
+  fi
   reported="$("${candidate}" --version 2>&1 | awk 'NR == 1 { print $2 }' || true)"
   if [[ "${reported}" != "${IPERF3_VERSION}" ]]; then
     rm -f -- "${candidate}"

@@ -201,12 +201,19 @@ def _release_iperf3(
     """
     chosen["platform"] = platform
     catalog = ToolCatalog(context.settings.tool_source_dir)
-    if not catalog.has_managed_artifact(_IPERF3, platform):
+    try:
+        if not catalog.has_managed_artifact(_IPERF3, platform):
+            return StagedTools()
+        artifact = catalog.select(_IPERF3, platform)
+        payload = artifact.read_verified()
+    except RuntimeStateError:
+        # A checkout without built artifacts has no manifest. Refusing the
+        # endpoint for that would also refuse one whose own iperf3 is new
+        # enough; the setup's version check still stops one that is not.
         return StagedTools()
-    artifact = catalog.select(_IPERF3, platform)
     chosen["version"] = artifact.version
     return StagedTools(
-        files={_IPERF3_FILE: artifact.read_verified()},
+        files={_IPERF3_FILE: payload},
         arguments=[
             "--iperf3",
             f"@@STAGE@@/{_IPERF3_FILE}",

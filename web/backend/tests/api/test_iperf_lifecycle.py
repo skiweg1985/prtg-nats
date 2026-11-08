@@ -385,6 +385,29 @@ async def test_a_host_without_a_release_build_keeps_its_own_iperf3(
     assert "jobs.iperf.release_iperf3" not in codes
 
 
+async def test_a_release_without_built_artifacts_still_sets_up_endpoints(
+    client: AsyncClient,
+    transport: ScriptedTransport,
+    installer: RecordingInstaller,
+) -> None:
+    # A source checkout has no manifest. The endpoint's own iperf3 may well be
+    # new enough, and the setup script is what checks that.
+    installer.platform = "linux-amd64-glibc"
+    await _sign_in(client)
+    _initialise()
+    transport.responses.update(
+        {"endpoint-info": ENDPOINT_INFO, "endpoint-setup": _setup_answer()}
+    )
+
+    accepted = await _provision(client)
+    runner, endpoints = _build_runner(get_settings(), transport)
+    await _drain(runner, endpoints)
+
+    assert installer.staged.files == {}
+    job = (await client.get(f"/api/v1/jobs/{accepted['job_id']}")).json()
+    assert job["status"] == "successful"
+
+
 async def test_a_failed_sign_in_leaves_no_record(
     client: AsyncClient,
     project_dir: Path,
