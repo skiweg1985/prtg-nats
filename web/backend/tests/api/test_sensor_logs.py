@@ -22,7 +22,7 @@ from app.api.probe.deps import get_probe_identity
 from app.core.config import Settings
 from app.services.events import get_broadcaster, sensor_log_topic
 from app.workers.sensor_log_cleanup import SensorLogCleanup
-from tests.conftest import write_probe_inventory
+from tests.conftest import SETUP_CODE, write_probe_inventory
 
 PASSWORD = "correct-horse-battery"
 PROBE = "mpp-berlin-01"
@@ -67,7 +67,8 @@ def as_probe(app: Any) -> Iterator[None]:
 
 async def sign_in(client: AsyncClient) -> None:
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert response.status_code == 201, response.text
 

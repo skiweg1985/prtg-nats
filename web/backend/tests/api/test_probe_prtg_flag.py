@@ -11,12 +11,15 @@ from pathlib import Path
 
 from httpx import AsyncClient
 
+from tests.conftest import SETUP_CODE
+
 PASSWORD = "correct-horse-battery"
 
 
 async def _sign_in(client: AsyncClient) -> None:
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert response.status_code == 201, response.text
 

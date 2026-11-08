@@ -28,7 +28,12 @@ from app.infrastructure import known_hosts
 from app.infrastructure.iperf_helper import EndpointConnection
 from app.infrastructure.probe_helper import ProbeConnection
 from app.infrastructure.runtime_files import ProbeInventory
-from app.infrastructure.ssh_provisioning import AdminCredentials, install_access
+from app.infrastructure.ssh_provisioning import (
+    AdminCredentials,
+    StagedTools,
+    install_access,
+)
+from app.infrastructure.tool_catalog import ToolCatalog
 from app.services.enrollment import IPERF_ASSETS, EnrollmentService
 from app.workers.context import JobContext
 from app.workers.handlers import deploy_sensor
@@ -70,6 +75,9 @@ REVOKE_JOB_TYPE = "iperf.revoke"
 # The name the management public key is written under while it is staged. Only
 # the enrolment script reads it, and only from the directory it arrived in.
 _KEY_FILE = "management.pub"
+# The release build of iperf3, staged under this name when one fits the host.
+_IPERF3_FILE = "iperf3"
+_IPERF3 = "iperf3"
 
 
 async def provision(context: JobContext) -> dict[str, Any]:
@@ -115,6 +123,7 @@ async def provision(context: JobContext) -> dict[str, Any]:
     enrollment = EnrollmentService(context.db, context.settings)
     files = {name_: _asset_text(context, name_) for name_ in IPERF_ASSETS}
     files[_KEY_FILE] = enrollment.management_public_key() + "\n"
+    chosen: dict[str, str] = {}
 
     report = await install_access(
         host=host,
@@ -134,6 +143,7 @@ async def provision(context: JobContext) -> dict[str, Any]:
             "--source-cidr",
             source_cidr,
         ],
+        tools=lambda platform: _release_iperf3(context, platform, chosen),
     )
     await context.log(
         "jobs.iperf.access_installed",
@@ -145,6 +155,20 @@ async def provision(context: JobContext) -> dict[str, Any]:
         },
         raw="\n".join(report.lines) or None,
     )
+    if chosen.get("version"):
+        await context.log(
+            "jobs.iperf.release_iperf3",
+            params={
+                "endpoint": name,
+                "version": chosen["version"],
+                "platform": chosen["platform"],
+            },
+        )
+    else:
+        await context.log(
+            "jobs.iperf.system_iperf3",
+            params={"endpoint": name, "platform": chosen.get("platform", "unknown")},
+        )
 
     # --- 3-5. The same as the bootstrap path ---------------------------------
     return await finish_setup(
@@ -155,6 +179,51 @@ async def provision(context: JobContext) -> dict[str, Any]:
         iperf_port=iperf_port,
         username=username,
         expected_from=source_cidr,
+    )
+
+
+def _release_iperf3(
+    context: JobContext, platform: str, chosen: dict[str, str]
+) -> StagedTools:
+    """The release build of iperf3 for this host, if the release has one.
+
+    Distributions ship iperf3 releases older than the 3.17 that authenticated
+    endpoints need - Ubuntu 24.04 carries 3.16 - and the probes already get a
+    build of their own for exactly that reason. The same bytes serve an
+    endpoint: it is one executable, and server mode is a flag. A platform
+    without a build goes on with the system package, and the setup script's
+    version check is what stops it if that one is too old.
+
+    The digest travels along and the host checks it before anything runs. The
+    channel is the administrator's own SSH session to a pinned host key, so
+    this proves the bytes arrived whole rather than who made them; the
+    manifest check below is what ties them to this release.
+    """
+    chosen["platform"] = platform
+    catalog = ToolCatalog(context.settings.tool_source_dir)
+    try:
+        if not catalog.has_managed_artifact(_IPERF3, platform):
+            return StagedTools()
+        artifact = catalog.select(_IPERF3, platform)
+        payload = artifact.read_verified()
+    except RuntimeStateError:
+        # A checkout without built artifacts has no manifest. Refusing the
+        # endpoint for that would also refuse one whose own iperf3 is new
+        # enough; the setup's version check still stops one that is not.
+        return StagedTools()
+    chosen["version"] = artifact.version
+    return StagedTools(
+        files={_IPERF3_FILE: payload},
+        arguments=[
+            "--iperf3",
+            f"@@STAGE@@/{_IPERF3_FILE}",
+            "--iperf3-sha256",
+            artifact.sha256,
+            "--iperf3-version",
+            artifact.version,
+            "--iperf3-platform",
+            artifact.platform,
+        ],
     )
 
 

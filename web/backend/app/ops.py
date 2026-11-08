@@ -47,6 +47,52 @@ async def _cmd_init(_: argparse.Namespace) -> None:
     print("Secrets were written to root-only files; nothing was printed.")
 
 
+async def _cmd_setup_code(args: argparse.Namespace) -> None:
+    """The one-time code the first administrator needs, printed only here.
+
+    --if-needed is what `prtg-nats setup` calls: once an account exists the
+    code has no use, and printing one would only suggest otherwise.
+    """
+    from app.services.setup_code import SetupCodeStore
+
+    settings = _settings()
+    if args.if_needed and await _any_web_user():
+        return
+    store = SetupCodeStore(settings)
+    code = store.issue()
+    expires_at = store.expires_at
+    print("The first visit to the web interface creates the administrator")
+    print("account. It asks for this one-time code:")
+    print()
+    print(f"  Setup code: {code}")
+    print()
+    if expires_at is not None:
+        print(f"Valid until {expires_at:%Y-%m-%d %H:%M} UTC.", end=" ")
+    print("'prtg-nats setup-code' issues a new one and voids this one.")
+
+
+async def _any_web_user() -> bool:
+    from sqlalchemy import func, select
+    from sqlalchemy.exc import OperationalError
+
+    from app.persistence.models.identity import WebUser
+    from app.persistence.session import dispose_engine, init_engine, session_scope
+
+    # This runs as its own process, not inside the API, so it opens the
+    # database itself - the same way the application does at startup.
+    init_engine(_settings())
+    try:
+        async with session_scope() as db:
+            count = await db.scalar(select(func.count()).select_from(WebUser))
+    except OperationalError:
+        # No schema yet: the API has not migrated the database, so nobody can
+        # have signed up either.
+        return False
+    finally:
+        await dispose_engine()
+    return bool(count)
+
+
 async def _cmd_verify(args: argparse.Namespace) -> None:
     from app.services.verification import StackVerification
 
@@ -464,6 +510,15 @@ def main(argv: list[str] | None = None) -> None:
 
     commands.add_parser("init", help="initialise runtime/ on a fresh installation")
 
+    setup_code = commands.add_parser(
+        "setup-code", help="issue the one-time code for the first administrator"
+    )
+    setup_code.add_argument(
+        "--if-needed",
+        action="store_true",
+        help="print nothing once an account exists",
+    )
+
     verify = commands.add_parser("verify", help="check the stack")
     verify.add_argument("--offline", action="store_true", help="skip the live checks")
 
@@ -569,6 +624,7 @@ def main(argv: list[str] | None = None) -> None:
 
     handlers = {
         "init": _cmd_init,
+        "setup-code": _cmd_setup_code,
         "verify": _cmd_verify,
         "renew-certificate": _cmd_renew_certificate,
         "backup": _cmd_backup,

@@ -36,7 +36,12 @@ from app.persistence.models.inventory import ProbeObservedState
 from app.services.events import get_broadcaster
 from app.services.probes import ProbeService
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, write_probe_inventory, write_sensor
+from tests.conftest import (
+    SETUP_CODE,
+    ScriptedTransport,
+    write_probe_inventory,
+    write_sensor,
+)
 
 PASSWORD = "correct-horse-battery"
 PROBE = "mpp-berlin-01"
@@ -169,7 +174,8 @@ async def drain(runner: JobRunner, *, rounds: int = 12) -> None:
 
 async def sign_in(client: AsyncClient) -> None:
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert response.status_code == 201, response.text
 

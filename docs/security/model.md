@@ -1,7 +1,7 @@
 ---
 title: Security model
 role: everyone
-updated: 2026-08-27
+updated: 2026-11-08
 ---
 
 # Security model
@@ -106,6 +106,25 @@ The web platform adds its own considerations; those are in
 - The network, or the host firewall, has to limit `23561/tcp` to the PRTG core
   and the approved probe source addresses. Port `80/tcp` likewise has to be
   reachable only from the probe and administration networks that need it.
+
+## Continuous checks
+
+`.github/workflows/security.yaml` runs on every pull request, every merge to
+`dev` or `main`, and weekly:
+
+- Gitleaks over the whole history and the working tree. The few test fixtures
+  that look like keys on purpose are allowed in `.gitleaks.toml` by file and
+  rule, nothing broader.
+- Trivy over the lockfiles, development dependencies included, over every
+  image `compose.yaml` pins, and over the API and interface images this
+  repository builds. High and critical advisories with a fixed release fail
+  the run. One that does not apply is recorded in `.trivyignore.yaml` with the
+  reason and an expiry date, after which it fails again.
+- Each built image's SBOM (CycloneDX) is kept with the run for 90 days, so a
+  later advisory can be checked against what a given commit shipped.
+
+The scanners run from images pinned by digest, the workflow token can only
+read, and pull requests from forks get no secrets.
 
 ## Accounts
 

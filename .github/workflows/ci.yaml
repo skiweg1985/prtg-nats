@@ -1,0 +1,229 @@
+name: CI
+
+# The checks from .gitea/workflows/ci.yaml, on GitHub where pull requests are
+# opened. The Gitea copy stays for a mirror that runs it, but it no longer
+# sees this repository's pushes, so without this file nothing checked a pull
+# request at all.
+#
+# Pull requests from forks run with a read-only token and no secrets. Nothing
+# here needs either, and pull_request_target is deliberately not used: it
+# would run the fork's code with this repository's permissions.
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # whiptail carries the TUI; without the package check-static.sh skips
+      # the pass through the dialog layer silently.
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck openssl expect whiptail >/dev/null
+
+      # As root: the iPerf checks create root-owned fixtures and verify that
+      # drift in owner or mode is caught. The Gitea runner ran its containers
+      # as root; GitHub's runs as an ordinary user with passwordless sudo.
+      - name: Check shell syntax, templates and rendering
+        run: sudo --preserve-env=PATH ./tests/check-static.sh
+
+      - name: Check the job log messages against the translations
+        run: ./tests/check-job-messages.py
+
+      - name: Check Markdown
+        run: npx --yes markdownlint-cli2@0.24.0 "**/*.md"
+
+  iperf-artifacts:
+    name: Managed iPerf3 artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install artifact inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils shellcheck >/dev/null
+
+      - name: Build and validate every supported probe artifact
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: |
+          shellcheck --severity=warning tools/iperf3/*.sh
+          artifact_export="$(mktemp -d)"
+          docker build \
+            --file web/backend/Dockerfile \
+            --target iperf-artifacts \
+            --output "type=local,dest=${artifact_export}" \
+            .
+          bash tools/iperf3/check-artifacts.sh \
+            "${artifact_export}/tools/iperf3/artifacts"
+          amd64_output="$(
+            "${artifact_export}/tools/iperf3/artifacts/linux-amd64-glibc/iperf3" \
+              --version 2>&1
+          )"
+          source tools/iperf3/versions.env
+          grep -Fq "iperf ${IPERF_VERSION}" <<<"${amd64_output}"
+          grep -Fiq 'authentication' <<<"${amd64_output}"
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Render and validate the Compose configuration
+        env:
+          PRTG_REQUIRE_COMPOSE: "1"
+        run: ./tests/check-compose.sh
+
+  backend:
+    name: Web backend
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web/backend
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type-check
+        run: mypy app
+
+      # tests/unit/test_updater_against_docker.py creates containers through
+      # the Docker API, which does not pull. The Gitea runners happened to
+      # have the image; a fresh GitHub runner does not.
+      - name: Provide the image the Docker API tests start
+        run: docker pull --quiet alpine:3.22
+
+      - name: Test
+        run: pytest -q
+
+      # A schema change without a migration is a deployment that fails on the
+      # customer's machine rather than here.
+      - name: Check that the migrations match the models
+        run: |
+          export PRTG_NATS_WEB_PROJECT_DIR=/tmp/ci-runtime
+          export PRTG_NATS_WEB_DATABASE_URL="sqlite+aiosqlite:////tmp/ci-web.db"
+          mkdir -p /tmp/ci-runtime
+          alembic upgrade head
+          alembic check
+
+  frontend:
+    name: Web frontend
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Check the translations
+        run: npm run i18n:check
+
+      - name: Build
+        run: npx vite build
+
+  e2e:
+    name: End-to-end against a real MPP
+    runs-on: ubuntu-24.04
+    needs:
+      - static
+    env:
+      # A skip counts as a failure: otherwise a change to the runners would
+      # suspend the test silently and the build would stay green.
+      PRTG_E2E_SKIP_CODE: "1"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the rollout against a real prtgmpprobe
+        run: ./tests/e2e-mpp.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker ps -a --filter name=prtg-e2e --filter name=prtg-nats || true
+          docker exec prtg-e2e-probe \
+            journalctl -u prtg.mpprobe.service -n 80 --no-pager || true
+          docker logs --tail 80 prtg-nats || true
+
+  update:
+    name: Stack update survives its own recreation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the updater image and run the test
+        run: |
+          docker build -f web/updater/Dockerfile -t prtg-nats-updater:current .
+          ./tests/e2e-update.sh
