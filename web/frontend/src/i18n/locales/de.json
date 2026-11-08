@@ -17,7 +17,8 @@
     "settings": "Einstellungen",
     "updates": "Updates",
     "system": "Wartung",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "sensorLogs": "Sensor-Log"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -1446,6 +1447,49 @@
         "runtime": "Laufzeit-Export",
         "jetstream": "JetStream"
       }
+    }
+  },
+  "sensorLogs": {
+    "title": "Sensor-Log",
+    "empty": "Keine Läufe in diesem Zeitraum",
+    "emptyFiltered": "Keine Läufe passen zu diesen Filtern",
+    "count": "{{shown}} von {{total}}",
+    "loadMore": "Weitere laden",
+    "noBody": "Dieser Lauf hat keine Ausgabe",
+    "output": "Ausgabe",
+    "all": "Alle im Sensor-Log anzeigen",
+    "probeCard": "Läufe der letzten 24 Stunden",
+    "columns": {
+      "time": "Zeit",
+      "probe": "Probe",
+      "sensor": "Sensor",
+      "network": "Netz",
+      "result": "Ergebnis",
+      "summary": "Zusammenfassung",
+      "code": "Fehlercode",
+      "id": "Eintrags-Id"
+    },
+    "result": {
+      "ok": "OK",
+      "error": "Fehler",
+      "gap": "Lücke"
+    },
+    "range": {
+      "1h": "Letzte Stunde",
+      "24h": "Letzte 24 Stunden",
+      "7d": "Letzte 7 Tage",
+      "14d": "Letzte 14 Tage"
+    },
+    "filters": {
+      "search": "Ausgabe durchsuchen",
+      "range": "Zeitraum",
+      "result": "Ergebnis",
+      "anyResult": "Jedes Ergebnis",
+      "probe": "Probe",
+      "anyProbe": "Alle Probes",
+      "sensor": "Sensor",
+      "anySensor": "Alle Sensoren",
+      "network": "Netz (SSID)"
     }
   }
 }

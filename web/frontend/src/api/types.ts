@@ -850,3 +850,48 @@ export interface Overlay {
   interface_up: boolean | null
   peers: OverlayPeer[]
 }
+
+/**
+ * How a sensor run ended, as the probe reported it. `gap` is no run at all:
+ * the probe's buffer overflowed and this record stands for what was lost.
+ */
+export type SensorLogResult = 'ok' | 'error' | 'gap'
+
+/** One record of the sensor log, without its body - what a list shows. */
+export interface SensorLogSummary {
+  id: string
+  /** The probe's NATS username, set by the platform from its certificate. */
+  probe: string
+  sensor: string
+  job: string | null
+  time: string
+  result: SensorLogResult
+  code: string | null
+  summary: string
+  /** Taken from the body; null for sensors that test no network. */
+  ssid: string | null
+}
+
+/** One record with its body: the sensor-specific detail and raw output. */
+export interface SensorLogRecord extends SensorLogSummary {
+  body: Record<string, unknown>
+}
+
+export interface SensorLogPage {
+  items: SensorLogSummary[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** The time windows the log offers; the API defaults to the last day. */
+export type SensorLogRange = '1h' | '24h' | '7d' | '14d'
+
+export interface SensorLogFilters {
+  probe?: string
+  sensor?: string
+  ssid?: string
+  result?: SensorLogResult
+  range: SensorLogRange
+  q?: string
+}
