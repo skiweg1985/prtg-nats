@@ -12,6 +12,7 @@ import {
   useProbe,
   useProbeAction,
   useProbePlan,
+  useProbePrtgName,
   useRefreshProbe,
   useReleaseInterface,
   useRemoveSensorFromProbe,
@@ -39,11 +40,11 @@ import {
 import {
   OverlayAttachDialog,
   OverlayModeDialog,
-  pathTone,
 } from '@/features/infrastructure/overlayMode'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { PrtgNameRow } from '@/features/probes/PrtgName'
+import { probeName } from '@/features/probes/probeName'
 import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -94,6 +95,7 @@ export function ProbeDetailPage() {
   const { t } = useTranslation()
   const { probeId } = useParams<{ probeId: string }>()
   const { data, isLoading, error, refetch } = useProbe(probeId)
+  const { data: prtgName } = useProbePrtgName(probeId)
   const navigate = useNavigate()
   const refresh = useRefreshProbe()
   const installCa = useProbeAction('install-ca')
@@ -158,7 +160,10 @@ export function ProbeDetailPage() {
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">
-              {summary.display_name ?? summary.probe_name ?? summary.nats_username}
+              {probeName(
+                summary,
+                prtgName?.state === 'ok' ? prtgName.name_in_prtg : null,
+              )}
             </h1>
             <ProbeStatusBadge status={summary.status} />
             {summary.stale && summary.observed_at && (
@@ -167,9 +172,6 @@ export function ProbeDetailPage() {
               </span>
             )}
           </div>
-          <Mono className="text-ink-3">
-            {summary.nats_username} · {summary.host}
-          </Mono>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -403,7 +405,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
   const revealPassword = useRevealNatsPassword()
   const [password, setPassword] = useState<string | null>(null)
   const [rotating, setRotating] = useState(false)
-  const probeName = observed?.probe_name ?? inventory.probe_name
+  const announcedName = observed?.probe_name ?? inventory.probe_name
 
   function hideAccessKey() {
     setAccessKey(null)
@@ -439,25 +441,12 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 </PermissionGate>
               </span>
             </DetailRow>
-            {/* Only what the probe announced when it was enrolled: PRTG may
-                have renamed it since and does not tell us. */}
-            <DetailRow label={t('probes.enrollmentName')}>
-              <span className="block">{probeName ?? '—'}</span>
-              <span className="text-ink-3 block text-xs">
-                {t('probes.enrollmentNameHint')}
-              </span>
-            </DetailRow>
             <PrtgNameRow probeId={summary.id} />
             <DetailRow label={t('probes.probeId')}>
               <Mono truncate>{inventory.probe_id ?? '—'}</Mono>
             </DetailRow>
-            <DetailRow label={t('probes.sshHost')}>
-              <Mono>
-                {inventory.ssh_host}:{inventory.ssh_port}
-              </Mono>
-            </DetailRow>
-            <OverlayRow probeId={summary.id} username={summary.nats_username} />
             <RouteRows detail={detail} />
+            <OverlayRow probeId={summary.id} username={summary.nats_username} />
             <DetailRow label={t('probes.accessKey')}>
               {/* Presence only. The value is behind an audited, explicit reveal. */}
               {inventory.access_key_present ? (
@@ -591,7 +580,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
       {accessKey !== null && (
         <Dialog
           title={t('probes.accessKeyRevealTitle', {
-            probe: probeName ?? summary.nats_username,
+            probe: announcedName ?? summary.nats_username,
           })}
           onClose={hideAccessKey}
           size="md"
@@ -1356,22 +1345,38 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
  * route is the last answer, so it dims with the rest of what the probe last
  * said once that is older than the staleness window.
  */
+/**
+ * How the probe is reached, each fact once.
+ *
+ * The route that answered last, with its address and age. The site address
+ * is shown here too - as the fallback when the tunnel answered - rather than
+ * in a row of its own, so neither address appears twice on the card.
+ */
 function RouteRows({ detail }: { detail: ProbeDetail }) {
   const { t } = useTranslation()
   const route = detail.management_route
+  const site = detail.inventory.ssh_host
   return (
     <>
       <DetailRow label={t('probes.routes.management')}>
         {route ? (
-          <span
-            className={`flex flex-wrap items-center gap-2 ${route.stale ? 'text-ink-3' : ''}`}
-          >
-            <span>{t(`probes.routes.${route.via}`)}</span>
-            <Mono>{route.host}</Mono>
-            <span className="text-xs">{formatRelative(route.observed_at)}</span>
+          <span className={route.stale ? 'text-ink-3' : undefined}>
+            <span className="flex flex-wrap items-center gap-2">
+              <span>{t(`probes.routes.${route.via}`)}</span>
+              <Mono>{route.host}</Mono>
+              <span className="text-xs">{formatRelative(route.observed_at)}</span>
+            </span>
+            {route.via === 'tunnel' && site && site !== route.host && (
+              <span className="text-ink-3 block text-xs">
+                {t('probes.routes.fallback', { address: site })}
+              </span>
+            )}
           </span>
         ) : (
-          <span className="text-ink-3">{t('probes.routes.never')}</span>
+          <span className="flex flex-wrap items-center gap-2">
+            <Mono>{site}</Mono>
+            <span className="text-ink-3 text-xs">{t('probes.routes.never')}</span>
+          </span>
         )}
       </DetailRow>
       <DetailRow label={t('probes.routes.nats')}>
@@ -1430,28 +1435,19 @@ function OverlayRow({ probeId, username }: { probeId: string; username: string }
       </DetailRow>
     )
   }
-  const state = peer.last_state ?? 'unknown'
   return (
     <DetailRow label={t('probes.overlay')}>
+      {/* Mode and switch only: the tunnel address and whether NATS takes it
+          are already in the route rows above. */}
       <span className="flex flex-wrap items-center gap-2">
-        <Mono>{peer.address}</Mono>
         <Badge tone="accent">
           {t(`infrastructure.overlay.modes.${peer.mode}.name`)}
-        </Badge>
-        <Badge tone={pathTone(peer.mode, state)}>
-          {t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })}
         </Badge>
         <PermissionGate permission="overlay.manage">
           <Button size="sm" variant="ghost" onClick={() => setDialog('mode')}>
             {t('infrastructure.overlay.actions.mode')}
           </Button>
         </PermissionGate>
-        <Link
-          to="/infrastructure/overlay"
-          className="text-accent text-xs hover:underline"
-        >
-          {t('probes.atAGlance.manage')}
-        </Link>
       </span>
       {dialog === 'mode' && (
         <OverlayModeDialog
