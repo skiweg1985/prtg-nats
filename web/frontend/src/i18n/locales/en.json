@@ -1340,7 +1340,8 @@
       "account_locked": "Too many failed attempts. Try again in {{retry_after_seconds}} seconds.",
       "permission_denied": "This action needs the permission \"{{permission}}\".",
       "setup_required": "No account exists yet. Create the first administrator.",
-      "probe_not_enrolled": "This probe is not enrolled on this platform."
+      "probe_not_enrolled": "This probe is not enrolled on this platform.",
+      "password_change_required": "Change your password before you continue."
     },
     "probe": {
       "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",
