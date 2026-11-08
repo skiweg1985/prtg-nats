@@ -23,7 +23,7 @@ sudo ./prtg-nats verify
 `setup` asks for the site FQDN, host address, and PRTG core address. It creates
 the runtime volume, certificates, and NATS accounts, then starts the stack.
 Open `https://<NATS_FQDN>` and create the first administrator on the first
-visit.
+visit, with the setup code `setup` prints at its end.
 
 Before running this on a real host, read the prerequisites and network
 boundaries in [Install the server](docs/getting-started/install-the-server.md).

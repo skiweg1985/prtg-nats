@@ -21,6 +21,7 @@ from app.services.events import get_broadcaster
 from app.services.jobs import JobRequest, JobService
 from app.workers.handlers import REGISTRY
 from app.workers.handlers.iperf_provisioning import FOREIGN_CREDENTIALS_JOB_TYPE
+from tests.conftest import SETUP_CODE
 
 PASSWORD = "correct-horse-battery"
 
@@ -53,7 +54,8 @@ OPERATOR_ALLOWED = sorted(
 
 async def _sign_in_as(client: AsyncClient, role: RoleName) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     if role is RoleName.ADMINISTRATOR:
         return

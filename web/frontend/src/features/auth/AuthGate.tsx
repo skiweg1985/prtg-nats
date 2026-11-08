@@ -107,13 +107,14 @@ function SetupScreen() {
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
+  const [setupCode, setSetupCode] = useState('')
 
   const error = setup.error instanceof ApiError ? setup.error : null
   const passwordProblems = (error?.body.params.problems as string[] | undefined) ?? []
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    setup.mutate({ username, password, display_name: displayName })
+    setup.mutate({ username, password, display_name: displayName, setup_code: setupCode })
   }
 
   return (
@@ -121,12 +122,21 @@ function SetupScreen() {
       <form onSubmit={submit} className="space-y-4">
         <p className="text-ink-2 text-sm">{t('auth.setupIntro')}</p>
 
+        <Field label={t('auth.setupCode')} hint={t('auth.setupCodeHint')}>
+          <Input
+            value={setupCode}
+            onChange={(event) => setSetupCode(event.target.value)}
+            autoComplete="one-time-code"
+            spellCheck={false}
+            autoFocus
+            required
+          />
+        </Field>
         <Field label={t('auth.username')}>
           <Input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
-            autoFocus
             required
           />
         </Field>

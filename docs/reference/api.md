@@ -31,7 +31,7 @@ application.
 | | |
 | --- | --- |
 | `GET /auth/state` | account present, signed in, who |
-| `POST /auth/setup` | create the first administrator - refused once one exists |
+| `POST /auth/setup` | create the first administrator with the host's `setup_code` - refused once one exists |
 | `POST /auth/login` | sign in, sets the session cookie |
 | `POST /auth/logout` | end the session |
 | `POST /auth/change-password` | change one's own password, sets a fresh session cookie |
@@ -763,6 +763,9 @@ declaration, so a sensor calling it `--variant` is quoted with `--variant`.
 
 `GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`. The first administrator is
 created through `POST /auth/setup` instead, which is refused once one exists.
+It needs `setup_code`, the one-time code `prtg-nats setup` or
+`prtg-nats setup-code` prints on the host; a missing or wrong code answers
+`422` or `403 auth.setup_code_invalid` and creates nothing.
 Which role may call what is in [Roles and permissions](../web/roles.md).
 
 ### Return channel

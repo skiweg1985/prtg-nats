@@ -159,6 +159,11 @@ async def db(
         await session.commit()
 
 
+# What `prtg-nats setup` would have printed on the host. Every API test starts
+# with it on record, so creating the first administrator is one call away.
+SETUP_CODE = "TEST-CODE-FOR-SETUP"
+
+
 @pytest.fixture
 def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -> Any:
     """The API without the background workers.
@@ -166,6 +171,9 @@ def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -
     create_app() is not used: its lifespan starts the job runner and the
     inventory sync, and an API test should not depend on either.
     """
+    from app.services.setup_code import SetupCodeStore
+
+    SetupCodeStore(settings).store(SETUP_CODE)
     from fastapi import FastAPI
     from fastapi.exceptions import RequestValidationError
 

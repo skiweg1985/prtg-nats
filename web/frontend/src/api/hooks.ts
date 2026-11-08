@@ -757,8 +757,12 @@ export function useLogin() {
 export function useSetup() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (body: { username: string; password: string; display_name: string }) =>
-      api.post<AuthState>('/auth/setup', body),
+    mutationFn: (body: {
+      username: string
+      password: string
+      display_name: string
+      setup_code: string
+    }) => api.post<AuthState>('/auth/setup', body),
     onSuccess: (state) => client.setQueryData(keys.auth, state),
   })
 }

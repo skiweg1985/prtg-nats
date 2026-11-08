@@ -9,13 +9,16 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
+from tests.conftest import SETUP_CODE
+
 PASSWORD = "correct-horse-battery"
 NEW_PASSWORD = "a-much-better-passphrase"
 
 
 async def _operator_with_initial_password(client: AsyncClient) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     created = await client.post(
         "/api/v1/users",
@@ -96,7 +99,8 @@ async def test_an_account_without_the_flag_is_not_affected(
     client: AsyncClient,
 ) -> None:
     await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert (await client.get("/api/v1/jobs")).status_code == 200
     state = await client.get("/api/v1/auth/state")
