@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -24,6 +23,7 @@ from app.api.schemas.sensor_logs import (
     SensorLogRecordOut,
     SensorLogSummaryOut,
 )
+from app.api.sse import KEEPALIVE, event_stream, follow, sse
 from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.services.events import StreamEvent, sensor_log_topic
@@ -34,9 +34,6 @@ router = APIRouter(prefix="/sensor-logs", tags=["sensor logs"])
 # What a page shows when nobody narrowed the time range: the last day, which
 # is what an operator looking into a red sensor wants first.
 DEFAULT_WINDOW = timedelta(hours=24)
-
-# Same reason as the job stream: an idle event stream is dropped by proxies.
-SSE_KEEPALIVE_SECONDS = 20.0
 
 ReadGuard = Annotated[object, Depends(require_permission(Permission.SENSOR_LOG_READ))]
 
@@ -112,38 +109,17 @@ async def sensor_log_events(
         return not (sensor and event.payload.get("sensor") != sensor)
 
     async def stream() -> AsyncIterator[bytes]:
-        # A task of its own so that a keepalive timeout never cancels a get()
-        # that has just taken an event off the queue.
-        pending: asyncio.Task[StreamEvent] = asyncio.ensure_future(queue.get())
         try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                done, _pending = await asyncio.wait(
-                    {pending}, timeout=SSE_KEEPALIVE_SECONDS
-                )
-                if not done:
-                    yield b": keepalive\n\n"
-                    continue
-                update = pending.result()
-                pending = asyncio.ensure_future(queue.get())
-                if wanted(update):
-                    yield _sse(update.kind, update.payload)
+            async with contextlib.aclosing(follow(request, queue)) as updates:
+                async for update in updates:
+                    if update is None:
+                        yield KEEPALIVE
+                    elif wanted(update):
+                        yield sse(update.kind, update.payload)
         finally:
-            pending.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await pending
             await broadcaster.unregister(topic, queue)
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return event_stream(stream())
 
 
 @router.get("/{record_id}", response_model=SensorLogRecordOut)
@@ -161,7 +137,3 @@ async def get_sensor_log(
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def _sse(kind: str, payload: dict[str, Any]) -> bytes:
-    return f"event: {kind}\ndata: {json.dumps(payload, default=str)}\n\n".encode()

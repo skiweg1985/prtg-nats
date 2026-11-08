@@ -17,6 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api import sse as sse_module
 from app.api.v1.routes import jobs as jobs_route
 from app.core.config import Settings
 from app.core.errors import (
@@ -1281,7 +1282,7 @@ async def test_the_live_stream_survives_an_idle_keepalive(
     response with "async generator raised StopAsyncIteration", and the operator
     watched a job that had stopped logging.
     """
-    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(sse_module, "SSE_KEEPALIVE_SECONDS", 0.05)
     await sign_in(client)
     job_id = await queued_job(session_factory)
 
@@ -1312,7 +1313,7 @@ async def test_an_open_stream_does_not_hold_the_sqlite_write_lock(
     lock for exactly that long: every worker's claim then failed with "database
     is locked" until the operator closed the tab.
     """
-    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(sse_module, "SSE_KEEPALIVE_SECONDS", 0.05)
     await sign_in(client)
     job_id = await queued_job(session_factory)
 
@@ -1342,7 +1343,7 @@ async def test_a_line_written_while_the_backlog_is_read_still_arrives(
     ahead of the subscription. Reproduced by publishing from inside the backlog
     read, which is exactly where the worker was.
     """
-    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(sse_module, "SSE_KEEPALIVE_SECONDS", 0.05)
     await sign_in(client)
     job_id = await queued_job(session_factory)
 
@@ -1380,7 +1381,7 @@ async def test_a_replayed_line_is_not_sent_a_second_time(
     Whatever the backlog already carried has to be dropped when it arrives
     again on the live side, or the operator reads the same line twice.
     """
-    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(sse_module, "SSE_KEEPALIVE_SECONDS", 0.05)
     await sign_in(client)
     job_id = await queued_job(session_factory)
 
@@ -1425,7 +1426,7 @@ async def test_the_whole_backlog_is_replayed_not_the_first_page(
     carried on from the live end, so everything between the page and the
     present was gone for good.
     """
-    monkeypatch.setattr(jobs_route, "SSE_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(sse_module, "SSE_KEEPALIVE_SECONDS", 0.05)
     monkeypatch.setattr(jobs_route, "_BACKLOG_PAGE", 2)
     await sign_in(client)
     job_id = await queued_job(session_factory)

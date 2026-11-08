@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -24,6 +22,7 @@ from app.api.deps.common import (
 )
 from app.api.schemas.common import JobAccepted
 from app.api.schemas.system import JobDetailOut, JobEventOut, JobSummaryOut
+from app.api.sse import END, KEEPALIVE, event_stream, follow, sse
 from app.core.errors import ConflictError
 from app.core.permissions import Permission
 from app.domain.enums import JobStatus
@@ -32,15 +31,11 @@ from app.persistence.models.inventory import (
     DeploymentTarget,
     ProbeRecord,
 )
-from app.services.events import StreamEvent, job_topic
+from app.services.events import job_topic
 from app.services.jobs import JobService, ResourceRef
 from app.workers.handlers import deploy_sensor, iperf_provisioning
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
-
-# Proxies and browsers drop an idle event stream. A comment line every few
-# seconds keeps it open without inventing an event.
-SSE_KEEPALIVE_SECONDS = 20.0
 
 
 @router.get("", response_model=list[JobSummaryOut])
@@ -147,63 +142,35 @@ async def job_events(
     async def stream() -> AsyncIterator[bytes]:
         try:
             for event in backlog:
-                yield _sse("job.event", event)
+                yield sse("job.event", event)
 
             if already_finished:
-                yield _sse("job.status", final_status)
-                yield b"event: end\ndata: {}\n\n"
+                yield sse("job.status", final_status)
+                yield END
                 return
 
-            # The wait for the next line is a task of its own, outliving the
-            # keepalive. wait_for cancels what it waits on when it times out,
-            # and a cancelled get() would take the queued line with it: the
-            # stream would then lose an event on every idle interval instead of
-            # sending a comment and carrying on.
-            pending: asyncio.Task[StreamEvent] = asyncio.ensure_future(queue.get())
-            try:
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    done, _pending = await asyncio.wait(
-                        {pending}, timeout=SSE_KEEPALIVE_SECONDS
-                    )
-                    if not done:
-                        yield b": keepalive\n\n"
+            async with contextlib.aclosing(follow(request, queue)) as updates:
+                async for update in updates:
+                    if update is None:
+                        yield KEEPALIVE
                         continue
-
-                    update = pending.result()
-                    pending = asyncio.ensure_future(queue.get())
-
                     if (
                         update.kind == "job.event"
                         and int(update.payload.get("sequence", 0)) <= replayed_through
                     ):
                         continue
 
-                    yield _sse(update.kind, update.payload)
+                    yield sse(update.kind, update.payload)
                     if (
                         update.kind == "job.status"
                         and update.payload.get("status") in _TERMINAL_VALUES
                     ):
-                        yield b"event: end\ndata: {}\n\n"
+                        yield END
                         break
-            finally:
-                pending.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await pending
         finally:
             await broadcaster.unregister(topic, queue)
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            # nginx buffers event streams into uselessness without this.
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return event_stream(stream())
 
 
 @router.post(
@@ -363,8 +330,3 @@ async def _read_backlog(
 
 
 _TERMINAL_VALUES = {status.value for status in JobStatus if status.is_terminal}
-
-
-def _sse(event: str, payload: dict[str, Any]) -> bytes:
-    body = json.dumps(payload, default=str)
-    return f"event: {event}\ndata: {body}\n\n".encode()
