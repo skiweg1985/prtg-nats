@@ -585,6 +585,14 @@ check "the channel points at the proxy" \
   "$(docker exec "${PROBE_CONTAINER}" \
     grep '^PLATFORM_URL=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
   "PLATFORM_URL=https://${ADMIN_CONTAINER}:8443"
+check "the channel knows the interface address for links to a run" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    grep '^WEB_URL=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
+  "WEB_URL=https://${ADMIN_CONTAINER}"
+check "and the buffer size the platform sets" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    grep '^BUFFER_LIMIT_BYTES=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
+  "BUFFER_LIMIT_BYTES=20971520"
 
 channel_state() {
   docker exec "${PROBE_CONTAINER}" \
@@ -650,7 +658,10 @@ result = {
     "details": {"ssid": "e2e-network", "mac": "02:00:00:00:00:01"},
 }
 daemon.report_run(job, result, log)
-print(result.get("record_id", ""))
+# The ID, then the full link the sensor script would put in its message;
+# nothing at all when the service did not take the record.
+print(" ".join(part for part in (result.get("record_id"),
+                                 result.get("record_link")) if part))
 PYEOF
 }
 # Polls the read API, through the proxy, until the record is there.
@@ -677,9 +688,36 @@ print(value if value is not None else "")
 ' "$1" 2>/dev/null || true
 }
 
-first_record="$(feed_failed_run)"
+probe_id="$(
+  platform_curl "https://${ADMIN_CONTAINER}/api/v1/probes" |
+    docker exec -i "${ADMIN_CONTAINER}" python3 -c '
+import json, sys
+for probe in json.load(sys.stdin):
+    if probe["nats_username"] == sys.argv[1]:
+        print(probe["id"])
+' "${NATS_USER}" 2>/dev/null || true
+)"
+[[ -n "${probe_id}" ]] || die "The platform does not list ${NATS_USER}"
+# The service sends a heartbeat as soon as it starts, so the platform sees
+# the channel before any sensor has written a record.
+heartbeat=""
+for _ in $(seq 1 30); do
+  heartbeat="$(
+    platform_curl "https://${ADMIN_CONTAINER}/api/v1/probes/${probe_id}" |
+      json_field return_channel.last_contact_at
+  )"
+  [[ -n "${heartbeat}" ]] && break
+  sleep 2
+done
+check "the heartbeat reaches the platform before any record" \
+  "$([[ -n "${heartbeat}" ]] && printf 'yes')" "yes"
+
+first_answer="$(feed_failed_run)"
+first_record="${first_answer%% *}"
 check "the service took the record" \
   "$([[ "${first_record}" =~ ^[0-9a-f-]{36}$ ]] && printf 'yes')" "yes"
+check "the run carries the full link to its record" \
+  "${first_answer#* }" "https://${ADMIN_CONTAINER}/sensor-logs/${first_record}"
 first_detail="$(record_via_api "${first_record}" || true)"
 check "the record arrived through the read API" \
   "$(printf '%s' "${first_detail}" | json_field id)" "${first_record}"
@@ -710,16 +748,6 @@ docker exec "${PROBE_CONTAINER}" bash -c "
   rm -f ${RETURN_CHANNEL_DIR}/cert.pem
 "
 check "a broken channel takes no records" "$(feed_failed_run)" ""
-probe_id="$(
-  platform_curl "https://${ADMIN_CONTAINER}/api/v1/probes" |
-    docker exec -i "${ADMIN_CONTAINER}" python3 -c '
-import json, sys
-for probe in json.load(sys.stdin):
-    if probe["nats_username"] == sys.argv[1]:
-        print(probe["id"])
-' "${NATS_USER}" 2>/dev/null || true
-)"
-[[ -n "${probe_id}" ]] || die "The platform does not list ${NATS_USER}"
 repair_job="$(
   platform_curl --request POST \
     "https://${ADMIN_CONTAINER}/api/v1/probes/${probe_id}/return-channel/repair" |
@@ -741,7 +769,8 @@ check "the repair issued a new certificate" \
     test -s "${RETURN_CHANNEL_DIR}/cert.pem" && printf 'yes')" "yes"
 wait_for_channel || true
 check "the repaired service runs" "$(channel_state)" "active"
-second_record="$(feed_failed_run)"
+second_answer="$(feed_failed_run)"
+second_record="${second_answer%% *}"
 check "the repaired channel takes records again" \
   "$([[ "${second_record}" =~ ^[0-9a-f-]{36}$ ]] && printf 'yes')" "yes"
 check "and delivers them" \
