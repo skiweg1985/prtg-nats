@@ -418,6 +418,7 @@
     "parameters": "Parameter",
     "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
     "parametersResult": "Parameterzeile für PRTG",
+    "parametersBuild": "Parameterzeile selbst zusammenstellen ({{count}} Parameter)",
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
     "reference": {
       "recommendedLine": "Empfohlener Anfang der Parameterzeile",
@@ -451,7 +452,9 @@
       "confirmDeleteBody": "Sie wird vom Server und von diesen Probes entfernt: {{probes}}. PRTG-Objekte, die sie per --profile nennen, schlagen danach fehl.",
       "confirmDeleteUnused": "Sie ist auf keiner Probe ausgerollt; entfernt wird nur der Eintrag auf dem Server."
     },
-    "iperfBadge": "braucht Messpunkt",
+    "metaInterface": "reserviertes Interface",
+    "metaHelper": "privilegierter Hilfsdienst",
+    "metaEndpoint": "braucht Messpunkt",
     "updateOnProbe": "Aktualisieren",
     "requirements": "Voraussetzungen",
     "prtg": {
@@ -1474,6 +1477,7 @@
   },
   "sensorLogs": {
     "title": "Sensor-Log",
+    "subtitle": "Jeder Lauf der Sensoren auf allen Probes, mit seiner Ausgabe",
     "empty": "Keine Läufe in diesem Zeitraum",
     "emptyFiltered": "Keine Läufe passen zu diesen Filtern",
     "count": "{{shown}} von {{total}}",
@@ -1528,14 +1532,14 @@
       "dhcpServer": "DHCP-Server",
       "gateway": "Gateway",
       "gatewayKind": "Herkunft des Gateways",
-      "frequency": "Frequenz (MHz)",
-      "signal": "Signal (dBm)",
+      "frequency": "Frequenz",
+      "signal": "Signalstärke",
       "timings": "Dauer der Stufen",
-      "assocMs": "Assoziierung (ms)",
-      "authMs": "Authentifizierung (ms)",
-      "dhcpMs": "DHCP (ms)",
-      "gatewayMs": "Gateway-Ping (ms)",
-      "totalMs": "Gesamt (ms)",
+      "assocMs": "Assoziierung",
+      "authMs": "Authentifizierung",
+      "dhcpMs": "DHCP",
+      "gatewayMs": "Gateway-Ping",
+      "totalMs": "Gesamt",
       "supplicant": "Ausgabe von wpa_supplicant",
       "dhcp": "Ausgabe des DHCP-Clients",
       "events": "Ereignisse des Helpers"

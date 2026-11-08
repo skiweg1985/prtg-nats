@@ -25,7 +25,7 @@ function subscribePhone(onChange: () => void) {
   return () => query.removeEventListener('change', onChange)
 }
 
-function useIsPhone() {
+export function useIsPhone() {
   return useSyncExternalStore(
     subscribePhone,
     () => window.matchMedia(PHONE_QUERY).matches,

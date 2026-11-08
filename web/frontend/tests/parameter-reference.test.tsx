@@ -88,6 +88,28 @@ describe('ParameterCard', () => {
     expect(screen.getByText(/(variant|Variante).*SSID/i)).toBeInTheDocument()
   })
 
+  // The recommended line is what most setups copy; the twenty fields behind
+  // it are the exception and stay folded until asked for.
+  it('folds the form away behind a recommended line', () => {
+    const { container } = wrap(
+      <ParameterCard sensorName="aruba-uplink" schema={schema} />,
+    )
+    const form = container.querySelector('details')
+    expect(form).not.toBeNull()
+    expect(form?.open).toBe(false)
+    expect(screen.getByText(/3 param/i)).toBeInTheDocument()
+  })
+
+  it('opens the form for a sensor with nothing to copy', () => {
+    const { container } = wrap(
+      <ParameterCard
+        sensorName="aruba-uplink"
+        schema={{ ...schema, default_parameter_line: '' }}
+      />,
+    )
+    expect(container.querySelector('details')?.open).toBe(true)
+  })
+
   it('renders nothing at all for a sensor without parameters', () => {
     const { container } = wrap(
       <ParameterCard sensorName="plain" schema={null} />,
