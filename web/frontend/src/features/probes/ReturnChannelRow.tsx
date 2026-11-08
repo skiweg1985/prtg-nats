@@ -6,7 +6,7 @@ import type { ReturnChannel } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Button, DetailRow } from '@/components/ui/primitives'
-import { formatRelative } from '@/utils/format'
+import { formatPercent, formatRelative } from '@/utils/format'
 
 /**
  * The probe's return channel in one row: when it last delivered, how full its
@@ -31,7 +31,7 @@ export function ReturnChannelRow({
 
   const fill =
     channel.buffer_bytes != null && channel.buffer_limit
-      ? Math.round((channel.buffer_bytes / channel.buffer_limit) * 100)
+      ? formatPercent(channel.buffer_bytes / channel.buffer_limit)
       : null
 
   return (

@@ -24,7 +24,7 @@ does not settle, settle it here first.
 | NATS credential | NATS-Konto / Konto | NATS account | Benutzer (for accounts) |
 | SSH access | Management-Zugang | management access | bare „Zugang" |
 | sensor config bundle | Variante | variant | Profil (for this sense) |
-| iperf credential bundle | Zugangsdaten(-Profil) | credentials / credential profile | — |
+| credential bundle (iperf, wlan-auth run field `profile`) | Zugangsdaten(-Profil) | credentials / credential profile | Profil (bare) |
 | iperf target | Messpunkt | iperf endpoint / endpoint | Endpunkt, Endpoint (DE), Gegenstelle, counterpart |
 | NATS monitoring URL | Adresse / Monitoring-Adresse | address | Endpunkt/endpoint for this sense |
 | WireGuard dial-in | Hub-Adresse / Endpoint des Overlays | hub address | — |
@@ -111,3 +111,9 @@ The CLI flag stays `--profile` for compatibility while the UI says
 „Variante". Where the flag surfaces, use one fixed sentence: „In PRTG trägt
 der Parameter `--profile` den Namen der Variante." Do not paraphrase it
 differently per page.
+
+The `wlan-auth` run detail shows a `profile` field: the name of the
+credentials the run signed in with. It is labelled „Zugangsdaten-Profil" /
+"credential profile", like the iperf credentials, because the reader of a
+run wants to know which credentials were used, not how they reached the
+probe. Bare „Profil" stays retired.

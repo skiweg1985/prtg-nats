@@ -389,6 +389,8 @@ describe('a single run', () => {
             auth: 'peap',
             client_mac: '00:00:5e:00:53:10',
             bssid: '00:00:5e:00:53:c2',
+            profile: 'office',
+            frequency_mhz: 5180,
             timings: { assoc_ms: 41, total_ms: 2100 },
             supplicant: ['+0.500s wlan0: CTRL-EVENT-EAP-FAILURE'],
             events: ['+0.000s interface wlan0 locked'],
@@ -409,7 +411,11 @@ describe('a single run', () => {
     expect(screen.getByText('Association (ms)')).toBeInTheDocument()
     expect(screen.getByText('wpa_supplicant output')).toBeInTheDocument()
     expect(screen.getByText('Helper events')).toBeInTheDocument()
+    expect(screen.getByText('Credential profile')).toBeInTheDocument()
     expect(screen.queryByText('client_mac')).toBeNull()
+    // Numbers through Intl, like everywhere else in the interface.
+    expect(screen.getByText('5,180')).toBeInTheDocument()
+    expect(screen.getByText('2,100')).toBeInTheDocument()
   })
 
   it('labels them in German too', async () => {
@@ -418,6 +424,8 @@ describe('a single run', () => {
 
     expect(await screen.findByText('Client-Adresse')).toBeInTheDocument()
     expect(screen.getByText('Ausgabe von wpa_supplicant')).toBeInTheDocument()
+    expect(screen.getByText('Zugangsdaten-Profil')).toBeInTheDocument()
+    expect(screen.getByText('5.180')).toBeInTheDocument()
   })
 
   it('keeps the field names of a sensor it has no labels for', async () => {

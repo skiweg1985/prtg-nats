@@ -6,7 +6,7 @@ import { useSensorLog, useSensorLogStream, useSensorLogs } from '@/api/hooks'
 import type { SensorLogResult, SensorLogSummary } from '@/api/types'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Card, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatNumber } from '@/utils/format'
 
 const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
   ok: 'ok',
@@ -257,6 +257,7 @@ function isGroup(value: unknown): value is Record<string, unknown> {
 function show(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'string') return value
+  if (typeof value === 'number') return formatNumber(value)
   return JSON.stringify(value)
 }
 

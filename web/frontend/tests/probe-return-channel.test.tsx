@@ -136,7 +136,7 @@ describe('the return channel on the probe page', () => {
 
     const row = await channelRow('Return channel')
     expect(within(row).getByText(/Last report/)).toBeInTheDocument()
-    expect(within(row).getByText(/Buffer 25 % full/)).toBeInTheDocument()
+    expect(within(row).getByText(/Buffer 25% full/)).toBeInTheDocument()
     expect(within(row).getByText(/2 gaps/)).toBeInTheDocument()
     expect(within(row).queryByText('Silent')).not.toBeInTheDocument()
   })

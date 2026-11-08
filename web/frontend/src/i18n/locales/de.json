@@ -389,7 +389,7 @@
       "nothingYet": "Noch nichts geliefert",
       "silent": "Stumm",
       "repair": "Reparieren",
-      "buffer": "Puffer zu {{percent}} % belegt",
+      "buffer": "Puffer zu {{percent}} belegt",
       "gaps_one": "{{count}} Lücke, {{time}}",
       "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
       "noGaps": "Keine Lücken"
@@ -1517,7 +1517,7 @@
       "interface": "Schnittstelle",
       "stage": "Stufe",
       "identity": "Identität",
-      "profile": "Profil",
+      "profile": "Zugangsdaten-Profil",
       "bssid": "Access Point (BSSID)",
       "clientMac": "Client-Adresse",
       "clientMacKind": "Herkunft der Client-Adresse",

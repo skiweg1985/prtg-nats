@@ -389,7 +389,7 @@
       "nothingYet": "Nothing delivered yet",
       "silent": "Silent",
       "repair": "Repair",
-      "buffer": "Buffer {{percent}} % full",
+      "buffer": "Buffer {{percent}} full",
       "gaps_one": "{{count}} gap, {{time}}",
       "gaps_other": "{{count}} gaps, the last {{time}}",
       "noGaps": "No gaps"
@@ -1517,7 +1517,7 @@
       "interface": "Interface",
       "stage": "Stage",
       "identity": "Identity",
-      "profile": "Profile",
+      "profile": "Credential profile",
       "bssid": "Access point (BSSID)",
       "clientMac": "Client address",
       "clientMacKind": "Client address source",
