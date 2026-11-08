@@ -116,3 +116,30 @@ def test_only_a_hash_is_stored(settings: Settings) -> None:
     assert code not in stored
     assert code.replace("-", "") not in stored
     assert store.path.stat().st_mode & 0o077 == 0
+
+
+async def test_a_refused_password_leaves_the_code_usable(
+    client: AsyncClient, settings: Settings
+) -> None:
+    code = SetupCodeStore(settings).issue()
+
+    weak = await client.post(
+        "/api/v1/auth/setup",
+        json={"username": "admin", "password": " padded-password ", "setup_code": code},
+    )
+    assert weak.status_code == 422, weak.text
+
+    assert await _setup(client, code) == 201
+
+
+def test_only_one_claim_wins(settings: Settings) -> None:
+    """Two requests with the same code: the second finds it taken."""
+    store = SetupCodeStore(settings)
+    code = store.issue()
+
+    assert store.claim(code)
+    assert not store.claim(code)
+    store.release()
+    assert store.claim(code)
+    store.consume()
+    assert not store.claim(code)

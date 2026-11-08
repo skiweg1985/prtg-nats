@@ -66,7 +66,7 @@ class SetupCodeStore:
         self.path.parent.chmod(0o700)
         # Written beside the target and renamed, so a reader never sees half a
         # record, and created 0600 so it is never readable by anyone else.
-        partial = self.path.with_name(f".{self.path.name}.partial")
+        partial = self.path.with_name(f".{self.path.name}.{secrets.token_hex(4)}")
         descriptor = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             json.dump(record, handle)
@@ -86,7 +86,33 @@ class SetupCodeStore:
             return False
         return hmac.compare_digest(digest, _digest(code))
 
+    @property
+    def _claimed(self) -> Path:
+        return self.path.with_name(f"{self.path.name}.claimed")
+
+    def claim(self, code: str) -> bool:
+        """Take the code for one setup attempt, or say it is not available.
+
+        A rename, so of two requests carrying the same code only one gets it:
+        the other finds no file and is refused, instead of both racing to
+        create an administrator.
+        """
+        if not self.matches(code):
+            return False
+        try:
+            self.path.rename(self._claimed)
+        except FileNotFoundError:
+            return False
+        return True
+
+    def release(self) -> None:
+        """Give a claimed code back after a setup attempt that failed."""
+        if self._claimed.exists() and not self.path.exists():
+            self._claimed.rename(self.path)
+
     def consume(self) -> None:
+        """Forget the code for good, once the administrator is committed."""
+        self._claimed.unlink(missing_ok=True)
         self.path.unlink(missing_ok=True)
 
     def _read(self) -> tuple[str, datetime] | None:
