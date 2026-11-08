@@ -53,7 +53,10 @@
     "unknown": "Unknown",
     "updated": "Updated",
     "apply": "Apply",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden"
   },
   "auth": {
     "signIn": "Sign in",

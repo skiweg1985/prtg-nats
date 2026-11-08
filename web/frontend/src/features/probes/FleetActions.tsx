@@ -17,6 +17,8 @@ import {
 import { useAuth } from '@/app/providers'
 import { ActionMenu, Button, Dialog, Mono } from '@/components/ui/primitives'
 
+import { probeName } from './probeName'
+
 /**
  * The six probe actions, applied to a selection.
  *
@@ -223,7 +225,10 @@ function ConfirmFleetAction({
       <ul className="border-rule mt-3 max-h-48 space-y-1 overflow-y-auto border-t pt-3">
         {targets.map((probe) => (
           <li key={probe.id}>
-            <Mono className="text-ink-2">{probe.nats_username}</Mono>
+            <span className="text-ink text-sm">{probeName(probe)}</span>
+            {probeName(probe) !== probe.nats_username && (
+              <Mono className="text-ink-3 ml-2">{probe.nats_username}</Mono>
+            )}
           </li>
         ))}
       </ul>

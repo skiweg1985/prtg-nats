@@ -170,7 +170,8 @@
   --color-ok-soft: oklch(var(--ok-900));
   --color-warn: oklch(var(--warn-400));
   --color-warn-soft: oklch(var(--warn-900));
-  --color-danger: oklch(var(--dg-400));
+  /* dg-300, not 400: 400 on its own soft tint stays under 4.5:1. */
+  --color-danger: oklch(var(--dg-300));
   --color-danger-soft: oklch(var(--dg-900));
   --color-neutral: oklch(var(--n-400));
   --color-neutral-soft: oklch(var(--n-700));

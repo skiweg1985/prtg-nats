@@ -181,7 +181,7 @@ export function FilterChip({
         'transition-colors duration-(--dur-instant) ease-(--ease-out)',
         pressed
           ? 'border-rule-2 bg-surface-2 text-ink'
-          : 'text-ink-3 hover:text-ink hover:bg-surface-2 border-transparent bg-transparent',
+          : 'text-ink-2 hover:text-ink hover:bg-surface-2 border-transparent bg-transparent',
       )}
     >
       {children}

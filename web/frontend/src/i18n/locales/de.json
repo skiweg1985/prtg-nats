@@ -53,7 +53,10 @@
     "unknown": "Unbekannt",
     "updated": "Stand",
     "apply": "Übernehmen",
-    "moreActions": "Weitere Aktionen"
+    "moreActions": "Weitere Aktionen",
+    "selectAll": "Alle auswählen",
+    "clearSelection": "Auswahl aufheben",
+    "selectedHidden": "{{count}} ausgewählt, {{hidden}} davon ausgeblendet"
   },
   "auth": {
     "signIn": "Anmelden",
