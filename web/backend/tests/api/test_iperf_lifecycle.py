@@ -34,7 +34,12 @@ from app.services import job_secrets
 from app.services.events import get_broadcaster
 from app.services.provisioning import ProvisioningService
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, write_probe_inventory, write_sensor
+from tests.conftest import (
+    SETUP_CODE,
+    ScriptedTransport,
+    write_probe_inventory,
+    write_sensor,
+)
 
 PASSWORD = "correct-horse-battery"
 PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg\n-----END PUBLIC KEY-----\n"
@@ -135,7 +140,8 @@ async def _sign_in(
     client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR
 ) -> None:
     first = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert first.status_code == 201, first.text
     if role is RoleName.ADMINISTRATOR:

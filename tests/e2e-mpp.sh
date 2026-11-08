@@ -394,10 +394,21 @@ check "the probe channel refuses a client without a certificate" \
 # A throwaway administrator for the read API and the repair job. The value
 # is made here and never leaves the test containers.
 admin_password="$(openssl rand -hex 16)"
+# The first administrator needs the code the host prints, as on a real
+# installation; without it the setup has to be refused.
+check "setup without the host's code is refused" \
+  "$(platform_curl --output /dev/null --write-out '%{http_code}' \
+    --header 'Content-Type: application/json' \
+    --data "{\"username\": \"e2e-admin\", \"password\": \"${admin_password}\", \"setup_code\": \"WRONG\"}" \
+    "https://${ADMIN_CONTAINER}/api/v1/auth/setup" 2>/dev/null || true)" \
+  "403"
+setup_code="$(docker exec "${ADMIN_CONTAINER}" ./prtg-nats setup-code |
+  sed -n 's/^  Setup code: //p')"
+check "the host prints a setup code" "$([[ -n "${setup_code}" ]] && echo yes)" "yes"
 setup_answer="$(
   platform_curl --write-out '\n%{http_code}' \
     --header 'Content-Type: application/json' \
-    --data "{\"username\": \"e2e-admin\", \"password\": \"${admin_password}\"}" \
+    --data "{\"username\": \"e2e-admin\", \"password\": \"${admin_password}\", \"setup_code\": \"${setup_code}\"}" \
     "https://${ADMIN_CONTAINER}/api/v1/auth/setup" 2>&1 || true
 )"
 check "an administrator is set up" "${setup_answer##*$'\n'}" "201"

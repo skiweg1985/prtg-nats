@@ -70,12 +70,19 @@ see the
 
 ## First sign-in
 
-There is no default account and no default password. The first person to open
-the interface is asked to create the administrator:
+There is no default account and no default password. Creating the
+administrator needs the setup code `prtg-nats setup` prints at its end, so the
+installation belongs to someone with a shell on the host - not to whoever
+reaches the page first:
 
 1. Open `https://<NATS_FQDN>`.
-2. Enter a user name and a password of at least twelve characters.
+2. Enter the setup code, a user name and a password of at least twelve
+   characters.
 3. That account holds the `administrator` role and can create the others.
+
+The code is valid for 24 hours and for one account. `sudo ./prtg-nats
+setup-code` prints a new one and voids the old one; only its hash is stored,
+and it is deleted once the administrator exists.
 
 The window closes with that first account. A second call to the setup endpoint
 is refused, so the form cannot be used later to add an administrator.

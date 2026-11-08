@@ -73,6 +73,8 @@
     "setupTitle": "Ersten Administrator anlegen",
     "setupIntro": "Es existiert noch kein Konto. Das hier angelegte Konto verwaltet die Plattform.",
     "displayName": "Anzeigename",
+    "setupCode": "Einrichtungscode",
+    "setupCodeHint": "Steht am Ende von „sudo ./prtg-nats setup“. Einen neuen gibt „sudo ./prtg-nats setup-code“ auf dem Server aus.",
     "createAccount": "Konto anlegen",
     "passwordHint": "Mindestens 12 Zeichen. Länge zählt mehr als Sonderzeichen.",
     "developmentBanner": "Die Entwicklungsanmeldung ist aktiv. Jede Anfrage läuft ohne Anmeldung mit Administratorrechten.",
@@ -1340,7 +1342,8 @@
       "account_locked": "Zu viele Fehlversuche. In {{retry_after_seconds}} Sekunden erneut versuchen.",
       "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
       "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen.",
-      "probe_not_enrolled": "Diese Probe ist auf dieser Plattform nicht eingebunden."
+      "probe_not_enrolled": "Diese Probe ist auf dieser Plattform nicht eingebunden.",
+      "setup_code_invalid": "Der Einrichtungscode stimmt nicht oder ist abgelaufen. Einen neuen gibt „sudo ./prtg-nats setup-code“ auf dem Server aus."
     },
     "probe": {
       "unreachable": "Die Probe „{{probe}}“ hat über den Management-Kanal nicht geantwortet.",

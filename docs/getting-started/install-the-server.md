@@ -1,7 +1,7 @@
 ---
 title: Install the server
 role: operator
-updated: 2026-08-29
+updated: 2026-11-08
 ---
 
 # Install the server
@@ -221,8 +221,9 @@ fail remotely.
 ## 7. Next steps
 
 1. Open the web interface at `https://nats.example.com`. The first visit
-   creates the administrator account - see
-   [the web platform](../web/install.md).
+   creates the administrator account with the setup code `setup` printed at
+   its end - see [the web platform](../web/install.md). Lost it, or more than
+   24 hours passed: `sudo ./prtg-nats setup-code` prints a new one.
 2. [Connect the PRTG core](connect-prtg-core.md), once.
 3. [Add a probe](add-your-first-probe.md), preferably by cloning the repository
    and running `sudo ./install-mpp.sh` directly on the new probe.

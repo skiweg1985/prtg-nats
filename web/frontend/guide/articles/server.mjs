@@ -87,8 +87,8 @@ sudo ./prtg-nats verify</code></pre>
         {
           title: L('Ersten Administrator anlegen', 'Create the first administrator'),
           text: L(
-            '<p>Öffne <code>https://nats.example.test</code>. Es gibt kein Standardkonto: Die Seite zeigt {ui:auth.setupTitle}. Gib Benutzername und ein Passwort mit mindestens zwölf Zeichen ein und klicke {ui:auth.createAccount}. Dieses Formular gibt es nur für das erste Konto.</p>',
-            '<p>Open <code>https://nats.example.test</code>. There is no default account: the page shows {ui:auth.setupTitle}. Enter a user name and a password of at least twelve characters and click {ui:auth.createAccount}. This form exists for the first account only.</p>',
+            '<p>Öffne <code>https://nats.example.test</code>. Es gibt kein Standardkonto: Die Seite zeigt {ui:auth.setupTitle}. Trag unter {ui:auth.setupCode} den Code ein, den <code>setup</code> am Ende ausgegeben hat, dazu Benutzername und ein Passwort mit mindestens zwölf Zeichen, und klicke {ui:auth.createAccount}. Der Code gilt 24 Stunden; einen neuen gibt <code>sudo ./prtg-nats setup-code</code> aus. Dieses Formular gibt es nur für das erste Konto.</p>',
+            '<p>Open <code>https://nats.example.test</code>. There is no default account: the page shows {ui:auth.setupTitle}. Enter the code <code>setup</code> printed at its end under {ui:auth.setupCode}, a user name and a password of at least twelve characters, and click {ui:auth.createAccount}. The code is valid for 24 hours; <code>sudo ./prtg-nats setup-code</code> prints a new one. This form exists for the first account only.</p>',
           ),
         },
         {

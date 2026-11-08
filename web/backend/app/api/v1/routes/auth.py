@@ -20,10 +20,15 @@ from app.api.schemas.auth import (
     PrincipalOut,
     SetupIn,
 )
-from app.core.errors import AuthenticationRequiredError, SetupRequiredError
+from app.core.errors import (
+    AuthenticationRequiredError,
+    SetupCodeInvalidError,
+    SetupRequiredError,
+)
 from app.domain.enums import AuditResult
 from app.persistence.models.identity import WebUser
 from app.services.auth import AuthService, Principal
+from app.services.setup_code import SetupCodeStore
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -81,6 +86,11 @@ async def initial_setup(
     settings: SettingsDep,
     audit: AuditDep,
 ) -> AuthStateOut:
+    # Before anything else: without the code from the host's console, a fresh
+    # installation would belong to whoever reached this page first.
+    setup_code = SetupCodeStore(settings)
+    if not setup_code.matches(payload.setup_code):
+        raise SetupCodeInvalidError()
     user = await auth.create_initial_administrator(
         username=payload.username,
         password=payload.password,
@@ -96,6 +106,7 @@ async def initial_setup(
         actor_id=user.id,
         actor_name=user.username,
     )
+    setup_code.consume()
     issued = await auth.issue_session(
         user,
         source_ip=client_ip(request),
