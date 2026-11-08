@@ -12,6 +12,24 @@
 {
 	auto_https disable_redirects
 	admin off
+
+	# A client that connects by address sends no server name - IP addresses
+	# are never sent as SNI - and TLS policies are chosen by server name.
+	# Without this, such a handshake fell through to a policy without client
+	# auth on the probe channel, and the request carried no verified identity
+	# at all. With it, a nameless handshake is treated as one for the bind
+	# address, which every site here answers under.
+	default_sni {$WEB_BIND_IP}
+
+	# Client auth also makes Caddy require the Host header to match the
+	# server name, which a nameless handshake can never do: every request by
+	# address got 421. The check keeps a certificate admitted for one site
+	# from being used on another behind the same listener. This listener
+	# carries only the probe channel, with one client_auth policy for both its
+	# names, so there is nothing to cross over to.
+	servers {$WEB_BIND_IP}:{$PROBE_CHANNEL_PORT} {
+		strict_sni_host insecure_off
+	}
 }
 
 # The interface answers on the name and on the bare host address: an internal

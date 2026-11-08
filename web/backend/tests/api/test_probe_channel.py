@@ -70,23 +70,28 @@ async def test_anything_but_the_subject_of_an_enrolled_probe_is_refused(
 
 
 def _caddy_sites() -> dict[str, str]:
-    """The Caddyfile's top-level site blocks, keyed by their address line."""
+    """The Caddyfile's top-level blocks, keyed by their address line.
+
+    The global options block is the one under the empty key.
+    """
     text = (Path(__file__).resolve().parents[3] / "Caddyfile").read_text(
         encoding="utf-8"
     )
     sites: dict[str, str] = {}
-    address, body, depth = "", [], 0
+    address: str | None = None
+    body: list[str] = []
+    depth = 0
     for line in text.splitlines():
         # Comments here are whole lines; braces in their prose must not count.
         stripped = "" if line.lstrip().startswith("#") else line.strip()
-        if depth == 0 and stripped.endswith("{") and stripped != "{":
+        if depth == 0 and stripped.endswith("{"):
             address, body = stripped[:-1].strip(), []
         elif depth > 0:
             body.append(stripped)
         depth += stripped.count("{") - stripped.count("}")
-        if depth == 0 and address:
+        if depth == 0 and address is not None:
             sites[address] = "\n".join(body)
-            address = ""
+            address = None
     return sites
 
 
@@ -96,11 +101,16 @@ def test_the_proxy_sends_the_identity_in_the_form_read_here() -> None:
     Neither knows about the other, so this holds them together: the probe
     channel sets the header from the verified subject - "CN=<identity>", as
     the tests above send it - and the interface site never forwards it.
+
+    default_sni is part of it: a probe that connects by address sends no
+    server name, and without it that handshake picked a policy with no client
+    authentication at all - found with a real Caddy, not by reading the docs.
     """
     sites = _caddy_sites()
     (channel,) = [body for site, body in sites.items() if "PROBE_CHANNEL_PORT" in site]
     (interface,) = [body for site, body in sites.items() if "WEB_HTTPS_PORT" in site]
 
+    assert re.search(r"default_sni\s+\{\$WEB_BIND_IP\}", sites[""])
     assert re.search(r"mode\s+require_and_verify", channel)
     assert "trust_pool file /etc/caddy/certs/probe-ca.pem" in channel
     assert re.search(
