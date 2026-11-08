@@ -6,19 +6,29 @@ import argparse
 import re
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import ops
 from app.core.config import Settings
+from app.persistence import session as session_module
 from app.services.auth import AuthService
 from app.services.setup_code import SetupCodeStore
 
 CODE = re.compile(r"Setup code: ([0-9A-Z]{4}(?:-[0-9A-Z]{4}){3})")
 
 
-@pytest.fixture(autouse=True)
-def wired(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None:
+@pytest_asyncio.fixture(autouse=True)
+async def wired(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     monkeypatch.setattr(ops, "_settings", lambda: settings)
+    # The command runs as a process of its own, where nothing has opened the
+    # database yet. The fixtures have; closing it here puts that state back,
+    # while the factory the test holds still reaches the same file.
+    await session_module.dispose_engine()
 
 
 async def test_prints_a_code_the_store_accepts(

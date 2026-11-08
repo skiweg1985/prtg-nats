@@ -1343,7 +1343,8 @@
       "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
       "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen.",
       "probe_not_enrolled": "Diese Probe ist auf dieser Plattform nicht eingebunden.",
-      "setup_code_invalid": "Der Einrichtungscode stimmt nicht oder ist abgelaufen. Einen neuen gibt „sudo ./prtg-nats setup-code“ auf dem Server aus."
+      "setup_code_invalid": "Der Einrichtungscode stimmt nicht oder ist abgelaufen. Einen neuen gibt „sudo ./prtg-nats setup-code“ auf dem Server aus.",
+      "password_change_required": "Ändere zuerst dein Passwort, bevor es weitergeht."
     },
     "probe": {
       "unreachable": "Die Probe „{{probe}}“ hat über den Management-Kanal nicht geantwortet.",

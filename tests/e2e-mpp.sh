@@ -282,10 +282,13 @@ MPP_SSH_SOURCE_CIDR=${admin_address}/32
 EOF
 chmod 600 ${WORK_DIR}/.env"
 # The recovery commands (init, user rotate) run the same Python services the
-# web platform uses; install the backend once in the admin container.
+# web platform uses; install the backend once in the admin container, from the
+# lock, so this test runs the versions the image ships.
 docker exec "${ADMIN_CONTAINER}" bash -c "
   python3 -m venv ${WORK_DIR}/web/backend/.venv &&
-  ${WORK_DIR}/web/backend/.venv/bin/pip install --quiet ${WORK_DIR}/web/backend
+  ${WORK_DIR}/web/backend/.venv/bin/pip install --quiet --require-hashes \
+    -r ${WORK_DIR}/web/backend/requirements.lock &&
+  ${WORK_DIR}/web/backend/.venv/bin/pip install --quiet --no-deps ${WORK_DIR}/web/backend
 " || die "The backend installation in the admin container failed"
 docker exec "${ADMIN_CONTAINER}" ./prtg-nats init >/dev/null
 # Only NATS from compose: the API and the proxy share the host network
@@ -350,7 +353,11 @@ if [[ "${api_health}" != "200" ]]; then
   die "The platform API did not start"
 fi
 check "the platform API answers" "${api_health}" "200"
-# After the API, which creates the probe CA the channel trusts.
+# After the API, which creates the probe CA the channel trusts. The image is
+# the one compose.yaml pins, so this test covers the proxy that ships.
+proxy_image="$(awk '$1 == "image:" && $2 ~ /^caddy:/ { print $2 }' \
+  "${PROJECT_DIR}/compose.yaml")"
+[[ -n "${proxy_image}" ]] || die "compose.yaml names no caddy image"
 docker run -d --name "${PROXY_CONTAINER}" \
   --network "container:${ADMIN_CONTAINER}" \
   -v "${WORK_DIR}/web/Caddyfile:/etc/caddy/Caddyfile:ro" \
@@ -360,7 +367,7 @@ docker run -d --name "${PROXY_CONTAINER}" \
   -e "WEB_HTTPS_PORT=443" \
   -e "PROBE_CHANNEL_PORT=8443" \
   -e "CA_HTTP_PORT=${ca_port}" \
-  caddy:2.9-alpine >/dev/null ||
+  "${proxy_image}" >/dev/null ||
   die "The proxy could not be started"
 # Everything below that talks to the platform goes through the proxy over
 # TLS, verified against the installation's CA, as a browser would.

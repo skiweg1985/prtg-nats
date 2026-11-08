@@ -1343,7 +1343,8 @@
       "permission_denied": "This action needs the permission \"{{permission}}\".",
       "setup_required": "No account exists yet. Create the first administrator.",
       "probe_not_enrolled": "This probe is not enrolled on this platform.",
-      "setup_code_invalid": "The setup code is wrong or has expired. \"sudo ./prtg-nats setup-code\" on the server issues a new one."
+      "setup_code_invalid": "The setup code is wrong or has expired. \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
+      "password_change_required": "Change your password before you continue."
     },
     "probe": {
       "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",

@@ -9,7 +9,7 @@ from app.api.deps.common import (
     AuthDep,
     DbSession,
     OptionalPrincipalDep,
-    PrincipalDep,
+    SessionPrincipalDep,
     SettingsDep,
     client_ip,
 )
@@ -33,9 +33,7 @@ from app.services.setup_code import SetupCodeStore
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _principal_out(
-    principal: Principal, *, must_change_password: bool = False
-) -> PrincipalOut:
+def _principal_out(principal: Principal) -> PrincipalOut:
     return PrincipalOut(
         user_id=principal.user_id,
         username=principal.username,
@@ -44,7 +42,7 @@ def _principal_out(
         permissions=sorted(permission.value for permission in principal.permissions),
         locale=principal.locale,
         is_development=principal.is_development,
-        must_change_password=must_change_password,
+        must_change_password=principal.must_change_password,
     )
 
 
@@ -191,9 +189,7 @@ async def login(
         authenticated=True,
         setup_required=False,
         dev_auth=settings.dev_auth_enabled,
-        principal=_principal_out(
-            principal, must_change_password=user.must_change_password
-        ),
+        principal=_principal_out(principal),
     )
 
 
@@ -202,7 +198,7 @@ async def logout(
     response: Response,
     auth: AuthDep,
     settings: SettingsDep,
-    principal: PrincipalDep,
+    principal: SessionPrincipalDep,
     audit: AuditDep,
 ) -> None:
     if principal.session_id:
@@ -219,8 +215,11 @@ async def logout(
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     payload: ChangePasswordIn,
+    request: Request,
+    response: Response,
     auth: AuthDep,
-    principal: PrincipalDep,
+    settings: SettingsDep,
+    principal: SessionPrincipalDep,
     db: DbSession,
     audit: AuditDep,
 ) -> None:
@@ -231,7 +230,38 @@ async def change_password(
     user = await db.get(WebUser, principal.user_id)
     if user is None:
         raise AuthenticationRequiredError()
+    # The current password goes through the same counter and back-off as a
+    # sign-in. Otherwise a session cookie alone would buy unlimited guesses at
+    # the account's password.
+    try:
+        await auth.authenticate(
+            user.username, payload.current_password, source_ip=client_ip(request)
+        )
+    except Exception as exc:
+        audit.record(
+            action="user.change_password",
+            object_type="web_user",
+            object_id=user.id,
+            object_label=user.username,
+            result=AuditResult.FAILURE,
+            error_code=getattr(exc, "code", "auth.invalid_credentials"),
+        )
+        # Committed for the same reason as a failed sign-in: the counter has
+        # to survive the error it exists to remember.
+        await db.commit()
+        raise
     await auth.change_password(user, payload.current_password, payload.new_password)
+    # Changing the password ends every session of the account, this one
+    # included. A fresh one keeps the person who just proved they know the new
+    # password signed in, rather than sending them back to the login form.
+    issued = await auth.issue_session(
+        user,
+        source_ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    _set_session_cookie(
+        response, settings, issued.token, settings.session_lifetime_hours * 3600
+    )
     audit.record(
         action="user.change_password",
         object_type="web_user",

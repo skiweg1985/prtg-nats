@@ -146,6 +146,13 @@ class SetupCodeInvalidError(AppError):
     http_status = status.HTTP_403_FORBIDDEN
 
 
+class PasswordChangeRequiredError(AppError):
+    """The session belongs to an account that still owes a password change."""
+
+    code = "auth.password_change_required"
+    http_status = status.HTTP_403_FORBIDDEN
+
+
 class SetupRequiredError(AppError):
     """No administrator exists yet; the first-run wizard has to run."""
 

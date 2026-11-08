@@ -68,16 +68,23 @@ RUN apt-get update \
         openssh-client ca-certificates iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PYTHONUNBUFFERED=1 \
+# PYTHONPATH: the app package is imported from here, whatever directory a
+# docker exec happens to start in.
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Dependencies first, so a code change does not reinstall the world.
-COPY web/backend/pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+# Dependencies first, so a code change does not reinstall the world. They come
+# from the lockfile, hashes checked, so two builds of one commit carry the same
+# libraries and a scan of one image speaks for the other. The project itself
+# is not installed: it runs from /app, so nothing is resolved or built beyond
+# the lock - not even a build backend fetched in whatever version is current.
+# scripts/lock-dependencies.sh refreshes the lock.
+COPY web/backend/requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY web/backend/app ./app
 COPY web/backend/alembic.ini ./

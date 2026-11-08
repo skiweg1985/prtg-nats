@@ -1,7 +1,7 @@
 ---
 title: Roles and permissions
 role: operator
-updated: 2026-08-28
+updated: 2026-11-08
 ---
 
 # Roles and permissions
@@ -54,6 +54,9 @@ Two tests keep that true:
 - one signs in as each role in turn and checks that the boundaries hold end to
   end.
 
+Retrying a job is not a way around this: it needs `job.retry` and the
+permission of the job it repeats.
+
 A refusal names the permission that was missing, so an operator can ask for the
 right thing rather than reporting "access denied".
 
@@ -70,10 +73,15 @@ identifier in an HttpOnly, Secure, SameSite=Lax cookie. Nothing sensitive is
 kept in JavaScript, and an administrator can end a session immediately.
 
 - A session expires after twelve hours, or after sixty minutes of inactivity.
-- Changing a password ends every other session of that account.
+- Changing a password ends every session of that account; the browser that
+  changed it gets a fresh one.
+- An account created with "must change password" can sign in with its initial
+  password, but the server refuses every request except changing that password
+  and signing out until it is changed. The interface shows only that form.
 - Five failed attempts start an exponential back-off, capped at fifteen
   minutes. It is a delay, never a permanent lock-out that would need a second
-  administrator to undo.
+  administrator to undo. A wrong current password when changing it counts the
+  same way, so a session alone does not allow guessing the password.
 
 ## What is recorded
 
