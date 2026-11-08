@@ -44,6 +44,7 @@ import {
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { PrtgNameRow } from '@/features/probes/PrtgName'
+import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -1004,6 +1005,9 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
           </PermissionGate>
         }
       />
+      <PermissionGate permission="sensor_log.read">
+        <ProbeRunsCard probe={detail.summary.nats_username} />
+      </PermissionGate>
       <VariantsCard detail={detail} />
       <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />

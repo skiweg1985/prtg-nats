@@ -1,7 +1,7 @@
 ---
 title: Terminology of the web interface
 role: developer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Terminology of the web interface
@@ -43,6 +43,10 @@ does not settle, settle it here first.
 | route over the overlay | Tunnel | tunnel | — |
 | route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
 | NATS traffic outside the overlay | direkt | direct | — |
+| the probe's own connection back to the platform | Rückkanal | return channel | — |
+| what sensors report over it, per run | Sensor-Log | sensor log | Protokoll (for this sense) |
+| one sensor execution in the sensor log | Lauf | run | — |
+| a stretch the probe could not keep | Lücke | gap | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
@@ -69,6 +73,13 @@ goes **über den Tunnel** / **via the tunnel** - the overlay address - or
 on its own network. The API and the shell spell the second one `site`.
 NATS traffic goes through the tunnel or **direkt** / **direct**; "site"
 is not used for NATS, because NATS does not connect to the probe.
+
+The **Rückkanal** / **return channel** is how a probe reports back on its own
+initiative, separate from the management access and from NATS. What arrives
+over it is the **Sensor-Log** / **sensor log**: one entry per **Lauf** /
+**run** of a sensor, with its raw output. „Protokoll" stays with the job page,
+so the two are never confused on screen. A **Lücke** / **gap** marks runs the
+probe had to drop while the platform was out of reach.
 
 ## Register (German)
 

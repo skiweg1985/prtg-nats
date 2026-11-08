@@ -18,6 +18,7 @@ import {
 import { EnrollWizard } from '@/features/probes/EnrollWizard'
 import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
 import { ProbeListPage } from '@/features/probes/ProbeListPage'
+import { SensorLogPage, SensorLogRecordPage } from '@/features/sensorLogs/SensorLogPages'
 import { SensorDetailPage, SensorListPage } from '@/features/sensors/SensorPages'
 import { UpdatesPage } from '@/features/updates/UpdatesPage'
 import { AppLayout } from '@/layouts/AppLayout'
@@ -51,6 +52,9 @@ export function AppRoutes() {
 
           <Route path="jobs" element={<JobListPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
+
+          <Route path="sensor-logs" element={<SensorLogPage />} />
+          <Route path="sensor-logs/:recordId" element={<SensorLogRecordPage />} />
 
           <Route path="infrastructure">
             <Route index element={<Navigate to="nats" replace />} />
