@@ -1,11 +1,18 @@
 ---
 title: The helper schedules the radio, the sensor only collects
 role: developer
-updated: 2026-11-07
-status: accepted
+updated: 2026-11-08
+status: accepted, planning superseded by ADR 0014
 ---
 
 # 11. The helper schedules the radio, the sensor only collects
+
+> **Partly superseded.** How often a job is measured, when a result is
+> stale and what `--max-age` means are decided in
+> [ADR 0014](0014-the-helper-plans-the-radio-from-what-it-measures.md):
+> the helper plans from the scanning interval and from measured run
+> durations, and failure code 13 is retired. The rest of this record
+> stands.
 
 ## Context
 
