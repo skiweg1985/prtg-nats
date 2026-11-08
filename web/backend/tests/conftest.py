@@ -7,6 +7,7 @@ probe-helper transport that answers from a script instead of over SSH.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -16,6 +17,10 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -164,6 +169,7 @@ def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -
     from fastapi import FastAPI
     from fastapi.exceptions import RequestValidationError
 
+    from app.api.probe.router import probe_router
     from app.api.v1.router import api_router
     from app.core.errors import (
         AppError,
@@ -174,6 +180,7 @@ def app(settings: Settings, session_factory: async_sessionmaker[AsyncSession]) -
 
     application = FastAPI()
     application.include_router(api_router)
+    application.include_router(probe_router)
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_exception_handler(Exception, unhandled_error_handler)
@@ -187,6 +194,29 @@ async def client(app: Any) -> AsyncIterator[AsyncClient]:
         base_url="http://testserver",
     ) as http_client:
         yield http_client
+
+
+def probe_csr(
+    common_name: str = "probe.example.test",
+) -> tuple[str, ec.EllipticCurvePrivateKey]:
+    """A CSR the way the helper builds one: EC P-256, made with the key it signs.
+
+    The subject is whatever the probe chose; the platform names the
+    certificate after the probe identity regardless, so a test can pass a
+    misleading one to prove that.
+    """
+    key = ec.generate_private_key(ec.SECP256R1())
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .sign(key, hashes.SHA256())
+    )
+    return csr.public_bytes(serialization.Encoding.PEM).decode("ascii"), key
+
+
+def channel_csr_answer(csr_pem: str) -> str:
+    encoded = base64.b64encode(csr_pem.encode("ascii")).decode("ascii")
+    return f"OK channel-csr\ncsr={encoded}\n"
 
 
 class ScriptedTransport:
@@ -213,6 +243,10 @@ class ScriptedTransport:
             # The shipped version, not a written-down one: a helper bump used
             # to fail every test that never mentions a version.
             default += f"helper_version={CURRENT_HELPER_VERSION}\n"
+        elif request.command.value == "channel-csr":
+            # A fresh key per request, as on the probe: an empty answer here
+            # would fail every enrolment test that never mentions the channel.
+            default = channel_csr_answer(probe_csr()[0])
         answer = self.responses.get(request.command.value, default)
         if isinstance(answer, list):
             if not answer:

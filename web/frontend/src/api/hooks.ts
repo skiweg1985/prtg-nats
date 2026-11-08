@@ -5,7 +5,9 @@ import {
   type UseQueryOptions,
 } from '@tanstack/react-query'
 
-import { api } from './client'
+import { useEffect } from 'react'
+
+import { API_BASE, api } from './client'
 import type {
   AuditEvent,
   AuthState,
@@ -43,6 +45,11 @@ import type {
   RegisterEndpointRequest,
   RevealedAccessKey,
   SensorDetail,
+  SensorLogFilters,
+  SensorLogPage,
+  SensorLogRange,
+  SensorLogRecord,
+  SensorLogSummary,
   SensorProfile,
   SensorProfileDetail,
   SensorProfileFile,
@@ -87,6 +94,10 @@ export const keys = {
   probePrtgName: (id: string) => ['probes', id, 'prtg-name'] as const,
   probePrtgCandidates: (id: string) => ['probes', id, 'prtg-candidates'] as const,
   users: ['users'] as const,
+  sensorLogs: ['sensor-logs', 'list'] as const,
+  sensorLogList: (filters: SensorLogFilters, limit: number) =>
+    ['sensor-logs', 'list', filters, limit] as const,
+  sensorLog: (id: string) => ['sensor-logs', 'record', id] as const,
 }
 
 // Jobs move; a dashboard that only updates on reload is a dashboard nobody
@@ -241,6 +252,19 @@ export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-updat
       // The probe now holds a job, and its detail decides by that whether to
       // keep itself current. Without this the page would wait for the next
       // load to find out that anything started.
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+    },
+  })
+}
+
+/** Reinstall the probe's return channel, with a new certificate if needed. */
+export function useRepairReturnChannel() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<JobAccepted>(`/probes/${id}/return-channel/repair`),
+    onSuccess: (_, id) => {
+      void client.invalidateQueries({ queryKey: ['jobs'] })
       void client.invalidateQueries({ queryKey: keys.probe(id) })
     },
   })
@@ -1100,6 +1124,111 @@ export function useLinkPrtgObject() {
       void client.invalidateQueries({ queryKey: keys.probe(id) })
       void client.invalidateQueries({ queryKey: keys.prtgNames })
     },
+  })
+}
+
+const RANGE_MS: Record<SensorLogRange, number> = {
+  '1h': 3_600_000,
+  '24h': 24 * 3_600_000,
+  '7d': 7 * 24 * 3_600_000,
+  '14d': 14 * 24 * 3_600_000,
+}
+
+/** The oldest moment a range covers, measured from now. */
+export function rangeStart(range: SensorLogRange, now = Date.now()): Date {
+  return new Date(now - RANGE_MS[range])
+}
+
+/**
+ * Sensor log records matching the filters, newest first.
+ *
+ * The range sits in the cache key as its name, not as a timestamp: the start
+ * is worked out when the request goes out, so a refetch an hour later covers
+ * the hour that passed instead of a window frozen at the first load.
+ */
+export function useSensorLogs(filters: SensorLogFilters, limit = 100) {
+  return useQuery({
+    queryKey: keys.sensorLogList(filters, limit),
+    queryFn: () =>
+      api.get<SensorLogPage>('/sensor-logs', {
+        probe: filters.probe,
+        sensor: filters.sensor,
+        ssid: filters.ssid,
+        result: filters.result,
+        q: filters.q,
+        since: rangeStart(filters.range).toISOString(),
+        limit,
+      }),
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** Whether a record belongs in a list the given filters produced. */
+function matchesFilters(record: SensorLogSummary, filters: SensorLogFilters): boolean {
+  if (filters.probe && record.probe !== filters.probe) return false
+  if (filters.sensor && record.sensor !== filters.sensor) return false
+  if (filters.ssid && record.ssid !== filters.ssid) return false
+  if (filters.result && record.result !== filters.result) return false
+  return Date.parse(record.time) >= rangeStart(filters.range).getTime()
+}
+
+/**
+ * New records into every open list of the sensor log, as they are stored.
+ *
+ * One stream feeds every list in the cache rather than one stream per list:
+ * a record that matches a list's filters goes on top of it, one that does not
+ * is left out. A full-text filter searches the raw output, which the event
+ * does not carry, so such a list asks the server again instead of guessing.
+ *
+ * The browser reconnects a dropped stream by itself. What arrived in between
+ * is not replayed, so the lists are refetched once the stream is back.
+ */
+export function useSensorLogStream(scope: { probe?: string } = {}) {
+  const client = useQueryClient()
+  const { probe } = scope
+
+  useEffect(() => {
+    const query = probe ? `?probe=${encodeURIComponent(probe)}` : ''
+    const source = new EventSource(`${API_BASE}/sensor-logs/events${query}`)
+    let dropped = false
+
+    source.onopen = () => {
+      if (dropped) void client.invalidateQueries({ queryKey: keys.sensorLogs })
+      dropped = false
+    }
+    source.onerror = () => {
+      dropped = true
+    }
+    source.addEventListener('sensor_log.record', (message) => {
+      const record = JSON.parse(
+        (message as MessageEvent<string>).data,
+      ) as SensorLogSummary
+      for (const query of client.getQueryCache().findAll({ queryKey: keys.sensorLogs })) {
+        const filters = query.queryKey[2] as SensorLogFilters | undefined
+        if (!filters || !matchesFilters(record, filters)) continue
+        if (filters.q) {
+          void client.invalidateQueries({ queryKey: query.queryKey, exact: true })
+          continue
+        }
+        client.setQueryData<SensorLogPage>(query.queryKey, (page) =>
+          !page || page.items.some((item) => item.id === record.id)
+            ? page
+            : { ...page, items: [record, ...page.items], total: page.total + 1 },
+        )
+      }
+    })
+
+    return () => source.close()
+  }, [client, probe])
+}
+
+export function useSensorLog(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.sensorLog(id ?? ''),
+    queryFn: () => api.get<SensorLogRecord>(`/sensor-logs/${id}`),
+    enabled: Boolean(id),
+    // A record never changes once stored.
+    staleTime: Infinity,
   })
 }
 

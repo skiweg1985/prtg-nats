@@ -73,6 +73,15 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${new Intl.NumberFormat(locale(), { maximumFractionDigits: 1 }).format(value)} ${units[exponent]}`
 }
 
+/** A share such as 0.25 as "25 %" or "25%", whatever the locale writes. */
+export function formatPercent(ratio: number | null | undefined): string {
+  if (ratio === null || ratio === undefined) return '—'
+  return new Intl.NumberFormat(locale(), {
+    style: 'percent',
+    maximumFractionDigits: 0,
+  }).format(ratio)
+}
+
 export function formatNumber(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat(locale()).format(value)

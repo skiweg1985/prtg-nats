@@ -17,7 +17,8 @@
     "settings": "Settings",
     "updates": "Updates",
     "system": "Maintenance",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "sensorLogs": "Sensor log"
   },
   "common": {
     "cancel": "Cancel",
@@ -384,7 +385,18 @@
       },
       "unlinkConfirm": "The link to PRTG object {{id}} is removed. The probe is then shown under its enrollment name again; nothing changes in PRTG."
     },
-    "removeSensorConfirm": "{{sensor}} is removed from this probe. The sensor in PRTG reports an error until it is deleted or rolled out again."
+    "removeSensorConfirm": "{{sensor}} is removed from this probe. The sensor in PRTG reports an error until it is deleted or rolled out again.",
+    "returnChannel": {
+      "label": "Return channel",
+      "lastReport": "Last report {{time}}",
+      "nothingYet": "Nothing delivered yet",
+      "silent": "Silent",
+      "repair": "Repair",
+      "buffer": "Buffer {{percent}} full",
+      "gaps_one": "{{count}} gap, {{time}}",
+      "gaps_other": "{{count}} gaps, the last {{time}}",
+      "noGaps": "No gaps"
+    }
   },
   "sensors": {
     "title": "Sensors",
@@ -526,6 +538,7 @@
       "commit": "Commit",
       "verify": "Verify",
       "install_ca": "Install CA",
+      "install_return_channel": "Set up the return channel",
       "collect_state": "Collect state",
       "evaluate": "Evaluate",
       "renew": "Renew certificate",
@@ -600,6 +613,9 @@
         "helper_before": "{{probe}} carries helper version {{version}}",
         "helper_sent": "{{probe}}: helper transferred and accepted as version {{version}}",
         "helper_updated": "{{probe}} now answers with helper version {{version}}",
+        "return_channel_installed": "{{probe}}: return channel certificate installed, valid until {{expires}}, reports to {{url}}",
+        "return_channel_present": "{{probe}} already has a return channel certificate, valid until {{expires}}",
+        "return_channel_helper_outdated": "{{probe}}: helper version {{version}} does not know the return channel yet (needs {{required}}); the certificate follows with the next helper update",
         "fanout_started": "{{probes}} probes selected, one after another",
         "action_failed": "{{probe}}: failed ({{reason}})",
         "fanout_finished": "{{succeeded}} succeeded, {{failed}} failed",
@@ -623,7 +639,11 @@
         "access_verified": "{{host}} answered over the management channel, package {{package}}, service {{service}}",
         "inventory_written": "{{username}} written to the inventory as {{probe_name}}",
         "enrolled": "{{username}} is enrolled at {{host}}",
-        "enroll_incomplete": "This run left behind: host key pinned {{pinned_host_key}}, account created {{created_account}}, inventory written {{wrote_inventory}}"
+        "enroll_incomplete": "This run left behind: host key pinned {{pinned_host_key}}, account created {{created_account}}, inventory written {{wrote_inventory}}",
+        "channel_found": "{{probe}}: return channel certificate {{certificate}}, service {{service}}",
+        "channel_service_reinstalled": "{{probe}}: return channel service reinstalled and restarted",
+        "channel_repaired": "{{probe}}: the return channel service is running again",
+        "channel_service_not_running": "{{probe}}: the return channel service is still not running ({{service}})"
       },
       "sensor": {
         "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
@@ -767,7 +787,8 @@
         "reconcile": "Reconcile a probe",
         "refresh": "Refresh the state",
         "unenroll": "Unenroll a probe",
-        "validate": "Validate a probe"
+        "validate": "Validate a probe",
+        "channel_repair": "Repair the return channel"
       },
       "sensor": {
         "deploy": "Deploy a sensor",
@@ -852,7 +873,8 @@
         "refresh": "State refreshed",
         "set_desired_state": "Desired state changed",
         "update": "Probe updated",
-        "validate": "Probe validated"
+        "validate": "Probe validated",
+        "channel_repair": "Return channel repaired"
       },
       "sensor": {
         "deploy": "Sensor deployed",
@@ -1247,7 +1269,8 @@
       "invalid_credentials": "User name or password is wrong.",
       "account_locked": "Too many failed attempts. Try again in {{retry_after_seconds}} seconds.",
       "permission_denied": "This action needs the permission \"{{permission}}\".",
-      "setup_required": "No account exists yet. Create the first administrator."
+      "setup_required": "No account exists yet. Create the first administrator.",
+      "probe_not_enrolled": "This probe is not enrolled on this platform."
     },
     "probe": {
       "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",
@@ -1337,7 +1360,8 @@
     "probe.degraded": "{{probe}} has {{deviations}} deviation(s)",
     "certificate.expired": "The {{certificate}} certificate has expired",
     "certificate.expiring_soon": "The {{certificate}} certificate expires in {{days_remaining}} days",
-    "certificate.mismatched": "The {{certificate}} certificate does not match its key"
+    "certificate.mismatched": "The {{certificate}} certificate does not match its key",
+    "probe.channel_silent": "{{probe}} has not delivered over its return channel for more than {{minutes}} minutes"
   },
   "credentials": {
     "title": "Accounts without a probe",
@@ -1446,6 +1470,75 @@
         "runtime": "Runtime export",
         "jetstream": "JetStream"
       }
+    }
+  },
+  "sensorLogs": {
+    "title": "Sensor log",
+    "empty": "No runs in this period",
+    "emptyFiltered": "No runs match these filters",
+    "count": "{{shown}} of {{total}}",
+    "loadMore": "Load more",
+    "noBody": "This run carries no output",
+    "output": "Output",
+    "all": "Show all in the sensor log",
+    "probeCard": "Runs of the last 24 hours",
+    "columns": {
+      "time": "Time",
+      "probe": "Probe",
+      "sensor": "Sensor",
+      "network": "Network",
+      "result": "Result",
+      "summary": "Summary",
+      "code": "Error code",
+      "id": "Record id"
+    },
+    "result": {
+      "ok": "OK",
+      "error": "Error",
+      "gap": "Gap"
+    },
+    "range": {
+      "1h": "Last hour",
+      "24h": "Last 24 hours",
+      "7d": "Last 7 days",
+      "14d": "Last 14 days"
+    },
+    "filters": {
+      "search": "Search output",
+      "range": "Period",
+      "result": "Result",
+      "anyResult": "Any result",
+      "probe": "Probe",
+      "anyProbe": "All probes",
+      "sensor": "Sensor",
+      "anySensor": "All sensors",
+      "network": "Network (SSID)"
+    },
+    "wlanAuth": {
+      "ssid": "Network (SSID)",
+      "auth": "Authentication",
+      "interface": "Interface",
+      "stage": "Stage",
+      "identity": "Identity",
+      "profile": "Credential profile",
+      "bssid": "Access point (BSSID)",
+      "clientMac": "Client address",
+      "clientMacKind": "Client address source",
+      "ipAddress": "Leased address",
+      "dhcpServer": "DHCP server",
+      "gateway": "Gateway",
+      "gatewayKind": "Gateway source",
+      "frequency": "Frequency (MHz)",
+      "signal": "Signal (dBm)",
+      "timings": "Stage timings",
+      "assocMs": "Association (ms)",
+      "authMs": "Authentication (ms)",
+      "dhcpMs": "DHCP (ms)",
+      "gatewayMs": "Gateway ping (ms)",
+      "totalMs": "Total (ms)",
+      "supplicant": "wpa_supplicant output",
+      "dhcp": "DHCP client output",
+      "events": "Helper events"
     }
   }
 }

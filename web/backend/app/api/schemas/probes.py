@@ -43,6 +43,8 @@ class ProbeSummaryOut(ApiModel):
     helper_outdated: bool = False
     prtg_registered: bool = False
     managed_over_tunnel: bool = False
+    channel_silent: bool = False
+    channel_certificate_expired: bool = False
 
 
 class SensorStateOut(ApiModel):
@@ -133,6 +135,24 @@ class ManagementRouteOut(ApiModel):
     stale: bool
 
 
+class ReturnChannelOut(ApiModel):
+    """The probe's return channel: last delivery, buffer, gaps, and whether
+    it has gone silent. Delivery fields are None until the probe delivered;
+    certificate and service come from its last probe-info."""
+
+    last_contact_at: datetime | None = None
+    buffer_bytes: int | None = None
+    buffer_limit: int | None = None
+    gap_count: int = 0
+    last_gap_at: datetime | None = None
+    observed_at: datetime | None = None
+    certificate_expires: str | None = None
+    certificate_issued_at: datetime | None = None
+    certificate_expired: bool = False
+    service: str | None = None
+    silent: bool = False
+
+
 class ProbeDetailOut(ApiModel):
     summary: ProbeSummaryOut
     inventory: ProbeInventoryOut
@@ -146,6 +166,7 @@ class ProbeDetailOut(ApiModel):
     management_route: ManagementRouteOut | None = None
     # None when the overlay peer's last state says nothing either way.
     nats_route: Literal["tunnel", "direct"] | None = None
+    return_channel: ReturnChannelOut | None = None
 
 
 class ProbeUpdateIn(ApiModel):

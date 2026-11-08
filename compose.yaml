@@ -136,6 +136,10 @@ services:
       PRTG_CORE_IP: ${PRTG_CORE_IP:-}
       MPP_SSH_SOURCE_CIDR: ${MPP_SSH_SOURCE_CIDR:-}
       WEB_FQDN: ${WEB_FQDN:-${NATS_FQDN}}
+      # The two proxy ports: where invitations and the probe channel point,
+      # and the pair the API refuses to start with when they collide.
+      WEB_HTTPS_PORT: ${WEB_HTTPS_PORT:-443}
+      PROBE_CHANNEL_PORT: ${PROBE_CHANNEL_PORT:-8443}
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
       OVERLAY_ENDPOINT_HOST: ${OVERLAY_ENDPOINT_HOST:-}
       OVERLAY_PORT: ${OVERLAY_PORT:-51820}
@@ -259,6 +263,7 @@ services:
       WEB_FQDN: ${WEB_FQDN:-${NATS_FQDN}}
       WEB_BIND_IP: ${NATS_HOST_IP:?NATS_HOST_IP is missing - set it in .env}
       WEB_HTTPS_PORT: ${WEB_HTTPS_PORT:-443}
+      PROBE_CHANNEL_PORT: ${PROBE_CHANNEL_PORT:-8443}
       CA_HTTP_PORT: ${CA_HTTP_PORT:-80}
     depends_on:
       web-frontend:

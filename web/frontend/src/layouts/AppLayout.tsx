@@ -26,6 +26,7 @@ const PRIMARY: NavEntry[] = [
   { to: '/probes', labelKey: 'nav.probes', permission: 'probe.read' },
   { to: '/sensors', labelKey: 'nav.sensors', permission: 'sensor.read' },
   { to: '/jobs', labelKey: 'nav.jobs', permission: 'job.read' },
+  { to: '/sensor-logs', labelKey: 'nav.sensorLogs', permission: 'sensor_log.read' },
 ]
 
 const INFRASTRUCTURE: NavEntry[] = [

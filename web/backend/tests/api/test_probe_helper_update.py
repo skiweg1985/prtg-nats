@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
+import pytest
+from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -21,6 +23,7 @@ from app.core.errors import ProbeHelperOutdatedError
 from app.domain.enums import JobStatus
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.probe_helper import CURRENT_HELPER_VERSION, ProbeHelperClient
+from app.infrastructure.probe_helper.protocol import RETURN_CHANNEL_HELPER_VERSION
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.jobs import Job
@@ -162,6 +165,7 @@ async def test_the_helper_is_sent_with_a_signature_over_its_own_bytes(
             "check_reachable",
             "send_helper",
             "verify",
+            "install_return_channel",
         ]
 
 
@@ -234,3 +238,144 @@ async def test_an_old_probe_fails_the_job_with_its_own_error(
         assert job.status is JobStatus.FAILED
         # The code the interface looks up to tell the operator what to do.
         assert job.error_code == "probe.helper_outdated"
+
+
+# --- The return channel -----------------------------------------------------
+#
+# A probe enrolled before ADR 0013 has no client certificate. The helper
+# update is the step every such probe goes through anyway, so it is where the
+# certificate is issued - once the new helper can take it.
+
+
+async def _update(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    transport: ScriptedTransport,
+) -> Job:
+    await sign_in(client)
+    probe_id = await probe_id_of(client)
+    accepted = await client.post(
+        "/api/v1/probes/actions/helper-update", json={"probe_ids": [probe_id]}
+    )
+    assert accepted.status_code == 202, accepted.text
+    await drain(build_runner(settings, transport))
+    async with session_factory() as db:
+        job = await db.get(Job, accepted.json()["job_id"])
+        assert job is not None
+        await db.refresh(job, ["steps", "events"])
+        return job
+
+
+async def test_an_updated_probe_without_a_certificate_gets_one(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    write_probe_inventory(project_dir, PROBE)
+    current = PROBE_INFO.replace(
+        "helper_version=1", f"helper_version={RETURN_CHANNEL_HELPER_VERSION}"
+    )
+    transport.responses["probe-info"] = [
+        PROBE_INFO,
+        current + "channel_cert=none\n",
+        current + "channel_cert=2027-02-06\n",
+        current + "channel_cert=2027-02-06\n",
+    ]
+    transport.responses["helper-update"] = "OK helper-updated version=11 sha256=bb\n"
+
+    job = await _update(client, settings, session_factory, transport)
+
+    assert job.status is JobStatus.SUCCESSFUL, job.error_details
+    assert transport.commands()[:5] == [
+        "probe-info",
+        "helper-update",
+        "probe-info",
+        "channel-csr",
+        "channel-install",
+    ]
+    _, install = transport.calls[4]
+    assert install.payload is not None
+    certificate = x509.load_pem_x509_certificates(install.payload.encode())[0]
+    assert certificate.subject.rfc4514_string() == f"CN={PROBE}"
+
+
+async def test_a_probe_that_already_has_a_certificate_keeps_it(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """Renewal is the channel's own business, not a side effect of an update."""
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = (
+        PROBE_INFO.replace(
+            "helper_version=1", f"helper_version={RETURN_CHANNEL_HELPER_VERSION}"
+        )
+        + "channel_cert=2027-02-06\n"
+    )
+    transport.responses["helper-update"] = "OK helper-updated version=11 sha256=bb\n"
+
+    job = await _update(client, settings, session_factory, transport)
+
+    assert job.status is JobStatus.SUCCESSFUL, job.error_details
+    assert "channel-csr" not in transport.commands()
+    assert "jobs.probe.return_channel_present" in [e.code for e in job.events]
+    # The new helper brings a new version of the service; the certificate
+    # stays, the service is rewritten and restarted with current settings.
+    assert transport.commands()[3] == "channel-service"
+    refresh = transport.calls[3][1]
+    assert refresh.arguments == ("https://nats.example.test", "20971520")
+
+
+async def test_the_service_refresh_carries_the_interface_port_and_buffer_size(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WEB_HTTPS_PORT", "9443")
+    monkeypatch.setattr(settings, "probe_channel_buffer_mb", 5)
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = (
+        PROBE_INFO.replace(
+            "helper_version=1", f"helper_version={RETURN_CHANNEL_HELPER_VERSION}"
+        )
+        + "channel_cert=2027-02-06\n"
+    )
+    transport.responses["helper-update"] = "OK helper-updated version=13 sha256=bb\n"
+
+    job = await _update(client, settings, session_factory, transport)
+
+    assert job.status is JobStatus.SUCCESSFUL, job.error_details
+    refresh = transport.calls[3][1]
+    assert refresh.command.value == "channel-service"
+    assert refresh.arguments == ("https://nats.example.test:9443", "5242880")
+
+
+async def test_a_helper_too_old_for_the_channel_is_noted_not_failed(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """An update that did not take still leaves a working probe behind.
+
+    The old helper would refuse channel-csr as unknown; asking anyway would
+    turn a completed update into a failed job for no gain.
+    """
+    write_probe_inventory(project_dir, PROBE)
+    transport.responses["probe-info"] = PROBE_INFO
+    transport.responses["helper-update"] = "OK helper-updated version=1 sha256=bb\n"
+
+    job = await _update(client, settings, session_factory, transport)
+
+    assert job.status is JobStatus.SUCCESSFUL, job.error_details
+    assert "channel-csr" not in transport.commands()
+    assert "jobs.probe.return_channel_helper_outdated" in [e.code for e in job.events]

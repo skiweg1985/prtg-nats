@@ -19,6 +19,8 @@ from fastapi.routing import APIRoute
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.probe.deps import get_probe_identity
+from app.api.probe.router import probe_router
 from app.api.v1 import routes as routes_package
 from app.api.v1.router import api_router
 from app.core.permissions import ROLE_PERMISSIONS, Permission, RoleName
@@ -69,6 +71,22 @@ UNGUARDED: dict[tuple[str, str], str] = {
     ): "where the endpoint reports in and spends its invitation",
 }
 
+# Routes a probe calls over its return channel (ADR 0013). They sit outside the
+# session check altogether: no user is behind them, the proxy on the probe
+# channel port admits only a verified client certificate, and
+# get_probe_identity checks the identity it names against the inventory on
+# every request. Each must depend on it, which the test below enforces.
+PROBE_CHANNEL: dict[tuple[str, str], str] = {
+    (
+        "POST",
+        "/probe/v1/records",
+    ): "a probe hands over sensor log records; its certificate is its identity",
+    (
+        "POST",
+        "/probe/v1/certificate",
+    ): "a probe renews the client certificate it is calling with",
+}
+
 
 def _walk(
     router: APIRouter, prefix: str = ""
@@ -100,17 +118,21 @@ def _iter_routes() -> list[tuple[str, APIRoute, tuple[Any, ...]]]:
     return list(_walk(api_router))
 
 
-def _openapi_keys() -> set[tuple[str, str]]:
+def _iter_probe_routes() -> list[tuple[str, APIRoute, tuple[Any, ...]]]:
+    return list(_walk(probe_router))
+
+
+def _openapi_keys(prefix: str = api_router.prefix) -> set[tuple[str, str]]:
     """Every versioned method/path pair a request can reach, per FastAPI itself.
 
-    Scoped to the API prefix: /health and /ready hang off the application
-    directly and never pass through api_router.
+    Scoped to one router's prefix: /health and /ready hang off the application
+    directly and never pass through api_router or probe_router.
     """
     paths = create_app().openapi().get("paths", {})
     return {
         (method.upper(), path)
         for path, operations in paths.items()
-        if path.startswith(api_router.prefix)
+        if path.startswith(prefix)
         for method in operations
     }
 
@@ -202,6 +224,49 @@ def test_every_route_is_guarded_or_listed_as_an_exception() -> None:
     assert not unguarded, (
         "these routes have no permission dependency; add one or document the "
         f"exception in UNGUARDED: {unguarded}"
+    )
+
+
+def test_probe_channel_introspection_sees_every_route() -> None:
+    """The same guard for the probe channel, which is mounted on its own."""
+    walked = {
+        (method, path)
+        for path, route, _ in _iter_probe_routes()
+        for method in route.methods or set()
+    }
+    reachable = _openapi_keys(probe_router.prefix)
+    assert reachable, "probe_router is not mounted in create_app()"
+    assert walked >= reachable, f"missing: {sorted(reachable - walked)}"
+
+
+def _depends_on_probe_identity(route: APIRoute) -> bool:
+    def calls(dependant: Any) -> Iterator[Any]:
+        for dependency in dependant.dependencies:
+            yield dependency.call
+            yield from calls(dependency)
+
+    return get_probe_identity in set(calls(route.dependant))
+
+
+def test_every_probe_channel_route_needs_the_probe_identity() -> None:
+    """No session reaches these routes, so the identity is the only guard.
+
+    A route on the probe channel that forgets it would accept records from
+    anyone who can reach the port with any certificate the proxy accepts.
+    """
+    unlisted: list[str] = []
+    unguarded: list[str] = []
+    for path, route, _ in _iter_probe_routes():
+        for method in sorted(route.methods or set()):
+            if (method, path) not in PROBE_CHANNEL:
+                unlisted.append(f"{method} {path}")
+            if not _depends_on_probe_identity(route):
+                unguarded.append(f"{method} {path}")
+    assert not unlisted, (
+        f"list these probe channel routes in PROBE_CHANNEL with a reason: {unlisted}"
+    )
+    assert not unguarded, (
+        f"these probe channel routes skip get_probe_identity: {unguarded}"
     )
 
 

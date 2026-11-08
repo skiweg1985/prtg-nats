@@ -420,7 +420,8 @@ configure_environment() {
     # this, editing the site settings would quietly reset a moved web port or
     # a separate interface name back to the default.
     local carried=""
-    for carried in IPERF_SSH_SOURCE_CIDR WEB_FQDN WEB_HTTPS_PORT; do
+    for carried in IPERF_SSH_SOURCE_CIDR WEB_FQDN WEB_HTTPS_PORT \
+      PROBE_CHANNEL_PORT; do
       suggested_value="$(environment_value "${carried}")"
       if [[ -n "${suggested_value}" ]]; then
         printf '%s=%s\n' "${carried}" "${suggested_value}"
@@ -468,7 +469,7 @@ show_site_settings() {
   printf 'Site settings (%s)\n\n' "${ENVIRONMENT_FILE}"
   for variable in NATS_FQDN NATS_PORT NATS_HOST_IP CA_HTTP_PORT \
     CA_ORGANIZATION PRTG_CORE_IP MPP_SSH_SOURCE_CIDR WEB_FQDN \
-    WEB_HTTPS_PORT; do
+    WEB_HTTPS_PORT PROBE_CHANNEL_PORT; do
     from_file="$(environment_value "${variable}")"
     printf '  %-20s %-28s %s\n' \
       "${variable}" "${!variable:-—}" \
@@ -1179,6 +1180,13 @@ install_remote_mpp() {
   if [[ "${enroll_probe}" == "true" && "${config_mode}" == "generate" ]]; then
     printf '\nApplying the generated MPP configuration through the restricted channel...\n'
     run_internal manage-probes.sh install-ca "${selected_user}"
+    # After the CA, in the order the enrollment job uses: the service verifies
+    # the platform with the CA that was just installed. A probe without it
+    # still measures and reports to PRTG; only its sensor logs wait, so this
+    # warns rather than stopping the rollout halfway.
+    run_internal manage-probes.sh return-channel "${selected_user}" ||
+      printf 'WARNING: the return channel is not installed on %s; run ./prtg-nats probe return-channel %s\n' \
+        "${selected_user}" "${selected_user}" >&2
     if [[ -n "${probe_name}" ]]; then
       run_internal manage-probes.sh configure "${selected_user}" \
         --probe-name "${probe_name}"

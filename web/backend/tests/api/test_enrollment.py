@@ -14,6 +14,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.x509.oid import NameOID
+from cryptography.x509.verification import PolicyBuilder, Store
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -21,13 +25,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings
 from app.core.permissions import RoleName
 from app.infrastructure.docker import DockerAdapter
-from app.infrastructure.probe_helper import ProbeHelperClient
+from app.infrastructure.probe_helper import HelperRequest, ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import EnrollmentToken
 from app.services.events import get_broadcaster
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport
+from tests.conftest import ScriptedTransport, channel_csr_answer, probe_csr
 
 PASSWORD = "correct-horse-battery"
 
@@ -126,7 +130,7 @@ async def test_the_one_liner_path_is_one_the_proxy_actually_forwards(
 ) -> None:
     """The two halves of the public URL live in different files.
 
-    The command says https://host:8443/enroll/... ; the API serves
+    The command says https://host:9443/enroll/... ; the API serves
     /api/v1/enroll/... ; Caddy bridges the two. Nothing in either file knows
     about the other, so this compares them - the first real enrolment failed
     with a 404 for exactly this reason.
@@ -1193,3 +1197,159 @@ async def test_a_tunnel_probe_is_addressed_by_ip_not_by_name(
     plain = await client.get(f"/api/v1/enroll/{ordinary['token']}/bootstrap.sh")
     assert 'BASE_URL="https://nats.example.test' in plain.text
     assert 'NATS_HOST="nats.example.test"' in plain.text
+
+
+# --- The return channel -----------------------------------------------------
+#
+# A probe reports back over a channel of its own, authenticated with a client
+# certificate from a CA that is not the NATS one (ADR 0013). Enrolment is
+# where a probe gets that certificate: the key is made on the probe, only the
+# CSR travels, and what comes back names the probe identity.
+
+
+def _channel_install(transport: ScriptedTransport) -> HelperRequest:
+    installs = [
+        request
+        for _, request in transport.calls
+        if request.command.value == "channel-install"
+    ]
+    assert len(installs) == 1, transport.commands()
+    return installs[0]
+
+
+async def _enrol(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> dict:
+    await _sign_in(client)
+    await _initialise(project_dir)
+    token = (await _invite(client))["token"]
+    transport.responses.setdefault(
+        "probe-info", "OK probe-info\npackage=3.10.0-1\nservice=active\n"
+    )
+    callback = await client.post(
+        f"/api/v1/enroll/{token}/callback",
+        json={
+            "hostname": "probe.example.test",
+            "host_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"],
+            "access_installed": True,
+            "package_installed": True,
+        },
+    )
+    assert callback.status_code == 200, callback.text
+    await _drain(_build_runner(settings, transport))
+    job = (await client.get(f"/api/v1/jobs/{callback.json()['job_id']}")).json()
+    assert isinstance(job, dict)
+    return job
+
+
+async def test_enrolment_leaves_a_client_certificate_naming_the_probe(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The key stays on the probe; the certificate names its identity."""
+    # A subject the probe chose itself, and the wrong one on purpose: the
+    # identity comes from the inventory, never from what the probe claims.
+    csr_pem, key = probe_csr("someone-else.example.test")
+    transport.responses["channel-csr"] = channel_csr_answer(csr_pem)
+
+    job = await _enrol(client, settings, project_dir, transport)
+
+    assert job["status"] == "successful", job.get("error_details")
+    assert [step["name"] for step in job["steps"]] == [
+        "pin_host_key",
+        "ensure_account",
+        "verify_access",
+        "write_inventory",
+        "install_ca",
+        "install_return_channel",
+        "configure",
+    ]
+    commands = transport.commands()
+    assert commands.index("install-ca") < commands.index("channel-csr")
+    assert commands.index("channel-csr") < commands.index("channel-install")
+
+    install = _channel_install(transport)
+    assert install.payload is not None
+    certificate = x509.load_pem_x509_certificates(install.payload.encode())[0]
+    # The CSR carried the public half only; the certificate is for that key.
+    assert certificate.public_key() == key.public_key()
+    assert certificate.subject == x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "mpp-berlin")]
+    )
+    lifetime = certificate.not_valid_after_utc - certificate.not_valid_before_utc
+    assert lifetime == timedelta(days=90)
+    # Where to report to, the interface address the wlan-auth helper builds
+    # links to a run from, and the buffer size (20 MB by default).
+    assert install.arguments == (
+        "https://nats.example.test:8443",
+        "https://nats.example.test",
+        "20971520",
+    )
+
+    # Strict RFC 5280 path validation against the copy in web-certs/ the
+    # proxy trusts - which is not the NATS CA.
+    probe_ca = x509.load_pem_x509_certificate(
+        (settings.web_cert_dir / "probe-ca.pem").read_bytes()
+    )
+    nats_ca = x509.load_pem_x509_certificate(
+        (settings.cert_dir / "ca.pem").read_bytes()
+    )
+    assert probe_ca.subject != nats_ca.subject
+    verifier = (
+        PolicyBuilder()
+        .store(Store([probe_ca]))
+        .time(datetime.now(UTC))
+        .build_client_verifier()
+    )
+    verified = verifier.verify(certificate, [])
+    assert verified.chain[-1] == probe_ca
+    # The private key of that CA lives under private/, never beside the copy.
+    ca_key = settings.private_dir / "probe-ca" / "ca-key.pem"
+    assert ca_key.stat().st_mode & 0o077 == 0
+    assert sorted(path.name for path in settings.web_cert_dir.glob("probe-ca*")) == [
+        "probe-ca.pem"
+    ]
+
+
+async def test_the_probe_is_handed_its_ca_alongside_the_certificate(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    job = await _enrol(client, settings, project_dir, transport)
+    assert job["status"] == "successful", job.get("error_details")
+
+    install = _channel_install(transport)
+    assert install.payload is not None
+    leaf, ca = x509.load_pem_x509_certificates(install.payload.encode())
+    assert (
+        ca.public_bytes(serialization.Encoding.PEM)
+        == (settings.web_cert_dir / "probe-ca.pem").read_bytes()
+    )
+    leaf.verify_directly_issued_by(ca)
+
+
+async def test_a_csr_that_does_not_verify_fails_the_enrolment(
+    client: AsyncClient,
+    settings: Settings,
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """Proof of possession: a CSR signed by another key is not signed for."""
+    csr_pem, _ = probe_csr()
+    csr = x509.load_pem_x509_csr(csr_pem.encode())
+    der = bytearray(csr.public_bytes(serialization.Encoding.DER))
+    der[-1] ^= 0x01  # the last byte belongs to the signature
+    forged = x509.load_der_x509_csr(bytes(der)).public_bytes(serialization.Encoding.PEM)
+    transport.responses["channel-csr"] = channel_csr_answer(forged.decode())
+
+    job = await _enrol(client, settings, project_dir, transport)
+
+    assert job["status"] == "failed"
+    assert "channel-install" not in transport.commands()

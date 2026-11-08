@@ -2613,7 +2613,7 @@ bootstrap_dir="$(mktemp -d)"
 
 render_bootstrap() {
   sed \
-    -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
+    -e 's|@@BASE_URL@@|https://nats.example.test:9443/api/v1|' \
     -e 's|@@TOKEN@@|token|' \
     -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
     -e 's|@@CA_SHA256@@|0000|' \
@@ -2760,7 +2760,7 @@ fi
 # The iperf endpoint bootstrap, the same way. It runs as root on a host that
 # usually stands on a public address, so a typo here is worse than on a probe.
 sed \
-  -e 's|@@BASE_URL@@|https://nats.example.test:8443/api/v1|' \
+  -e 's|@@BASE_URL@@|https://nats.example.test:9443/api/v1|' \
   -e 's|@@TOKEN@@|token|' \
   -e 's|@@CA_PEM@@|-----BEGIN CERTIFICATE-----|' \
   -e 's|@@CA_SHA256@@|0000|' \

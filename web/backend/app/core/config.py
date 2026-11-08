@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # Where the reverse proxy answers. Not used to listen - used to tell a
     # probe where to come back to, so it has to match what compose publishes.
     web_https_port: int = Field(default=443, validation_alias="WEB_HTTPS_PORT")
+    # Where the same proxy takes probe connections (ADR 0013). Only read here
+    # to refuse a collision with the port above; the probe channel address
+    # itself comes from the site settings, like every other probe-facing one.
+    probe_channel_port: int = Field(default=8443, validation_alias="PROBE_CHANNEL_PORT")
 
     # --- Sessions -----------------------------------------------------------
     session_cookie_name: str = "prtg_nats_session"
@@ -113,6 +117,20 @@ class Settings(BaseSettings):
     update_check_interval_seconds: int = 3600
     observed_state_stale_after_seconds: int = 300
     certificate_expiry_warning_days: int = 30
+    # How long sensor logs stay in the runtime volume, in days. The cleanup
+    # runs once a day and goes by the date in the file name.
+    sensor_log_retention_days: int = Field(default=14, ge=1)
+    # How long a probe's return channel may stay quiet before it counts as
+    # silent and gets a repair job. The service on the probe sends a
+    # heartbeat every 5 minutes, so the default is three missed heartbeats:
+    # one late request is no alarm. A value at or below the heartbeat
+    # interval turns every healthy probe silent between two heartbeats.
+    probe_channel_silence_minutes: int = Field(default=15, ge=1)
+    # How much the return channel on each probe may hold while the platform
+    # is out of reach, in MB. Set on the probe whenever its channel is
+    # installed or its service refreshed; what is over it is dropped oldest
+    # first and reported as a gap.
+    probe_channel_buffer_mb: int = Field(default=20, ge=1, le=1024)
 
     # --- Development conveniences ------------------------------------------
     # Skips authentication and acts as a built-in administrator. Refused
@@ -180,6 +198,14 @@ class Settings(BaseSettings):
         return self.runtime_dir / "sensor-profiles"
 
     @property
+    def sensor_log_dir(self) -> Path:
+        """What probes report over the return channel, one file per day.
+
+        Output, not state: kept for sensor_log_retention_days and then gone.
+        """
+        return self.runtime_dir / "sensor-logs"
+
+    @property
     def web_cert_dir(self) -> Path:
         """The interface certificate, kept out of cert_dir on purpose.
 
@@ -188,6 +214,25 @@ class Settings(BaseSettings):
         would let someone impersonate the interface.
         """
         return self.runtime_dir / "web-certs"
+
+    @property
+    def probe_ca_dir(self) -> Path:
+        """The CA that signs probe client certificates, key and certificate.
+
+        A CA of its own rather than the NATS one (ADR 0013): a certificate
+        that opens the return channel must not be one that the NATS server
+        would accept as well, and the other way round.
+        """
+        return self.private_dir / "probe-ca"
+
+    @property
+    def probe_ca_public_path(self) -> Path:
+        """The public copy the proxy verifies client certificates against.
+
+        In web-certs/ because that is the only part of the runtime the proxy
+        mounts; the key stays behind in probe_ca_dir.
+        """
+        return self.web_cert_dir / "probe-ca.pem"
 
     @property
     def backup_dir(self) -> Path:
@@ -240,6 +285,11 @@ class Settings(BaseSettings):
         if self.dev_auth_enabled and self.environment == "production":
             raise RuntimeError(
                 "PRTG_NATS_WEB_DEV_AUTH_ENABLED must not be set in production"
+            )
+        if self.probe_channel_port == self.web_https_port:
+            raise RuntimeError(
+                "PROBE_CHANNEL_PORT must differ from WEB_HTTPS_PORT: the probe "
+                "channel demands a client certificate the interface must not"
             )
 
 

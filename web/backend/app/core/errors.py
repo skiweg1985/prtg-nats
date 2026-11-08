@@ -146,6 +146,17 @@ class SetupRequiredError(AppError):
     http_status = status.HTTP_409_CONFLICT
 
 
+class ProbeNotEnrolledError(AppError):
+    """A return channel request from an identity the inventory does not hold.
+
+    The certificate may well be valid: a retired probe keeps its certificate
+    until it expires, and the inventory is what decides who may report.
+    """
+
+    code = "auth.probe_not_enrolled"
+    http_status = status.HTTP_403_FORBIDDEN
+
+
 # --- Infrastructure errors --------------------------------------------------
 
 

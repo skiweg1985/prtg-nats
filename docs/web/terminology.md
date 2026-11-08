@@ -24,7 +24,7 @@ does not settle, settle it here first.
 | NATS credential | NATS-Konto / Konto | NATS account | Benutzer (for accounts) |
 | SSH access | Management-Zugang | management access | bare „Zugang" |
 | sensor config bundle | Variante | variant | Profil (for this sense) |
-| iperf credential bundle | Zugangsdaten(-Profil) | credentials / credential profile | — |
+| credential bundle (iperf, wlan-auth run field `profile`) | Zugangsdaten(-Profil) | credentials / credential profile | Profil (bare) |
 | iperf target | Messpunkt | iperf endpoint / endpoint | Endpunkt, Endpoint (DE), Gegenstelle, counterpart |
 | NATS monitoring URL | Adresse / Monitoring-Adresse | address | Endpunkt/endpoint for this sense |
 | WireGuard dial-in | Hub-Adresse / Endpoint des Overlays | hub address | — |
@@ -43,6 +43,10 @@ does not settle, settle it here first.
 | route over the overlay | Tunnel | tunnel | — |
 | route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
 | NATS traffic outside the overlay | direkt | direct | — |
+| the probe's own connection back to the platform | Rückkanal | return channel | — |
+| what sensors report over it, per run | Sensor-Log | sensor log | Protokoll (for this sense) |
+| one sensor execution in the sensor log | Lauf | run | — |
+| a stretch the probe could not keep | Lücke | gap | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server
@@ -74,6 +78,13 @@ on its own network. The API and the shell spell the second one `site`.
 NATS traffic goes through the tunnel or **direkt** / **direct**; "site"
 is not used for NATS, because NATS does not connect to the probe.
 
+The **Rückkanal** / **return channel** is how a probe reports back on its own
+initiative, separate from the management access and from NATS. What arrives
+over it is the **Sensor-Log** / **sensor log**: one entry per **Lauf** /
+**run** of a sensor, with its raw output. „Protokoll" stays with the job page,
+so the two are never confused on screen. A **Lücke** / **gap** marks runs the
+probe had to drop while the platform was out of reach.
+
 ## Register (German)
 
 The interface uses **Du**, consistently. Buttons and menu entries stay in
@@ -100,3 +111,9 @@ The CLI flag stays `--profile` for compatibility while the UI says
 „Variante". Where the flag surfaces, use one fixed sentence: „In PRTG trägt
 der Parameter `--profile` den Namen der Variante." Do not paraphrase it
 differently per page.
+
+The `wlan-auth` run detail shows a `profile` field: the name of the
+credentials the run signed in with. It is labelled „Zugangsdaten-Profil" /
+"credential profile", like the iperf credentials, because the reader of a
+run wants to know which credentials were used, not how they reached the
+probe. Bare „Profil" stays retired.

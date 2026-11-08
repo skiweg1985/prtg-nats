@@ -18,7 +18,7 @@ source "${SCRIPT_DIR}/mpp-config.sh"
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
   while IFS='=' read -r env_key env_value; do
     case "${env_key}" in
-      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION|WEB_FQDN|WEB_HTTPS_PORT)
+      NATS_FQDN|NATS_PORT|NATS_HOST_IP|CA_HTTP_PORT|PRTG_CORE_IP|MPP_SSH_SOURCE_CIDR|CA_ORGANIZATION|WEB_FQDN|WEB_HTTPS_PORT|PROBE_CHANNEL_PORT)
         if [[ -z "${!env_key+x}" ]]; then
           printf -v "${env_key}" '%s' "${env_value}"
         fi
@@ -34,6 +34,7 @@ NATS_PORT="${NATS_PORT:-23561}"
 CA_HTTP_PORT="${CA_HTTP_PORT:-80}"
 CA_ORGANIZATION="${CA_ORGANIZATION:-PRTG NATS}"
 WEB_HTTPS_PORT="${WEB_HTTPS_PORT:-443}"
+PROBE_CHANNEL_PORT="${PROBE_CHANNEL_PORT:-8443}"
 if ! [[ "${NATS_PORT}" =~ ^[0-9]{1,5}$ ]] ||
   ((NATS_PORT < 1 || NATS_PORT > 65535)); then
   printf 'Invalid NATS_PORT: %s\n' "${NATS_PORT}" >&2

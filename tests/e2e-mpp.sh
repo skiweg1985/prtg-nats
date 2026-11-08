@@ -7,7 +7,8 @@
 # real NATS stack. What is checked is the complete sequence: enrollment,
 # package installation from the Paessler repository, rollout of the
 # generated configuration, service start, NATS connection, a repeat run
-# without bootstrap, and the password rotation.
+# without bootstrap, the return channel that carries sensor logs back to the
+# platform, and the password rotation.
 #
 # Prerequisites: Docker with the ability to start privileged containers
 # (systemd), plus network access to packages.paessler.com and a wildcard
@@ -22,6 +23,7 @@ WORK_DIR=""
 NETWORK_NAME="prtg-e2e-net"
 PROBE_CONTAINER="prtg-e2e-probe"
 ADMIN_CONTAINER="prtg-e2e-admin"
+PROXY_CONTAINER="prtg-e2e-proxy"
 PROBE_HOSTNAME="probe-e2e"
 NATS_USER="mpp-probe-e2e"
 # Wildcard DNS: resolves to the NATS container over the alias on the
@@ -114,6 +116,8 @@ cleanup() {
       "${COMPOSE_FILES[@]}" down \
       >/dev/null 2>&1 || true
   fi
+  # The proxy first: it lives in the admin container's network namespace.
+  docker rm -f "${PROXY_CONTAINER}" >/dev/null 2>&1 || true
   docker rm -f "${PROBE_CONTAINER}" "${ADMIN_CONTAINER}" >/dev/null 2>&1 || true
   # By name and after the containers: the admin container mounts the runtime
   # volume, so nothing could remove it while that container still existed. The
@@ -174,8 +178,12 @@ WORK_DIR="/tmp/prtg-e2e.$(
 docker run --rm -v /tmp:/hosttmp debian:12 \
   mkdir -p "/hosttmp/${WORK_DIR#/tmp/}"
 # Local build artefacts must not travel along: a macOS .venv, say,
-# would poison the backend installation in the Linux admin container.
-tar -C "${PROJECT_DIR}" --exclude=.git --exclude=runtime \
+# would poison the backend installation in the Linux admin container. So
+# would the "._" metadata files macOS tar adds for extended attributes: next
+# to a migration they are one more "revision" to Alembic, which fails the
+# API's start on their binary content.
+COPYFILE_DISABLE=1 tar -C "${PROJECT_DIR}" --exclude=.git --exclude=runtime \
+  --exclude='._*' \
   --exclude='*/.venv' --exclude='*/node_modules' --exclude='*/dist' \
   --exclude='*/__pycache__' --exclude='*/.pytest_cache' \
   --exclude='*/.mypy_cache' --exclude='*/.ruff_cache' -cf - . |
@@ -261,8 +269,11 @@ ca_port="$(find_free_port)" || die "No free port found for the CA endpoint"
   die "The port search returned the same port twice"
 printf '  NATS port %s, CA port %s\n' "${nats_port}" "${ca_port}"
 
+# WEB_FQDN is the admin container's name: the probe reaches the proxy there
+# over the test network, while NATS_FQDN resolves to the NATS container.
 docker exec "${ADMIN_CONTAINER}" bash -c "cat > ${WORK_DIR}/.env <<EOF
 NATS_FQDN=${NATS_FQDN}
+WEB_FQDN=${ADMIN_CONTAINER}
 NATS_PORT=${nats_port}
 NATS_HOST_IP=127.0.0.1
 CA_HTTP_PORT=${ca_port}
@@ -277,8 +288,9 @@ docker exec "${ADMIN_CONTAINER}" bash -c "
   ${WORK_DIR}/web/backend/.venv/bin/pip install --quiet ${WORK_DIR}/web/backend
 " || die "The backend installation in the admin container failed"
 docker exec "${ADMIN_CONTAINER}" ./prtg-nats init >/dev/null
-# Only NATS: the proxy that serves the CA over HTTP shares the host network
-# namespace, which this nested test environment does not have, and the rollout
+# Only NATS from compose: the API and the proxy share the host network
+# namespace there, which this nested test environment does not have. They are
+# started below in the admin container's namespace instead, and the rollout
 # copies the CA over the bootstrap session anyway.
 docker exec "${ADMIN_CONTAINER}" \
   docker compose --project-directory "${WORK_DIR}" \
@@ -300,6 +312,104 @@ docker exec -d "${ADMIN_CONTAINER}" \
   socat TCP-LISTEN:8222,fork,reuseaddr "TCP:${NATS_FQDN}:8222"
 sleep 3
 
+log "Starting the platform API and the proxy"
+# The return channel needs both: the probe delivers over mutual TLS to the
+# proxy, which checks the client certificate and hands the identity on to the
+# API. This is the smallest faithful arrangement of what compose runs:
+#
+# - The API is this checkout's backend from the venv installed above, on
+#   127.0.0.1:8100 in the admin container, against the same runtime volume -
+#   the code the web-api image carries, without building that image.
+# - The proxy is the real Caddy image with the real web/Caddyfile, started in
+#   the admin container's network namespace. In production both share the
+#   host's; here they share the admin container's, so 127.0.0.1:8100 is the
+#   API for Caddy exactly as it is there, and WEB_BIND_IP is the address the
+#   probe reaches over the test network.
+# - The interface itself is not built: the proxy serves the API and the probe
+#   channel, which is all this test talks to.
+docker exec -d "${ADMIN_CONTAINER}" bash -c "
+  cd ${WORK_DIR}/web/backend &&
+  PRTG_NATS_WEB_PROJECT_DIR=${WORK_DIR} \
+  PRTG_NATS_WEB_RUNTIME_DIR=${RUNTIME_MOUNT} \
+  PRTG_NATS_WEB_NATS_MONITORING_URL=http://127.0.0.1:8222 \
+  exec ${WORK_DIR}/web/backend/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8100 --workers 1 > /tmp/web-api.log 2>&1
+"
+api_health=""
+for _ in $(seq 1 30); do
+  api_health="$(
+    docker exec "${ADMIN_CONTAINER}" \
+      curl --silent --output /dev/null --write-out '%{http_code}' \
+      http://127.0.0.1:8100/health 2>/dev/null || true
+  )"
+  [[ "${api_health}" == "200" ]] && break
+  sleep 2
+done
+if [[ "${api_health}" != "200" ]]; then
+  docker exec "${ADMIN_CONTAINER}" tail -40 /tmp/web-api.log >&2 || true
+  die "The platform API did not start"
+fi
+check "the platform API answers" "${api_health}" "200"
+# After the API, which creates the probe CA the channel trusts.
+docker run -d --name "${PROXY_CONTAINER}" \
+  --network "container:${ADMIN_CONTAINER}" \
+  -v "${WORK_DIR}/web/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  --mount "type=volume,src=prtg-nats-runtime,dst=/etc/caddy/certs,readonly,volume-subpath=web-certs" \
+  -e "WEB_FQDN=${ADMIN_CONTAINER}" \
+  -e "WEB_BIND_IP=${admin_address}" \
+  -e "WEB_HTTPS_PORT=443" \
+  -e "PROBE_CHANNEL_PORT=8443" \
+  -e "CA_HTTP_PORT=${ca_port}" \
+  caddy:2.9-alpine >/dev/null ||
+  die "The proxy could not be started"
+# Everything below that talks to the platform goes through the proxy over
+# TLS, verified against the installation's CA, as a browser would.
+docker exec "${ADMIN_CONTAINER}" touch /tmp/e2e-session
+platform_curl() {
+  docker exec "${ADMIN_CONTAINER}" \
+    curl --silent --show-error --cacert "${RUNTIME_MOUNT}/certs/ca.pem" \
+    --cookie /tmp/e2e-session --cookie-jar /tmp/e2e-session "$@"
+}
+proxy_health=""
+for _ in $(seq 1 30); do
+  proxy_health="$(
+    platform_curl --output /dev/null --write-out '%{http_code}' \
+      "https://${ADMIN_CONTAINER}/health" 2>/dev/null || true
+  )"
+  [[ "${proxy_health}" == "200" ]] && break
+  sleep 2
+done
+if [[ "${proxy_health}" != "200" ]]; then
+  docker logs --tail 40 "${PROXY_CONTAINER}" >&2 || true
+  die "The proxy did not come up"
+fi
+check "the proxy serves the API over TLS" "${proxy_health}" "200"
+# The probe channel admits nobody without a probe certificate: the handshake
+# fails before a request exists, so there is no HTTP status at all.
+check "the probe channel refuses a client without a certificate" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    curl --silent --insecure --output /dev/null --write-out '%{http_code}' \
+    "https://${ADMIN_CONTAINER}:8443/probe/v1/records" 2>/dev/null || true)" \
+  "000"
+# A throwaway administrator for the read API and the repair job. The value
+# is made here and never leaves the test containers.
+admin_password="$(openssl rand -hex 16)"
+setup_answer="$(
+  platform_curl --write-out '\n%{http_code}' \
+    --header 'Content-Type: application/json' \
+    --data "{\"username\": \"e2e-admin\", \"password\": \"${admin_password}\"}" \
+    "https://${ADMIN_CONTAINER}/api/v1/auth/setup" 2>&1 || true
+)"
+check "an administrator is set up" "${setup_answer##*$'\n'}" "201"
+[[ "${setup_answer##*$'\n'}" == "201" ]] ||
+  printf '        answer: %s\n' "${setup_answer}" >&2
+check "the session is signed in" \
+  "$(platform_curl "https://${ADMIN_CONTAINER}/api/v1/auth/state" |
+    docker exec -i "${ADMIN_CONTAINER}" python3 -c '
+import json, sys
+print(json.load(sys.stdin)["authenticated"])
+' 2>&1)" "True"
+
 log "First run: enrollment, package, configuration"
 docker exec "${ADMIN_CONTAINER}" \
   expect ./tests/e2e/install.exp "${NATS_USER}" "root@${PROBE_HOSTNAME}" \
@@ -315,6 +425,8 @@ check_contains "package installed" "${first_run}" "Setting up prtgmpprobe"
 check_contains "configuration rolled out" "${first_run}" \
   "Configuration applied"
 check_contains "access key printed" "${first_run}" "Probe Access Key"
+check_contains "return channel installed" "${first_run}" \
+  "probe.return_channel_installed probe=${NATS_USER}"
 check "no terminal warning" \
   "$(grep -c 'Pseudo-terminal' /tmp/first-run.log || true)" "0"
 
@@ -417,6 +529,10 @@ update_output="$(
     ./prtg-nats probe helper-update "${NATS_USER}" 2>&1
 )"
 check_contains "the update was accepted" "${update_output}" "OK helper-updated"
+# The probe has its certificate from the enrollment; the update keeps it and
+# only rewrites the service, as the helper update job does.
+check_contains "the update keeps the return channel certificate" \
+  "${update_output}" "probe.return_channel_present probe=${NATS_USER}"
 check "the helper is back to the one the platform ships" \
   "$(docker exec "${PROBE_CONTAINER}" \
     sha256sum /usr/local/sbin/prtg-nats-probe-helper | cut -d' ' -f1)" \
@@ -448,6 +564,217 @@ check "the refused update left the helper alone" \
   "$(docker exec "${PROBE_CONTAINER}" \
     sha256sum /usr/local/sbin/prtg-nats-probe-helper | cut -d' ' -f1)" \
   "${helper_before}"
+
+log "Return channel"
+# The first look at the channel under a real systemd: the unit's sandboxing
+# (ProtectSystem=strict, PrivateDevices and the rest) is only accepted or
+# refused by a service manager that actually builds the namespaces.
+RETURN_CHANNEL_DIR="/etc/prtg-nats/return-channel"
+RETURN_CHANNEL_UNIT="prtg-nats-return-channel"
+check "the probe holds its channel certificate" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    test -s "${RETURN_CHANNEL_DIR}/cert.pem" && printf 'yes')" "yes"
+check "the certificate names the probe" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    openssl x509 -in "${RETURN_CHANNEL_DIR}/cert.pem" -noout -subject \
+    -nameopt RFC2253 2>&1)" "subject=CN=${NATS_USER}"
+check "the key stays root-only" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    stat -c '%a %U' "${RETURN_CHANNEL_DIR}/key.pem" 2>&1)" "600 root"
+check "the channel points at the proxy" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    grep '^PLATFORM_URL=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
+  "PLATFORM_URL=https://${ADMIN_CONTAINER}:8443"
+check "the channel knows the interface address for links to a run" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    grep '^WEB_URL=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
+  "WEB_URL=https://${ADMIN_CONTAINER}"
+check "and the buffer size the platform sets" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    grep '^BUFFER_LIMIT_BYTES=' "${RETURN_CHANNEL_DIR}/channel.env" 2>&1)" \
+  "BUFFER_LIMIT_BYTES=20971520"
+
+channel_state() {
+  docker exec "${PROBE_CONTAINER}" \
+    systemctl is-active "${RETURN_CHANNEL_UNIT}.service" 2>/dev/null || true
+}
+wait_for_channel() {
+  for _ in $(seq 1 15); do
+    [[ "$(channel_state)" == "active" ]] && return 0
+    sleep 2
+  done
+  return 1
+}
+wait_for_channel || true
+if [[ "$(channel_state)" != "active" ]]; then
+  docker exec "${PROBE_CONTAINER}" \
+    journalctl -u "${RETURN_CHANNEL_UNIT}.service" --no-pager -n 30 >&2 || true
+fi
+check "the channel service runs under its sandbox" "$(channel_state)" "active"
+check "the local socket is open" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    systemctl is-active "${RETURN_CHANNEL_UNIT}.socket" 2>&1)" "active"
+check "the sandbox is the one the helper wrote" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    systemctl show -p NoNewPrivileges -p ProtectSystem -p PrivateDevices \
+    --value "${RETURN_CHANNEL_UNIT}.service" 2>&1 | paste -sd, -)" \
+  "yes,strict,yes"
+
+# There is no radio in the container, so the run itself cannot happen. What
+# can is everything after it: the wlan-auth daemon's own code builds the
+# record for a failed sign-in, redacts it and hands it to the socket, exactly
+# as report_run() does after a real measurement. The password below is a test
+# value; it must not survive into the stored record.
+docker cp "${PROJECT_DIR}/sensors/wlan-auth/privileged/prtg-sensor-wlan-auth" \
+  "${PROBE_CONTAINER}:/root/prtg-sensor-wlan-auth" >/dev/null
+feed_failed_run() {
+  docker exec -i "${PROBE_CONTAINER}" python3 - <<'PYEOF'
+import importlib.machinery
+import importlib.util
+
+loader = importlib.machinery.SourceFileLoader(
+    "wlan_auth_daemon", "/root/prtg-sensor-wlan-auth")
+spec = importlib.util.spec_from_loader(loader.name, loader)
+daemon = importlib.util.module_from_spec(spec)
+loader.exec_module(daemon)
+
+job = {
+    "interface": "wlan0",
+    "ssid": "e2e-network",
+    "auth": "peap",
+    "identity": "e2e-user",
+    "password": "e2e-not-a-secret-7f3a",
+    "stage": "auth",
+}
+log = daemon.RunLog()
+log.event("e2e: association skipped, no radio in this container")
+log.supplicant([(log.started, "CTRL-EVENT-EAP-FAILURE EAP authentication failed"),
+                (log.started, "identity=e2e-user password=e2e-not-a-secret-7f3a")])
+result = {
+    "result": "failed",
+    "code": "auth-failed-eap",
+    "message": "802.1X authentication rejected for e2e-user",
+    "timings": {"assoc_ms": 12, "auth_ms": 840, "total_ms": 860},
+    "details": {"ssid": "e2e-network", "mac": "02:00:00:00:00:01"},
+}
+daemon.report_run(job, result, log)
+# The ID, then the full link the sensor script would put in its message;
+# nothing at all when the service did not take the record.
+print(" ".join(part for part in (result.get("record_id"),
+                                 result.get("record_link")) if part))
+PYEOF
+}
+# Polls the read API, through the proxy, until the record is there.
+record_via_api() {
+  local record_id="$1"
+
+  for _ in $(seq 1 30); do
+    if platform_curl --fail \
+      "https://${ADMIN_CONTAINER}/api/v1/sensor-logs/${record_id}" \
+      2>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+json_field() {
+  docker exec -i "${ADMIN_CONTAINER}" python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+for key in sys.argv[1].split("."):
+    value = value[int(key)] if isinstance(value, list) else value.get(key)
+print(value if value is not None else "")
+' "$1" 2>/dev/null || true
+}
+
+probe_id="$(
+  platform_curl "https://${ADMIN_CONTAINER}/api/v1/probes" |
+    docker exec -i "${ADMIN_CONTAINER}" python3 -c '
+import json, sys
+for probe in json.load(sys.stdin):
+    if probe["nats_username"] == sys.argv[1]:
+        print(probe["id"])
+' "${NATS_USER}" 2>/dev/null || true
+)"
+[[ -n "${probe_id}" ]] || die "The platform does not list ${NATS_USER}"
+# The service sends a heartbeat as soon as it starts, so the platform sees
+# the channel before any sensor has written a record.
+heartbeat=""
+for _ in $(seq 1 30); do
+  heartbeat="$(
+    platform_curl "https://${ADMIN_CONTAINER}/api/v1/probes/${probe_id}" |
+      json_field return_channel.last_contact_at
+  )"
+  [[ -n "${heartbeat}" ]] && break
+  sleep 2
+done
+check "the heartbeat reaches the platform before any record" \
+  "$([[ -n "${heartbeat}" ]] && printf 'yes')" "yes"
+
+first_answer="$(feed_failed_run)"
+first_record="${first_answer%% *}"
+check "the service took the record" \
+  "$([[ "${first_record}" =~ ^[0-9a-f-]{36}$ ]] && printf 'yes')" "yes"
+check "the run carries the full link to its record" \
+  "${first_answer#* }" "https://${ADMIN_CONTAINER}/sensor-logs/${first_record}"
+first_detail="$(record_via_api "${first_record}" || true)"
+check "the record arrived through the read API" \
+  "$(printf '%s' "${first_detail}" | json_field id)" "${first_record}"
+check "the platform took the probe from the certificate" \
+  "$(printf '%s' "${first_detail}" | json_field probe)" "${NATS_USER}"
+check "the record is a failed run" \
+  "$(printf '%s' "${first_detail}" | json_field result)" "error"
+check "the record carries the network" \
+  "$(printf '%s' "${first_detail}" | json_field body.ssid)" "e2e-network"
+check "the list shows the record" \
+  "$(platform_curl \
+    "https://${ADMIN_CONTAINER}/api/v1/sensor-logs?probe=${NATS_USER}&sensor=wlan-auth" |
+    json_field items.0.id)" "${first_record}"
+stored="$(
+  docker exec "${ADMIN_CONTAINER}" bash -c \
+    "cat ${RUNTIME_MOUNT}/sensor-logs/${NATS_USER}/wlan-auth/*.jsonl 2>/dev/null"
+)"
+check_contains "the record is stored under runtime/sensor-logs" \
+  "${stored}" "${first_record}"
+check "the password did not reach the platform" \
+  "$(printf '%s' "${stored}" | grep -c 'e2e-not-a-secret-7f3a' || true)" "0"
+
+# Broken on the probe the way an operator or a reinstall might leave it: the
+# service and its socket stopped, the certificate gone. The repair job decides
+# from what the probe reports, issues a new certificate and restarts both.
+docker exec "${PROBE_CONTAINER}" bash -c "
+  systemctl stop ${RETURN_CHANNEL_UNIT}.socket ${RETURN_CHANNEL_UNIT}.service
+  rm -f ${RETURN_CHANNEL_DIR}/cert.pem
+"
+check "a broken channel takes no records" "$(feed_failed_run)" ""
+repair_job="$(
+  platform_curl --request POST \
+    "https://${ADMIN_CONTAINER}/api/v1/probes/${probe_id}/return-channel/repair" |
+    json_field job_id
+)"
+[[ -n "${repair_job}" ]] || die "The repair job was not accepted"
+repair_status=""
+for _ in $(seq 1 60); do
+  repair_status="$(
+    platform_curl "https://${ADMIN_CONTAINER}/api/v1/jobs/${repair_job}" |
+      json_field status
+  )"
+  [[ "${repair_status}" =~ ^(queued|running)$ ]] || break
+  sleep 2
+done
+check "the repair job succeeded" "${repair_status}" "successful"
+check "the repair issued a new certificate" \
+  "$(docker exec "${PROBE_CONTAINER}" \
+    test -s "${RETURN_CHANNEL_DIR}/cert.pem" && printf 'yes')" "yes"
+wait_for_channel || true
+check "the repaired service runs" "$(channel_state)" "active"
+second_answer="$(feed_failed_run)"
+second_record="${second_answer%% *}"
+check "the repaired channel takes records again" \
+  "$([[ "${second_record}" =~ ^[0-9a-f-]{36}$ ]] && printf 'yes')" "yes"
+check "and delivers them" \
+  "$(record_via_api "${second_record}" | json_field id)" "${second_record}"
 
 log "Fleet overview"
 # The overview reports findings through the exit code. Under "set -e" a
@@ -498,6 +825,9 @@ for _ in $(seq 1 30); do
     systemctl is-active prtg.mpprobe.service >/dev/null 2>&1 && break
   sleep 2
 done
+# Enabled, not only started: a probe that reboots keeps delivering.
+wait_for_channel || true
+check "the return channel is back after the restart" "$(channel_state)" "active"
 
 log "Password rotation"
 # A failed rotation should appear as FAIL with its output, not abort
@@ -564,20 +894,35 @@ check "the management access is gone" \
       bash -c 'test -e /etc/sudoers.d/prtg-nats-admin && echo present || echo absent'
   )" \
   "absent"
+check "the return channel is gone" \
+  "$(
+    docker exec "${PROBE_CONTAINER}" bash -c "
+      if test -e ${RETURN_CHANNEL_DIR} ||
+        systemctl cat ${RETURN_CHANNEL_UNIT}.service >/dev/null 2>&1; then
+        echo present
+      else
+        echo absent
+      fi"
+  )" \
+  "absent"
 check "the inventory entry is gone" \
   "$(
     docker exec "${ADMIN_CONTAINER}" \
       bash -c "test -e ${RUNTIME_MOUNT}/probes/${NATS_USER}.env && echo present || echo absent"
   )" \
   "absent"
-# The account is a separate decision, and the retirement says so rather than
-# quietly taking it along.
-check "the NATS account survives" \
+# The account goes with the probe, as on the platform: the enrollment created
+# it, and the shared account init made keeps NATS from being left without
+# one. This used to read "survives" - the deletion never ran from the shell,
+# because manage-probes.sh could not reach app.ops outside the API container.
+check_contains "the retirement says the account went" \
+  "${retirement_output}" "Removed the NATS account ${NATS_USER}"
+check "the NATS account is gone" \
   "$(
     docker exec "${ADMIN_CONTAINER}" \
       bash -c "test -e ${RUNTIME_MOUNT}/credentials/${NATS_USER}.env && echo present || echo absent"
   )" \
-  "present"
+  "absent"
 
 log "Result"
 printf '  passed: %s\n' "${passed}"

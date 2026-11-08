@@ -28,6 +28,7 @@ from app.services.events import EventBroadcaster, get_broadcaster
 from app.services.jobs import JobService
 from app.services.management_routes import management_transport
 from app.services.probes import ProbeService
+from app.services.sensor_logs import SensorLogStore
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -61,12 +62,17 @@ def get_probe_helper(settings: SettingsDep) -> ProbeHelperClient:
     )
 
 
+def get_sensor_log_store(settings: SettingsDep) -> SensorLogStore:
+    return SensorLogStore(settings)
+
+
 RuntimeDep = Annotated[RuntimeFileStore, Depends(get_runtime_store)]
 CatalogDep = Annotated[SensorCatalog, Depends(get_sensor_catalog)]
 NatsDep = Annotated[NatsMonitoringClient, Depends(get_nats_client)]
 DockerDep = Annotated[DockerAdapter, Depends(get_docker_adapter)]
 HelperDep = Annotated[ProbeHelperClient, Depends(get_probe_helper)]
 BroadcasterDep = Annotated[EventBroadcaster, Depends(get_broadcaster)]
+SensorLogStoreDep = Annotated[SensorLogStore, Depends(get_sensor_log_store)]
 
 
 # --- Services ---------------------------------------------------------------

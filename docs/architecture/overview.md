@@ -1,7 +1,7 @@
 ---
 title: Architecture overview
 role: developer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Architecture overview
@@ -16,7 +16,8 @@ The stack replaces the NATS server that the PRTG core and the
 multi-platform probes talk to, and adds a web platform to administer it.
 The probes keep running as native `prtgmpprobe` packages on their own
 Linux systems; nothing of this platform is installed on them except a
-restricted management access.
+restricted management access and the small service that delivers their
+sensor logs.
 
 ```mermaid
 flowchart LR
@@ -31,6 +32,7 @@ flowchart LR
     MPP["MPP probes<br>prtgmpprobe"] -->|"TLS 23561"| NATS
     MPP -.->|"first install only"| CA
     Web -->|"SSH management channel"| MPP
+    MPP -->|"mTLS 8443, sensor logs"| Web
     MPP -.->|"WireGuard, optional"| Host
 ```
 
@@ -55,6 +57,7 @@ flowchart LR
         Runner["Job runner<br>workers, locks"]
     end
     Caddy["Caddy<br>TLS 443, /api"] --> Rest
+    Channel["Caddy<br>mTLS 8443, /probe/v1"] -->|"X-Probe-Identity"| Rest
     Rest --> Docker["Docker socket<br>start, reload"]
     Runner -->|"SSH"| MPP["MPP probe<br>helper channel"]
     Rest <--> Runtime["runtime/<br>certificates, accounts, db"]
@@ -88,6 +91,16 @@ management key opens the channel; a separate key in `runtime/private/`
 authorises the code that goes through it, and the probe verifies before it
 replaces anything -
 [ADR 0006](decisions/0006-signed-helper-updates.md).
+
+**A probe reports back over a channel of its own.** Sensor logs travel from
+the probe to the platform, the one direction the management channel does not
+carry. A service on the probe takes records from sensors on a local socket,
+buffers them on disk and delivers them over HTTPS to a separate Caddy port that
+demands a client certificate from the probe CA; Caddy passes the verified
+subject on, and the API checks it against the inventory on every request. The
+certificate is issued over the management channel at enrolment and on the
+helper update, so the key never leaves the probe -
+[ADR 0013](decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
 
 **A probe can be reached over an overlay, and reach NATS through it.**
 The optional WireGuard tunnel gives every probe a stable address the

@@ -213,7 +213,8 @@ once, which is what the comma is for.
 
 | Name | Description | Type | Default | Required | Example |
 | --- | --- | --- | --- | --- | --- |
-| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy | port | `443` | no | `8443` |
+| `WEB_HTTPS_PORT` | Host port of the web interface; TLS terminates in the reverse proxy. Also part of the interface address probes put into the links to a sensor log run | port | `443` | no | `9443` |
+| `PROBE_CHANNEL_PORT` | Host port where probes report back over the return channel; requires a client certificate from the probe CA | port | `8443` | no | `8444` |
 | `WEB_FQDN` | Name the certificate of the web interface is issued for | hostname | value of `NATS_FQDN` | no | `admin.example.com` |
 
 The default for `WEB_FQDN` is right for a single-server installation. Set it
@@ -224,6 +225,16 @@ endpoint.
 enough client networks to make it a poor default - and a browser that reaches
 `CA_HTTP_PORT` over plain HTTP is redirected to whatever this port is, so
 moving it stays invisible to whoever only types the host name.
+
+`PROBE_CHANNEL_PORT` is the return channel's listener on the same reverse
+proxy ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+It serves the interface certificate, but the TLS handshake completes only with
+a client certificate signed by the probe CA, and only the `/probe/v1` routes
+answer there. A browser has no such certificate, which is why the port cannot
+be shared with the interface: the API refuses to start when
+`PROBE_CHANNEL_PORT` equals `WEB_HTTPS_PORT`. Probes have to reach this port
+on the platform host - see the firewall requirements in
+[Installing the web platform](../web/install.md).
 
 ## Where the shell tooling looks for the runtime
 
@@ -260,6 +271,8 @@ one of them is a backup that cannot manage the fleet afterwards.
 | `ssh/known_hosts` | the pinned host keys of every enrolled probe, filed under the address it was enrolled at and under `prtg-nats-probe-USER`, which is what management calls verify against ([ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md)) |
 | `helper-signing-key.pem` | signs the probe helper before it is sent over the channel |
 | `helper-signing.pub` | the public half, installed on a probe during enrollment |
+| `probe-ca/ca-key.pem` | the probe client CA that signs the certificates probes report back with, separate from the NATS CA ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)) |
+| `probe-ca/ca.pem` | its certificate; the proxy reads a copy as `web-certs/probe-ca.pem` |
 | `prtg/` | the PRTG core URL, API token and CA bundle - see [PRTG core](#prtg-core) |
 
 The signing pair is created on first use, so an installation from before it
@@ -267,6 +280,12 @@ existed grows one the moment a helper update or an enrollment needs it. Losing
 it means the probes reject every further helper update until they are enrolled
 again - see
 [ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
+
+The probe client CA is created the same way: at startup, or by the first
+enrollment that needs it. A probe certificate is valid for 90 days and names
+the probe's NATS username, never its address. Losing the CA means every probe
+needs a new certificate, which a repair or a fresh enrollment issues over the
+management channel.
 
 ## Backend settings
 
@@ -331,6 +350,9 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_INVENTORY_SYNC_INTERVAL_SECONDS` | How often `runtime/` is re-read | int | `60` | no |
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
+| `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` | How many days of [sensor logs](#sensor-logs) are kept. At least `1` | int | `14` | no |
+| `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` | How long a probe's return channel may stay quiet before it counts as silent, raises a warning and gets a repair job. Keep it well above the probe's 5-minute heartbeat. See [sensor logs](#sensor-logs). At least `1` | int | `15` | no |
+| `PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB` | How much the return channel on each probe buffers while the platform is out of reach; beyond it the oldest records are dropped and reported as a gap. Reaches a probe with its next channel install, helper update or repair. `1` to `1024` | int | `20` | no |
 | `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Empty means the one the checkout is on, which is what an operator who ran `git checkout dev` expects; set it to pin an installation to a branch on purpose | string | – | no |
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
@@ -346,6 +368,42 @@ key at all, a public repository over HTTPS is unaffected and a private one
 reports itself unreachable rather than silently up to date. See
 [the API reference](api.md#system) and
 [ADR 0007](../architecture/decisions/0007-update-the-stack-from-the-interface.md).
+
+### Sensor logs
+
+What probes report over their return channel is stored in
+`runtime/sensor-logs/`, one JSON Lines file per probe, sensor and day:
+
+```text
+runtime/sensor-logs/PROBE/SENSOR/YYYY-MM-DD.jsonl
+```
+
+The day is the UTC day of the record's time. Each line is one record with the
+envelope `id`, `probe`, `sensor`, `job`, `time`, `result`, `code`, `summary`
+and the sensor-specific `body`. The files are output, not state: nothing else
+refers to them, and deleting one loses only what it holds.
+
+Once a day, and once at startup, the API keeps the day files of the last
+`PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` days, today included, and deletes
+the older ones, judged by the date in the file name: with `14`, today and
+the 13 days before it. The shell tooling knows the directory as
+`SENSOR_LOG_DIR`.
+
+Each delivery also counts as contact, and the service on the probe sends an
+empty batch as a heartbeat at least every five minutes
+(`HEARTBEAT_SECONDS` in [channel.env](#return-channel-on-the-probe)), so a
+working channel is never quiet for long, whether or not a sensor writes to
+the log. A probe that stays quiet for longer than
+`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` - counted from its last
+delivery, or from when its certificate was issued if it never delivered -
+is marked silent, and the platform repairs its channel over the management
+access. The default of 15 minutes is three missed heartbeats, so one late
+request raises no alarm; a value at or below the heartbeat interval marks
+healthy probes silent between two heartbeats. Probes on a helper older than
+version 13 send no heartbeat and do not report when their certificate was
+issued; they only count as silent once they delivered and then stopped. See
+[the API reference](api.md#sensor-logs) and
+[ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
 
 ### Development only
 
@@ -394,6 +452,29 @@ Preview the rendered result without changing any system:
   --probe-host probe-01.example.com \
   --nats-password-file runtime/credentials/mpp-probe-01.env
 ```
+
+### Return channel on the probe
+
+The return channel service reads
+`/etc/prtg-nats/return-channel/channel.env` on the probe when it starts. The
+helper writes `PLATFORM_URL`, `WEB_URL` and `BUFFER_LIMIT_BYTES` whenever the
+platform installs the channel or refreshes its service - during enrolment,
+helper updates and repairs - so change those through the platform's
+settings. `SERVER_CA` and `HEARTBEAT_SECONDS` are set by hand on the probe
+and survive both. Restart `prtg-nats-return-channel.service` after a change.
+
+| Name | Description | Type | Default | Required |
+| --- | --- | --- | --- | --- |
+| `PLATFORM_URL` | Where records are delivered, `https://HOST:PROBE_CHANNEL_PORT` | URL | written by the helper | yes |
+| `WEB_URL` | The interface address, `https://WEB_FQDN` plus `:WEB_HTTPS_PORT` when that is not `443`. The `wlan-auth` sensor builds the link to a run in its PRTG message from it; without it the message carries the path only | URL | written by the helper | no |
+| `BUFFER_LIMIT_BYTES` | Hard limit of the buffer under `/var/lib/prtg-nats-return-channel/`; the oldest records are dropped first, values below 262144 are raised to it | bytes | `PRTG_NATS_WEB_PROBE_CHANNEL_BUFFER_MB`, written by the helper | no |
+| `HEARTBEAT_SECONDS` | How often an empty batch goes out when there is nothing else to deliver; values below 30 are raised to it. Keep the platform's silence threshold at a multiple of it | seconds | `300` | no |
+| `SERVER_CA` | CA the platform's certificate is checked against | path | `/etc/paessler/mpprobe/certs/nats-docker-ca.pem` | no |
+
+The default CA is the stack CA the probe already trusts for NATS; it issued
+the web certificate the channel port answers with. What sensors send to the
+service is described in
+[Deploy sensors](../guides/deploy-sensors.md#writing-to-the-sensor-log).
 
 ## Changing a setting safely
 

@@ -1,12 +1,13 @@
 ---
 title: REST API
 role: developer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # REST API
 
-Everything lives under `/api/v1`. The OpenAPI schema is served at
+Everything lives under `/api/v1`, apart from the routes a probe calls (see
+[Return channel](#return-channel)). The OpenAPI schema is served at
 `/api/openapi.json`, and outside production there is a browsable version at
 `/api/docs`.
 
@@ -196,6 +197,41 @@ is `null` until management has reached the probe once. `nats_route` is
 state does not tell - a tunnel without a handshake, or one never asked. The
 summary in `GET /probes` carries `managed_over_tunnel`, true while the last
 answer came over the tunnel and is not stale.
+
+`GET /probes/{id}` also carries `return_channel`, the probe's channel back to
+the platform ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)):
+`last_contact_at`, `buffer_bytes` and `buffer_limit` from the probe's last
+batch, `gap_count` and `last_gap_at` from the gap records it delivered,
+`observed_at`, `certificate_expires`, `certificate_issued_at` and `service`
+from its last `probe-info`, `certificate_expired`, and `silent`. It is
+`null` for a probe that has neither delivered nor reported a certificate;
+the delivery fields stay `null` until the first batch arrives. The summary
+carries `channel_silent` and `channel_certificate_expired`.
+
+Besides what sensors write, the probe sends an empty batch as a heartbeat at
+least every five minutes. A channel falls silent once nothing arrived for
+`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES`, counted from its last delivery
+or, for a probe that never delivered, from `certificate_issued_at`. A probe
+on a helper older than version 13 reports no issue time and sends no
+heartbeat, so it only falls silent after it delivered once. The inventory
+sync then raises the alert `probe.channel_silent` and queues a repair
+(`trigger` `system`); a probe that reports an expired certificate gets one
+without waiting for the silence. At most one automatic repair per probe
+every six hours, and none for a probe management cannot reach.
+
+| | Permission | |
+| --- | --- | --- |
+| `POST /probes/{id}/return-channel/repair` | `probe.update` | repair the return channel → job `probe.channel_repair` |
+
+The repair asks the probe for its channel state first. A missing or expired
+certificate, or a service that runs while no delivery arrived for a
+heartbeat window (six minutes), gets a new certificate through the
+`install_return_channel` step, which rewrites and restarts the service as
+well. A stopped service with a valid certificate, or a probe that still
+delivers, keeps its certificate and has its service rewritten and restarted
+through `channel-service`. Both write the current interface address and
+buffer size into the probe's `channel.env`. Audited as
+`probe.channel_repair`.
 
 The route is recorded for the calls the web platform makes. A call from the
 shell tooling still updates the inventory's cached address when the probe
@@ -592,6 +628,59 @@ finished half of the history while its link kept pointing at the first job.
 A cancelled rollout marks the probes it never reached as `cancelled` instead
 of leaving them queued forever.
 
+### Sensor logs
+
+What probes report over their return channel, one record per finished sensor
+run ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+Every route needs `sensor_log.read`, which every role holds.
+
+| | |
+| --- | --- |
+| `GET /sensor-logs` | records, newest first, without their body |
+| `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
+| `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
+
+`GET /sensor-logs` takes these filters, all optional and combined with AND:
+
+| Parameter | Matches |
+| --- | --- |
+| `probe` | the probe's NATS account |
+| `sensor` | the sensor name, e.g. `wlan-auth` |
+| `ssid` | the network the run was about, from the body |
+| `result` | `ok`, `error` or `gap` |
+| `since`, `until` | ISO 8601 times; without `since` the last 24 hours |
+| `q` | case-insensitive text in the summary, the error code and the values in the body, as the sensor wrote them (quotes and backslashes included, field names not) |
+| `limit`, `offset` | paging, `limit` up to 500, default 100 |
+
+The answer is `{"items": [...], "total": n, "limit": n, "offset": n}`.
+`total` counts every match, not only the page. An item carries the envelope
+of the record and the `ssid` from its body:
+
+```json
+{
+  "id": "0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10",
+  "probe": "mpp-probe-01",
+  "sensor": "wlan-auth",
+  "job": "a1b2c3d4e5f6",
+  "time": "2026-11-08T09:15:00Z",
+  "result": "error",
+  "code": "eap_failure",
+  "summary": "EAP authentication failed",
+  "ssid": "Example-Corp"
+}
+```
+
+`result` is `gap` for a record the probe wrote when its buffer was full and it
+had to drop older records; its body names the time range and how many were
+lost. The detail adds `body`, whose content depends on the sensor.
+
+The event stream sends only what arrives while it is open - a page loads the
+list first and adds what the stream announces. `?probe=` and `?sensor=` narrow
+it. Each event's data has the same shape as a list item.
+
+Records are kept as JSON Lines in the runtime, see
+[the configuration reference](configuration.md#sensor-logs).
+
 ### NATS accounts
 
 | | |
@@ -662,6 +751,93 @@ declaration, so a sensor calling it `--variant` is quoted with `--variant`.
 `GET`/`POST /users`, `PATCH`/`DELETE /users/{id}`. The first administrator is
 created through `POST /auth/setup` instead, which is refused once one exists.
 Which role may call what is in [Roles and permissions](../web/roles.md).
+
+### Return channel
+
+The routes a probe calls, under `/probe/v1` instead of `/api/v1`. They answer
+only on the probe channel port (`PROBE_CHANNEL_PORT`, default `8443`). The web
+port answers `/probe/*` with `404`, and the probe channel port answers
+everything outside `/probe/v1` with `404`.
+
+How the identity is established: the reverse proxy completes the TLS handshake
+only with a client certificate signed by the probe CA, which issues it with
+the subject `CN=<NATS username>`. It drops any `X-Probe-Identity` the client
+sent and sets it to the verified certificate's subject, exactly as Go prints
+it - `X-Probe-Identity: CN=mpp-berlin-01`. The backend takes the identity from
+that header and from nothing else; a value that is not a single `CN=`
+attribute is refused. No session and no permission apply: the identity is
+checked against the probe inventory on every request, and one the inventory
+does not hold is refused with `403` and `auth.probe_not_enrolled` - a retired
+probe keeps a valid certificate until it expires.
+
+| | |
+| --- | --- |
+| `POST /probe/v1/records` | hand over a batch of sensor log records |
+| `POST /probe/v1/certificate` | renew the probe's client certificate |
+
+```http
+POST /probe/v1/records
+Content-Type: application/json
+
+{
+  "records": [
+    {
+      "id": "0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10",
+      "sensor": "wlan-auth",
+      "job": "a1b2c3d4e5f6",
+      "time": "2026-11-08T09:15:00Z",
+      "result": "error",
+      "code": "auth-failed-eap",
+      "summary": "EAP authentication failed",
+      "body": {"ssid": "Example-Corp", "supplicant": ["…"]}
+    }
+  ],
+  "buffer": {"bytes": 18432, "limit": 20971520}
+}
+```
+
+```json
+{"stored": ["0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10"], "duplicates": []}
+```
+
+The record ID is a UUID set on the probe. Sending a batch again stores nothing
+twice: records already stored come back under `duplicates`, and the probe drops
+both lists from its buffer. A batch holds at most 500 records, and the proxy
+refuses a request body over 16 MB. A `probe` field in a record is ignored -
+who sent it is what the certificate says.
+
+A record is not refused for its time. One more than an hour ahead of the
+platform host, or outside what can be expressed in UTC, is stored under the
+time it arrived: refusing it would cost the whole batch, and a day file far in
+the future would outlast the retention.
+
+A batch with no records is the channel's heartbeat: the service sends one
+with its buffer figures at least every five minutes when there is nothing
+else to deliver, and right after it starts. It is answered like any other
+batch, with two empty lists, and moves the probe's last contact.
+
+```http
+POST /probe/v1/certificate
+Content-Type: application/json
+
+{"csr": "-----BEGIN CERTIFICATE REQUEST-----\n…\n-----END CERTIFICATE REQUEST-----\n"}
+```
+
+```json
+{
+  "certificate": "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----\n",
+  "not_after": "2027-02-06T09:15:00Z"
+}
+```
+
+The probe renews over the channel its current certificate still opens. The
+CSR is a PEM, EC or RSA, signed with the new key; it proves possession of
+that key and contributes nothing else. The certificate is issued for the
+calling probe, valid for 90 days, whatever subject the CSR names. An
+unreadable CSR or one whose signature does not verify is refused with `422`
+and `common.validation_failed`. Once a certificate has expired the probe can
+no longer reach this route; a new one then comes through the management
+channel, the way enrolment issued the first.
 
 ### Removed endpoints
 

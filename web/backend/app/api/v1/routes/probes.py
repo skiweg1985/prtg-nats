@@ -37,6 +37,7 @@ from app.api.schemas.probes import (
     ProbeSummaryOut,
     ProbeUpdateIn,
     ReconciliationPlanOut,
+    ReturnChannelOut,
     SensorStateOut,
 )
 from app.api.schemas.system import WirelessInterfaceOut
@@ -49,7 +50,12 @@ from app.services.auth import Principal
 from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.services.probes import ProbeDetail, ProbeService
 from app.services.system import SystemService
-from app.workers.handlers import probe_actions, probe_lifecycle, sensor_actions
+from app.workers.handlers import (
+    channel_repair,
+    probe_actions,
+    probe_lifecycle,
+    sensor_actions,
+)
 
 router = APIRouter(prefix="/probes", tags=["probes"])
 
@@ -150,6 +156,13 @@ def _detail_out(detail: ProbeDetail) -> ProbeDetailOut:
             )
         ),
         nats_route=detail.nats_route,
+        return_channel=(
+            None
+            if detail.return_channel is None
+            else ReturnChannelOut.model_validate(
+                detail.return_channel, from_attributes=True
+            )
+        ),
     )
 
 
@@ -472,6 +485,37 @@ async def refresh_probe(
         helper_outdated=observed.helper_outdated,
         error_code=observed.error_code,
         error_details=observed.error_details,
+    )
+
+
+@router.post(
+    "/{probe_id}/return-channel/repair",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def repair_return_channel(
+    probe_id: str,
+    probes: ProbeServiceDep,
+    jobs: JobServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.PROBE_UPDATE))
+    ],
+) -> JobAccepted:
+    """Reinstall the probe's return channel service, and issue a new
+    certificate where the old one is missing, expired or suspect.
+
+    The same job the inventory sync starts when the channel falls silent.
+    """
+    record = await probes.get_record(probe_id)
+    return await _fleet_job(
+        [record],
+        jobs,
+        audit,
+        principal,
+        job_type=channel_repair.JOB_TYPE,
+        steps=channel_repair.STEPS,
+        action="probe.channel_repair",
     )
 
 

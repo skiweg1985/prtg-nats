@@ -17,7 +17,8 @@
     "settings": "Einstellungen",
     "updates": "Updates",
     "system": "Wartung",
-    "overlay": "Overlay"
+    "overlay": "Overlay",
+    "sensorLogs": "Sensor-Log"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -384,7 +385,18 @@
       },
       "unlinkConfirm": "Die Verknüpfung mit dem PRTG-Objekt {{id}} wird gelöst. Die Probe heißt hier dann wieder so wie bei der Einbindung; in PRTG ändert sich nichts."
     },
-    "removeSensorConfirm": "{{sensor}} wird von dieser Probe entfernt. Der Sensor in PRTG meldet danach einen Fehler, bis er gelöscht oder neu ausgerollt ist."
+    "removeSensorConfirm": "{{sensor}} wird von dieser Probe entfernt. Der Sensor in PRTG meldet danach einen Fehler, bis er gelöscht oder neu ausgerollt ist.",
+    "returnChannel": {
+      "label": "Rückkanal",
+      "lastReport": "Letzte Meldung {{time}}",
+      "nothingYet": "Noch nichts geliefert",
+      "silent": "Stumm",
+      "repair": "Reparieren",
+      "buffer": "Puffer zu {{percent}} belegt",
+      "gaps_one": "{{count}} Lücke, {{time}}",
+      "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
+      "noGaps": "Keine Lücken"
+    }
   },
   "sensors": {
     "title": "Sensoren",
@@ -526,6 +538,7 @@
       "commit": "Übernehmen",
       "verify": "Nachprüfen",
       "install_ca": "CA installieren",
+      "install_return_channel": "Rückkanal einrichten",
       "collect_state": "Zustand erfassen",
       "evaluate": "Auswerten",
       "renew": "Zertifikat erneuern",
@@ -600,6 +613,9 @@
         "helper_before": "{{probe}} trägt Helper-Version {{version}}",
         "helper_sent": "{{probe}}: Helper übertragen und als Version {{version}} übernommen",
         "helper_updated": "{{probe}} antwortet jetzt mit Helper-Version {{version}}",
+        "return_channel_installed": "{{probe}}: Zertifikat für den Rückkanal installiert, gültig bis {{expires}}, meldet an {{url}}",
+        "return_channel_present": "{{probe}} hat bereits ein Zertifikat für den Rückkanal, gültig bis {{expires}}",
+        "return_channel_helper_outdated": "{{probe}}: Helper-Version {{version}} kennt den Rückkanal noch nicht (ab {{required}}), das Zertifikat folgt mit dem nächsten Helper-Update",
         "fanout_started": "{{probes}} Probes ausgewählt, eine nach der anderen",
         "action_failed": "{{probe}}: fehlgeschlagen ({{reason}})",
         "fanout_finished": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen",
@@ -623,7 +639,11 @@
         "access_verified": "{{host}} hat über den Verwaltungskanal geantwortet, Paket {{package}}, Dienst {{service}}",
         "inventory_written": "{{username}} als {{probe_name}} ins Inventar geschrieben",
         "enrolled": "{{username}} ist auf {{host}} angemeldet",
-        "enroll_incomplete": "Dieser Lauf hat hinterlassen: Hostschlüssel hinterlegt {{pinned_host_key}}, Konto angelegt {{created_account}}, Inventar geschrieben {{wrote_inventory}}"
+        "enroll_incomplete": "Dieser Lauf hat hinterlassen: Hostschlüssel hinterlegt {{pinned_host_key}}, Konto angelegt {{created_account}}, Inventar geschrieben {{wrote_inventory}}",
+        "channel_found": "{{probe}}: Zertifikat für den Rückkanal {{certificate}}, Dienst {{service}}",
+        "channel_service_reinstalled": "{{probe}}: Dienst des Rückkanals neu installiert und gestartet",
+        "channel_repaired": "{{probe}}: Der Dienst des Rückkanals läuft wieder",
+        "channel_service_not_running": "{{probe}}: Der Dienst des Rückkanals läuft noch immer nicht ({{service}})"
       },
       "sensor": {
         "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
@@ -767,7 +787,8 @@
         "reconcile": "Abweichungen beheben",
         "refresh": "Zustand aktualisieren",
         "unenroll": "Probe ausbinden",
-        "validate": "Probe prüfen"
+        "validate": "Probe prüfen",
+        "channel_repair": "Rückkanal reparieren"
       },
       "sensor": {
         "deploy": "Sensor ausrollen",
@@ -852,7 +873,8 @@
         "refresh": "Zustand aktualisiert",
         "set_desired_state": "Soll-Zustand geändert",
         "update": "Probe geändert",
-        "validate": "Probe geprüft"
+        "validate": "Probe geprüft",
+        "channel_repair": "Rückkanal repariert"
       },
       "sensor": {
         "deploy": "Sensor ausgerollt",
@@ -1247,7 +1269,8 @@
       "invalid_credentials": "Benutzername oder Passwort ist falsch.",
       "account_locked": "Zu viele Fehlversuche. In {{retry_after_seconds}} Sekunden erneut versuchen.",
       "permission_denied": "Diese Aktion benötigt die Berechtigung „{{permission}}“.",
-      "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen."
+      "setup_required": "Es existiert noch kein Konto. Bitte den ersten Administrator anlegen.",
+      "probe_not_enrolled": "Diese Probe ist auf dieser Plattform nicht eingebunden."
     },
     "probe": {
       "unreachable": "Die Probe „{{probe}}“ hat über den Management-Kanal nicht geantwortet.",
@@ -1337,7 +1360,8 @@
     "probe.degraded": "{{probe}} hat {{deviations}} Abweichung(en)",
     "certificate.expired": "Das Zertifikat {{certificate}} ist abgelaufen",
     "certificate.expiring_soon": "Das Zertifikat {{certificate}} läuft in {{days_remaining}} Tagen ab",
-    "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel"
+    "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel",
+    "probe.channel_silent": "{{probe}} hat seit mehr als {{minutes}} Minuten nichts über den Rückkanal geliefert"
   },
   "credentials": {
     "title": "Konten ohne Probe",
@@ -1446,6 +1470,75 @@
         "runtime": "Laufzeit-Export",
         "jetstream": "JetStream"
       }
+    }
+  },
+  "sensorLogs": {
+    "title": "Sensor-Log",
+    "empty": "Keine Läufe in diesem Zeitraum",
+    "emptyFiltered": "Keine Läufe passen zu diesen Filtern",
+    "count": "{{shown}} von {{total}}",
+    "loadMore": "Weitere laden",
+    "noBody": "Dieser Lauf hat keine Ausgabe",
+    "output": "Ausgabe",
+    "all": "Alle im Sensor-Log anzeigen",
+    "probeCard": "Läufe der letzten 24 Stunden",
+    "columns": {
+      "time": "Zeit",
+      "probe": "Probe",
+      "sensor": "Sensor",
+      "network": "Netz",
+      "result": "Ergebnis",
+      "summary": "Zusammenfassung",
+      "code": "Fehlercode",
+      "id": "Eintrags-Id"
+    },
+    "result": {
+      "ok": "OK",
+      "error": "Fehler",
+      "gap": "Lücke"
+    },
+    "range": {
+      "1h": "Letzte Stunde",
+      "24h": "Letzte 24 Stunden",
+      "7d": "Letzte 7 Tage",
+      "14d": "Letzte 14 Tage"
+    },
+    "filters": {
+      "search": "Ausgabe durchsuchen",
+      "range": "Zeitraum",
+      "result": "Ergebnis",
+      "anyResult": "Jedes Ergebnis",
+      "probe": "Probe",
+      "anyProbe": "Alle Probes",
+      "sensor": "Sensor",
+      "anySensor": "Alle Sensoren",
+      "network": "Netz (SSID)"
+    },
+    "wlanAuth": {
+      "ssid": "Netz (SSID)",
+      "auth": "Authentifizierung",
+      "interface": "Schnittstelle",
+      "stage": "Stufe",
+      "identity": "Identität",
+      "profile": "Zugangsdaten-Profil",
+      "bssid": "Access Point (BSSID)",
+      "clientMac": "Client-Adresse",
+      "clientMacKind": "Herkunft der Client-Adresse",
+      "ipAddress": "Bezogene Adresse",
+      "dhcpServer": "DHCP-Server",
+      "gateway": "Gateway",
+      "gatewayKind": "Herkunft des Gateways",
+      "frequency": "Frequenz (MHz)",
+      "signal": "Signal (dBm)",
+      "timings": "Dauer der Stufen",
+      "assocMs": "Assoziierung (ms)",
+      "authMs": "Authentifizierung (ms)",
+      "dhcpMs": "DHCP (ms)",
+      "gatewayMs": "Gateway-Ping (ms)",
+      "totalMs": "Gesamt (ms)",
+      "supplicant": "Ausgabe von wpa_supplicant",
+      "dhcp": "Ausgabe des DHCP-Clients",
+      "events": "Ereignisse des Helpers"
     }
   }
 }

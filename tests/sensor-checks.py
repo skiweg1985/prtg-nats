@@ -29,6 +29,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # The checks load the sensors as modules. Without this line a __pycache__
@@ -848,6 +849,82 @@ def check_wlan_auth_output():
           module.work(dict(arguments))["message"],
           "Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; "
           "code dhcp-timeout; age 20 s")
+
+    # A failed run points at its record in the sensor log, where the raw
+    # supplicant and DHCP output is. The platform's address is not known on
+    # the probe, so the path is what the message carries - the part after
+    # the address the operator opens the platform with.
+    run = "3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10"
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run,
+    }
+    check("a failed run names its record in the sensor log",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "log /sensor-logs/%s" % run)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "auth-failed-eap",
+        "message": "x" * 3000, "timings": {}, "details": {"ssid": "Guest"},
+        "record_id": run,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("a long message stays within what PRTG shows",
+               len(message) <= 2000)
+    check_true("and still ends on the link",
+               message.endswith("; log /sensor-logs/%s" % run))
+    link = "https://nats.example.test:9443/sensor-logs/%s" % run
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run, "record_link": link,
+    }
+    check("with the platform's address it is a full link",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; log %s" % link)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "auth-failed-eap",
+        "message": "x" * 3000, "timings": {}, "details": {"ssid": "Guest"},
+        "record_id": run, "record_link": link,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("a full link keeps the message within what PRTG shows",
+               len(message) <= 2000)
+    check_true("and is never the part that is cut",
+               message.endswith("; log %s" % link))
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout", "message": "no DHCP answer",
+        "timings": {}, "details": {"ssid": "Guest"}, "age": 20.0,
+        "record_id": run,
+        "record_link": "https://elsewhere.example.test/sensor-logs/%s"
+                       % "00000000-0000-4000-8000-000000000000",
+    }
+    check("a link to another run falls back to the path",
+          module.work(dict(arguments))["message"],
+          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "log /sensor-logs/%s" % run)
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK", "timings": {},
+        "details": {"ssid": "Guest"}, "age": 5.0, "record_id": run,
+    }
+    check("a successful run does not", "/sensor-logs/" in module.work(
+        dict(arguments))["message"], False)
+    module.call_helper = lambda job, timeout: {
+        "result": "blocked", "code": "iface-down",
+        "message": "Could not power up wlan0", "timings": {}, "details": {},
+        "record_id": run,
+    }
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        try:
+            module.work(dict(arguments))
+        except SystemExit:
+            pass
+    check("a run that could not happen names its record too",
+          json.loads(printed.getvalue())["message"],
+          "Test could not run (iface-down): Could not power up wlan0; "
+          "log /sensor-logs/%s" % run)
     asked = {}
 
     def remember_mac(job, timeout):
@@ -926,6 +1003,14 @@ def check_wlan_auth_scheduler():
     check("a changed freshness is the same job",
           module.job_identity(dict(job, max_age=60)),
           module.job_identity(dict(job, max_age=600)))
+    # The label leaves the probe in every sensor log record. A hash over
+    # the password would let anyone who reads the logs test guesses.
+    check("the label a record carries ignores the credentials",
+          module.job_label(job),
+          module.job_label(dict(job, password="other", psk="other")))
+    check("the label still tells two networks apart",
+          module.job_label(job) != module.job_label(dict(job, ssid="Guest")),
+          True)
 
     # The gateway is an address or the word that switches the step off. A
     # name would have to be resolved, and a sensor that cannot reach its
@@ -1166,6 +1251,296 @@ def check_wlan_auth_scheduler():
                    encoding="utf-8").read()
     check("and the rollout asks for exactly that word",
           '"${mode}" == "daemon"' in rollout, True)
+
+
+@contextlib.contextmanager
+def return_channel_stub():
+    """The real return channel service on a socket of its own, in a thread.
+
+    The wlan-auth helper talks to it exactly as it would on a probe, so what
+    the checks see is what the buffer would hold - nothing the helper sends
+    gets past the service's own validation unnoticed.
+    """
+    # A short path: AF_UNIX names are limited to about a hundred bytes.
+    directory = tempfile.mkdtemp(prefix="rc.", dir="/tmp")
+    try:
+        channel = load_return_channel(directory)
+        buffer = channel.Buffer(os.path.join(directory, "buffer"),
+                                limit=channel.MINIMUM_LIMIT)
+        path = os.path.join(directory, "s")
+        listener = channel.listening_socket(path)
+        thread = threading.Thread(target=channel.serve,
+                                  args=(listener, buffer), daemon=True)
+        thread.start()
+        # The serving thread is left to die with the checks: closing the
+        # listener under its accept() would only print a traceback.
+        yield path, (lambda: buffer.batch(50))
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def wlan_auth_helper():
+    wrapper = os.path.join(
+        SENSOR_DIR, "wlan-auth", "privileged", "prtg-sensor-wlan-auth")
+    return load_module("prtg_sensor_wlan_auth_log", wrapper)
+
+
+def check_wlan_auth_sensor_log():
+    """Every run leaves one record in the sensor log, and no secret in it."""
+    print("\n== wlan-auth: sensor log records ==")
+    module = wlan_auth_helper()
+    job = module.validate_job({
+        "interface": "wlan0", "ssid": "Example-Guest", "auth": "psk",
+        "psk": "correct-horse-battery", "stage": "dhcp", "timeout": 45})
+
+    def measured(result, supplicant=(), dhcp="", events=()):
+        def fake(job, log):
+            for line in events:
+                log.event(line)
+            log.supplicant([(log.started + 0.5, line) for line in supplicant])
+            if dhcp:
+                log.dhcp(dhcp)
+            # A fresh answer per run, as perform_test builds one.
+            return json.loads(json.dumps(result))
+        return fake
+
+    success = {
+        "result": "ok", "code": "ok", "message": "OK",
+        "timings": {"assoc_ms": 900, "auth_ms": 300, "dhcp_ms": 700,
+                    "gateway_ms": 4, "total_ms": 2100},
+        "details": {"mac": "00:00:5e:00:53:10", "mac_kind": "auto",
+                    "bssid": "00:00:5e:00:53:c2", "ssid": "Example-Guest",
+                    "frequency_mhz": 5180, "signal_dbm": -58,
+                    "ip_address": "198.51.100.19",
+                    "dhcp_server": "198.51.100.1",
+                    "gateway": "198.51.100.1",
+                    "gateway_kind": "dhcp server"},
+    }
+    lock_directory = tempfile.mkdtemp(prefix="wlan-auth.")
+    module.RUN_DIR = lock_directory
+    with return_channel_stub() as (path, stored):
+        module.RETURN_CHANNEL_SOCKET = path
+        module.perform_test = measured(
+            success,
+            supplicant=["wlan0: Associated with 00:00:5e:00:53:c2",
+                        "wlan0: CTRL-EVENT-CONNECTED - Connection to "
+                        "00:00:5e:00:53:c2 completed"],
+            dhcp="udhcpc: started, v1.36.1\nudhcpc: lease of 198.51.100.19 "
+                 "obtained from 198.51.100.1, lease time 28800\n",
+            events=["dhcp started"])
+        scheduler = module.Scheduler()
+        scheduler.collect(dict(job), 300)
+        entry = scheduler._due()
+        scheduler.measure(entry)
+        records = stored()
+        check("a successful run leaves one record", len(records), 1)
+        record = records[0] if records else {}
+        body = record.get("body") or {}
+        check("it is the wlan-auth sensor's", record.get("sensor"),
+              "wlan-auth")
+        check("and an ok run is an ok record", record.get("result"), "ok")
+        check("the job is the label without credentials", record.get("job"),
+              module.job_label(job))
+        check("the result points the sensor at its record",
+              entry["result"].get("record_id"), record.get("id"))
+        check("without an interface address it carries no full link",
+              "record_link" in entry["result"], False)
+
+        # The helper has written the interface address into channel.env,
+        # which only root may read: the daemon builds the link, so the
+        # unprivileged sensor script needs no access to the file.
+        config = os.path.join(lock_directory, "channel.env")
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("PLATFORM_URL=https://nats.example.test:8443\n"
+                         "WEB_URL=https://nats.example.test:9443\n")
+        module.RETURN_CHANNEL_CONFIG = config
+        scheduler.measure(entry)
+        linked = stored()[-1]
+        check("with one the result carries the full link to the run",
+              entry["result"].get("record_link"),
+              "https://nats.example.test:9443/sensor-logs/%s" % linked["id"])
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("WEB_URL=javascript:alert(1)\n")
+        scheduler.measure(entry)
+        check("an address that is no https URL gives no link",
+              "record_link" in entry["result"], False)
+        module.RETURN_CHANNEL_CONFIG = os.path.join(lock_directory, "absent")
+        check("the body names network, method and interface",
+              (body.get("ssid"), body.get("auth"), body.get("interface")),
+              ("Example-Guest", "psk", "wlan0"))
+        check("and what the run saw",
+              (body.get("bssid"), body.get("client_mac"),
+               body.get("ip_address"), body.get("dhcp_server"),
+               body.get("gateway"), body.get("frequency_mhz"),
+               body.get("signal_dbm")),
+              ("00:00:5e:00:53:c2", "00:00:5e:00:53:10", "198.51.100.19",
+               "198.51.100.1", "198.51.100.1", 5180, -58))
+        check("with the stage timings", body.get("timings"),
+              success["timings"])
+        check("the supplicant's own lines are kept",
+              [line.split(" ", 1)[1] for line in body.get("supplicant", [])],
+              ["wlan0: Associated with 00:00:5e:00:53:c2",
+               "wlan0: CTRL-EVENT-CONNECTED - Connection to "
+               "00:00:5e:00:53:c2 completed"])
+        check("and so are the DHCP client's",
+              body.get("dhcp"),
+              ["udhcpc: started, v1.36.1",
+               "udhcpc: lease of 198.51.100.19 obtained from 198.51.100.1, "
+               "lease time 28800"])
+        check_true("and the helper's own events for the run",
+                   any("dhcp started" in line
+                       for line in body.get("events", [])))
+
+        # A failed run carries the most raw output, and raw output is where
+        # a secret turns up: a supplicant that echoes its configuration, a
+        # derived key in a debug line. None of it may reach the platform,
+        # in whatever form the helper itself put it into the configuration.
+        psk = job["psk"]
+        derived = module.wpa_psk(psk, job["ssid"])
+        failure = {"result": "failed", "code": "auth-failed-psk",
+                   "message": "PSK rejected", "timings": {"assoc_ms": 800},
+                   "details": {"mac": "00:00:5e:00:53:10"}}
+        module.perform_test = measured(failure, supplicant=[
+            "wlan0: psk=\"%s\"" % psk,
+            "wlan0: PMK %s" % derived.upper(),
+            "wlan0: ssid/psk hex %s" % module.hex_value(psk),
+            "wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"Example-Guest\" "
+            "auth_failures=1 duration=10 reason=WRONG_KEY",
+        ], dhcp="", events=["supplicant started"])
+        before = len(stored())
+        scheduler.measure(entry)
+        record = stored()[-1]
+        serialised = json.dumps(record)
+        check("a failed sign-in leaves a record too", len(stored()),
+              before + 1)
+        check("and it is an error", (record["result"], record["code"]),
+              ("error", "auth-failed-psk"))
+        check("the passphrase is not in it", psk in serialised, False)
+        check("nor the key derived from it, in any case",
+              derived in serialised.lower(), False)
+        check("nor the hex form the configuration carries",
+              module.hex_value(psk) in serialised, False)
+        check_true("the line that named the cause survives",
+                   any("WRONG_KEY" in line
+                       for line in record["body"]["supplicant"]))
+
+        enterprise = module.validate_job({
+            "interface": "wlan0", "ssid": "Example-Corp", "auth": "eap-tls",
+            "identity": "probe@example.test", "password": "peap-Secret-9",
+            "client_cert": "/etc/prtg-nats/sensors/wlan-auth/probe.pem",
+            "private_key": "/etc/prtg-nats/sensors/wlan-auth/probe.key",
+            "private_key_passwd": "key-Pass-7", "stage": "assoc"})
+        log = module.RunLog()
+        log.supplicant([(log.started, line) for line in (
+            "EAP: identity probe@example.test password peap-Secret-9",
+            "TLS: private key passphrase key-Pass-7",
+            "CTRL-EVENT-EAP-PEER-CERT depth=0 subject='/CN=radius.example.test'",
+        )])
+        record = module.build_record(enterprise, failure, log)
+        record = json.dumps(module.redact_record(record, enterprise))
+        check("the enterprise password is not in the record",
+              "peap-Secret-9" in record, False)
+        check("nor the private key passphrase", "key-Pass-7" in record,
+              False)
+        check("the identity stays - it is what the RADIUS log is searched by",
+              "probe@example.test" in record, True)
+        check("and so does the certificate subject",
+              "/CN=radius.example.test" in record, True)
+
+        # Blanking a two-letter secret would shred every line with those
+        # letters and still hint at the secret, so such a line goes whole -
+        # the rule aruba-uplink applies to its messages.
+        short = dict(enterprise, password="ab")
+        log = module.RunLog()
+        log.supplicant([(log.started, "EAP: answer ab sent"),
+                        (log.started, "EAP: method 25")])
+        lines = module.redact_record(
+            module.build_record(short, failure, log), short)["body"][
+                "supplicant"]
+        check("a line holding a secret too short to mask is dropped",
+              any("ab sent" in line for line in lines), False)
+        check("and the others stay readable",
+              any("method 25" in line for line in lines), True)
+
+        # A run that could not happen is a run too - the log is where an
+        # operator finds out why the radio was never used.
+        def blocked(job, log):
+            raise module.Blocked("iface-down", "Could not power up wlan0")
+        module.perform_test = blocked
+        scheduler.measure(entry)
+        record = stored()[-1]
+        check("a blocked run is logged as an error with its code",
+              (record["result"], record["code"]), ("error", "iface-down"))
+
+        # Busy means somebody tests by hand: nothing was measured, so
+        # nothing is logged and the stored result stays as it was.
+        def busy(job, log):
+            raise module.Blocked("iface-busy", "Another test is running")
+        module.perform_test = busy
+        before = len(stored())
+        scheduler.measure(entry)
+        check("a run that did not get the radio leaves no record",
+              len(stored()), before)
+
+        # Measuring on the spot is the other way a run happens, and the
+        # one somebody debugging on the probe looks for in the log.
+        module.perform_test = measured(dict(success))
+        answer = module.handle_request(json.dumps(dict(
+            job, action="test")))
+        check("a test run by hand is logged as well", len(stored()),
+              before + 1)
+        check("and its answer names the record",
+              answer.get("record_id"), stored()[-1]["id"])
+
+        # A supplicant stuck in a scan loop writes thousands of lines. The
+        # service refuses a line above 64 KB, so the raw output is what
+        # gives way - the oldest lines stay, they hold the start of the
+        # trouble, and the newest, which hold its end.
+        noise = ["wlan0: CTRL-EVENT-SCAN-RESULTS %04d %s" % (number, "x" * 200)
+                 for number in range(3000)]
+        module.perform_test = measured(dict(failure), supplicant=noise,
+                                       dhcp="\n".join(noise[:500]))
+        before = len(stored())
+        scheduler.measure(entry)
+        check("a run with endless output is still logged", len(stored()),
+              before + 1)
+        lines = stored()[-1]["body"]["supplicant"]
+        check_true("as a record the service takes",
+                   len(json.dumps(stored()[-1])) < 64 * 1024)
+        check_true("keeping the first lines",
+                   " 0000 " in lines[0])
+        check_true("and the last", " 2999 " in lines[-1])
+        check_true("and saying how many are left out",
+                   any("lines left out" in line for line in lines))
+
+    # Without the service the sensor works as it always did: the result is
+    # stored, PRTG gets it, and only the link to a record is missing.
+    module.perform_test = measured(dict(success))
+    module.RETURN_CHANNEL_SOCKET = os.path.join(lock_directory, "absent")
+    alone = module.Scheduler()
+    alone.collect(dict(job), 300)
+    entry = alone._due()
+    alone.measure(entry)
+    check("without the service the result is still stored",
+          entry["result"].get("result"), "ok")
+    check("and points at no record", "record_id" in entry["result"], False)
+
+    # A service that accepts and never answers must not hold the radio
+    # for longer than the short handover timeout.
+    silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    module.RETURN_CHANNEL_SOCKET = os.path.join(lock_directory, "silent")
+    silent.bind(module.RETURN_CHANNEL_SOCKET)
+    silent.listen(1)
+    module.RETURN_CHANNEL_TIMEOUT = 0.3
+    started = time.monotonic()
+    alone.measure(entry)
+    check("a service that hangs costs the record, not the measurement",
+          (entry["result"].get("result"), "record_id" in entry["result"]),
+          ("ok", False))
+    check_true("and only the short timeout",
+               time.monotonic() - started < 2)
+    silent.close()
+    shutil.rmtree(lock_directory, ignore_errors=True)
 
 
 def check_wlan_auth_configuration():
@@ -3197,6 +3572,415 @@ def check_aruba_uplink_secrets(module):
           "--timeout-ms takes a number")
 
 
+# --- The return channel service ------------------------------------------
+#
+# The service is not a file of its own in the repository: the helper writes it
+# from a heredoc, because only the helper arrives under a signature (ADR
+# 0006). The checks cut it out of the helper the same way, so what they load
+# is byte for byte what a probe runs.
+
+HELPER_PATH = os.path.join(PROJECT_DIR, "libexec", "prtg-nats-probe-helper")
+CHANNEL_HEREDOC = "CHANNELEOF"
+
+
+def return_channel_source():
+    with open(HELPER_PATH, encoding="utf-8") as handle:
+        lines = handle.read().splitlines(keepends=True)
+    start = next(index for index, line in enumerate(lines)
+                 if line.rstrip().endswith("<<'%s'" % CHANNEL_HEREDOC))
+    end = next(index for index in range(start + 1, len(lines))
+               if lines[index].rstrip("\n") == CHANNEL_HEREDOC)
+    return "".join(lines[start + 1:end])
+
+
+def load_return_channel(directory):
+    path = os.path.join(directory, "prtg-nats-return-channel")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(return_channel_source())
+    return load_module("return_channel", path)
+
+
+def channel_record(**overrides):
+    record = {"sensor": "wlan-auth", "result": "ok", "summary": "fine",
+              "job": "0123456789ab", "body": {"ssid": "Example"}}
+    record.update(overrides)
+    return record
+
+
+def offer(module, buffer, record):
+    """Hand one record over the way a sensor does, as one JSON line."""
+    line = json.dumps(record).encode("utf-8")
+    return json.loads(module.handle_line(buffer, line))
+
+
+def check_return_channel_interface():
+    """What a sensor sees: one JSON line in, the record ID back."""
+    print("\n== return channel: local interface ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        buffer = module.Buffer(os.path.join(directory, "buffer"),
+                               limit=module.MINIMUM_LIMIT)
+
+        reply = offer(module, buffer, channel_record())
+        check("a record without an ID is accepted", reply.get("ok"), True)
+        check_true("and the answer carries the ID it was given",
+                   re.fullmatch(r"[0-9a-f-]{36}", reply.get("id", "")))
+
+        chosen = "3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10"
+        reply = offer(module, buffer, channel_record(id=chosen))
+        check("a record that brings its own ID keeps it",
+              reply.get("id"), chosen)
+
+        reply = offer(module, buffer, channel_record(probe="someone-else"))
+        batch = module.Buffer(os.path.join(directory, "buffer"),
+                              limit=module.MINIMUM_LIMIT).batch(10)
+        check("records come out in the order they went in",
+              [record["id"] for record in batch][1:], [chosen, reply["id"]])
+        check("the probe is the transport's to say, not the record's",
+              "probe" in batch[2], False)
+        check_true("a record without a time gets one in UTC",
+                   batch[0]["time"].endswith("Z"))
+
+        for description, record in [
+            ("a sensor name with a slash is refused",
+             channel_record(sensor="../wlan")),
+            ("a gap is the service's to write, not a sensor's",
+             channel_record(result="gap")),
+            ("a result outside ok and error is refused",
+             channel_record(result="maybe")),
+            ("an ID that is no UUID is refused", channel_record(id="7")),
+            ("a body that is no object is refused", channel_record(body=[1])),
+            ("a code longer than the platform takes is refused",
+             channel_record(code="x" * 129)),
+            ("a time that does not parse is refused",
+             channel_record(time="yesterday")),
+        ]:
+            check(description, offer(module, buffer, record).get("ok"), False)
+        check("a line that is no JSON is answered, not dropped",
+              json.loads(module.handle_line(buffer, b"{nope")).get("ok"),
+              False)
+        check("and nothing refused reached the buffer",
+              len(buffer.batch(50)), 3)
+
+
+def fill(module, buffer, count, size=3000):
+    """Records of a known size, numbered by their time so order shows."""
+    identities = []
+    for number in range(count):
+        record = module.normalise(channel_record(
+            summary="run %d" % number, body={"padding": "x" * size},
+            time="2026-11-08T10:%02d:%02dZ" % divmod(number, 60)))
+        identities.append(buffer.append(record))
+    return identities
+
+
+def check_return_channel_overflow():
+    """A full buffer drops its oldest records and says so."""
+    print("\n== return channel: buffer limit ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        path = os.path.join(directory, "buffer")
+        buffer = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        identities = fill(module, buffer, 200)
+
+        stats = buffer.stats()
+        check_true("the buffer stays within its limit",
+                   0 < stats["bytes"] <= stats["limit"])
+        batch = buffer.batch(500)
+        gap = batch[0]
+        kept = [record["id"] for record in batch[1:]]
+        dropped = len(identities) - len(kept)
+        check("the first thing to deliver is the gap", gap["result"], "gap")
+        check("it is reported under the service's own name",
+              gap["sensor"], "return-channel")
+        check("the newest records are the ones kept",
+              kept, identities[-len(kept):])
+        check("the gap counts exactly what is missing",
+              gap["body"]["dropped"], dropped)
+        check("and names the time range of what it lost",
+              (gap["body"]["from"], gap["body"]["until"]),
+              ("2026-11-08T10:00:00.000000Z",
+               "2026-11-08T10:%02d:%02d.000000Z" % divmod(dropped - 1, 60)))
+        check("one overflow after another is still one gap",
+              [record["result"] for record in batch].count("gap"), 1)
+
+        # Offered to the platform, the gap may be stored there already.
+        # What is dropped after that is counted in a gap of its own.
+        fill(module, buffer, 5)
+        later = buffer.batch(500)
+        check("a gap that went out is not counted into again",
+              (later[0]["id"], later[0]["body"]["dropped"]),
+              (gap["id"], gap["body"]["dropped"]))
+        check("the drops after it make a second gap",
+              later[1]["result"], "gap")
+
+        reopened = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        check("a restart finds the same records in the same order",
+              [record["id"] for record in reopened.batch(500)],
+              [record["id"] for record in later])
+        check("a record larger than the service takes is refused",
+              offer(module, buffer, channel_record(
+                  body={"padding": "x" * module.MAXIMUM_RECORD_BYTES})
+              ).get("ok"), False)
+
+
+class StubPlatform:
+    """The records endpoint, idempotent on the ID like the real one."""
+
+    def __init__(self):
+        self.stored = []
+        self.requests = []
+        self.down = False
+        self.lose_answer = False
+        self.acknowledge_only = None
+        self.refuse = set()
+
+    def post(self, path, document):
+        self.requests.append((path, document))
+        if self.down:
+            raise ConnectionRefusedError(111, "Connection refused")
+        records = document["records"]
+        if any(record["id"] in self.refuse for record in records):
+            return 422, {"detail": "invalid"}
+        stored, duplicates = [], []
+        for record in records[:self.acknowledge_only]:
+            if record["id"] in self.stored:
+                duplicates.append(record["id"])
+            else:
+                self.stored.append(record["id"])
+                stored.append(record["id"])
+        if self.lose_answer:
+            self.lose_answer = False
+            raise TimeoutError("timed out")
+        return 200, {"stored": stored, "duplicates": duplicates}
+
+
+def check_return_channel_delivery():
+    """Delivery in order, without loss or duplicates, across an outage."""
+    print("\n== return channel: delivery ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        # Small enough that every acknowledgement rewrites the file, so the
+        # rewrite is what the restart below has to survive.
+        module.COMPACT_AFTER = 1
+        path = os.path.join(directory, "buffer")
+        buffer = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        platform = StubPlatform()
+        check("a buffer that never held a record sends nothing",
+              module.deliver_once(buffer, platform.post), False)
+        identities = fill(module, buffer, 10, size=10)
+
+        platform.down = True
+        for _ in range(3):
+            try:
+                module.deliver_once(buffer, platform.post)
+            except OSError:
+                pass
+        check("an outage keeps every record", len(buffer.batch(500)), 10)
+
+        platform.down = False
+        platform.acknowledge_only = 4
+        module.deliver_once(buffer, platform.post)
+        path_sent, document = platform.requests[-1]
+        check("records go to the platform's records endpoint",
+              path_sent, "/probe/v1/records")
+        check("with the buffer's fill level beside them",
+              sorted(document["buffer"]), ["bytes", "limit"])
+        check("only what was acknowledged leaves the buffer",
+              [record["id"] for record in buffer.batch(500)], identities[4:])
+
+        platform.acknowledge_only = None
+        platform.lose_answer = True
+        try:
+            module.deliver_once(buffer, platform.post)
+        except OSError:
+            pass
+        check("a lost answer keeps the records it was about",
+              len(buffer.batch(500)), 6)
+        module.deliver_once(buffer, platform.post)
+        check("sent again, they come back as duplicates and leave",
+              buffer.pending(), False)
+        check("the platform holds every record once, in order",
+              platform.stored, identities)
+        check("an empty buffer sends nothing",
+              module.deliver_once(buffer, platform.post), False)
+        sent = len(platform.requests)
+        check("unless a heartbeat is due",
+              module.deliver_once(buffer, platform.post, heartbeat=True), True)
+        check("which is one empty batch with the buffer's fill level",
+              (len(platform.requests) - sent, platform.requests[-1][1]),
+              (1, {"records": [], "buffer": buffer.stats()}))
+        check("a heartbeat is due before the first delivery",
+              module.heartbeat_due(None, 10.0, 300), True)
+        check("not within the interval after a delivery",
+              module.heartbeat_due(100.0, 399.0, 300), False)
+        check("and again once the interval has passed",
+              module.heartbeat_due(100.0, 400.0, 300), True)
+        check("the interval comes from channel.env",
+              module.heartbeat_interval({"HEARTBEAT_SECONDS": "120"}), 120)
+        check("and defaults to five minutes",
+              module.heartbeat_interval({}), 300)
+        check("a broken value falls back to the default",
+              module.heartbeat_interval({"HEARTBEAT_SECONDS": "often"}), 300)
+
+        reopened = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        check("and stays empty after a restart", reopened.pending(), False)
+
+        late = fill(module, reopened, 3, size=10)
+        platform.refuse = {late[1]}
+        with contextlib.redirect_stderr(io.StringIO()):
+            module.deliver_once(reopened, platform.post)
+        module.deliver_once(reopened, platform.post)
+        check("a record the platform refuses holds up nothing behind it",
+              [identity for identity in platform.stored if identity in late],
+              [late[0], late[2]])
+        gap = platform.requests[-1][1]["records"][0]
+        check("and is accounted for as a gap",
+              (gap["result"], gap["code"], gap["body"]["dropped"]),
+              ("gap", "refused", 1))
+        check("which leaves the buffer once acknowledged",
+              reopened.pending(), False)
+
+
+def openssl_run(directory, *arguments):
+    subprocess.run(["openssl"] + list(arguments), cwd=directory, check=True,
+                   capture_output=True, timeout=60)
+
+
+class StubSigner:
+    """The certificate endpoint: signs a CSR with a throwaway CA."""
+
+    def __init__(self, directory):
+        self.directory = directory
+        self.refuse = False
+        self.requests = 0
+
+    def post(self, path, document):
+        self.requests += 1
+        if self.refuse:
+            return 403, {"detail": "not enrolled"}
+        with open(os.path.join(self.directory, "request.csr"), "w") as handle:
+            handle.write(document["csr"])
+        self.sign("request.csr", "signed.pem")
+        with open(os.path.join(self.directory, "signed.pem")) as handle:
+            return 200, {"certificate": handle.read(),
+                         "not_after": "2027-02-06T00:00:00Z"}
+
+    def sign(self, request, output):
+        openssl_run(self.directory, "x509", "-req", "-in", request,
+                    "-CA", "ca.pem", "-CAkey", "ca-key.pem",
+                    "-set_serial", str(int(time.time() * 1000)),
+                    "-days", "90", "-sha256", "-extfile", "client.ext",
+                    "-out", output)
+
+
+def channel_pki(directory):
+    """A client CA and a first certificate, as channel-install leaves them."""
+    with open(os.path.join(directory, "client.ext"), "w") as handle:
+        handle.write("basicConstraints=CA:FALSE\n"
+                     "keyUsage=critical,digitalSignature\n"
+                     "extendedKeyUsage=clientAuth\n")
+    openssl_run(directory, "genpkey", "-algorithm", "EC", "-pkeyopt",
+                "ec_paramgen_curve:P-256", "-out", "ca-key.pem")
+    openssl_run(directory, "req", "-x509", "-new", "-key", "ca-key.pem",
+                "-subj", "/CN=Example probe CA", "-days", "365",
+                "-addext", "basicConstraints=critical,CA:TRUE",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                "-out", "ca.pem")
+    openssl_run(directory, "genpkey", "-algorithm", "EC", "-pkeyopt",
+                "ec_paramgen_curve:P-256", "-out", "key.pem")
+    openssl_run(directory, "req", "-new", "-key", "key.pem", "-subj",
+                "/CN=prtg-nats-probe", "-out", "first.csr")
+    signer = StubSigner(directory)
+    signer.sign("first.csr", "cert.pem")
+    return signer
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def check_return_channel_renewal():
+    """From day 60 of 90 the service fetches a certificate for a new key."""
+    print("\n== return channel: certificate renewal ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        day = 86400
+        check("on day 59 the certificate is left alone",
+              module.renewal_due(0, 90 * day, 59 * day), False)
+        check("from day 60 it is renewed",
+              module.renewal_due(0, 90 * day, 60 * day), True)
+
+        if not shutil.which("openssl"):
+            print("  skip  no openssl to sign a renewal with")
+            return
+        pki = os.path.join(directory, "pki")
+        os.mkdir(pki)
+        signer = channel_pki(pki)
+        key, certificate = (read_text(os.path.join(pki, name))
+                            for name in ("key.pem", "cert.pem"))
+
+        check("a fresh certificate is not renewed",
+              module.renew_if_due(signer, pki), False)
+        check("and the platform is not asked", signer.requests, 0)
+
+        later = time.time() + 61 * day
+        signer.refuse = True
+        with contextlib.suppress(module.DeliveryError):
+            module.renew_if_due(signer, pki, now=later)
+        check("a refused renewal keeps the pair that works",
+              (read_text(os.path.join(pki, "key.pem")),
+               read_text(os.path.join(pki, "cert.pem"))), (key, certificate))
+        check("and leaves nothing half done behind",
+              sorted(name for name in os.listdir(pki)
+                     if ".next." in name or ".csr." in name), [])
+
+        signer.refuse = False
+        with contextlib.redirect_stderr(io.StringIO()):
+            renewed = module.renew_if_due(signer, pki, now=later)
+        check("an old certificate is renewed", renewed, True)
+        check("with a key that was never used before",
+              read_text(os.path.join(pki, "key.pem")) != key, True)
+        check("and the certificate that belongs to it",
+              module.matches(os.path.join(pki, "cert.pem"),
+                             os.path.join(pki, "key.pem")), True)
+
+        # A crash between the two renames: the key is in place, the
+        # certificate still waits beside it.
+        openssl_run(pki, "req", "-new", "-key", "key.pem", "-subj",
+                    "/CN=prtg-nats-probe", "-out", "again.csr")
+        signer.sign("again.csr", "cert.next.pem")
+        module.recover_renewal(pki)
+        check("an interrupted swap is finished on the next start",
+              (os.path.exists(os.path.join(pki, "cert.next.pem")),
+               module.matches(os.path.join(pki, "cert.pem"),
+                              os.path.join(pki, "key.pem"))), (False, True))
+
+
+def check_return_channel_units():
+    """The unit the helper writes for the service, hardened like the rest."""
+    print("\n== return channel: unit ==")
+    with open(HELPER_PATH, encoding="utf-8") as handle:
+        source = handle.read()
+    unit = source.split("${RETURN_CHANNEL_UNIT}.service.new\" <<EOF", 1)[1]
+    unit = unit.split("\nEOF\n", 1)[0]
+    for setting in ("Restart=always", "LimitCORE=0", "NoNewPrivileges=yes",
+                    "ProtectSystem=strict", "ProtectHome=yes",
+                    "PrivateTmp=yes", "ReadWritePaths=${RETURN_CHANNEL_DIR}",
+                    "StateDirectory=prtg-nats-return-channel",
+                    "WantedBy=multi-user.target"):
+        check("the service unit sets %s" % setting, setting in unit, True)
+    socket_unit = source.split(
+        "${RETURN_CHANNEL_UNIT}.socket.new\" <<EOF", 1)[1].split("\nEOF\n")[0]
+    check("only root may hand records over",
+          ("SocketUser=root" in socket_unit, "SocketMode=0600" in socket_unit),
+          (True, True))
+    check("unenrolling takes the service along",
+          "remove_return_channel_service\n  rm -rf -- \"${RETURN_CHANNEL_DIR}\""
+          in source, True)
+
+
 if __name__ == "__main__":
     check_manifests()
     check_parameter_declarations()
@@ -3204,11 +3988,17 @@ if __name__ == "__main__":
     check_wlan_auth_output()
     check_wlan_auth_configuration()
     check_wlan_auth_scheduler()
+    check_wlan_auth_sensor_log()
     check_internet_speed_output()
     check_iperf_throughput_output()
     check_link_quality_output()
     check_link_quality_helper()
     check_aruba_uplink_output()
+    check_return_channel_interface()
+    check_return_channel_overflow()
+    check_return_channel_delivery()
+    check_return_channel_renewal()
+    check_return_channel_units()
     if FAILURES:
         print("\n%d sensor check(s) failed." % FAILURES,
               file=sys.stderr)

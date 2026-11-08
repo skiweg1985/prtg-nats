@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     overlay,
     probes,
     prtg,
+    sensor_logs,
     sensors,
     system,
     users,
@@ -29,6 +30,7 @@ api_router.include_router(prtg.probe_router)
 api_router.include_router(prtg.router)
 api_router.include_router(enrollment.router)
 api_router.include_router(sensors.router)
+api_router.include_router(sensor_logs.router)
 api_router.include_router(deployments.router)
 api_router.include_router(jobs.router)
 api_router.include_router(iperf.router)

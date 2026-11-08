@@ -85,12 +85,32 @@ FIELD_SEPARATOR = "\t"
 # unknown and omits the fields, which reads as the helper being behind. It is
 # also the version that makes putting a probe on the overlay possible at all,
 # so the platform offers the update before it tries.
-CURRENT_HELPER_VERSION = 10
+#
+# Version 11 adds channel-csr and channel-install, the client certificate for
+# the return channel (ADR 0013), and channel_cert in probe-info. The minimum
+# stays at 1: a probe below 11 is enrolled and updated as before and simply
+# gets no certificate until its helper is current.
+#
+# Version 12 adds the return channel service: channel-install also writes and
+# starts it, channel-service rewrites and restarts it for a probe that keeps
+# its certificate, probe-info reports channel_service and unenroll removes it.
+# The return channel requests move to 12 with it - a certificate without the
+# service that uses it is of no use to anyone.
+#
+# Version 13 makes the service send a heartbeat, reports channel_cert_issued
+# in probe-info, and has channel-install and channel-service take the
+# interface address and the buffer size for channel.env. The return channel
+# requests move to 13 with it: a platform that counts silence from the
+# heartbeat must not install a service that never sends one.
+CURRENT_HELPER_VERSION = 13
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
 # told it cannot be put on the overlay when it can.
 OVERLAY_HELPER_VERSION = 9
+# The return channel requests arrived with version 11, its service with 12
+# and the heartbeat with 13, asked for separately for the same reason.
+RETURN_CHANNEL_HELPER_VERSION = 13
 
 # Where a variant's files land on the probe. The helper builds the same path
 # from its own validated tokens - this side only needs to know it, because the
@@ -158,6 +178,15 @@ class HelperCommand(StrEnum):
     # same operation in the other direction.
     ACCESS_SOURCE = "access-source"
 
+    # The return channel (ADR 0013): the probe makes a key and answers with a
+    # CSR, the platform signs it and hands the certificate back with the
+    # client CA and the address to report to.
+    CHANNEL_CSR = "channel-csr"
+    CHANNEL_INSTALL = "channel-install"
+    # Rewrites and restarts the service from the helper that is installed,
+    # leaving key and certificate alone. What a helper update ends with.
+    CHANNEL_SERVICE = "channel-service"
+
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"
     # Spoken by both helpers, and meaning the same thing on both: remove the
@@ -169,6 +198,29 @@ class HelperCommand(StrEnum):
     ENDPOINT_INFO = "endpoint-info"
     ENDPOINT_SETUP = "endpoint-setup"
     ENDPOINT_REMOVE = "endpoint-remove"
+
+
+# What the helper writes to channel.env where the platform knows no address
+# for the interface. An empty argument would vanish on the probe: it splits
+# the request on tabs, and runs of them collapse.
+NO_WEB_URL = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelSettings:
+    """What the platform sets in the return channel's channel.env.
+
+    The address to report to, the interface address the wlan-auth helper
+    builds its links to a run from, and the buffer size in bytes.
+    """
+
+    platform_url: str
+    web_url: str | None
+    buffer_bytes: int
+
+    def service_arguments(self) -> tuple[str, str]:
+        """The two arguments channel-install and channel-service share."""
+        return (self.web_url or NO_WEB_URL, str(self.buffer_bytes))
 
 
 @dataclass(frozen=True, slots=True)

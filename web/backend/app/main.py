@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.probe.router import probe_router
 from app.api.schemas.common import (
     HealthResponse,
     ReadinessCheck,
@@ -43,6 +44,7 @@ from app.services.overlay import OverlayService
 from app.services.provisioning import ProvisioningService
 from app.workers.inventory_sync import InventorySync
 from app.workers.job_runner import JobRunner
+from app.workers.sensor_log_cleanup import SensorLogCleanup
 from app.workers.stack_recovery import settle_interrupted_update
 from app.workers.update_check import UpdateCheck
 
@@ -89,6 +91,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("issued the missing interface certificate")
     except Exception:
         logger.exception("could not issue the interface certificate")
+    try:
+        if await asyncio.to_thread(
+            ProvisioningService(settings, docker).ensure_probe_ca
+        ):
+            logger.info("created the probe client CA")
+    except Exception:
+        logger.exception("could not create the probe client CA")
     helper = ProbeHelperClient(
         management_transport(settings),
         default_timeout=settings.ssh_command_timeout_seconds,
@@ -113,6 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     updates = UpdateCheck(settings=settings, docker=docker)
+    sensor_log_cleanup = SensorLogCleanup(settings=settings)
 
     app.state.job_runner = runner
     app.state.inventory_sync = sync
@@ -153,6 +163,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await runner.start()
     await sync.start()
     await updates.start()
+    await sensor_log_cleanup.start()
     logger.info(
         "application started",
         extra={
@@ -165,6 +176,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await sensor_log_cleanup.stop()
         await updates.stop()
         await sync.stop()
         await runner.stop()
@@ -213,6 +225,10 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, unhandled_error_handler)
 
     app.include_router(api_router)
+    # Beside the interface's API, not inside it: the web site forwards /api/*
+    # only, and the probe channel port forwards /probe/v1/* only, so neither
+    # listener reaches the other's routes. See app/api/probe/__init__.py.
+    app.include_router(probe_router)
 
     @app.get("/health", response_model=HealthResponse, tags=["observability"])
     async def health() -> HealthResponse:

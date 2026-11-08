@@ -33,6 +33,7 @@ runs in test mode, and the interface is powered down again afterwards.
 """
 
 import array
+import datetime
 import fcntl
 import hashlib
 import json
@@ -47,6 +48,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 CONFIG_DIR = "/etc/prtg-nats/sensors/wlan-auth"
 PROFILE_DIR = os.path.join(CONFIG_DIR, "profiles")
@@ -132,6 +134,30 @@ REQUIRED_PROGRAMS = ("wpa_supplicant", "wpa_cli", "ip")
 # Any one of these can carry out the DHCP stage; see dhcp_command.
 DHCP_PROGRAMS = ("busybox", "udhcpc", "dhcpcd")
 RUN_DIR = "/run"
+
+# Where every run is handed over for the sensor log on the platform (ADR
+# 0013). The return channel service buffers it on disk and delivers it; this
+# helper only writes one line per run. The timeout is short because nothing
+# waits on the record: a service that hangs must not hold up the radio.
+RETURN_CHANNEL_SOCKET = "/run/prtg-nats-return-channel.sock"
+RETURN_CHANNEL_TIMEOUT = 2.0
+# Where the prtg-nats helper writes the platform's interface address
+# (WEB_URL). The directory is root's alone; this helper runs as root and
+# puts the full link to a run into its answer, so the sensor script, which
+# does not, never has to read the file.
+RETURN_CHANNEL_CONFIG = "/etc/prtg-nats/return-channel/channel.env"
+RUN_LINK_PATH = "/sensor-logs/%s"
+# Kept short enough that the link always fits into PRTG's message beside
+# the text it explains.
+WEB_URL_PATTERN = re.compile(
+    r"https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?")
+WEB_URL_LENGTH = 255
+# The service refuses a line above 64 KB. The raw output is what gives way
+# to stay below it, never the fields around it, and a single line is cut
+# where it runs on - a hex dump, a scan result.
+RECORD_BUDGET = 60000
+RECORD_LINE_LENGTH = 500
+RAW_FIELDS = ("supplicant", "dhcp", "events")
 
 # Field: (required for this method, adoptable from the profile)
 STRING_FIELDS = (
@@ -422,6 +448,15 @@ class SupplicantRun:
                     return stamp
         return None
 
+    def lines(self):
+        """Everything the supplicant said so far, with its timestamps."""
+        if self.reader is not None:
+            # After stop() the pipe is closed; the reader finishes the last
+            # lines within moments, and they are often the ones that matter.
+            self.reader.join(timeout=1)
+        with self.lock:
+            return list(self.events)
+
     def failure(self):
         """The first line that names a cause."""
         with self.lock:
@@ -570,7 +605,7 @@ def parse_lease(output):
     return lease
 
 
-def run_dhcp(interface, budget):
+def run_dhcp(interface, budget, log=None):
     """DHCP in test mode: a complete cycle without setting the address.
 
     The client asks for a lease and reports it; nothing is put on the
@@ -608,6 +643,12 @@ def run_dhcp(interface, budget):
         duration = int((time.monotonic() - started) * 1000)
         sink.seek(0)
         output = sink.read().decode("utf-8", "replace")
+    if log is not None:
+        log.dhcp(output)
+        log.event("%s ended after %d ms%s" % (
+            os.path.basename(command[0]), duration,
+            " (timed out)" if timed_out
+            else ", exit status %s" % process.returncode))
 
     if timed_out:
         raise Failed("dhcp-timeout", "no DHCP answer")
@@ -874,11 +915,13 @@ def read_flag(path):
         return False
 
 
-def perform_test(job):
+def perform_test(job, log=None):
+    log = log if log is not None else RunLog()
     interface = job["interface"]
     check_interface(interface)
 
     reclaim_interface(interface)
+    log.event("interface %s reclaimed" % interface)
     permanent = permanent_mac(interface)
 
     started = time.monotonic()
@@ -908,6 +951,7 @@ def perform_test(job):
         # this is about.
         mac, mac_kind = client_mac(job, permanent)
         set_mac(interface, mac)
+        log.event("client address %s (%s)" % (mac, mac_kind))
         result["details"]["mac"] = mac
         result["details"]["mac_kind"] = mac_kind
 
@@ -923,8 +967,11 @@ def perform_test(job):
                 "iface-down",
                 "Could not power up %s: %s"
                 % (interface, powered.stderr.strip() or "no reason given"))
+        log.event("%s up" % interface)
         run.start(config_path)
+        log.event("wpa_supplicant started, %s authentication" % job["auth"])
         associated, connected = wait_for_connection(run, deadline)
+        log.event("connected")
 
         result["timings"]["assoc_ms"] = int((associated - started) * 1000)
         result["timings"]["auth_ms"] = int((connected - associated) * 1000)
@@ -932,8 +979,9 @@ def perform_test(job):
 
         if job["stage"] == "dhcp":
             before = link_fingerprint(run)
+            log.event("DHCP started")
             duration, lease = run_dhcp(
-                interface, deadline - time.monotonic())
+                interface, deadline - time.monotonic(), log)
             after = link_fingerprint(run)
             # Reporting an address from a link that is no longer the one we
             # measured would be worse than reporting none: it reads like a
@@ -958,12 +1006,16 @@ def perform_test(job):
                                  "lease names no router or server")
                 result["details"]["gateway"] = target
                 result["details"]["gateway_kind"] = kind
+                log.event("pinging %s %s" % (kind, target))
                 result["timings"]["gateway_ms"] = reach_gateway(
                     interface, lease["new_ip_address"], target,
                     deadline - time.monotonic())
+                log.event("%s answered in %d ms" % (
+                    target, result["timings"]["gateway_ms"]))
 
         result["message"] = "OK"
     except Failed as failure:
+        log.event("failed: %s" % failure.code)
         result["result"] = "failed"
         result["code"] = failure.code
         result["message"] = failure.message
@@ -978,6 +1030,7 @@ def perform_test(job):
         # Always clean up: no running instance, no active test
         # interface, and no configuration with credentials under /run.
         run.stop()
+        log.supplicant(run.lines())
         subprocess.run(["ip", "link", "set", interface, "down"],
                        capture_output=True, timeout=10, check=False)
         # Leave the radio as it was found.
@@ -986,6 +1039,7 @@ def perform_test(job):
                             permanent],
                            capture_output=True, timeout=10, check=False)
         shutil.rmtree(workdir, ignore_errors=True)
+        log.event("cleaned up")
 
     result["timings"]["total_ms"] = int((time.monotonic() - started) * 1000)
     return result
@@ -1180,6 +1234,20 @@ def job_identity(job):
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def job_label(job):
+    """A short name for a job that may leave the probe.
+
+    Not a prefix of job_identity: that hash covers the credentials, and
+    48 bits of it next to the SSID and the other fields in a record are
+    enough to test guessed passwords against, at hash speed rather than
+    the PBKDF2 speed WPA imposes. Two jobs that differ only in their
+    credentials share a label, which is fine for telling runs apart.
+    """
+    material = json.dumps([job.get(field) for field in IDENTITY_FIELDS
+                           if field not in SECRET_FIELDS], sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
+
+
 def round_budget(jobs):
     """The time a round over every job on this radio can take.
 
@@ -1206,6 +1274,248 @@ def min_max_age(jobs):
     its setting against this number and names it with failure code 13.
     """
     return round_budget(jobs) + REFRESH_FLOOR_SECONDS
+
+
+class RunLog:
+    """What one run produced, kept for its sensor log record.
+
+    The supplicant's lines, the DHCP client's output and this helper's own
+    account of the run - the lock, the stages, the cause it ended on. It
+    lives as long as the run and is handed over once. Nothing of it goes to
+    the journal, where it would outlive the run with the secrets in it.
+    """
+
+    def __init__(self):
+        self.started = time.monotonic()
+        self.events = []
+        self.supplicant_lines = []
+        self.dhcp_lines = []
+
+    def _stamp(self, moment):
+        return "+%.3fs" % max(0.0, moment - self.started)
+
+    def event(self, text):
+        self.events.append("%s %s" % (self._stamp(time.monotonic()), text))
+
+    def supplicant(self, events):
+        self.supplicant_lines.extend(
+            "%s %s" % (self._stamp(stamp), line) for stamp, line in events)
+
+    def dhcp(self, output):
+        self.dhcp_lines.extend(
+            line for line in output.splitlines() if line.strip())
+
+
+# The body keys of a record are named for the operator who reads them, and
+# none of them contains a word the platform masks in its own logs.
+RECORD_DETAILS = (
+    ("bssid", "bssid"), ("client_mac", "mac"), ("client_mac_kind", "mac_kind"),
+    ("ip_address", "ip_address"), ("dhcp_server", "dhcp_server"),
+    ("gateway", "gateway"), ("gateway_kind", "gateway_kind"),
+    ("frequency_mhz", "frequency_mhz"), ("signal_dbm", "signal_dbm"),
+)
+RECORD_TIMINGS = ("assoc_ms", "auth_ms", "dhcp_ms", "gateway_ms", "total_ms")
+
+
+def record_result(result):
+    """A failed sign-in and a run that could not happen are both errors in
+    the log; the code tells them apart."""
+    return "ok" if result.get("result") == "ok" else "error"
+
+
+def build_record(job, result, log):
+    details = result.get("details") or {}
+    timings = result.get("timings") or {}
+    body = {
+        # The configured network, not the one the link reported: a run that
+        # never associated has no reading, and the log is filtered by it.
+        "ssid": job.get("ssid") or "",
+        "auth": job.get("auth") or "",
+        "interface": job.get("interface") or "",
+        "stage": job.get("stage") or "",
+        "identity": job.get("identity") or "",
+    }
+    if job.get("profile"):
+        body["profile"] = job["profile"]
+    for key, source in RECORD_DETAILS:
+        if details.get(source) not in (None, ""):
+            body[key] = details[source]
+    body["timings"] = {key: timings[key] for key in RECORD_TIMINGS
+                       if key in timings}
+    body["supplicant"] = list(log.supplicant_lines)
+    body["dhcp"] = list(log.dhcp_lines)
+    body["events"] = list(log.events)
+    return {
+        "id": str(uuid.uuid4()),
+        "sensor": "wlan-auth",
+        "job": job_label(job),
+        "time": datetime.datetime.now(datetime.timezone.utc).isoformat(
+            timespec="seconds"),
+        "result": record_result(result),
+        "code": result.get("code") or "",
+        "summary": result.get("message") or "",
+        "body": body,
+    }
+
+
+# Below this a value cannot be blanked without mangling the text beyond
+# reading - "ab" would blank every ab. A string holding one is dropped whole
+# instead, as aruba-uplink does with its messages.
+SHORTEST_MASKABLE = 4
+SECRET_FIELDS = ("psk", "password", "private_key_passwd")
+REDACTED = "..."
+DROPPED = "[removed: held a secret too short to mask]"
+
+
+def secret_patterns(job):
+    """Every form a credential of this job can take in raw output.
+
+    The value itself, the hex form build_network_block writes into the
+    configuration, and for a passphrase the key derived from it - which is
+    a secret in its own right, since it signs in as well as the passphrase
+    does. Hex is matched in either case: tools print it both ways.
+    """
+    patterns = []
+    for field in SECRET_FIELDS:
+        value = job.get(field)
+        if not value:
+            continue
+        patterns.append((value, re.compile(re.escape(value))))
+        patterns.append((value, re.compile(re.escape(hex_value(value)),
+                                           re.IGNORECASE)))
+        if field == "psk" and job.get("ssid"):
+            derived = wpa_psk(value, job["ssid"])
+            patterns.append((derived, re.compile(derived, re.IGNORECASE)))
+    return patterns
+
+
+def redact_text(text, patterns):
+    for value, pattern in patterns:
+        if not pattern.search(text):
+            continue
+        if len(value) < SHORTEST_MASKABLE:
+            return DROPPED
+        text = pattern.sub(REDACTED, text)
+    return text
+
+
+def redact_record(record, job):
+    """The record without the job's secrets, wherever they appear.
+
+    The identity, addresses and certificate subjects stay: they are what a
+    failed sign-in is looked up by in the RADIUS and gateway logs.
+    """
+    patterns = secret_patterns(job)
+
+    def walk(value):
+        if isinstance(value, str):
+            return redact_text(value, patterns)
+        if isinstance(value, list):
+            cleaned = [walk(entry) for entry in value]
+            return [entry for entry in cleaned if entry != DROPPED]
+        if isinstance(value, dict):
+            return {key: walk(entry) for key, entry in value.items()}
+        return value
+
+    return walk(record)
+
+
+def shorten(lines, keep):
+    """The first and the last lines, and how many were left out between.
+
+    The start of a run is where the trouble starts, the end is where it
+    ended; the middle of a scan loop repeats itself.
+    """
+    if len(lines) <= keep:
+        return lines
+    head = max(1, keep // 2)
+    tail = max(1, keep - head)
+    return (lines[:head]
+            + ["[%d lines left out]" % (len(lines) - head - tail)]
+            + lines[-tail:])
+
+
+def fit_record(record):
+    """The record shortened until the service takes it as one line."""
+    body = record["body"]
+    original = {}
+    for field in RAW_FIELDS:
+        original[field] = [line if len(line) <= RECORD_LINE_LENGTH
+                           else line[:RECORD_LINE_LENGTH] + " [cut]"
+                           for line in body.get(field, [])]
+        body[field] = original[field]
+    keep = {field: len(lines) for field, lines in original.items()}
+    while len(json.dumps(record, separators=(",", ":"))) > RECORD_BUDGET:
+        field = max(RAW_FIELDS, key=lambda name: keep[name])
+        if keep[field] <= 2:
+            break
+        keep[field] //= 2
+        body[field] = shorten(original[field], keep[field])
+    return record
+
+
+def send_record(record):
+    """Hand one record to the return channel service.
+
+    True once the service has it on disk, False for every other outcome -
+    which nobody waits on.
+    """
+    line = (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(RETURN_CHANNEL_TIMEOUT)
+            connection.connect(RETURN_CHANNEL_SOCKET)
+            connection.sendall(line)
+            reply = bytearray()
+            while b"\n" not in reply and len(reply) < 4096:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    break
+                reply.extend(chunk)
+        answer = json.loads(reply.decode("utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(answer, dict) and answer.get("ok") is True
+
+
+def web_url():
+    """The interface address from channel.env, or None."""
+    try:
+        with open(RETURN_CHANNEL_CONFIG, encoding="utf-8") as stream:
+            for line in stream:
+                key, _, value = line.strip().partition("=")
+                if key == "WEB_URL":
+                    value = value.strip().strip("\"'")
+                    if (len(value) <= WEB_URL_LENGTH
+                            and WEB_URL_PATTERN.fullmatch(value)):
+                        return value
+                    return None
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
+def report_run(job, result, log):
+    """Write the run to the sensor log and point the result at the record.
+
+    Nothing in here may change the measurement: a missing service, a full
+    buffer or a bug in building the record cost the record, not the result
+    PRTG gets.
+    """
+    try:
+        record = fit_record(redact_record(build_record(job, result, log),
+                                          job))
+        result.pop("record_link", None)
+        if send_record(record):
+            result["record_id"] = record["id"]
+            base = web_url()
+            if base:
+                result["record_link"] = base + RUN_LINK_PATH % record["id"]
+    except Exception:
+        # Never printed, like every other exception here: it could carry
+        # what the record was about to hide.
+        pass
+    return result
 
 
 class Scheduler:
@@ -1304,18 +1614,18 @@ class Scheduler:
         Without it nothing about a running schedule is observable: the
         probe writes no sensor output to the journal, so the only other
         way to tell a job that expired from one that was never registered
-        is to wait and guess. Credentials are deliberately absent - the
-        truncated identity is enough to tell two jobs apart.
+        is to wait and guess. Credentials are deliberately absent, and so
+        is any hash over them - see job_label.
         """
         now = time.monotonic()
         jobs = []
         with self._guard:
             budget = round_budget(self._jobs)
-            for identity, entry in sorted(self._jobs.items()):
+            for _identity, entry in sorted(self._jobs.items()):
                 result = entry["result"] or {}
                 age = entry["measured"]
                 jobs.append({
-                    "job": identity[:12],
+                    "job": job_label(entry["job"]),
                     "interface": entry["job"]["interface"],
                     "ssid": entry["job"].get("ssid") or "",
                     "stage": entry["job"]["stage"],
@@ -1348,7 +1658,7 @@ class Scheduler:
                 "round_budget": budget, "jobs": jobs,
                 "timings": {}, "details": {}}
 
-    def _measure(self, job):
+    def _measure(self, job, log):
         """One measurement, behind the interface lock.
 
         The lock no longer keeps two sensors apart - nothing else in this
@@ -1360,8 +1670,10 @@ class Scheduler:
         try:
             handle = lock_interface(job["interface"],
                                     lock_budget(job["timeout"]))
-            return perform_test(job)
+            log.event("interface %s locked" % job["interface"])
+            return perform_test(job, log)
         except Blocked as blocked:
+            log.event("blocked: %s" % blocked.code)
             if blocked.code == "iface-busy":
                 # Somebody is testing by hand. Leave the stored result
                 # alone and come back on the next pass: a measurement
@@ -1371,12 +1683,25 @@ class Scheduler:
                     "message": blocked.message, "timings": {}, "details": {}}
         except Exception:
             # The exception is never printed - it could carry credentials.
+            log.event("blocked: internal-error")
             return {"result": "blocked", "code": "internal-error",
                     "message": "The test failed unexpectedly",
                     "timings": {}, "details": {}}
         finally:
             if handle is not None:
                 handle.close()
+
+    def measure(self, entry):
+        """One pass for one job: measure, log the run, keep the result."""
+        log = RunLog()
+        result = self._measure(entry["job"], log)
+        if result is None:
+            # Nothing was measured, so there is no run to log either.
+            return
+        report_run(entry["job"], result, log)
+        with self._guard:
+            entry["result"] = result
+            entry["measured"] = time.monotonic()
 
     def run(self):
         while True:
@@ -1385,11 +1710,7 @@ class Scheduler:
                 self._wake.wait(SCHEDULER_IDLE_SECONDS)
                 self._wake.clear()
                 continue
-            result = self._measure(entry["job"])
-            if result is not None:
-                with self._guard:
-                    entry["result"] = result
-                    entry["measured"] = time.monotonic()
+            self.measure(entry)
             # Rest whatever the outcome: a run that did not get the radio
             # is no reason to try again within the same second.
             time.sleep(RADIO_PAUSE_SECONDS)
@@ -1432,7 +1753,6 @@ def handle_request(payload):
                 "message": "The request could not be parsed",
                 "timings": {}, "details": {}}
 
-    handle = None
     try:
         action = job.get("action")
         if action == "ping":
@@ -1445,9 +1765,20 @@ def handle_request(payload):
             return SCHEDULER.collect(job, job["max_age"])
         # "test" measures on the spot. The sensor script never asks for
         # it; whoever debugs on the probe does, and then wants the radio
-        # used rather than a stored value explained to them.
-        handle = lock_interface(job["interface"], lock_budget(job["timeout"]))
-        return perform_test(job)
+        # used rather than a stored value explained to them. It is logged
+        # like a scheduled run, because that is where they will look.
+        log = RunLog()
+        result = SCHEDULER._measure(job, log)
+        if result is None:
+            # The radio is busy with a scheduled run; say so instead of
+            # logging a run that never happened.
+            return {"result": "blocked", "code": "iface-busy",
+                    "message": "Another test is still running on %s "
+                               "after %.0f seconds"
+                               % (job["interface"],
+                                  lock_budget(job["timeout"])),
+                    "timings": {}, "details": {}}
+        return report_run(job, result, log)
     except Blocked as blocked:
         return {"result": "blocked", "code": blocked.code,
                 "message": blocked.message, "timings": {}, "details": {}}
@@ -1456,9 +1787,6 @@ def handle_request(payload):
         return {"result": "blocked", "code": "internal-error",
                 "message": "The test failed unexpectedly",
                 "timings": {}, "details": {}}
-    finally:
-        if handle is not None:
-            handle.close()
 
 
 def listen_socket():

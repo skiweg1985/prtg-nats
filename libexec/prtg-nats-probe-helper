@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=10
+HELPER_VERSION=13
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -52,6 +52,24 @@ SENSOR_NM_CONFIG="/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf"
 SENSOR_TOOL_ROOT="/opt/prtg-nats/tools"
 SYSTEM_IPERF_MIN_VERSION="3.18"
 SYSTEM_IPERF_PATH="/usr/bin/iperf3"
+
+# --- Return channel --------------------------------------------------------
+# Where the probe reports back to the platform (ADR 0013). The key is made
+# here and never leaves; a new one waits as the pending key until the
+# certificate for it arrives, so a renewal that fails half way leaves the
+# working pair alone.
+RETURN_CHANNEL_DIR="/etc/prtg-nats/return-channel"
+RETURN_CHANNEL_KEY="${RETURN_CHANNEL_DIR}/key.pem"
+RETURN_CHANNEL_PENDING_KEY="${RETURN_CHANNEL_DIR}/key.pending.pem"
+RETURN_CHANNEL_CERT="${RETURN_CHANNEL_DIR}/cert.pem"
+RETURN_CHANNEL_CA="${RETURN_CHANNEL_DIR}/ca.pem"
+RETURN_CHANNEL_CONFIG="${RETURN_CHANNEL_DIR}/channel.env"
+# The service that delivers the records. Like the overlay watcher it is
+# written by this script rather than shipped beside it (ADR 0006).
+RETURN_CHANNEL_SERVICE_PATH="/usr/local/sbin/prtg-nats-return-channel"
+RETURN_CHANNEL_UNIT="prtg-nats-return-channel"
+RETURN_CHANNEL_SOCKET="/run/prtg-nats-return-channel.sock"
+RETURN_CHANNEL_BUFFER_DIR="/var/lib/prtg-nats-return-channel"
 
 # --- Overlay ---------------------------------------------------------------
 # The WireGuard tunnel to the platform. The private key is kept beside the
@@ -661,6 +679,9 @@ probe_info() {
     printf 'ca_sha256=none\n'
   fi
   print_overlay_fields
+  printf 'channel_cert=%s\n' "$(return_channel_expiry)"
+  printf 'channel_cert_issued=%s\n' "$(return_channel_issued)"
+  printf 'channel_service=%s\n' "$(return_channel_service_state)"
   printf 'addresses=%s\n' "$(own_addresses)"
   if [[ -f "${TOML_CONFIG}" ]]; then
     printf 'config=%s\n' "${TOML_CONFIG}"
@@ -697,6 +718,1136 @@ install_ca() {
   install -o root -g root -m 0644 "${staged}" "${CA_PATH}"
   rm -f -- "${staged}"
   printf 'OK ca-installed %s\n' "${CA_PATH}"
+}
+
+# ---------------------------------------------------------------------------
+# The return channel's client certificate (ADR 0013)
+#
+# channel-csr makes the key and answers with a CSR; channel-install takes the
+# certificate the platform signed for it, together with the client CA and the
+# address to report to. The subject in the CSR is a placeholder: the platform
+# names the certificate after the probe's identity, whatever is asked for.
+# ---------------------------------------------------------------------------
+
+require_openssl() {
+  command -v openssl >/dev/null 2>&1 ||
+    die "openssl is required for the return channel"
+}
+
+# The expiry of the installed certificate as a date, or none.
+return_channel_expiry() {
+  local end=""
+
+  if [[ ! -s "${RETURN_CHANNEL_CERT}" ]] ||
+     ! command -v openssl >/dev/null 2>&1; then
+    printf 'none\n'
+    return 0
+  fi
+  end="$(openssl x509 -in "${RETURN_CHANNEL_CERT}" -noout -enddate 2>/dev/null)" ||
+    end=""
+  end="${end#notAfter=}"
+  if [[ -z "${end}" ]]; then
+    printf 'none\n'
+    return 0
+  fi
+  date -u -d "${end}" +%F 2>/dev/null || printf 'none\n'
+}
+
+# When the installed certificate was issued, to the second, or none. The
+# platform counts a channel that never delivered as silent from here.
+return_channel_issued() {
+  local start=""
+
+  if [[ ! -s "${RETURN_CHANNEL_CERT}" ]] ||
+     ! command -v openssl >/dev/null 2>&1; then
+    printf 'none\n'
+    return 0
+  fi
+  start="$(openssl x509 -in "${RETURN_CHANNEL_CERT}" -noout -startdate \
+    2>/dev/null)" || start=""
+  start="${start#notBefore=}"
+  if [[ -z "${start}" ]]; then
+    printf 'none\n'
+    return 0
+  fi
+  date -u -d "${start}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'none\n'
+}
+
+# What the platform sets in channel.env besides the address: the interface's
+# own address, which the wlan-auth helper puts in front of the link to a run,
+# and the size of the buffer. Checked here because the file is read by root
+# services; "none" leaves the interface address out.
+validate_channel_settings() {
+  local web_url="$1"
+  local buffer_bytes="$2"
+  local web_pattern='^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$'
+
+  [[ "${web_url}" == "none" || "${web_url}" =~ ${web_pattern} ]] ||
+    die "The interface address must be an https URL with host and port"
+  [[ "${buffer_bytes}" =~ ^[0-9]{1,10}$ ]] ||
+    die "The buffer size must be a number of bytes"
+}
+
+# channel.env, rewritten whole: the platform's values first, then what an
+# operator tuned on the probe itself, which survives a new certificate.
+write_channel_config() {
+  local platform_url="$1"
+  local web_url="$2"
+  local buffer_bytes="$3"
+
+  {
+    printf 'PLATFORM_URL=%s\n' "${platform_url}"
+    if [[ "${web_url}" != "none" ]]; then
+      printf 'WEB_URL=%s\n' "${web_url}"
+    fi
+    printf 'BUFFER_LIMIT_BYTES=%s\n' "${buffer_bytes}"
+    if [[ -f "${RETURN_CHANNEL_CONFIG}" ]]; then
+      grep -E '^(SERVER_CA|HEARTBEAT_SECONDS)=' "${RETURN_CHANNEL_CONFIG}" ||
+        true
+    fi
+  } > "${RETURN_CHANNEL_CONFIG}.new"
+  chmod 0644 "${RETURN_CHANNEL_CONFIG}.new"
+  mv -f "${RETURN_CHANNEL_CONFIG}.new" "${RETURN_CHANNEL_CONFIG}"
+}
+
+channel_csr() {
+  local csr=""
+
+  require_openssl
+  install -d -o root -g root -m 0755 /etc/prtg-nats
+  install -d -o root -g root -m 0700 "${RETURN_CHANNEL_DIR}"
+  rm -f -- "${RETURN_CHANNEL_PENDING_KEY}.new"
+  # A fresh key on every request, never the one in use: the pending key only
+  # replaces it once channel-install proves the certificate is for it.
+  openssl genpkey -algorithm EC \
+    -pkeyopt ec_paramgen_curve:P-256 \
+    -pkeyopt ec_param_enc:named_curve \
+    -out "${RETURN_CHANNEL_PENDING_KEY}.new" >/dev/null 2>&1 ||
+    die "Could not generate a return channel key"
+  chmod 0600 "${RETURN_CHANNEL_PENDING_KEY}.new"
+  mv -f "${RETURN_CHANNEL_PENDING_KEY}.new" "${RETURN_CHANNEL_PENDING_KEY}"
+  csr="$(
+    openssl req -new -sha256 -key "${RETURN_CHANNEL_PENDING_KEY}" \
+      -subj "/CN=prtg-nats-probe" 2>/dev/null
+  )" || die "Could not create a certificate signing request"
+  printf 'OK channel-csr\n'
+  printf 'csr=%s\n' "$(printf '%s\n' "${csr}" | base64 | tr -d '\n')"
+}
+
+# Which local key the certificate belongs to: the pending one after a
+# channel-csr, or the current one when the same certificate is installed
+# again. Anything else is a certificate for a key this probe does not hold.
+return_channel_key_for() {
+  local certificate="$1"
+  local expected=""
+  local candidate=""
+
+  expected="$(openssl x509 -in "${certificate}" -noout -pubkey 2>/dev/null)" ||
+    return 1
+  for candidate in "${RETURN_CHANNEL_PENDING_KEY}" "${RETURN_CHANNEL_KEY}"; do
+    [[ -s "${candidate}" ]] || continue
+    if [[ "$(openssl pkey -in "${candidate}" -pubout 2>/dev/null)" == \
+          "${expected}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+channel_install() {
+  local platform_url="$1"
+  local web_url="$2"
+  local buffer_bytes="$3"
+  local staged="${STATE_DIR}/return-channel-candidate.pem"
+  local scratch=""
+  local key=""
+  local url_pattern='^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$'
+
+  [[ "${platform_url}" =~ ${url_pattern} ]] ||
+    die "channel-install requires an https URL with host and port"
+  validate_channel_settings "${web_url}" "${buffer_bytes}"
+  require_openssl
+  read_limited_input "${staged}"
+  [[ "$(grep -c 'BEGIN CERTIFICATE' "${staged}")" == "2" ]] ||
+    die "channel-install expects the certificate followed by the client CA"
+
+  scratch="$(mktemp -d "${STATE_DIR}/return-channel.XXXXXX")"
+  awk -v dir="${scratch}" '
+    /-----BEGIN CERTIFICATE-----/ { count++ }
+    count == 1 { print > (dir "/cert.pem") }
+    count == 2 { print > (dir "/ca.pem") }
+  ' "${staged}"
+  rm -f -- "${staged}"
+
+  if ! openssl x509 -in "${scratch}/ca.pem" -noout -text 2>/dev/null |
+       grep -F 'CA:TRUE' >/dev/null; then
+    rm -rf -- "${scratch}"
+    die "The client CA is not a certificate authority"
+  fi
+  if ! openssl verify -purpose sslclient -CAfile "${scratch}/ca.pem" \
+       "${scratch}/cert.pem" >/dev/null 2>&1; then
+    rm -rf -- "${scratch}"
+    die "The certificate does not verify against the client CA"
+  fi
+  if ! key="$(return_channel_key_for "${scratch}/cert.pem")"; then
+    rm -rf -- "${scratch}"
+    die "The certificate does not belong to a key on this probe"
+  fi
+
+  install -d -o root -g root -m 0700 "${RETURN_CHANNEL_DIR}"
+  install -o root -g root -m 0644 "${scratch}/ca.pem" "${RETURN_CHANNEL_CA}"
+  install -o root -g root -m 0644 "${scratch}/cert.pem" "${RETURN_CHANNEL_CERT}"
+  if [[ "${key}" == "${RETURN_CHANNEL_PENDING_KEY}" ]]; then
+    mv -f "${RETURN_CHANNEL_PENDING_KEY}" "${RETURN_CHANNEL_KEY}"
+  fi
+  chmod 0600 "${RETURN_CHANNEL_KEY}"
+  write_channel_config "${platform_url}" "${web_url}" "${buffer_bytes}"
+  rm -rf -- "${scratch}"
+
+  install_return_channel_service
+  printf 'OK channel-install\n'
+  printf 'channel_cert=%s\n' "$(return_channel_expiry)"
+  printf 'channel_service=%s\n' "$(return_channel_service_state)"
+}
+
+# The service on its own, for a probe whose certificate is already in place:
+# a helper update brings a new version of the service with it, and this is
+# what puts that version to work without issuing a certificate nobody needs.
+# With the interface address and the buffer size it also brings channel.env
+# up to date; the address to report to stays as channel-install wrote it.
+channel_service() {
+  local web_url="${1:-}"
+  local buffer_bytes="${2:-}"
+  local platform_url=""
+
+  [[ -s "${RETURN_CHANNEL_CERT}" && -s "${RETURN_CHANNEL_KEY}" &&
+     -s "${RETURN_CHANNEL_CONFIG}" ]] ||
+    die "The return channel has no certificate yet"
+  if [[ -n "${web_url}" ]]; then
+    validate_channel_settings "${web_url}" "${buffer_bytes}"
+    platform_url="$(sed -n 's/^PLATFORM_URL=//p' "${RETURN_CHANNEL_CONFIG}" |
+      head -n 1)"
+    [[ -n "${platform_url}" ]] ||
+      die "The return channel has no platform address yet"
+    write_channel_config "${platform_url}" "${web_url}" "${buffer_bytes}"
+  fi
+  install_return_channel_service
+  printf 'OK channel-service\n'
+  printf 'channel_service=%s\n' "$(return_channel_service_state)"
+}
+
+return_channel_service_state() {
+  if [[ ! -f "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service" ]]; then
+    printf 'absent\n'
+  elif systemctl is-active --quiet "${RETURN_CHANNEL_UNIT}.service"; then
+    printf 'active\n'
+  else
+    printf 'inactive\n'
+  fi
+}
+
+install_return_channel_service() {
+  command -v python3 >/dev/null 2>&1 ||
+    die "python3 is required for the return channel"
+  write_return_channel_service
+  write_return_channel_units
+  systemctl enable "${RETURN_CHANNEL_UNIT}.socket" \
+    "${RETURN_CHANNEL_UNIT}.service" >/dev/null 2>&1 ||
+    die "Could not enable the return channel"
+  # Stopped before the socket is restarted, so a changed socket unit takes
+  # effect. Nothing is lost in between: the buffer is on disk, and the
+  # service picks up where it stopped.
+  systemctl stop "${RETURN_CHANNEL_UNIT}.service" >/dev/null 2>&1 || true
+  systemctl restart "${RETURN_CHANNEL_UNIT}.socket" >/dev/null 2>&1 ||
+    die "Could not open the return channel socket"
+  systemctl start "${RETURN_CHANNEL_UNIT}.service" >/dev/null 2>&1 ||
+    die "Could not start the return channel"
+}
+
+remove_return_channel_service() {
+  systemctl disable --now "${RETURN_CHANNEL_UNIT}.service" \
+    "${RETURN_CHANNEL_UNIT}.socket" >/dev/null 2>&1 || true
+  rm -f -- \
+    "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service" \
+    "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.socket" \
+    "${RETURN_CHANNEL_SERVICE_PATH}" \
+    "${RETURN_CHANNEL_SOCKET}"
+  rm -rf -- "${RETURN_CHANNEL_BUFFER_DIR}"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+write_return_channel_units() {
+  install -d -o root -g root -m 0755 "${SENSOR_UNIT_DIR}"
+  cat > "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.socket.new" <<EOF
+# Written by prtg-nats. Do not edit.
+[Unit]
+Description=Where sensors hand records to the PRTG NATS return channel
+
+[Socket]
+ListenStream=${RETURN_CHANNEL_SOCKET}
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+Accept=no
+
+[Install]
+WantedBy=sockets.target
+EOF
+  # Started at boot and not only on the first record: what waits in the
+  # buffer from before a reboot has to leave without a sensor calling in.
+  cat > "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service.new" <<EOF
+# Written by prtg-nats. Do not edit.
+[Unit]
+Description=Deliver PRTG sensor logs to the PRTG NATS platform
+Requires=${RETURN_CHANNEL_UNIT}.socket
+After=${RETURN_CHANNEL_UNIT}.socket network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${RETURN_CHANNEL_SERVICE_PATH}
+User=root
+Group=root
+Restart=always
+RestartSec=5
+# The private key is in memory; there must be no core dump to read it from.
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StateDirectory=prtg-nats-return-channel
+StateDirectoryMode=0700
+# The renewal swaps key and certificate in place.
+ReadWritePaths=${RETURN_CHANNEL_DIR}
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.socket.new" \
+    "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service.new"
+  mv -f "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.socket.new" \
+    "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.socket"
+  mv -f "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service.new" \
+    "${SENSOR_UNIT_DIR}/${RETURN_CHANNEL_UNIT}.service"
+  systemctl daemon-reload
+}
+
+# The service, written here rather than shipped as a second file: it runs as
+# root, and anything that installs root code has to arrive under the helper's
+# signature (ADR 0006). tests/sensor-checks.py cuts it out of this heredoc and
+# checks exactly what a probe runs.
+write_return_channel_service() {
+  cat > "${RETURN_CHANNEL_SERVICE_PATH}.new" <<'CHANNELEOF'
+#!/usr/bin/env python3
+#
+# Written by prtg-nats. Do not edit: replaced whenever the helper installs or
+# refreshes the return channel.
+#
+# The return channel (ADR 0013). Sensors hand records over on a local socket,
+# this keeps them in a buffer on disk and delivers them to the platform over
+# mutual TLS with the probe's own certificate. A record leaves the buffer only
+# once the platform has acknowledged it, so an outage costs time, not records
+# - until the buffer is full, and then the oldest go first and a gap record
+# says how many.
+#
+# Standard library only: the probe gets no packages for this.
+
+import datetime
+import http.client
+import json
+import os
+import random
+import re
+import socket
+import ssl
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.parse
+import uuid
+
+CONFIG_DIR = "/etc/prtg-nats/return-channel"
+CONFIG_PATH = os.path.join(CONFIG_DIR, "channel.env")
+BUFFER_DIR = "/var/lib/prtg-nats-return-channel"
+SOCKET_PATH = "/run/prtg-nats-return-channel.sock"
+# The stack CA the probe already trusts for NATS. It issued the platform's
+# web certificate too, which is what answers on the channel port.
+SERVER_CA = "/etc/paessler/mpprobe/certs/nats-docker-ca.pem"
+
+DEFAULT_LIMIT = 20 * 1024 * 1024
+# Below this the buffer would hold only a handful of records and every short
+# outage would turn into a gap.
+MINIMUM_LIMIT = 256 * 1024
+# One record, one line. A sensor that needs more is sending a file, not a log.
+MAXIMUM_RECORD_BYTES = 64 * 1024
+# The platform takes at most 500 records per request.
+BATCH_RECORDS = 500
+BATCH_BYTES = 4 * 1024 * 1024
+# The buffer file is rewritten once this much of its front is delivered or
+# dropped, so it neither grows forever nor is copied after every batch.
+COMPACT_AFTER = 1024 * 1024
+BACKOFF_FIRST = 2
+BACKOFF_LONGEST = 300
+# With nothing to deliver, an empty batch goes out this often anyway, so the
+# platform can tell a quiet probe from a broken channel. The platform's
+# silence threshold defaults to three of these; HEARTBEAT_SECONDS in
+# channel.env changes it on one probe.
+DEFAULT_HEARTBEAT = 300
+MINIMUM_HEARTBEAT = 30
+# Day 60 of a 90-day certificate.
+RENEW_AT = 2 / 3
+SELF_SENSOR = "return-channel"
+
+SENSOR_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SENSOR_RESULTS = ("ok", "error")
+# The limits the platform enforces. Refused here, a record gets an answer the
+# sensor can act on; refused there, it would hold up the queue behind it.
+JOB_LENGTH = 64
+CODE_LENGTH = 128
+SUMMARY_LENGTH = 2000
+
+
+def log(message):
+    print(message, file=sys.stderr, flush=True)
+
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def format_time(moment):
+    return moment.astimezone(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def parse_time(text):
+    if not isinstance(text, str):
+        raise ValueError("time must be an ISO 8601 string")
+    value = text.strip()
+    if value.endswith(("Z", "z")):
+        value = value[:-1] + "+00:00"
+    moment = datetime.datetime.fromisoformat(value)
+    if moment.tzinfo is None:
+        raise ValueError("time needs a time zone")
+    return moment
+
+
+def optional_text(record, key, length):
+    value = record.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("%s must be a string" % key)
+    if len(value) > length:
+        raise ValueError("%s is longer than %d characters" % (key, length))
+    return value
+
+
+def normalise(record):
+    """The envelope the platform takes, built from what a sensor sent.
+
+    Raises ValueError with a message meant for the sensor's author.
+    """
+    if not isinstance(record, dict):
+        raise ValueError("a record must be a JSON object")
+    sensor = record.get("sensor")
+    if not isinstance(sensor, str) or not SENSOR_PATTERN.match(sensor):
+        raise ValueError("sensor must match %s" % SENSOR_PATTERN.pattern)
+    result = record.get("result")
+    if result not in SENSOR_RESULTS:
+        raise ValueError("result must be ok or error")
+    identity = record.get("id")
+    if identity is None:
+        identity = str(uuid.uuid4())
+    else:
+        try:
+            identity = str(uuid.UUID(str(identity)))
+        except ValueError:
+            raise ValueError("id must be a UUID") from None
+    moment = record.get("time")
+    try:
+        moment = utc_now() if moment is None else parse_time(moment)
+    except ValueError as error:
+        raise ValueError("time does not parse: %s" % error) from None
+    summary = record.get("summary") or ""
+    if not isinstance(summary, str):
+        raise ValueError("summary must be a string")
+    body = record.get("body") or {}
+    if not isinstance(body, dict):
+        raise ValueError("body must be a JSON object")
+    # Whatever else came along stays behind - the probe above all, which is
+    # what the certificate says and never what a record claims.
+    return {
+        "id": identity,
+        "sensor": sensor,
+        "job": optional_text(record, "job", JOB_LENGTH),
+        "time": format_time(moment),
+        "result": result,
+        "code": optional_text(record, "code", CODE_LENGTH),
+        # Cut rather than refused: a long message is still worth keeping.
+        "summary": summary[:SUMMARY_LENGTH],
+        "body": body,
+    }
+
+
+def write_atomically(path, content):
+    directory = os.path.dirname(path)
+    handle, scratch = tempfile.mkstemp(dir=directory, prefix=".tmp-")
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(scratch, path)
+    except BaseException:
+        try:
+            os.unlink(scratch)
+        except OSError:
+            pass
+        raise
+
+
+class Buffer:
+    """Records waiting for the platform, on disk and in arrival order.
+
+    One file that only ever grows at its end, and a small state file that
+    says where in it the first undelivered record starts. Delivering or
+    dropping records moves that mark; the file is rewritten from the mark
+    only now and then. The state names the file it belongs to, so a crash
+    during the rewrite leaves either the old pair or the new one, never a
+    mark that points into the wrong file.
+
+    Gaps live in the state rather than in the file: they describe records
+    older than anything still in the file, so they belong in front of it,
+    and the front of an append-only file is the one place nothing can go.
+    """
+
+    def __init__(self, directory, limit=DEFAULT_LIMIT):
+        self.directory = directory
+        self.limit = max(int(limit), MINIMUM_LIMIT)
+        self.lock = threading.Lock()
+        self.ready = threading.Condition(self.lock)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        self.state_path = os.path.join(directory, "state.json")
+        state = self._read_state()
+        self.generation = state.get("generation", 0)
+        self.head = state.get("head", 0)
+        self.gaps = state.get("gaps", [])
+        # (offset, length, id, time) for every record behind the mark.
+        self.index = []
+        self._load()
+
+    # --- persistence -------------------------------------------------------
+
+    def _read_state(self):
+        try:
+            with open(self.state_path, "rb") as stream:
+                state = json.load(stream)
+            return state if isinstance(state, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _write_state(self):
+        write_atomically(self.state_path, json.dumps({
+            "generation": self.generation,
+            "head": self.head,
+            "gaps": self.gaps,
+        }).encode("utf-8"))
+
+    def _file(self, generation=None):
+        return os.path.join(self.directory, "records.%d.jsonl" % (
+            self.generation if generation is None else generation))
+
+    def _load(self):
+        path = self._file()
+        try:
+            with open(path, "rb") as stream:
+                content = stream.read()
+        except FileNotFoundError:
+            content = b""
+        # A record cut off by a crash while it was written was never
+        # confirmed to its sensor; it goes, so the next one starts clean.
+        complete = content.rfind(b"\n") + 1
+        if complete != len(content):
+            with open(path, "r+b") as stream:
+                stream.truncate(complete)
+            content = content[:complete]
+        if self.head > len(content):
+            self.head = 0
+        offset = self.head
+        while offset < len(content):
+            end = content.index(b"\n", offset) + 1
+            try:
+                record = json.loads(content[offset:end])
+                self.index.append(
+                    (offset, end - offset, record["id"], record["time"]))
+            except (ValueError, KeyError, TypeError):
+                pass
+            offset = end
+        for name in os.listdir(self.directory):
+            if (name.startswith("records.") and name.endswith(".jsonl")
+                    and name != os.path.basename(path)):
+                os.unlink(os.path.join(self.directory, name))
+
+    def _size(self):
+        if not self.index:
+            return 0
+        offset, length, _, _ = self.index[-1]
+        return offset + length - self.head
+
+    def _compact(self):
+        path = self._file()
+        with open(path, "rb") as stream:
+            stream.seek(self.head)
+            remainder = stream.read()
+        generation = self.generation + 1
+        write_atomically(self._file(generation), remainder)
+        shift = self.head
+        self.generation, self.head = generation, 0
+        self.index = [(offset - shift, length, identity, moment)
+                      for offset, length, identity, moment in self.index]
+        self._write_state()
+        os.unlink(path)
+
+    def _advance(self, count):
+        if count:
+            offset, length, _, _ = self.index[count - 1]
+            self.head = offset + length
+            del self.index[:count]
+        if not self.index:
+            # Nothing waits, so the mark is the end of the file; starting a
+            # fresh one costs nothing here.
+            if self.head:
+                self.head = 0
+                self.generation += 1
+                open(self._file(), "wb").close()
+                old = self._file(self.generation - 1)
+                self._write_state()
+                os.unlink(old)
+                return
+        elif self.head >= COMPACT_AFTER:
+            self._compact()
+            return
+        self._write_state()
+
+    # --- gaps ---------------------------------------------------------------
+
+    def _note_gap(self, code, count, first, last):
+        """Count dropped records into the open gap, or start one.
+
+        A gap already offered to the platform stays as it was: it may be
+        stored there under its ID, and counting more into it would lose them.
+        """
+        gap = self.gaps[-1] if self.gaps else None
+        if gap is None or gap["offered"] or gap["code"] != code:
+            gap = {"id": str(uuid.uuid4()), "code": code, "count": 0,
+                   "from": first, "until": last, "offered": False}
+            self.gaps.append(gap)
+        gap["count"] += count
+        gap["from"] = min(gap["from"], first)
+        gap["until"] = max(gap["until"], last)
+
+    @staticmethod
+    def _gap_record(gap):
+        if gap["code"] == "buffer_full":
+            summary = ("%d record(s) dropped because the buffer on the probe"
+                       " was full" % gap["count"])
+        else:
+            summary = ("%d record(s) dropped because the platform refused"
+                       " them" % gap["count"])
+        return {
+            "id": gap["id"],
+            "sensor": SELF_SENSOR,
+            "job": None,
+            "time": gap["until"],
+            "result": "gap",
+            "code": gap["code"],
+            "summary": summary,
+            "body": {"dropped": gap["count"], "from": gap["from"],
+                     "until": gap["until"]},
+        }
+
+    # --- interface ------------------------------------------------------------
+
+    def append(self, record):
+        """Store a normalised record behind everything already waiting."""
+        line = json.dumps(record, separators=(",", ":"),
+                          ensure_ascii=False).encode("utf-8") + b"\n"
+        if len(line) > MAXIMUM_RECORD_BYTES:
+            raise ValueError("the record is larger than %d bytes"
+                             % MAXIMUM_RECORD_BYTES)
+        with self.lock:
+            overflow = self._size() + len(line) - self.limit
+            if overflow > 0:
+                dropped, freed = 0, 0
+                while freed < overflow and dropped < len(self.index):
+                    freed += self.index[dropped][1]
+                    dropped += 1
+                self._note_gap("buffer_full", dropped, self.index[0][3],
+                               self.index[dropped - 1][3])
+                self._advance(dropped)
+            path = self._file()
+            with open(path, "ab") as stream:
+                offset = stream.tell()
+                stream.write(line)
+                stream.flush()
+                os.fsync(stream.fileno())
+            self.index.append((offset, len(line), record["id"],
+                               record["time"]))
+            self.ready.notify_all()
+        return record["id"]
+
+    def pending(self):
+        with self.lock:
+            return bool(self.index or self.gaps)
+
+    def stats(self):
+        with self.lock:
+            return {"bytes": self._size(), "limit": self.limit}
+
+    def batch(self, maximum=BATCH_RECORDS):
+        """The oldest waiting records, gaps first, as the platform takes them."""
+        with self.lock:
+            records = []
+            for gap in self.gaps[:maximum]:
+                gap["offered"] = True
+                records.append(self._gap_record(gap))
+            if self.gaps:
+                self._write_state()
+            if not self.index:
+                # Also before the first record, when there is no file yet.
+                return records
+            size = 0
+            with open(self._file(), "rb") as stream:
+                for offset, length, _, _ in self.index:
+                    if len(records) >= maximum or size + length > BATCH_BYTES:
+                        break
+                    stream.seek(offset)
+                    records.append(json.loads(stream.read(length)))
+                    size += length
+            return records
+
+    def acknowledge(self, identities):
+        """Drop what the platform confirmed, from the front.
+
+        A confirmed record behind an unconfirmed one stays: it goes again
+        with the next batch and comes back as a duplicate, which keeps the
+        buffer one contiguous stretch of the file.
+        """
+        confirmed = set(identities)
+        with self.lock:
+            self.gaps = [gap for gap in self.gaps
+                         if gap["id"] not in confirmed]
+            count = 0
+            while (count < len(self.index)
+                   and self.index[count][2] in confirmed):
+                count += 1
+            self._advance(count)
+
+    def refuse(self, identity):
+        """Give up on one record the platform will never take."""
+        with self.lock:
+            for position, entry in enumerate(self.index):
+                if entry[2] == identity:
+                    break
+            else:
+                self.gaps = [gap for gap in self.gaps
+                             if gap["id"] != identity]
+                self._write_state()
+                return
+            if position:
+                # Not at the front: the ones before it are resent anyway.
+                return
+            self._note_gap("refused", 1, entry[3], entry[3])
+            self._advance(1)
+
+    def wait(self, timeout):
+        """Sleep until a record arrives, unless one is already waiting."""
+        with self.ready:
+            if not (self.index or self.gaps):
+                self.ready.wait(timeout)
+
+
+def handle_line(buffer, line):
+    """One line from a sensor in, one line of answer out."""
+    try:
+        record = json.loads(line)
+        identity = buffer.append(normalise(record))
+    except ValueError as error:
+        return json.dumps({"ok": False, "error": str(error)}).encode() + b"\n"
+    except OSError as error:
+        return json.dumps({"ok": False, "error": "buffer: %s" % error.strerror}
+                          ).encode() + b"\n"
+    return json.dumps({"ok": True, "id": identity}).encode() + b"\n"
+
+
+# --- Delivery ----------------------------------------------------------------
+
+RECORDS_PATH = "/probe/v1/records"
+CERTIFICATE_PATH = "/probe/v1/certificate"
+
+
+class DeliveryError(Exception):
+    pass
+
+
+def deliver_once(buffer, post, heartbeat=False):
+    """Send the oldest batch. True when something went, False when idle.
+
+    With ``heartbeat`` an empty buffer still sends an empty batch, the
+    channel's sign of life. ``post(path, document)`` returns the status and
+    the decoded answer, and raises OSError when the platform cannot be
+    reached at all.
+    """
+    batch = buffer.batch()
+    if not batch and not heartbeat:
+        return False
+    status, answer = post(RECORDS_PATH, {"records": batch,
+                                         "buffer": buffer.stats()})
+    if status == 422:
+        # One bad record must not hold up every record behind it. Sent one
+        # by one, the platform says which it is, and only that one goes.
+        for record in batch:
+            status, answer = post(RECORDS_PATH, {"records": [record],
+                                                 "buffer": buffer.stats()})
+            if status == 422:
+                log("The platform refused record %s: %s"
+                    % (record["id"], answer))
+                buffer.refuse(record["id"])
+                continue
+            acknowledge(buffer, status, answer)
+        return True
+    acknowledge(buffer, status, answer)
+    return True
+
+
+def acknowledge(buffer, status, answer):
+    if status != 200 or not isinstance(answer, dict):
+        raise DeliveryError("the platform answered %s: %s" % (status, answer))
+    confirmed = list(answer.get("stored") or []) + list(
+        answer.get("duplicates") or [])
+    buffer.acknowledge(confirmed)
+
+
+class Platform:
+    """The platform's channel port, over mutual TLS.
+
+    The context is built for every connection, so a certificate the renewal
+    or the helper has just put in place is the one the next request uses.
+    """
+
+    def __init__(self, url, directory=CONFIG_DIR, server_ca=SERVER_CA,
+                 timeout=30):
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("PLATFORM_URL must be an https URL")
+        self.host = parsed.hostname
+        self.port = parsed.port or 443
+        self.directory = directory
+        self.server_ca = server_ca
+        self.timeout = timeout
+
+    def context(self):
+        context = ssl.create_default_context(cafile=self.server_ca)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(os.path.join(self.directory, "cert.pem"),
+                                os.path.join(self.directory, "key.pem"))
+        return context
+
+    def post(self, path, document):
+        body = json.dumps(document, separators=(",", ":")).encode("utf-8")
+        connection = http.client.HTTPSConnection(
+            self.host, self.port, timeout=self.timeout,
+            context=self.context())
+        try:
+            connection.request("POST", path, body=body, headers={
+                "Content-Type": "application/json"})
+            response = connection.getresponse()
+            content = response.read()
+        finally:
+            connection.close()
+        try:
+            answer = json.loads(content)
+        except ValueError:
+            answer = content[:200].decode("utf-8", "replace")
+        return response.status, answer
+
+
+# --- Certificate renewal -----------------------------------------------------
+
+def openssl(*arguments):
+    completed = subprocess.run(
+        ["openssl"] + list(arguments), capture_output=True, timeout=60,
+        check=False)
+    if completed.returncode != 0:
+        raise RuntimeError("openssl %s failed: %s" % (
+            arguments[0], completed.stderr.decode("utf-8", "replace").strip()))
+    return completed.stdout
+
+
+def certificate_window(path):
+    """notBefore and notAfter of a certificate, in epoch seconds."""
+    output = openssl("x509", "-in", path, "-noout", "-startdate",
+                     "-enddate").decode("ascii")
+    dates = dict(line.split("=", 1) for line in output.splitlines()
+                 if "=" in line)
+    return (ssl.cert_time_to_seconds(dates["notBefore"]),
+            ssl.cert_time_to_seconds(dates["notAfter"]))
+
+
+def renewal_due(not_before, not_after, now):
+    return now >= not_before + (not_after - not_before) * RENEW_AT
+
+
+def matches(certificate, key):
+    try:
+        return (openssl("x509", "-in", certificate, "-noout", "-pubkey")
+                == openssl("pkey", "-in", key, "-pubout"))
+    except (RuntimeError, OSError):
+        return False
+
+
+def recover_renewal(directory):
+    """Finish or discard a renewal a crash interrupted.
+
+    The new pair is complete before anything is renamed, and the key goes
+    first; the key the waiting certificate belongs to says how far the swap
+    got.
+    """
+    certificate = os.path.join(directory, "cert.next.pem")
+    pending = os.path.join(directory, "key.next.pem")
+    key = os.path.join(directory, "key.pem")
+    if os.path.exists(certificate):
+        if os.path.exists(pending) and matches(certificate, pending):
+            os.replace(pending, key)
+            os.replace(certificate, os.path.join(directory, "cert.pem"))
+        elif matches(certificate, key):
+            os.replace(certificate, os.path.join(directory, "cert.pem"))
+        else:
+            os.unlink(certificate)
+    for leftover in (pending, os.path.join(directory, "key.csr.pem")):
+        if os.path.exists(leftover):
+            os.unlink(leftover)
+
+
+def renew(platform, directory=CONFIG_DIR):
+    """Get a certificate for a new key over the channel the old one opens.
+
+    The key is made here, like the first one, and never reuses the old one.
+    """
+    scratch = os.path.join(directory, "key.csr.pem")
+    openssl("genpkey", "-algorithm", "EC",
+            "-pkeyopt", "ec_paramgen_curve:P-256",
+            "-pkeyopt", "ec_param_enc:named_curve", "-out", scratch)
+    os.chmod(scratch, 0o600)
+    csr = openssl("req", "-new", "-sha256", "-key", scratch,
+                  "-subj", "/CN=prtg-nats-probe").decode("ascii")
+    certificate = os.path.join(directory, "cert.next.pem")
+    try:
+        status, answer = platform.post(CERTIFICATE_PATH, {"csr": csr})
+        if status != 200 or not isinstance(answer, dict):
+            raise DeliveryError("renewal refused: %s %s" % (status, answer))
+        write_atomically(certificate, answer["certificate"].encode("ascii"))
+        os.chmod(certificate, 0o644)
+        if not matches(certificate, scratch):
+            raise DeliveryError("the renewed certificate is for another key")
+        openssl("verify", "-purpose", "sslclient", "-CAfile",
+                os.path.join(directory, "ca.pem"), certificate)
+    except BaseException:
+        for leftover in (certificate, scratch):
+            if os.path.exists(leftover):
+                os.unlink(leftover)
+        raise
+    os.replace(scratch, os.path.join(directory, "key.next.pem"))
+    recover_renewal(directory)
+    log("Renewed the return channel certificate, valid until %s"
+        % answer.get("not_after"))
+
+
+def renew_if_due(platform, directory=CONFIG_DIR, now=None):
+    recover_renewal(directory)
+    not_before, not_after = certificate_window(
+        os.path.join(directory, "cert.pem"))
+    if renewal_due(not_before, not_after,
+                   time.time() if now is None else now):
+        renew(platform, directory)
+        return True
+    return False
+
+
+# --- Running -----------------------------------------------------------------
+
+def read_config(path):
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip().strip("\"'")
+    except FileNotFoundError:
+        pass
+    return values
+
+
+def heartbeat_interval(config):
+    try:
+        return max(int(config.get("HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT)),
+                   MINIMUM_HEARTBEAT)
+    except ValueError:
+        log("HEARTBEAT_SECONDS is no number, using %d" % DEFAULT_HEARTBEAT)
+        return DEFAULT_HEARTBEAT
+
+
+def heartbeat_due(last_sent, now, interval):
+    """Whether the platform has heard nothing for a whole interval.
+
+    Due at once after a start, so a freshly installed channel shows up on
+    the platform without waiting for a sensor or for the first interval.
+    """
+    return last_sent is None or now - last_sent >= interval
+
+
+def buffer_limit(config):
+    try:
+        return max(int(config.get("BUFFER_LIMIT_BYTES", DEFAULT_LIMIT)),
+                   MINIMUM_LIMIT)
+    except ValueError:
+        log("BUFFER_LIMIT_BYTES is no number, using %d" % DEFAULT_LIMIT)
+        return DEFAULT_LIMIT
+
+
+def listening_socket(path=SOCKET_PATH):
+    """The socket systemd holds open, or one of our own without systemd."""
+    if (os.environ.get("LISTEN_PID") == str(os.getpid())
+            and int(os.environ.get("LISTEN_FDS", "0")) >= 1):
+        return socket.socket(fileno=3)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    previous = os.umask(0o177)
+    try:
+        listener.bind(path)
+    finally:
+        os.umask(previous)
+    listener.listen(16)
+    return listener
+
+
+def serve_connection(connection, buffer, slots):
+    try:
+        connection.settimeout(10)
+        with connection, connection.makefile("rb") as stream:
+            while True:
+                line = stream.readline(MAXIMUM_RECORD_BYTES + 1)
+                if not line:
+                    return
+                if len(line) > MAXIMUM_RECORD_BYTES:
+                    connection.sendall(json.dumps({
+                        "ok": False,
+                        "error": "the record is larger than %d bytes"
+                                 % MAXIMUM_RECORD_BYTES}).encode() + b"\n")
+                    return
+                if line.strip():
+                    connection.sendall(handle_line(buffer, line))
+    except OSError:
+        pass
+    finally:
+        slots.release()
+
+
+def serve(listener, buffer):
+    slots = threading.BoundedSemaphore(16)
+    while True:
+        connection, _ = listener.accept()
+        if not slots.acquire(timeout=10):
+            connection.close()
+            continue
+        threading.Thread(target=serve_connection,
+                         args=(connection, buffer, slots),
+                         daemon=True).start()
+
+
+def next_delay(previous):
+    delay = min(BACKOFF_LONGEST, max(BACKOFF_FIRST, previous * 2))
+    return delay * random.uniform(0.8, 1.0)
+
+
+def run(buffer, platform, heartbeat=DEFAULT_HEARTBEAT):
+    delay = 0
+    renewal_check = 0.0
+    renewal_failed = False
+    last_sent = None
+    while True:
+        if platform is None:
+            buffer.wait(3600)
+            continue
+        if time.monotonic() >= renewal_check:
+            try:
+                renew_if_due(platform)
+                renewal_check = time.monotonic() + 3600
+                renewal_failed = False
+            except Exception as error:
+                log("Certificate renewal failed: %s" % error)
+                renewal_check = time.monotonic() + 900
+                renewal_failed = True
+        try:
+            now = time.monotonic()
+            if deliver_once(buffer, platform.post,
+                            heartbeat=heartbeat_due(last_sent, now,
+                                                    heartbeat)):
+                last_sent = time.monotonic()
+            else:
+                buffer.wait(max(1, min(60, last_sent + heartbeat - now)))
+            if delay and renewal_failed:
+                # The platform is back after an outage; a renewal that
+                # failed because of it need not wait for its next turn.
+                renewal_check = 0.0
+            delay = 0
+        except Exception as error:
+            # Never give up and never exit: the next attempt may well work,
+            # and systemd restarting a crashed loop helps nobody.
+            delay = next_delay(delay)
+            log("Delivery failed, retrying in %d s: %s" % (delay, error))
+            time.sleep(delay)
+
+
+def main():
+    config = read_config(CONFIG_PATH)
+    buffer = Buffer(BUFFER_DIR, buffer_limit(config))
+    listener = listening_socket()
+    threading.Thread(target=serve, args=(listener, buffer),
+                     daemon=True).start()
+    platform = None
+    try:
+        platform = Platform(config.get("PLATFORM_URL", ""),
+                            server_ca=config.get("SERVER_CA", SERVER_CA))
+    except ValueError as error:
+        # Records are still taken and kept; they leave once the helper has
+        # written a usable address and restarted the service.
+        log("Not delivering: %s" % error)
+    run(buffer, platform, heartbeat_interval(config))
+
+
+if __name__ == "__main__":
+    main()
+CHANNELEOF
+  chmod 0755 "${RETURN_CHANNEL_SERVICE_PATH}.new"
+  mv -f "${RETURN_CHANNEL_SERVICE_PATH}.new" "${RETURN_CHANNEL_SERVICE_PATH}"
 }
 
 # ---------------------------------------------------------------------------
@@ -2954,6 +4105,10 @@ remove_access() {
     /var/lib/prtg-nats-admin/.ssh/authorized_keys \
     /etc/sudoers.d/prtg-nats-admin
   printf 'OK management-access-removed\n'
+  # The key only ever served this platform; a probe that leaves it keeps
+  # nothing that could still open the return channel.
+  remove_return_channel_service
+  rm -rf -- "${RETURN_CHANNEL_DIR}"
   if [[ -f "${OVERLAY_CONFIG}" || -f "${OVERLAY_CONFIG_ENV}" ]]; then
     remove_overlay >/dev/null 2>&1 || true
   fi
@@ -3707,6 +4862,24 @@ case "${command_name}" in
        -z "${argument_three:-}" ]] ||
       die "sensor-remove-file requires sensor and profile"
     remove_sensor_file "${argument_one}" "${argument_two}"
+    ;;
+  channel-csr)
+    [[ -z "${argument_one:-}" ]] || die "channel-csr takes no arguments"
+    channel_csr
+    ;;
+  channel-install)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -n "${argument_three:-}" ]] ||
+      die "channel-install requires platform URL, interface URL and buffer size"
+    channel_install "${argument_one}" "${argument_two}" "${argument_three}"
+    ;;
+  channel-service)
+    # Without arguments for a platform that predates them; then channel.env
+    # stays as it is.
+    [[ -z "${argument_one:-}" ||
+       ( -n "${argument_two:-}" && -z "${argument_three:-}" ) ]] ||
+      die "channel-service takes the interface URL and the buffer size"
+    channel_service "${argument_one:-}" "${argument_two:-}"
     ;;
   helper-update)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||

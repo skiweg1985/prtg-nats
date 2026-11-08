@@ -63,6 +63,9 @@ class ProbeRecord(Base, IdMixin, TimestampMixin):
     management_route: Mapped[ProbeManagementRoute | None] = relationship(
         back_populates="probe", cascade="all, delete-orphan", uselist=False
     )
+    return_channel: Mapped[ProbeReturnChannel | None] = relationship(
+        back_populates="probe", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class ProbeDesiredState(Base, IdMixin, TimestampMixin):
@@ -151,6 +154,37 @@ class ProbeManagementRoute(Base, IdMixin, TimestampMixin):
     observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
 
     probe: Mapped[ProbeRecord] = relationship(back_populates="management_route")
+
+
+class ProbeReturnChannel(Base, IdMixin, TimestampMixin):
+    """What the probe's return channel last said about itself (ADR 0013).
+
+    A cache like the management route, written by every delivery the probe
+    makes. The channel has no heartbeat: the service on the probe posts when
+    a sensor wrote something, so the last contact is the only sign of life,
+    and a row here is what tells a probe that has delivered from one that has
+    nothing to deliver.
+    """
+
+    __tablename__ = "probe_return_channel"
+
+    probe_id: Mapped[str] = mapped_column(
+        ForeignKey("probe_record.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    last_contact_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    # As the probe reported them with its last batch. None from a probe that
+    # sent no buffer figures, which is not the same as an empty buffer.
+    buffer_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    buffer_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Gap records the probe delivered, counted once each: a batch sent again
+    # after a lost answer comes back as duplicates and is not counted twice.
+    gap_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_gap_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+    probe: Mapped[ProbeRecord] = relationship(back_populates="return_channel")
 
 
 class Deployment(Base, IdMixin, TimestampMixin):

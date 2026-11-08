@@ -33,6 +33,7 @@ from app.core.logging import get_logger
 from app.infrastructure import known_hosts
 from app.infrastructure.probe_helper.protocol import (
     UNSUPPORTED_REQUEST_MESSAGE,
+    ChannelSettings,
     HelperCommand,
     HelperRequest,
     HelperResponse,
@@ -376,6 +377,64 @@ class ProbeHelperClient:
     ) -> HelperResponse:
         return await self._call(
             connection, HelperCommand.INSTALL_CA, payload=ca_pem, timeout=60
+        )
+
+    # --- Return channel -----------------------------------------------------
+
+    async def channel_csr(self, connection: ProbeConnection) -> str:
+        """Have the probe make a fresh key and return the CSR for it, as PEM.
+
+        The private half never leaves the probe. The new key waits there
+        beside the one in use until channel-install brings the certificate
+        for it, so a run that fails in between leaves the channel as it was.
+        """
+        response = await self._call(connection, HelperCommand.CHANNEL_CSR, timeout=60)
+        encoded = response.value("csr")
+        try:
+            return base64.b64decode(encoded or "", validate=True).decode("ascii")
+        except (ValueError, UnicodeDecodeError) as error:
+            raise ProbeProtocolError(
+                params={"command": HelperCommand.CHANNEL_CSR.value},
+                details="the probe answered without a readable CSR",
+            ) from error
+
+    async def channel_install(
+        self,
+        connection: ProbeConnection,
+        *,
+        certificate_pem: str,
+        client_ca_pem: str,
+        settings: ChannelSettings,
+    ) -> HelperResponse:
+        """Store the signed certificate, the client CA and where to report to.
+
+        Certificate first, CA after it, in one payload; the helper tells them
+        apart by order and checks the certificate against its pending key.
+        """
+        return await self._call(
+            connection,
+            HelperCommand.CHANNEL_INSTALL,
+            settings.platform_url,
+            *settings.service_arguments(),
+            payload=certificate_pem.rstrip("\n") + "\n" + client_ca_pem,
+            timeout=60,
+        )
+
+    async def channel_service(
+        self, connection: ProbeConnection, settings: ChannelSettings
+    ) -> HelperResponse:
+        """Rewrite and restart the return channel service on the probe.
+
+        For a probe that keeps its certificate: the service is part of the
+        helper, so a new helper only runs its new service once this is asked.
+        The interface address and the buffer size go along, so a changed
+        setting reaches the probe without a new certificate.
+        """
+        return await self._call(
+            connection,
+            HelperCommand.CHANNEL_SERVICE,
+            *settings.service_arguments(),
+            timeout=60,
         )
 
     # --- Overlay ------------------------------------------------------------

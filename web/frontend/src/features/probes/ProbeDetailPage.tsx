@@ -62,6 +62,8 @@ import { PermissionGate, useAuth } from '@/app/providers'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { PrtgNameRow } from '@/features/probes/PrtgName'
 import { probeName } from '@/features/probes/probeName'
+import { ReturnChannelRow } from '@/features/probes/ReturnChannelRow'
+import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -580,6 +582,7 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
                 )}
               </span>
             </DetailRow>
+            <ReturnChannelRow probeId={summary.id} channel={detail.return_channel} />
             <DetailRow label={t('probes.columns.observed')}>
               {summary.observed_at
                 ? formatRelative(summary.observed_at)
@@ -1075,6 +1078,9 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
           </PermissionGate>
         }
       />
+      <PermissionGate permission="sensor_log.read">
+        <ProbeRunsCard probe={detail.summary.nats_username} />
+      </PermissionGate>
       <VariantsCard detail={detail} />
       <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />
