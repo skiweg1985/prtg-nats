@@ -1249,7 +1249,8 @@
       "invalid_credentials": "User name or password is wrong.",
       "account_locked": "Too many failed attempts. Try again in {{retry_after_seconds}} seconds.",
       "permission_denied": "This action needs the permission \"{{permission}}\".",
-      "setup_required": "No account exists yet. Create the first administrator."
+      "setup_required": "No account exists yet. Create the first administrator.",
+      "probe_not_enrolled": "This probe is not enrolled on this platform."
     },
     "probe": {
       "unreachable": "The probe \"{{probe}}\" did not answer over the management channel.",

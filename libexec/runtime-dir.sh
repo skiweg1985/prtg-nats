@@ -58,6 +58,9 @@ PUBLIC_DIR="${RUNTIME_DIR}/public"
 AUTH_USER_DIR="${RUNTIME_DIR}/auth-users"
 PROBE_DIR="${RUNTIME_DIR}/probes"
 IPERF_DIR="${RUNTIME_DIR}/iperf"
+# What probes report over their return channel: <probe>/<sensor>/<day>.jsonl,
+# written by the management API and removed after the retention (ADR 0013).
+SENSOR_LOG_DIR="${RUNTIME_DIR}/sensor-logs"
 SSH_PRIVATE_DIR="${PRIVATE_DIR}/ssh"
 SSH_KEY_PATH="${SSH_PRIVATE_DIR}/prtg-nats-mpp-admin"
 SSH_KNOWN_HOSTS="${SSH_PRIVATE_DIR}/known_hosts"

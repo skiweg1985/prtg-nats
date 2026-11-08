@@ -54,6 +54,11 @@ class Permission(StrEnum):
     # Docker socket. docs/security/threat-model.md says so plainly.
     SYSTEM_UPDATE = "system.update"
 
+    # What probes report over their return channel. A read permission like
+    # the others, so every signed-in user, viewers included, can see why a
+    # sensor went red.
+    SENSOR_LOG_READ = "sensor_log.read"
+
     AUDIT_READ = "audit.read"
     USER_MANAGE = "user.manage"
 

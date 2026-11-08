@@ -26,7 +26,7 @@ SUBSCRIBER_QUEUE_SIZE = 256
 @dataclass(slots=True)
 class StreamEvent:
     topic: str
-    kind: str  # "job.event" | "job.status" | "job.step"
+    kind: str  # "job.event" | "job.status" | "job.step" | "sensor_log.record"
     payload: dict[str, Any] = field(default_factory=dict)
 
 
@@ -72,6 +72,16 @@ class EventBroadcaster:
 
 def job_topic(job_id: str) -> str:
     return f"job:{job_id}"
+
+
+def sensor_log_topic() -> str:
+    """One topic for every probe's sensor logs.
+
+    Records arrive at the pace of sensor runs, a few a minute across a fleet,
+    so a page filters what it is not showing rather than every probe getting
+    a topic of its own.
+    """
+    return "sensor-logs"
 
 
 _broadcaster = EventBroadcaster()
