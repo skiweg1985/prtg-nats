@@ -353,7 +353,11 @@ if [[ "${api_health}" != "200" ]]; then
   die "The platform API did not start"
 fi
 check "the platform API answers" "${api_health}" "200"
-# After the API, which creates the probe CA the channel trusts.
+# After the API, which creates the probe CA the channel trusts. The image is
+# the one compose.yaml pins, so this test covers the proxy that ships.
+proxy_image="$(awk '$1 == "image:" && $2 ~ /^caddy:/ { print $2 }' \
+  "${PROJECT_DIR}/compose.yaml")"
+[[ -n "${proxy_image}" ]] || die "compose.yaml names no caddy image"
 docker run -d --name "${PROXY_CONTAINER}" \
   --network "container:${ADMIN_CONTAINER}" \
   -v "${WORK_DIR}/web/Caddyfile:/etc/caddy/Caddyfile:ro" \
@@ -363,7 +367,7 @@ docker run -d --name "${PROXY_CONTAINER}" \
   -e "WEB_HTTPS_PORT=443" \
   -e "PROBE_CHANNEL_PORT=8443" \
   -e "CA_HTTP_PORT=${ca_port}" \
-  caddy:2.9-alpine >/dev/null ||
+  "${proxy_image}" >/dev/null ||
   die "The proxy could not be started"
 # Everything below that talks to the platform goes through the proxy over
 # TLS, verified against the installation's CA, as a browser would.

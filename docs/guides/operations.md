@@ -494,6 +494,13 @@ database names, and the container restarts in a loop. Going back means
 restoring the runtime archive the update took as its first step, from
 `runtime/archive/`, and only then moving the checkout.
 
+The same holds for the NATS server between release lines. An update that
+moves NATS to a newer line - 2.10 to 2.15, for example - lets it write its
+JetStream store in that line's format, and going back to the older image is
+not tested. That is what the `prtg-nats backup` before every update is for:
+restore it, as described under [Restore](#restore), rather than starting an
+older NATS against a newer store.
+
 ```bash
 docker compose logs web-api
 ```

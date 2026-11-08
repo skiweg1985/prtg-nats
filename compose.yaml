@@ -36,7 +36,7 @@ services:
       - no-new-privileges:true
 
   nats:
-    image: nats:2.10.29-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    image: nats:2.15.2-alpine@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f
     container_name: prtg-nats
     command:
       - --config
@@ -227,7 +227,7 @@ services:
     restart: "no"
 
   web-proxy:
-    image: caddy:2.9-alpine
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
     container_name: prtg-nats-web-proxy
     # Host network like the API: the Caddyfile forwards /api to the backend on
     # the host's loopback, which a bridge-network container cannot reach. The
