@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
@@ -218,7 +218,11 @@ describe('the NATS account on the probe detail', () => {
     expect(screen.queryByText('n4ts-s3cret')).not.toBeInTheDocument()
 
     // Rotation asks first, the same way the account list does.
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    // Rarer and consequential: in the row's menu, not beside the value.
+    const accountRow = screen.getByText('NATS account', { selector: 'dt' })
+      .parentElement as HTMLElement
+    await user.click(within(accountRow).getByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 

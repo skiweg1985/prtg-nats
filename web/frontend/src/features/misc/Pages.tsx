@@ -13,6 +13,7 @@ import type {
   AuditEvent,
   Certificate,
 } from '@/api/types'
+import { ArrowRight } from 'lucide-react'
 import { PermissionGate, useAuth, useTheme } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -26,6 +27,7 @@ import {
   Dot,
   EmptyState,
   Mono,
+  ButtonLink,
   PageHeader,
   Select,
   Skeleton,
@@ -146,12 +148,9 @@ export function NatsPage() {
         title={t('infrastructure.natsTitle')}
         action={
           can('credential.read') ? (
-            <Link
-              to="/infrastructure/credentials"
-              className="text-accent text-sm hover:underline"
-            >
+            <ButtonLink to="/infrastructure/credentials" icon={ArrowRight}>
               {t('credentials.title')}
-            </Link>
+            </ButtonLink>
           ) : undefined
         }
       />
