@@ -158,7 +158,7 @@ that matter.
 
 A probe that does not answer over the management channel gets a red banner
 on its page: when it last answered, over which route (tunnel or site address)
-and at which address, and what to check before asking again with "Refresh
+and at which address, and what to check before asking again with "Check
 state". Its service and CA then read unknown, because the failed attempt
 replaced the last answer. The NATS connection stays current: the platform asks
 the NATS server for it, not the probe, so a green dot there means the probe
@@ -167,8 +167,8 @@ still measures while management cannot reach it.
 A probe that answered, but longer ago than the staleness window
 (`PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS`, five minutes by default),
 keeps its last values on screen in grey with the time they are from, under a
-note that they are no longer current. "Refresh state" asks the probe right
-away and updates the page; "Run check as job" in the menu runs the same
+note that they are no longer current. "Check state" asks the probe right
+away and updates the page; "Create a check report" in the menu runs the same
 questions as a job with a log of its findings.
 
 ## The web platform

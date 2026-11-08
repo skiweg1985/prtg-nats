@@ -162,7 +162,6 @@
     "tabs": {
       "overview": "Overview",
       "sensors": "Sensors",
-      "deviations": "Deviations",
       "diagnostics": "Diagnostics"
     },
     "identity": "Identity",
@@ -176,8 +175,8 @@
     "accessKeyShow": "Show the access key",
     "caFingerprint": "CA fingerprint",
     "installCa": "Install CA",
-    "validate": "Run check as job",
-    "refreshState": "Refresh state",
+    "validate": "Create a check report",
+    "refreshState": "Check state",
     "helper": "Probe helper",
     "pendingTransaction": "Pending transaction",
     "helperVersion": "version {{version}}",
@@ -190,7 +189,6 @@
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
-    "noDeviations": "The probe matches the desired state.",
     "desiredState": "Desired state",
     "actualState": "Actual state",
     "fixDeviations": "Fix deviations",
@@ -208,10 +206,10 @@
       "lastContact": "Last contact {{time}} via {{route}} {{host}}.",
       "neverAnswered": "It has never answered.",
       "lastAttempt": "Last attempt {{time}}.",
-      "nextStep": "Check that the host is up and reachable at {{host}}, then ask again with \"Refresh state\".",
+      "nextStep": "Check that the host is up and reachable at {{host}}, then ask again with \"Check state\".",
       "details": "Technical details",
       "datedTitle": "These values are no longer current",
-      "datedBody": "The probe was last asked {{time}}. \"Refresh state\" asks it now."
+      "datedBody": "The probe was last asked {{time}}. \"Check state\" asks it now."
     },
     "diag": {
       "hostname": "Host name",
@@ -848,9 +846,9 @@
         "helper_update": "Update the helper",
         "install_ca": "Install the CA",
         "reconcile": "Reconcile a probe",
-        "refresh": "Refresh the state",
+        "refresh": "Check the state",
         "unenroll": "Unenroll a probe",
-        "validate": "Validate a probe",
+        "validate": "Create a check report",
         "channel_repair": "Set up the return channel again"
       },
       "sensor": {
@@ -933,10 +931,10 @@
         "helper_update": "Helper updated",
         "install_ca": "CA installed",
         "reconcile": "Probe reconciled",
-        "refresh": "State refreshed",
+        "refresh": "State checked",
         "set_desired_state": "Desired state changed",
         "update": "Probe updated",
-        "validate": "Probe validated",
+        "validate": "Check report created",
         "channel_repair": "Return channel set up again"
       },
       "sensor": {

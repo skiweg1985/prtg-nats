@@ -253,7 +253,7 @@ export const probes = {
 <tr><td>{ui:probes.unenroll}</td><td>siehe <a href="@unenroll-a-probe">Eine Probe ausbinden</a></td><td>Administrator</td></tr>
 </tbody>
 </table>
-<p>Seltene Aktionen stehen unter {ui:common.moreActions}. Alles außer {ui:probes.refreshState} läuft als Job, dessen Seite sich danach öffnet.</p>`,
+<p>Oben stehen immer {ui:probes.refreshState} und {ui:probes.configure}, alles andere unter {ui:common.moreActions}. Ist der Helper veraltet, steht {ui:probes.updateHelper} zusätzlich im Hinweis darüber. Alles außer {ui:probes.refreshState} läuft als Job, dessen Seite sich danach öffnet.</p>`,
             `<p>The NATS account is shown below the name when it is different. The actions:</p>
 <table>
 <thead><tr><th>Action</th><th>What it does</th><th>Role</th></tr></thead>
@@ -266,7 +266,7 @@ export const probes = {
 <tr><td>{ui:probes.unenroll}</td><td>see <a href="@unenroll-a-probe">Unenrolling a probe</a></td><td>Administrator</td></tr>
 </tbody>
 </table>
-<p>Rare actions are under {ui:common.moreActions}. Everything except {ui:probes.refreshState} runs as a job, whose page opens afterwards.</p>`,
+<p>{ui:probes.refreshState} and {ui:probes.configure} are always at the top, everything else is under {ui:common.moreActions}. When the helper is outdated, {ui:probes.updateHelper} also sits in the notice about it. Everything except {ui:probes.refreshState} runs as a job, whose page opens afterwards.</p>`,
           ),
         },
         {
@@ -321,10 +321,10 @@ export const probes = {
           ),
         },
         {
-          title: L('Abweichungen', 'Deviations'),
+          title: L('Übersicht: Abweichungen', 'Overview: deviations'),
           text: L(
-            '<p>Der Reiter {ui:probes.tabs.deviations} nennt, wo die Probe vom gewünschten Zustand abweicht, und jeweils, was dagegen hilft. {ui:probes.fixDeviations} zeigt zuerst unter {ui:probes.planPreview}, was passieren würde; erst {ui:probes.executePlan} startet den Job (Operator). Grau markierte Abweichungen sind nur zur Information und verschwinden nicht von selbst.</p>',
-            '<p>The {ui:probes.tabs.deviations} tab names where the probe differs from its desired state, and what fixes each one. {ui:probes.fixDeviations} first shows what would happen under {ui:probes.planPreview}; only {ui:probes.executePlan} starts the job (operator). Deviations marked in grey are for information only and do not clear by themselves.</p>',
+            '<p>Weicht die Probe vom gewünschten Zustand ab, steht oben in der {ui:probes.tabs.overview} der Abschnitt {ui:probes.deviationsTitle}. Er nennt jede Abweichung und jeweils, was dagegen hilft. Passt alles, fehlt der Abschnitt. {ui:probes.fixDeviations} zeigt zuerst unter {ui:probes.planPreview}, was passieren würde; erst {ui:probes.executePlan} startet den Job (Operator). Grau markierte Abweichungen sind nur zur Information und verschwinden nicht von selbst.</p>',
+            '<p>When the probe differs from its desired state, the {ui:probes.deviationsTitle} section sits at the top of the {ui:probes.tabs.overview}. It names each deviation and what fixes it. When everything matches, the section is not there. {ui:probes.fixDeviations} first shows what would happen under {ui:probes.planPreview}; only {ui:probes.executePlan} starts the job (operator). Deviations marked in grey are for information only and do not clear by themselves.</p>',
           ),
         },
         {

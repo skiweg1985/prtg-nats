@@ -93,7 +93,10 @@ import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
 
-const TABS = ['overview', 'sensors', 'deviations', 'diagnostics'] as const
+// Deviations are a section of the overview, not a tab: they are empty most
+// of the time, and a tab that is usually empty is a click to learn nothing.
+// An old link to ?tab=deviations lands on the overview, where they now are.
+const TABS = ['overview', 'sensors', 'diagnostics'] as const
 type Tab = (typeof TABS)[number]
 
 /** Where the tab lives in the address; every other parameter is the list's. */
@@ -111,10 +114,6 @@ const SEVERITY_TONE: Record<DeviationSeverity, 'danger' | 'warn' | 'neutral'> = 
   critical: 'danger',
   warning: 'warn',
   info: 'neutral',
-}
-
-function needsAttention(deviations: Deviation[]): boolean {
-  return deviations.some((deviation) => deviation.severity !== 'info')
 }
 
 export function ProbeDetailPage() {
@@ -195,7 +194,6 @@ export function ProbeDetailPage() {
   // Asking again is the next step for both, so it takes the one primary.
   const refreshFirst = unreachable || dated
   const helperVisible = canUpdate && summary.helper_outdated && helperUpdatable
-  const helperPrimary = helperVisible && !refreshFirst
 
   return (
     <div className="space-y-4">
@@ -215,15 +213,16 @@ export function ProbeDetailPage() {
           )}
         </div>
 
-        {/* Two visible actions and the menu. Reading the state again is
-            always at hand, and the primary when what the page shows is old
-            or unanswered. The second is the helper update when the probe
-            needs it, otherwise applying the configuration. Everything rare -
-            the check report, the CA, unenrolling - waits in the menu,
-            unenrolling last, in danger text, behind its own confirmation.
-            On a phone the buttons grow to a finger's size, and a button
-            that is not the primary keeps only its icon so the row - with the
-            menu - still fits one line; its name stays for screen readers. */}
+        {/* Two visible actions and the menu, always the same two: checking
+            the state and applying the configuration. Checking is the primary
+            when what the page shows is old or unanswered. Everything rare -
+            the check report, the helper, the CA, unenrolling - waits in the
+            menu, unenrolling last, in danger text, behind its own
+            confirmation; an outdated helper also gets its button in its own
+            banner. On a phone the buttons grow to a finger's size, and the
+            check keeps only its icon unless it is the primary, so the row -
+            with the menu - still fits one line; its name stays for screen
+            readers. */}
         <div className="flex flex-wrap items-center gap-2 max-md:[&_button]:h-11 max-md:[&_button]:min-w-11 max-md:[&_button]:justify-center">
           <Button
             size="sm"
@@ -236,30 +235,16 @@ export function ProbeDetailPage() {
               {t('probes.refreshState')}
             </span>
           </Button>
-          {helperVisible ? (
+          <PermissionGate permission="probe.update">
             <Button
               size="sm"
-              variant={helperPrimary ? 'primary' : 'secondary'}
-              icon={ArrowUpCircle}
-              onClick={() => updateHelper.mutate(probeId, toJob)}
-              disabled={updateHelper.isPending}
+              icon={Settings2}
+              onClick={() => configure.mutate(probeId, toJob)}
+              disabled={configure.isPending}
             >
-              <span className={helperPrimary ? undefined : 'max-md:sr-only'}>
-                {t('probes.updateHelper')}
-              </span>
+              {t('probes.configure')}
             </Button>
-          ) : (
-            <PermissionGate permission="probe.update">
-              <Button
-                size="sm"
-                icon={Settings2}
-                onClick={() => configure.mutate(probeId, toJob)}
-                disabled={configure.isPending}
-              >
-                {t('probes.configure')}
-              </Button>
-            </PermissionGate>
-          )}
+          </PermissionGate>
           <ActionMenu
             label={t('common.moreActions')}
             variant="secondary"
@@ -277,17 +262,6 @@ export function ProbeDetailPage() {
                 : []),
               ...(canUpdate
                 ? [
-                    ...(helperVisible
-                      ? [
-                          {
-                            key: 'configure',
-                            label: t('probes.configure'),
-                            icon: Settings2,
-                            disabled: configure.isPending,
-                            onSelect: () => configure.mutate(probeId, toJob),
-                          },
-                        ]
-                      : []),
                     {
                       key: 'install-ca',
                       label: t('probes.installCa'),
@@ -295,17 +269,13 @@ export function ProbeDetailPage() {
                       disabled: installCa.isPending,
                       onSelect: () => installCa.mutate(probeId, toJob),
                     },
-                    ...(helperVisible
-                      ? []
-                      : [
-                          {
-                            key: 'update-helper',
-                            label: t('probes.updateHelper'),
-                            icon: ArrowUpCircle,
-                            disabled: updateHelper.isPending || !helperUpdatable,
-                            onSelect: () => updateHelper.mutate(probeId, toJob),
-                          },
-                        ]),
+                    {
+                      key: 'update-helper',
+                      label: t('probes.updateHelper'),
+                      icon: ArrowUpCircle,
+                      disabled: updateHelper.isPending || !helperUpdatable,
+                      onSelect: () => updateHelper.mutate(probeId, toJob),
+                    },
                   ]
                 : []),
               ...(can('probe.delete')
@@ -412,7 +382,24 @@ export function ProbeDetailPage() {
         </Banner>
       )}
       {summary.helper_outdated && (
-        <Banner tone="warn" title={t('probes.helperOutdatedTitle')}>
+        <Banner
+          tone="warn"
+          title={t('probes.helperOutdatedTitle')}
+          action={
+            helperVisible && (
+              // Secondary for the same reason as the PRTG banner below: the
+              // toolbar keeps the page's one primary.
+              <Button
+                size="sm"
+                icon={ArrowUpCircle}
+                onClick={() => updateHelper.mutate(probeId, toJob)}
+                disabled={updateHelper.isPending}
+              >
+                {t('probes.updateHelper')}
+              </Button>
+            )
+          }
+        >
           {helperUpdatable ? t('probes.helperOutdatedBody') : t('probes.helperUnsignedBody')}
         </Banner>
       )}
@@ -478,31 +465,23 @@ export function ProbeDetailPage() {
           tabs={TABS}
           active={tab}
           onSelect={selectTab}
-          renderLabel={(entry) => (
-            <>
-              {t(`probes.tabs.${entry}`)}
-              {entry === 'deviations' && data.deviations.length > 0 && (
-                <Badge
-                  tone={needsAttention(data.deviations) ? 'warn' : 'neutral'}
-                  className="ml-2"
-                >
-                  {data.deviations.length}
-                </Badge>
-              )}
-            </>
-          )}
+          renderLabel={(entry) => t(`probes.tabs.${entry}`)}
         />
       </div>
 
-      {tab === 'overview' && <OverviewTab detail={data} dated={dated} />}
-      {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
-      {tab === 'deviations' && (
-        <DeviationsTab
-          probeId={probeId}
-          detail={data}
-          headerHasPrimary={refreshFirst || helperPrimary}
-        />
+      {tab === 'overview' && (
+        <>
+          {data.deviations.length > 0 && (
+            <DeviationsSection
+              probeId={probeId}
+              detail={data}
+              headerHasPrimary={refreshFirst}
+            />
+          )}
+          <OverviewTab detail={data} dated={dated} />
+        </>
       )}
+      {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
       {tab === 'diagnostics' && <DiagnosticsTab detail={data} />}
     </div>
   )
@@ -1286,7 +1265,11 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
   )
 }
 
-function DeviationsTab({
+/**
+ * What differs from the wanted state, at the top of the overview. Shown only
+ * when there is something; a probe that matches says nothing here.
+ */
+function DeviationsSection({
   probeId,
   detail,
   headerHasPrimary,
@@ -1301,14 +1284,6 @@ function DeviationsTab({
   const [preview, setPreview] = useState(false)
   const plan = useProbePlan(probeId, preview)
   const execute = useExecuteReconcile()
-
-  if (detail.deviations.length === 0) {
-    return (
-      <Card>
-        <EmptyState title={t('probes.noDeviations')} />
-      </Card>
-    )
-  }
 
   return (
     <div className="space-y-4">
