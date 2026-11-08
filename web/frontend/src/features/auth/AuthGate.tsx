@@ -6,6 +6,7 @@ import { useLogin, useSetup } from '@/api/hooks'
 import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Button, Card, Field, Input, Skeleton } from '@/components/ui/primitives'
+import { guideHomeHref } from '@/utils/guide'
 
 /**
  * Decides between three screens: first-run setup, sign-in, or the application.
@@ -31,10 +32,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
 }
 
 function CenteredCard({ title, children }: { title: string; children: ReactNode }) {
+  const { t, i18n } = useTranslation()
   return (
     <div className="bg-paper flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <Card title={title}>{children}</Card>
+        {/* Readable before signing in: the guide holds nothing an account
+            would protect, and the first visit is when it helps most. */}
+        <p className="mt-3 text-center text-sm">
+          <a
+            href={guideHomeHref(i18n.resolvedLanguage)}
+            target="_blank"
+            rel="noopener"
+            className="text-ink-3 hover:text-ink underline-offset-2 hover:underline"
+          >
+            {t('nav.guide')} <span aria-hidden>↗</span>
+          </a>
+        </p>
       </div>
     </div>
   )
