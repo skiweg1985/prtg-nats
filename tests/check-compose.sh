@@ -16,6 +16,12 @@ fi
 trap 'rm -f .env .env.tmp' EXIT
 
 if ! docker compose version >/dev/null 2>&1; then
+  # A runner that should have Compose sets PRTG_REQUIRE_COMPOSE=1, so losing
+  # it fails the check instead of passing it with nothing checked.
+  if [[ "${PRTG_REQUIRE_COMPOSE:-0}" == "1" ]]; then
+    echo "Docker Compose is required here but not available." >&2
+    exit 1
+  fi
   echo "Docker Compose is not available on this runner; check skipped."
   exit 0
 fi
@@ -27,7 +33,7 @@ NATS_FQDN=nats.example.test
 NATS_HOST_IP=127.0.0.1
 PRTG_CORE_IP=127.0.0.1
 ENVEOF
-sed -i 's/^ *//' .env
+sed 's/^ *//' .env > .env.tmp && mv .env.tmp .env
 docker compose --project-directory . config --quiet
 echo "The Compose configuration is valid."
 
@@ -101,7 +107,7 @@ print("Volume exposure is as intended.")
 PY
 
 # The port from .env has to reach the port binding.
-sed -i 's/^NATS_PORT=.*/NATS_PORT=24999/' .env
+sed 's/^NATS_PORT=.*/NATS_PORT=24999/' .env > .env.tmp && mv .env.tmp .env
 docker compose --project-directory . config |
   grep -q 'published: "24999"' ||
   { echo "NATS_PORT does not reach the port binding"; exit 1; }
