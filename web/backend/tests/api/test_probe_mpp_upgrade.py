@@ -35,6 +35,7 @@ def probe_info(
     available: str | None = None,
     service: str = "active",
     helper: int = CURRENT_HELPER_VERSION,
+    platform: str = "linux-arm64-glibc",
 ) -> str:
     return (
         "OK probe-info\n"
@@ -42,6 +43,7 @@ def probe_info(
         f"package_available={available or package}\n"
         f"service={service}\n"
         f"helper_version={helper}\n"
+        f"platform={platform}\n"
         "config=/etc/paessler/mpprobe/config.yaml\n"
     )
 
@@ -111,6 +113,11 @@ def test_only_a_newer_version_of_the_same_kind_counts() -> None:
     # An RPM version never makes a Debian probe look outdated, nor the reverse.
     assert newer_package_version("3.10.0", known) == "3.12.0"
     assert newer_package_version(None, known) is None
+    # dpkg's order: a pre-release before its release, an epoch above all.
+    assert newer_package_version("3.11.0-1", ["3.11.0~rc1-1"]) is None
+    assert newer_package_version("3.11.0~rc1-1", ["3.11.0-1"]) == "3.11.0-1"
+    assert newer_package_version("3.11.0-1", ["1:3.10.0-1"]) == "1:3.10.0-1"
+    assert newer_package_version("3.11.0-1+deb13", ["3.11.0-1+deb12"]) is None
 
 
 async def test_the_list_names_a_release_another_probe_has_seen(
@@ -139,6 +146,33 @@ async def test_the_list_names_a_release_another_probe_has_seen(
     assert detail.json()["summary"]["package_update"] == "3.11.0-1"
 
 
+async def test_a_release_for_another_platform_is_not_offered(
+    client: AsyncClient,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    transport: ScriptedTransport,
+) -> None:
+    """The arm64 build can trail the amd64 one; offering it would end in
+    "already current" on every run."""
+    write_probe_inventory(project_dir, "mpp-berlin-01")
+    write_probe_inventory(project_dir, "mpp-hamburg-01")
+    await sign_in(client)
+    transport.responses["probe-info"] = probe_info("3.10.0-1")
+    await observe(settings, session_factory, transport, "mpp-berlin-01")
+    transport.responses["probe-info"] = probe_info(
+        "3.11.0-1", platform="linux-amd64-glibc"
+    )
+    await observe(settings, session_factory, transport, "mpp-hamburg-01")
+
+    rows = {
+        row["nats_username"]: row for row in (await client.get("/api/v1/probes")).json()
+    }
+    assert rows["mpp-berlin-01"]["package_update"] is None
+    detail = await client.get(f"/api/v1/probes/{rows['mpp-berlin-01']['id']}")
+    assert detail.json()["summary"]["package_update"] is None
+
+
 async def test_the_upgrade_runs_and_the_new_version_is_recorded(
     client: AsyncClient,
     settings: Settings,
@@ -153,7 +187,7 @@ async def test_the_upgrade_runs_and_the_new_version_is_recorded(
         *[probe_info("3.11.0-1")] * 4,
     ]
     transport.responses["mpp-upgrade"] = (
-        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=active\n"
+        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=active was=active\n"
     )
 
     job_id = await upgrade(client, settings, transport)
@@ -193,7 +227,7 @@ async def test_an_older_helper_is_renewed_before_the_upgrade(
         f"OK helper-updated version={CURRENT_HELPER_VERSION} sha256=bb\n"
     )
     transport.responses["mpp-upgrade"] = (
-        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=active\n"
+        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=active was=active\n"
     )
 
     await upgrade(client, settings, transport)
@@ -216,7 +250,7 @@ async def test_a_service_that_does_not_come_back_fails_the_job(
         *[probe_info("3.11.0-1", service="inactive")] * 4,
     ]
     transport.responses["mpp-upgrade"] = (
-        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=inactive\n"
+        "OK mpp-upgraded from=3.10.0-1 to=3.11.0-1 state=upgraded service=inactive was=active\n"
     )
 
     job_id = await upgrade(client, settings, transport)
@@ -238,7 +272,7 @@ async def test_a_probe_on_the_newest_version_is_not_a_failure(
     await sign_in(client)
     transport.responses["probe-info"] = probe_info("3.11.0-1")
     transport.responses["mpp-upgrade"] = (
-        "OK mpp-upgraded from=3.11.0-1 to=3.11.0-1 state=current service=active\n"
+        "OK mpp-upgraded from=3.11.0-1 to=3.11.0-1 state=current service=active was=active\n"
     )
 
     job_id = await upgrade(client, settings, transport)

@@ -631,6 +631,13 @@ upgrade_probe_software() {
   fi
   answer="$(printf 'mpp-upgrade\n' | managed_ssh "${username}")" || return
   printf '%s\n' "${answer#OK mpp-upgraded }"
+  # The helper reports both: a service that ran before and does not now is a
+  # failed upgrade, whatever the package manager said.
+  if [[ "${answer}" == *" was=active"* && "${answer}" != *" service=active"* ]]; then
+    printf 'ERROR: the probe service on %s did not come back after the upgrade\n' \
+      "${username}" >&2
+    return 1
+  fi
 }
 
 # One after another, so the probes do not all stop measuring at once, and one

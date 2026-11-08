@@ -210,10 +210,10 @@ async def mpp_upgrade_on(context: JobContext, username: str) -> dict[str, Any]:
         context.catalog,
     )
     observed = await probes.refresh_observed_state(username)
-    if (
-        observed.service is not ServiceState.ACTIVE
-        and info.value("service") == ServiceState.ACTIVE.value
-    ):
+    was_running = (fields.get("was") or info.value("service")) == (
+        ServiceState.ACTIVE.value
+    )
+    if was_running and observed.service is not ServiceState.ACTIVE:
         await context.log(
             "jobs.probe.mpp_service_down",
             level=LogLevel.ERROR,

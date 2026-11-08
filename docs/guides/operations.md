@@ -350,15 +350,16 @@ left out of the selection and the confirmation says how many were.
 
 The enrollment installs the `prtgmpprobe` version the Paessler repository
 offers on that day and leaves it there, so probes set up at different times
-run different versions. Where any probe in the fleet reports a newer version
-than the one a probe carries, the probe list and the probe's page show it
+run different versions. Where another probe of the same platform reports a
+newer version than the one a probe carries, the probe list and the probe's page show it
 beside the version, as "3.11.0-1 available".
 
 "Upgrade probe software" sits in a probe's menu and, for a selection, in the
 bar above the probe list. It always asks first, because the probe service
 restarts and measuring pauses for about a minute. The job renews an older
 helper, refreshes only the Paessler source, upgrades only this package and
-checks afterwards that the service runs again. A selection is upgraded one
+checks afterwards that the service runs again; a service that was stopped
+stays stopped. A selection is upgraded one
 probe after another. From the shell:
 
 ```bash

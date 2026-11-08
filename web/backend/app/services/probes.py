@@ -655,17 +655,22 @@ class ProbeService:
             error_details=row.error_details,
         )
 
-    async def _fleet_known_packages(self) -> tuple[str, ...]:
-        """Every package version any probe reported, installed or available."""
-        rows = await self._db.scalars(select(ProbeObservedState))
+    async def _fleet_known_packages(self) -> dict[str | None, tuple[str, ...]]:
+        """What the enrolled probes report, the same set the list compares.
+
+        Rows of probes that left the inventory stay out: a retired probe's
+        last word must not keep a badge on the ones still here.
+        """
+        usernames = [
+            inventory.nats_username for inventory in self._runtime.read_all_probes()
+        ]
+        rows = await self._db.execute(
+            select(ProbeRecord.nats_username, ProbeObservedState)
+            .join(ProbeObservedState, ProbeObservedState.probe_id == ProbeRecord.id)
+            .where(ProbeRecord.nats_username.in_(usernames))
+        )
         return _known_packages(
-            ObservedProbeState.from_document(
-                nats_username="",
-                observed_at=row.observed_at,
-                reachable=row.reachable,
-                document=row.document,
-            )
-            for row in rows
+            self._observed_from_row(username, row) for username, row in rows.all()
         )
 
     async def _active_job_ids(self) -> dict[str, str]:
@@ -689,7 +694,7 @@ class ProbeService:
         running_job_id: str | None,
         route: ManagementRoute | None = None,
         channel: ReturnChannelState | None = None,
-        known_packages: tuple[str, ...] = (),
+        known_packages: dict[str | None, tuple[str, ...]] | None = None,
     ) -> ProbeSummary:
         # The findings an operator is expected to do something about. The
         # informational ones stay on the probe's own page, where they belong:
@@ -736,8 +741,13 @@ class ProbeService:
             error_code=observed.error_code if observed else None,
             helper_version=observed.helper_version if observed else None,
             helper_outdated=observed.helper_outdated if observed else False,
-            package_update=newer_package_version(
-                observed.package_version if observed else None, known_packages
+            package_update=(
+                newer_package_version(
+                    observed.package_version,
+                    (known_packages or {}).get(observed.platform, ()),
+                )
+                if observed is not None
+                else None
             ),
             prtg_registered=record.prtg_registered_at is not None,
             managed_over_tunnel=route is not None
@@ -751,14 +761,21 @@ class ProbeService:
 
 def _known_packages(
     observations: Iterable[ObservedProbeState | None],
-) -> tuple[str, ...]:
-    return tuple(
-        version
-        for observed in observations
-        if observed is not None
-        for version in (observed.package_version, observed.package_available)
-        if version is not None
-    )
+) -> dict[str | None, tuple[str, ...]]:
+    """Reported package versions, grouped by platform.
+
+    Per platform because the Paessler builds for one architecture can trail
+    another's: an arm64 probe must not be offered a version that so far only
+    exists for amd64, or every run would end in "already current".
+    """
+    known: dict[str | None, list[str]] = {}
+    for observed in observations:
+        if observed is None:
+            continue
+        for version in (observed.package_version, observed.package_available):
+            if version is not None:
+                known.setdefault(observed.platform, []).append(version)
+    return {platform: tuple(versions) for platform, versions in known.items()}
 
 
 def _derive_status(

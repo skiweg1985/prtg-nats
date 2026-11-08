@@ -262,9 +262,10 @@ path. See
 [ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
 
 The summary also carries `package_update`: the newest `prtgmpprobe` version
-any probe reports, installed or offered by its package cache, when it is newer
-than the one this probe has - `null` otherwise. Debian and RPM versions are
-never compared with each other. `POST /probes/actions/mpp-upgrade` acts on it:
+any enrolled probe of the same platform reports, installed or offered by its
+package cache, when it is newer than the one this probe has - `null`
+otherwise. Versions are ordered the way dpkg orders them, epoch and `~`
+included; Debian and RPM versions are never compared with each other. `POST /probes/actions/mpp-upgrade` acts on it:
 the job renews an older helper, upgrades the package from the Paessler
 repository, restarts the probe service and fails when the service does not
 come back. A probe already on the newest version is logged as current, not as
