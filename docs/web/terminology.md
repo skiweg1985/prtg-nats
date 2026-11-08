@@ -1,7 +1,7 @@
 ---
 title: Terminology of the web interface
 role: developer
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Terminology of the web interface
@@ -43,6 +43,7 @@ does not settle, settle it here first.
 | route over the overlay | Tunnel | tunnel | — |
 | route over the probe's own network | Standortadresse | site address (`site` in the API and the shell) | — |
 | NATS traffic outside the overlay | direkt | direct | — |
+| channel probes report back over | Rückkanal | return channel | — |
 
 The overlay vocabulary is layered on purpose and is the model to follow:
 **Overlay** is the feature, **Tunnel** the per-probe link, **Hub** the server

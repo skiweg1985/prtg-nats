@@ -235,6 +235,9 @@ class SiteSettings:
     # The interface usually answers on the same name as NATS; a deployment
     # that splits them sets WEB_FQDN, exactly as the proxy already expects.
     web_fqdn_override: str | None = None
+    # Where probes report back (ADR 0013): its own port on the proxy, because
+    # that site demands a client certificate and the interface must not.
+    probe_channel_port: int = 8443
 
     # The overlay is deliberately not here. It is configured through the
     # interface, so its settings live in the runtime where the API can write
@@ -247,6 +250,18 @@ class SiteSettings:
     @property
     def web_fqdn(self) -> str:
         return self.web_fqdn_override or self.nats_fqdn or ""
+
+    def probe_channel_url(self, host_override: str | None = None) -> str:
+        """The address a probe reports back to.
+
+        The interface name, like the enrolment channel - the proxy serves the
+        interface certificate on this port too. A probe that cannot resolve
+        it (an outpost pinned to NATS_HOST_IP) is given its address instead.
+        """
+        host = host_override or self.web_fqdn
+        if ":" in host:
+            host = f"[{host}]"
+        return f"https://{host}:{self.probe_channel_port}"
 
     @property
     def nats_endpoint(self) -> str | None:
@@ -284,6 +299,7 @@ class RuntimeFileStore:
             "MPP_SSH_SOURCE_CIDR",
             "IPERF_SSH_SOURCE_CIDR",
             "WEB_FQDN",
+            "PROBE_CHANNEL_PORT",
         ):
             from_environment = os.environ.get(key)
             if from_environment:
@@ -303,6 +319,7 @@ class RuntimeFileStore:
             ),
             iperf_ssh_source_cidr=values.get("IPERF_SSH_SOURCE_CIDR") or None,
             web_fqdn_override=values.get("WEB_FQDN") or None,
+            probe_channel_port=_as_int(values.get("PROBE_CHANNEL_PORT"), 8443),
         )
 
     # --- Runtime completeness ----------------------------------------------

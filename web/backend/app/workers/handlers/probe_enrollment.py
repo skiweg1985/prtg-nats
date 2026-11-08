@@ -31,7 +31,7 @@ from app.infrastructure.probe_helper import ProbeConnection
 from app.infrastructure.probe_helper.protocol import normalise_optional
 from app.services.provisioning import ProvisioningService
 from app.workers.context import JobContext
-from app.workers.handlers import probe_lifecycle
+from app.workers.handlers import probe_lifecycle, return_channel
 
 ENROLL_STEPS: tuple[str, ...] = (
     "pin_host_key",
@@ -39,6 +39,7 @@ ENROLL_STEPS: tuple[str, ...] = (
     "verify_access",
     "write_inventory",
     "install_ca",
+    return_channel.STEP,
     "configure",
 )
 ENROLL_JOB_TYPE = "probe.enroll"
@@ -280,7 +281,14 @@ async def _enroll(context: JobContext, created: dict[str, Any]) -> dict[str, Any
     await context.helper.install_ca(connection, ca_path.read_text(encoding="utf-8"))
     await context.log("jobs.probe.ca_installed", params={"probe": username})
 
-    # --- 6. The configuration ----------------------------------------------
+    # --- 6. The return channel ----------------------------------------------
+    # Before the configuration, so a probe that comes up is already able to
+    # report back. Enrolment always issues a fresh certificate: re-enrolling
+    # is how an operator starts a probe over, and that includes its key.
+    await context.step(return_channel.STEP)
+    await return_channel.install_return_channel(context, username, connection)
+
+    # --- 7. The configuration ----------------------------------------------
     await context.step("configure")
     await probe_lifecycle.run_config_transaction(
         context, username, probe_name=probe_name
