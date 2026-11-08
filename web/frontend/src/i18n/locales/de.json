@@ -53,7 +53,8 @@
     "stale": "Zwischenspeicher, zuletzt geprüft {{time}}",
     "unknown": "Unbekannt",
     "updated": "Stand",
-    "apply": "Übernehmen"
+    "apply": "Übernehmen",
+    "moreActions": "Weitere Aktionen"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -342,7 +343,7 @@
       "sensorsValue_other": "{{count}} ausgerollt",
       "endpoints": "Messpunkte",
       "none": "keine",
-      "manage": "Verwalten →"
+      "manage": "Verwalten"
     },
     "account": {
       "showPassword": "Passwort anzeigen"
@@ -378,8 +379,10 @@
         "rejected": "PRTG hat das API-Token abgelehnt.",
         "not_found": "In PRTG gibt es keine Probe mit der Objekt-Id {{id}} mehr.",
         "ok": "—"
-      }
+      },
+      "unlinkConfirm": "Die Verknüpfung mit dem PRTG-Objekt {{id}} wird gelöst. Die Probe heißt hier dann wieder so wie bei der Einbindung; in PRTG ändert sich nichts."
     },
+    "removeSensorConfirm": "{{sensor}} wird von dieser Probe entfernt. Der Sensor in PRTG meldet danach einen Fehler, bis er gelöscht oder neu ausgerollt ist.",
     "returnChannel": {
       "label": "Rückkanal",
       "lastReport": "Letzte Meldung {{time}}",
