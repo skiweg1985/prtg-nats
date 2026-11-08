@@ -85,12 +85,20 @@ FIELD_SEPARATOR = "\t"
 # unknown and omits the fields, which reads as the helper being behind. It is
 # also the version that makes putting a probe on the overlay possible at all,
 # so the platform offers the update before it tries.
-CURRENT_HELPER_VERSION = 10
+#
+# Version 11 adds channel-csr and channel-install, the client certificate for
+# the return channel (ADR 0013), and channel_cert in probe-info. The minimum
+# stays at 1: a probe below 11 is enrolled and updated as before and simply
+# gets no certificate until its helper is current.
+CURRENT_HELPER_VERSION = 11
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
 # told it cannot be put on the overlay when it can.
 OVERLAY_HELPER_VERSION = 9
+# The return channel requests arrived with version 11, asked for separately
+# for the same reason.
+RETURN_CHANNEL_HELPER_VERSION = 11
 
 # Where a variant's files land on the probe. The helper builds the same path
 # from its own validated tokens - this side only needs to know it, because the
@@ -157,6 +165,12 @@ class HelperCommand(StrEnum):
     # keep the address the platform reaches it from today, and that is the
     # same operation in the other direction.
     ACCESS_SOURCE = "access-source"
+
+    # The return channel (ADR 0013): the probe makes a key and answers with a
+    # CSR, the platform signs it and hands the certificate back with the
+    # client CA and the address to report to.
+    CHANNEL_CSR = "channel-csr"
+    CHANNEL_INSTALL = "channel-install"
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"

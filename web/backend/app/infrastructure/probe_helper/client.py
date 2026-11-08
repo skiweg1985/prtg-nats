@@ -378,6 +378,46 @@ class ProbeHelperClient:
             connection, HelperCommand.INSTALL_CA, payload=ca_pem, timeout=60
         )
 
+    # --- Return channel -----------------------------------------------------
+
+    async def channel_csr(self, connection: ProbeConnection) -> str:
+        """Have the probe make a fresh key and return the CSR for it, as PEM.
+
+        The private half never leaves the probe. The new key waits there
+        beside the one in use until channel-install brings the certificate
+        for it, so a run that fails in between leaves the channel as it was.
+        """
+        response = await self._call(connection, HelperCommand.CHANNEL_CSR, timeout=60)
+        encoded = response.value("csr")
+        try:
+            return base64.b64decode(encoded or "", validate=True).decode("ascii")
+        except (ValueError, UnicodeDecodeError) as error:
+            raise ProbeProtocolError(
+                params={"command": HelperCommand.CHANNEL_CSR.value},
+                details="the probe answered without a readable CSR",
+            ) from error
+
+    async def channel_install(
+        self,
+        connection: ProbeConnection,
+        *,
+        certificate_pem: str,
+        client_ca_pem: str,
+        platform_url: str,
+    ) -> HelperResponse:
+        """Store the signed certificate, the client CA and where to report to.
+
+        Certificate first, CA after it, in one payload; the helper tells them
+        apart by order and checks the certificate against its pending key.
+        """
+        return await self._call(
+            connection,
+            HelperCommand.CHANNEL_INSTALL,
+            platform_url,
+            payload=certificate_pem.rstrip("\n") + "\n" + client_ca_pem,
+            timeout=60,
+        )
+
     # --- Overlay ------------------------------------------------------------
 
     async def overlay_configure(

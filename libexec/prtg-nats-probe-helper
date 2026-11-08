@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=10
+HELPER_VERSION=11
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -52,6 +52,18 @@ SENSOR_NM_CONFIG="/etc/NetworkManager/conf.d/99-prtg-sensor-interfaces.conf"
 SENSOR_TOOL_ROOT="/opt/prtg-nats/tools"
 SYSTEM_IPERF_MIN_VERSION="3.18"
 SYSTEM_IPERF_PATH="/usr/bin/iperf3"
+
+# --- Return channel --------------------------------------------------------
+# Where the probe reports back to the platform (ADR 0013). The key is made
+# here and never leaves; a new one waits as the pending key until the
+# certificate for it arrives, so a renewal that fails half way leaves the
+# working pair alone.
+RETURN_CHANNEL_DIR="/etc/prtg-nats/return-channel"
+RETURN_CHANNEL_KEY="${RETURN_CHANNEL_DIR}/key.pem"
+RETURN_CHANNEL_PENDING_KEY="${RETURN_CHANNEL_DIR}/key.pending.pem"
+RETURN_CHANNEL_CERT="${RETURN_CHANNEL_DIR}/cert.pem"
+RETURN_CHANNEL_CA="${RETURN_CHANNEL_DIR}/ca.pem"
+RETURN_CHANNEL_CONFIG="${RETURN_CHANNEL_DIR}/channel.env"
 
 # --- Overlay ---------------------------------------------------------------
 # The WireGuard tunnel to the platform. The private key is kept beside the
@@ -661,6 +673,7 @@ probe_info() {
     printf 'ca_sha256=none\n'
   fi
   print_overlay_fields
+  printf 'channel_cert=%s\n' "$(return_channel_expiry)"
   printf 'addresses=%s\n' "$(own_addresses)"
   if [[ -f "${TOML_CONFIG}" ]]; then
     printf 'config=%s\n' "${TOML_CONFIG}"
@@ -697,6 +710,137 @@ install_ca() {
   install -o root -g root -m 0644 "${staged}" "${CA_PATH}"
   rm -f -- "${staged}"
   printf 'OK ca-installed %s\n' "${CA_PATH}"
+}
+
+# ---------------------------------------------------------------------------
+# The return channel's client certificate (ADR 0013)
+#
+# channel-csr makes the key and answers with a CSR; channel-install takes the
+# certificate the platform signed for it, together with the client CA and the
+# address to report to. The subject in the CSR is a placeholder: the platform
+# names the certificate after the probe's identity, whatever is asked for.
+# ---------------------------------------------------------------------------
+
+require_openssl() {
+  command -v openssl >/dev/null 2>&1 ||
+    die "openssl is required for the return channel"
+}
+
+# The expiry of the installed certificate as a date, or none.
+return_channel_expiry() {
+  local end=""
+
+  if [[ ! -s "${RETURN_CHANNEL_CERT}" ]] ||
+     ! command -v openssl >/dev/null 2>&1; then
+    printf 'none\n'
+    return 0
+  fi
+  end="$(openssl x509 -in "${RETURN_CHANNEL_CERT}" -noout -enddate 2>/dev/null)" ||
+    end=""
+  end="${end#notAfter=}"
+  if [[ -z "${end}" ]]; then
+    printf 'none\n'
+    return 0
+  fi
+  date -u -d "${end}" +%F 2>/dev/null || printf 'none\n'
+}
+
+channel_csr() {
+  local csr=""
+
+  require_openssl
+  install -d -o root -g root -m 0755 /etc/prtg-nats
+  install -d -o root -g root -m 0700 "${RETURN_CHANNEL_DIR}"
+  rm -f -- "${RETURN_CHANNEL_PENDING_KEY}.new"
+  # A fresh key on every request, never the one in use: the pending key only
+  # replaces it once channel-install proves the certificate is for it.
+  openssl genpkey -algorithm EC \
+    -pkeyopt ec_paramgen_curve:P-256 \
+    -pkeyopt ec_param_enc:named_curve \
+    -out "${RETURN_CHANNEL_PENDING_KEY}.new" >/dev/null 2>&1 ||
+    die "Could not generate a return channel key"
+  chmod 0600 "${RETURN_CHANNEL_PENDING_KEY}.new"
+  mv -f "${RETURN_CHANNEL_PENDING_KEY}.new" "${RETURN_CHANNEL_PENDING_KEY}"
+  csr="$(
+    openssl req -new -sha256 -key "${RETURN_CHANNEL_PENDING_KEY}" \
+      -subj "/CN=prtg-nats-probe" 2>/dev/null
+  )" || die "Could not create a certificate signing request"
+  printf 'OK channel-csr\n'
+  printf 'csr=%s\n' "$(printf '%s\n' "${csr}" | base64 | tr -d '\n')"
+}
+
+# Which local key the certificate belongs to: the pending one after a
+# channel-csr, or the current one when the same certificate is installed
+# again. Anything else is a certificate for a key this probe does not hold.
+return_channel_key_for() {
+  local certificate="$1"
+  local expected=""
+  local candidate=""
+
+  expected="$(openssl x509 -in "${certificate}" -noout -pubkey 2>/dev/null)" ||
+    return 1
+  for candidate in "${RETURN_CHANNEL_PENDING_KEY}" "${RETURN_CHANNEL_KEY}"; do
+    [[ -s "${candidate}" ]] || continue
+    if [[ "$(openssl pkey -in "${candidate}" -pubout 2>/dev/null)" == \
+          "${expected}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+channel_install() {
+  local platform_url="$1"
+  local staged="${STATE_DIR}/return-channel-candidate.pem"
+  local scratch=""
+  local key=""
+  local url_pattern='^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$'
+
+  [[ "${platform_url}" =~ ${url_pattern} ]] ||
+    die "channel-install requires an https URL with host and port"
+  require_openssl
+  read_limited_input "${staged}"
+  [[ "$(grep -c 'BEGIN CERTIFICATE' "${staged}")" == "2" ]] ||
+    die "channel-install expects the certificate followed by the client CA"
+
+  scratch="$(mktemp -d "${STATE_DIR}/return-channel.XXXXXX")"
+  awk -v dir="${scratch}" '
+    /-----BEGIN CERTIFICATE-----/ { count++ }
+    count == 1 { print > (dir "/cert.pem") }
+    count == 2 { print > (dir "/ca.pem") }
+  ' "${staged}"
+  rm -f -- "${staged}"
+
+  if ! openssl x509 -in "${scratch}/ca.pem" -noout -text 2>/dev/null |
+       grep -F 'CA:TRUE' >/dev/null; then
+    rm -rf -- "${scratch}"
+    die "The client CA is not a certificate authority"
+  fi
+  if ! openssl verify -purpose sslclient -CAfile "${scratch}/ca.pem" \
+       "${scratch}/cert.pem" >/dev/null 2>&1; then
+    rm -rf -- "${scratch}"
+    die "The certificate does not verify against the client CA"
+  fi
+  if ! key="$(return_channel_key_for "${scratch}/cert.pem")"; then
+    rm -rf -- "${scratch}"
+    die "The certificate does not belong to a key on this probe"
+  fi
+
+  install -d -o root -g root -m 0700 "${RETURN_CHANNEL_DIR}"
+  install -o root -g root -m 0644 "${scratch}/ca.pem" "${RETURN_CHANNEL_CA}"
+  install -o root -g root -m 0644 "${scratch}/cert.pem" "${RETURN_CHANNEL_CERT}"
+  if [[ "${key}" == "${RETURN_CHANNEL_PENDING_KEY}" ]]; then
+    mv -f "${RETURN_CHANNEL_PENDING_KEY}" "${RETURN_CHANNEL_KEY}"
+  fi
+  chmod 0600 "${RETURN_CHANNEL_KEY}"
+  printf 'PLATFORM_URL=%s\n' "${platform_url}" > "${RETURN_CHANNEL_CONFIG}.new"
+  chmod 0644 "${RETURN_CHANNEL_CONFIG}.new"
+  mv -f "${RETURN_CHANNEL_CONFIG}.new" "${RETURN_CHANNEL_CONFIG}"
+  rm -rf -- "${scratch}"
+
+  printf 'OK channel-install\n'
+  printf 'channel_cert=%s\n' "$(return_channel_expiry)"
 }
 
 # ---------------------------------------------------------------------------
@@ -2954,6 +3098,9 @@ remove_access() {
     /var/lib/prtg-nats-admin/.ssh/authorized_keys \
     /etc/sudoers.d/prtg-nats-admin
   printf 'OK management-access-removed\n'
+  # The key only ever served this platform; a probe that leaves it keeps
+  # nothing that could still open the return channel.
+  rm -rf -- "${RETURN_CHANNEL_DIR}"
   if [[ -f "${OVERLAY_CONFIG}" || -f "${OVERLAY_CONFIG_ENV}" ]]; then
     remove_overlay >/dev/null 2>&1 || true
   fi
@@ -3707,6 +3854,15 @@ case "${command_name}" in
        -z "${argument_three:-}" ]] ||
       die "sensor-remove-file requires sensor and profile"
     remove_sensor_file "${argument_one}" "${argument_two}"
+    ;;
+  channel-csr)
+    [[ -z "${argument_one:-}" ]] || die "channel-csr takes no arguments"
+    channel_csr
+    ;;
+  channel-install)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "channel-install requires one platform URL"
+    channel_install "${argument_one}"
     ;;
   helper-update)
     [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
