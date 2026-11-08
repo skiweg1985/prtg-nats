@@ -237,6 +237,39 @@ phase_recreate() {
     GIT_REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')" \
     docker compose --project-directory "${CHECKOUT}" up -d --remove-orphans || return 1
   printf 'Stack recreated.\n'
+  recreate_proxy_if_stale || return 1
+}
+
+# The one case where leaving the proxy up is wrong: its configuration changed.
+#
+# compose cannot see that. The Caddyfile is bound as a single file, and compose
+# compares the bind's path, not its content, so the proxy counts as unchanged.
+# The running proxy cannot see it either: git replaces the file on checkout
+# rather than writing into it, and a single-file bind keeps pointing at the
+# file that was there when the container started. A changed Caddyfile reached
+# an installation only through `prtg-nats update`, which recreates everything.
+#
+# So compare what the proxy reads with the file bound into it, and recreate
+# only the proxy when they differ. Content rather than commits, because that
+# also catches a Caddyfile pulled by hand before a rebuild, and the proxy keeps
+# serving through every update that leaves its configuration alone.
+recreate_proxy_if_stale() {
+  local proxy source running
+  proxy="$(docker compose --project-directory "${CHECKOUT}" ps -q web-proxy 2>/dev/null)" ||
+    return 0
+  # Not running means up -d just created it, from the current file.
+  [[ -n "${proxy}" ]] || return 0
+  source="$(docker inspect "${proxy}" --format \
+    '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}' \
+    2>/dev/null)" || return 0
+  [[ -n "${source}" && -f "${source}" ]] || return 0
+  running="$(docker exec "${proxy}" cat /etc/caddy/Caddyfile 2>/dev/null)" || return 0
+  [[ "${running}" != "$(cat "${source}")" ]] || return 0
+
+  printf 'The proxy configuration changed; recreating the proxy...\n'
+  docker compose --project-directory "${CHECKOUT}" up -d --no-deps --force-recreate \
+    web-proxy || return 1
+  printf 'Proxy recreated.\n'
 }
 
 # The whole sequence, for the caller that hands over and stops watching. The
