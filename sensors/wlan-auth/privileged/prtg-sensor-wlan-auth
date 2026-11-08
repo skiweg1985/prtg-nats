@@ -33,6 +33,7 @@ runs in test mode, and the interface is powered down again afterwards.
 """
 
 import array
+import collections
 import datetime
 import fcntl
 import hashlib
@@ -42,6 +43,7 @@ import re
 import shutil
 import signal
 import socket
+import statistics
 import struct
 import subprocess
 import sys
@@ -72,37 +74,48 @@ WORKDIR_PREFIX = "prtg-sensor-wlan-auth."
 LOCK_WAIT_CEILING = 15
 LOCK_WAIT_SECONDS = 15
 
-# How a job's time to live is derived from the freshness it asked for, and
+# How a job's time to live is derived from how often it is asked for, and
 # the floor under it. See job_ttl.
 JOB_TTL_FACTOR = 3
 JOB_TTL_MINIMUM = 300
 
-# A result renewed exactly at max_age is already too old when the next
-# request arrives, so the renewal has to start early enough to finish in
-# time. How early is not a fraction: it is how long a round over every job
-# on this radio takes, because that is what a job may have to wait through
-# before its turn comes. Measured on a probe with two jobs of 15 seconds
-# and max_age 60, a fixed four fifths renewed at 48 and finished at 58 -
-# one job more and the result would have passed max_age and been thrown
-# away, although the scheduler did everything right.
+# The helper plans the radio from what it sees (ADR 0014): how often PRTG
+# asks for a job, and how long its runs really take. Neither is configured.
 #
 # The floor is the shortest interval at which one network is measured
-# again, whatever max_age asks for. Where a round cannot fit into max_age,
-# every job is overdue all the time; with a floor of a second the radio then
+# again, however often its sensor asks. With a floor of a second the radio
 # signed in without a break, and an access point answered that with status
 # 16 until nothing got through (seen on a probe with two jobs on one SSID
-# and max_age 60). A minute between two sign-ins of the same network keeps
-# a setting that is too low from hammering the access point - the sensor
-# names the setting with failure code 13 instead (see min_max_age).
+# asking every minute). A minute between two sign-ins of the same network
+# keeps a sensor that asks often from hammering the access point.
 REFRESH_FLOOR_SECONDS = 60.0
 
 # The rest after every sign-in before the radio takes the next network. An
 # access point sees one station leave and the next arrive from the same
-# radio, and back to back within a second that is what it throttles. Not
-# part of round_budget: the round already assumes every run uses its whole
-# timeout, which real runs come nowhere near, and counting the rest on top
-# would flag four networks under the default max_age for no real gain.
+# radio, and back to back within a second that is what it throttles. Part
+# of every round, since the radio spends it whatever the run did.
 RADIO_PAUSE_SECONDS = 10.0
+
+# The interval a job is planned with before its sensor has asked twice.
+# The first request is measured at once anyway; by the time this matters
+# the second request has usually arrived and set the real pace.
+DEFAULT_INTERVAL_SECONDS = 300.0
+
+# How many runs a job's expected duration is read from. The slowest of
+# them counts, so a network that starts failing lengthens the round with
+# its first long run, and one that recovers shortens it again three good
+# runs later.
+DURATION_HISTORY = 3
+
+# How many requests the rate is read from. The median of their gaps keeps
+# one scan that overran, or a probe that restarted, from setting the pace.
+ASK_HISTORY = 6
+
+# A result counts as stale once it is about this many rounds - or this
+# many of its own intervals, where those are longer - old. An age past it
+# points at a real problem, a stuck helper or a crowded radio, not at a
+# setting.
+STALE_ROUNDS = 2
 
 # How long the scheduler sleeps when nothing is due. Short enough that a
 # newly registered job is measured almost at once, long enough to cost
@@ -1103,13 +1116,18 @@ def validate_job(job):
         raise Blocked("bad-request", "Invalid timeout")
     if not 5 <= job["timeout"] <= 300:
         raise Blocked("bad-request", "The timeout must be 5 to 300 seconds")
-    try:
-        job["max_age"] = int(job.get("max_age") or 300)
-    except (TypeError, ValueError):
-        raise Blocked("bad-request", "Invalid maximum age")
-    if not 30 <= job["max_age"] <= 3600:
-        raise Blocked("bad-request",
-                      "The maximum age must be 30 to 3600 seconds")
+    # Unset is the normal case: the helper plans by itself. A value is an
+    # upper bound a sensor may still set, and older sensors do.
+    if job.get("max_age") in (None, "", 0, "auto"):
+        job["max_age"] = None
+    else:
+        try:
+            job["max_age"] = int(job["max_age"])
+        except (TypeError, ValueError):
+            raise Blocked("bad-request", "Invalid maximum age")
+        if not 30 <= job["max_age"] <= 3600:
+            raise Blocked("bad-request",
+                          "The maximum age must be 30 to 3600 seconds")
     return job
 
 
@@ -1209,7 +1227,7 @@ def reclaim_interface(interface):
                        check=False)
 
 
-def job_ttl(max_age):
+def job_ttl(interval):
     """How long a job survives without anybody asking for it.
 
     Three missed requests are not a deleted sensor: a probe that is
@@ -1217,7 +1235,7 @@ def job_ttl(max_age):
     registration. Much longer than that and the radio would go on
     measuring for a sensor somebody removed days ago.
     """
-    return max(JOB_TTL_MINIMUM, JOB_TTL_FACTOR * max_age)
+    return max(JOB_TTL_MINIMUM, JOB_TTL_FACTOR * interval)
 
 
 def job_identity(job):
@@ -1248,32 +1266,93 @@ def job_label(job):
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
 
 
-def round_budget(jobs):
-    """The time a round over every job on this radio can take.
+def worst_case(job):
+    """What a run may take on paper: its whole timeout, plus the wait.
 
-    The worst case, deliberately: a failing sign-in uses its whole time
-    budget, and it is the failing ones that have to stay measurable. The
-    waiting counts too - a test run by hand on the probe can hold the
-    radio while the scheduler waits out its lock, and a round that does
-    not allow for it is one a measured age can overrun.
+    A test somebody runs by hand on the probe can hold the radio while the
+    scheduler waits out its lock, so the wait belongs to the worst case.
     """
-    return sum(entry["job"]["timeout"] + lock_budget(entry["job"]["timeout"])
+    return job["timeout"] + lock_budget(job["timeout"])
+
+
+def expected_duration(entry):
+    """What the next run of a job is expected to take.
+
+    The slowest of its recent runs, failed ones with their real, longer
+    duration: a failing network uses its whole timeout and has to stay
+    measured. Without any run yet - a new job, a helper that just
+    restarted - the worst case stands in, and a round later the real
+    numbers have replaced it.
+    """
+    runs = entry.get("durations") or ()
+    return max(runs) if runs else worst_case(entry["job"])
+
+
+def round_time(jobs):
+    """The time one pass over every job on this radio takes.
+
+    Measured runs instead of assumed ones: on paper two networks of 45
+    seconds cost 120 seconds a round, on a probe a good sign-in takes 8 to
+    15. The rest after every sign-in is part of it.
+    """
+    return sum(expected_duration(entry) + RADIO_PAUSE_SECONDS
                for entry in jobs.values())
 
 
-def refresh_threshold(max_age, jobs):
-    """The age at which a result has to be renewed to stay in time."""
-    return max(REFRESH_FLOOR_SECONDS, max_age - round_budget(jobs))
+def asked_interval(entry):
+    """How often PRTG asks for this job, or None before the second ask.
+
+    The scanning interval in PRTG is the one setting a sensor has, and the
+    helper reads it off the requests rather than being told a second
+    number that has to match it.
+    """
+    asks = list(entry.get("asks") or ())
+    if len(asks) < 2:
+        return None
+    return float(statistics.median(
+        later - earlier for earlier, later in zip(asks, asks[1:])))
+
+
+def planned_interval(entry, jobs):
+    """How often this job is measured.
+
+    As often as it is asked for, so a sensor polled every five minutes
+    leaves the airtime in between to the others. Never more often than
+    the floor. An explicit max_age caps it, a round early, so the result
+    is there before it would pass the bound.
+    """
+    interval = asked_interval(entry) or DEFAULT_INTERVAL_SECONDS
+    if entry.get("max_age"):
+        interval = min(interval, entry["max_age"] - round_time(jobs))
+    return max(REFRESH_FLOOR_SECONDS, interval)
+
+
+def stale_after(entry, jobs):
+    """The age past which a result does not count as a measurement.
+
+    Relative to the schedule, not to a number somebody typed: twice the
+    job's interval, or twice the round where the radio is crowded enough
+    that the round is longer.
+    """
+    return STALE_ROUNDS * max(planned_interval(entry, jobs), round_time(jobs))
 
 
 def min_max_age(jobs):
-    """The smallest max_age this radio can keep, a round plus the floor.
+    """The smallest max_age this radio can keep.
 
-    Below it the renewal would have to start before the floor allows, so
-    results reach the sensor older than it asked for. The sensor compares
-    its setting against this number and names it with failure code 13.
+    A job waits up to a round for its turn, on top of the floor - or on
+    top of the round itself, where one network is measured once a round
+    because there is no more airtime. A sensor that still sets --max-age
+    below it gets a warning in its message, not a red sensor.
     """
-    return round_budget(jobs) + REFRESH_FLOOR_SECONDS
+    rounds = round_time(jobs)
+    return max(REFRESH_FLOOR_SECONDS, rounds) + rounds
+
+
+def ask_ttl(entry):
+    """How long this job survives unasked, from how often it was asked."""
+    return job_ttl(asked_interval(entry) or entry.get("max_age")
+                   or DEFAULT_INTERVAL_SECONDS)
 
 
 class RunLog:
@@ -1538,7 +1617,11 @@ class Scheduler:
         self._wake = threading.Event()
 
     def collect(self, job, max_age):
-        """Register or renew a job, and answer with what is known now."""
+        """Register or renew a job, and answer with what is known now.
+
+        Every request is remembered: their gaps are how often PRTG asks,
+        and that is the interval the job is measured at.
+        """
         identity = job_identity(job)
         now = time.monotonic()
         with self._guard:
@@ -1549,23 +1632,28 @@ class Scheduler:
                         "too-many-jobs",
                         "This helper already measures %d networks on this "
                         "probe" % len(self._jobs))
-                entry = {"job": job, "result": None, "measured": None}
+                entry = {"job": job, "result": None, "measured": None,
+                         "asks": collections.deque(maxlen=ASK_HISTORY),
+                         "durations": collections.deque(
+                             maxlen=DURATION_HISTORY)}
                 self._jobs[identity] = entry
             entry["max_age"] = max_age
             entry["asked"] = now
+            entry["asks"].append(now)
             answer = self._answer(entry, now)
         # A job nobody has measured yet should not wait out the idle sleep.
         self._wake.set()
         return answer
 
     def _answer(self, entry, now):
-        # Every answer carries what a round over this radio costs. A
-        # sensor sets its own freshness and cannot see the other sensors
-        # sharing the interface, so a value below the round is one no
-        # schedule can ever meet. This is the only side that knows the
-        # round, which is why it reports it with the result.
-        shared = {"round_budget": round_budget(self._jobs),
-                  "min_max_age": min_max_age(self._jobs),
+        # Every answer carries the schedule. A sensor cannot see the other
+        # sensors sharing the interface, so it learns here how long a
+        # round is, how many jobs share it, when its result counts as
+        # stale, and what an explicit --max-age would have to be.
+        shared = {"round_time": round(round_time(self._jobs), 1),
+                  "stale_after": round(stale_after(entry, self._jobs), 1),
+                  "min_max_age": round(min_max_age(self._jobs), 1),
+                  "interval": round(planned_interval(entry, self._jobs), 1),
                   "job_count": len(self._jobs)}
         if entry["result"] is None:
             answer = {"result": "pending", "code": "not-measured",
@@ -1579,30 +1667,28 @@ class Scheduler:
         return answer
 
     def _due(self):
-        """The job whose result has aged furthest beyond its share.
+        """The job whose result has aged furthest beyond its interval.
 
-        Measuring the age against each job's own max_age is what shares
-        the radio out evenly. A job that wants a fresh value every minute
-        and one that is content with five are treated the same relative
-        to what they asked for, and where the radio cannot serve them all
-        they age together instead of one of them starving.
+        Measuring the age against each job's own interval is what shares
+        the radio out evenly. A job asked for every minute and one asked
+        for every five are treated the same relative to what they asked
+        for, and where the radio cannot serve them all they age together
+        instead of one of them starving.
         """
         now = time.monotonic()
         best = None
         best_ratio = 0.0
         with self._guard:
             for identity, entry in list(self._jobs.items()):
-                if now - entry["asked"] > job_ttl(entry["max_age"]):
+                if now - entry["asked"] > ask_ttl(entry):
                     # Nobody has asked for a long time: the sensor behind
                     # this job was deleted or paused in PRTG.
                     del self._jobs[identity]
                     continue
                 if entry["measured"] is None:
                     return entry
-                threshold = refresh_threshold(entry["max_age"], self._jobs)
-                if threshold <= 0:
-                    continue
-                ratio = (now - entry["measured"]) / threshold
+                interval = planned_interval(entry, self._jobs)
+                ratio = (now - entry["measured"]) / interval
                 if ratio > best_ratio:
                     best = entry
                     best_ratio = ratio
@@ -1620,7 +1706,7 @@ class Scheduler:
         now = time.monotonic()
         jobs = []
         with self._guard:
-            budget = round_budget(self._jobs)
+            budget = round_time(self._jobs)
             for _identity, entry in sorted(self._jobs.items()):
                 result = entry["result"] or {}
                 age = entry["measured"]
@@ -1630,13 +1716,17 @@ class Scheduler:
                     "ssid": entry["job"].get("ssid") or "",
                     "stage": entry["job"]["stage"],
                     "timeout": entry["job"]["timeout"],
-                    "max_age": entry["max_age"],
+                    "max_age": entry.get("max_age"),
                     "age": None if age is None else round(now - age, 1),
-                    "renew_at": round(
-                        refresh_threshold(entry["max_age"], self._jobs), 1),
+                    "asked_every": asked_interval(entry),
+                    "interval": round(
+                        planned_interval(entry, self._jobs), 1),
+                    "expected": round(expected_duration(entry), 1),
+                    "stale_after": round(
+                        stale_after(entry, self._jobs), 1),
                     "asked_ago": round(now - entry["asked"], 1),
                     "expires_in": round(
-                        job_ttl(entry["max_age"]) - (now - entry["asked"]), 1),
+                        ask_ttl(entry) - (now - entry["asked"]), 1),
                     "result": result.get("result", ""),
                     "code": result.get("code", ""),
                     # Which network answered is the question a probe with
@@ -1653,9 +1743,8 @@ class Scheduler:
                     "mac": (result.get("details") or {}).get("mac", ""),
                 })
         return {"result": "ok", "code": "ok",
-                "message": "%d job(s), %d s of radio time per round"
-                           % (len(jobs), budget),
-                "round_budget": budget, "jobs": jobs,
+                "message": "%d job(s), round %d s" % (len(jobs), budget),
+                "round_time": round(budget, 1), "jobs": jobs,
                 "timings": {}, "details": {}}
 
     def _measure(self, job, log):
@@ -1694,14 +1783,20 @@ class Scheduler:
     def measure(self, entry):
         """One pass for one job: measure, log the run, keep the result."""
         log = RunLog()
+        started = time.monotonic()
         result = self._measure(entry["job"], log)
         if result is None:
             # Nothing was measured, so there is no run to log either.
             return
+        took = time.monotonic() - started
         report_run(entry["job"], result, log)
         with self._guard:
             entry["result"] = result
             entry["measured"] = time.monotonic()
+            # What the run really took is what the next round is planned
+            # with, failed runs included.
+            entry.setdefault("durations", collections.deque(
+                maxlen=DURATION_HISTORY)).append(took)
 
     def run(self):
         while True:
