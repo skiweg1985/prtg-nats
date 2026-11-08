@@ -100,6 +100,7 @@ export interface ProbeSummary {
   helper_outdated: boolean
   prtg_registered: boolean
   managed_over_tunnel: boolean
+  channel_silent?: boolean
 }
 
 export interface SensorState {
@@ -245,6 +246,20 @@ export interface ProbeDetail {
   prtg_registered_by: string | null
   management_route: ManagementRoute | null
   nats_route: 'tunnel' | 'direct' | null
+  return_channel?: ReturnChannel | null
+}
+
+/** The probe's return channel; delivery fields stay null until it delivered. */
+export interface ReturnChannel {
+  last_contact_at: string | null
+  buffer_bytes: number | null
+  buffer_limit: number | null
+  gap_count: number
+  last_gap_at: string | null
+  observed_at: string | null
+  certificate_expires: string | null
+  service: string | null
+  silent: boolean
 }
 
 export interface WirelessInterface {

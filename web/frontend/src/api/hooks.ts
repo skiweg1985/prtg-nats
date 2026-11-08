@@ -257,6 +257,19 @@ export function useProbeAction(action: 'install-ca' | 'validate' | 'helper-updat
   })
 }
 
+/** Reinstall the probe's return channel, with a new certificate if needed. */
+export function useRepairReturnChannel() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<JobAccepted>(`/probes/${id}/return-channel/repair`),
+    onSuccess: (_, id) => {
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+      void client.invalidateQueries({ queryKey: keys.probe(id) })
+    },
+  })
+}
+
 /** The actions a selection of probes can be asked for in one go. */
 export type FleetAction =
   | 'refresh'

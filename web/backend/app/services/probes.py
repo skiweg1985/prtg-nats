@@ -33,6 +33,7 @@ from app.domain.models import (
     NatsRoute,
     ObservedProbeState,
     ProbeSummary,
+    ReturnChannelState,
     WirelessInterface,
     nats_route,
     parse_probe_info,
@@ -59,6 +60,7 @@ from app.persistence.models.inventory import (
     ProbeRecord,
 )
 from app.persistence.models.jobs import Job, ResourceLock
+from app.services.return_channel import channel_states
 
 logger = get_logger(__name__)
 
@@ -74,6 +76,7 @@ class ProbeDetail:
     deviations: tuple[Deviation, ...]
     management_route: ManagementRoute | None = None
     nats_route: NatsRoute | None = None
+    return_channel: ReturnChannelState | None = None
 
 
 class ProbeService:
@@ -189,10 +192,21 @@ class ProbeService:
             definition.name for definition in definitions if definition.needs_interface
         }
 
+        observed_by_id = {
+            record.id: self._observed_from_row(username, observed_rows.get(record.id))
+            for username, record in records.items()
+        }
+        channels = await channel_states(
+            self._db,
+            self._settings,
+            [record.id for record in records.values()],
+            observed_by_id,
+        )
+
         summaries: list[ProbeSummary] = []
         for username, inventory in sorted(inventories.items()):
             record = records[username]
-            observed = self._observed_from_row(username, observed_rows.get(record.id))
+            observed = observed_by_id[record.id]
             desired = await self._desired_for(record)
             deviations: list[Deviation] = []
             if observed is not None and observed.reachable:
@@ -218,6 +232,7 @@ class ProbeService:
                     deviations=deviations,
                     running_job_id=active_jobs.get(record.id),
                     route=routes.get(record.id),
+                    channel=channels.get(record.id),
                 )
             )
         return summaries
@@ -283,6 +298,11 @@ class ProbeService:
 
         active_jobs = await self._active_job_ids()
         route = (await self._management_routes([record.id])).get(record.id)
+        channel = (
+            await channel_states(
+                self._db, self._settings, [record.id], {record.id: observed}
+            )
+        ).get(record.id)
         summary = self._summarise(
             record=record,
             inventory=inventory,
@@ -292,6 +312,7 @@ class ProbeService:
             deviations=list(deviations),
             running_job_id=active_jobs.get(record.id),
             route=route,
+            channel=channel,
         )
         return ProbeDetail(
             record=record,
@@ -307,6 +328,7 @@ class ProbeService:
                 overlay_mode=inventory.overlay_mode,
                 last_state=inventory.overlay_last_state,
             ),
+            return_channel=channel,
         )
 
     async def _management_routes(
@@ -648,6 +670,7 @@ class ProbeService:
         deviations: list[Deviation],
         running_job_id: str | None,
         route: ManagementRoute | None = None,
+        channel: ReturnChannelState | None = None,
     ) -> ProbeSummary:
         # The findings an operator is expected to do something about. The
         # informational ones stay on the probe's own page, where they belong:
@@ -698,6 +721,7 @@ class ProbeService:
             managed_over_tunnel=route is not None
             and route.over_overlay
             and not route.stale,
+            channel_silent=channel is not None and channel.silent,
         )
 
 

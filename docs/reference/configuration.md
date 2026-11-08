@@ -351,6 +351,7 @@ worse than an inflexible one.
 | `PRTG_NATS_WEB_OBSERVED_STATE_STALE_AFTER_SECONDS` | Age at which a probe's reported state counts as stale. Only the ceiling for a probe nothing has touched - a job refreshes the probes it worked on when it ends | int | `300` | no |
 | `PRTG_NATS_WEB_CERTIFICATE_EXPIRY_WARNING_DAYS` | Lead time for the certificate warning | int | `30` | no |
 | `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS` | How many days of [sensor logs](#sensor-logs) are kept. At least `1` | int | `14` | no |
+| `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` | How long a probe whose return channel has delivered before may stay quiet before it counts as silent, raises a warning and gets a repair job. See [sensor logs](#sensor-logs). At least `1` | int | `15` | no |
 | `PRTG_NATS_WEB_UPDATE_BRANCH` | The branch an update follows. Empty means the one the checkout is on, which is what an operator who ran `git checkout dev` expects; set it to pin an installation to a branch on purpose | string | – | no |
 | `PRTG_NATS_WEB_UPDATE_CHECK_INTERVAL_SECONDS` | How often to ask the repository whether the branch has moved. `0` turns the check off | int | `3600` | no |
 | `PRTG_NATS_WEB_GIT_COMMIT` | Which commit this image was built from. Set by the build, not by hand - an image with an empty value reports its version as unknown | string | – | no |
@@ -383,7 +384,17 @@ refers to them, and deleting one loses only what it holds.
 
 Once a day, and once at startup, the API deletes the day files older than
 `PRTG_NATS_WEB_SENSOR_LOG_RETENTION_DAYS`, judged by the date in the file
-name. The shell tooling knows the directory as `SENSOR_LOG_DIR`. See
+name. The shell tooling knows the directory as `SENSOR_LOG_DIR`.
+
+Each delivery also counts as contact. A probe that has delivered before and
+then stays quiet for longer than
+`PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES` is marked silent, and the
+platform repairs its channel over the management access. The value is one
+for all probes on purpose: a fitting threshold would be a multiple of the
+shortest scanning interval of the probe's sensors, and those intervals are
+set in PRTG, out of the platform's sight. The default is the floor such a
+threshold would have. Raise it when a probe's sensors run less often than
+that, or every quiet stretch between two runs looks like an outage. See
 [the API reference](api.md#sensor-logs) and
 [ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
 

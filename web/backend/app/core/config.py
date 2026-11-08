@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     # How long sensor logs stay in the runtime volume, in days. The cleanup
     # runs once a day and goes by the date in the file name.
     sensor_log_retention_days: int = Field(default=14, ge=1)
+    # How long a probe whose return channel has delivered before may stay
+    # quiet before it counts as silent and gets a repair job. One value for
+    # every probe: the platform does not know the scanning intervals PRTG
+    # sets for a probe's sensors, which is what a per-probe threshold would
+    # be derived from, so this is the floor such a threshold would have.
+    probe_channel_silence_minutes: int = Field(default=15, ge=1)
 
     # --- Development conveniences ------------------------------------------
     # Skips authentication and acts as a built-in administrator. Refused

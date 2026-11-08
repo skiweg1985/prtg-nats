@@ -17,6 +17,7 @@ from app.persistence.models.inventory import (
     ProbeManagementRoute,
     ProbeObservedState,
     ProbeRecord,
+    ProbeReturnChannel,
     SavedView,
     Setting,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "ProbeManagementRoute",
     "ProbeObservedState",
     "ProbeRecord",
+    "ProbeReturnChannel",
     "ResourceLock",
     "SavedView",
     "Session",

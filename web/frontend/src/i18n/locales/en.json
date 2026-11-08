@@ -379,6 +379,17 @@
         "not_found": "PRTG no longer has a probe with object id {{id}}.",
         "ok": "—"
       }
+    },
+    "returnChannel": {
+      "label": "Return channel",
+      "lastReport": "Last report {{time}}",
+      "nothingYet": "Nothing delivered yet",
+      "silent": "Silent",
+      "repair": "Repair",
+      "buffer": "Buffer {{percent}} % full",
+      "gaps_one": "{{count}} gap, {{time}}",
+      "gaps_other": "{{count}} gaps, the last {{time}}",
+      "noGaps": "No gaps"
     }
   },
   "sensors": {
@@ -622,7 +633,11 @@
         "access_verified": "{{host}} answered over the management channel, package {{package}}, service {{service}}",
         "inventory_written": "{{username}} written to the inventory as {{probe_name}}",
         "enrolled": "{{username}} is enrolled at {{host}}",
-        "enroll_incomplete": "This run left behind: host key pinned {{pinned_host_key}}, account created {{created_account}}, inventory written {{wrote_inventory}}"
+        "enroll_incomplete": "This run left behind: host key pinned {{pinned_host_key}}, account created {{created_account}}, inventory written {{wrote_inventory}}",
+        "channel_found": "{{probe}}: return channel certificate {{certificate}}, service {{service}}",
+        "channel_service_reinstalled": "{{probe}}: return channel service reinstalled and restarted",
+        "channel_repaired": "{{probe}}: the return channel service is running again",
+        "channel_service_not_running": "{{probe}}: the return channel service is still not running ({{service}})"
       },
       "sensor": {
         "resolved": "{{sensor}} version {{version}} for {{probes}} probe(s)",
@@ -766,7 +781,8 @@
         "reconcile": "Reconcile a probe",
         "refresh": "Refresh the state",
         "unenroll": "Unenroll a probe",
-        "validate": "Validate a probe"
+        "validate": "Validate a probe",
+        "channel_repair": "Repair the return channel"
       },
       "sensor": {
         "deploy": "Deploy a sensor",
@@ -851,7 +867,8 @@
         "refresh": "State refreshed",
         "set_desired_state": "Desired state changed",
         "update": "Probe updated",
-        "validate": "Probe validated"
+        "validate": "Probe validated",
+        "channel_repair": "Return channel repaired"
       },
       "sensor": {
         "deploy": "Sensor deployed",
@@ -1336,7 +1353,8 @@
     "probe.degraded": "{{probe}} has {{deviations}} deviation(s)",
     "certificate.expired": "The {{certificate}} certificate has expired",
     "certificate.expiring_soon": "The {{certificate}} certificate expires in {{days_remaining}} days",
-    "certificate.mismatched": "The {{certificate}} certificate does not match its key"
+    "certificate.mismatched": "The {{certificate}} certificate does not match its key",
+    "probe.channel_silent": "{{probe}} has not delivered over its return channel for more than {{minutes}} minutes"
   },
   "credentials": {
     "title": "Accounts without a probe",

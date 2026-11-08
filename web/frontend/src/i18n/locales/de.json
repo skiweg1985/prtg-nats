@@ -379,6 +379,17 @@
         "not_found": "In PRTG gibt es keine Probe mit der Objekt-Id {{id}} mehr.",
         "ok": "—"
       }
+    },
+    "returnChannel": {
+      "label": "Rückkanal",
+      "lastReport": "Letzte Meldung {{time}}",
+      "nothingYet": "Noch nichts geliefert",
+      "silent": "Stumm",
+      "repair": "Reparieren",
+      "buffer": "Puffer zu {{percent}} % belegt",
+      "gaps_one": "{{count}} Lücke, {{time}}",
+      "gaps_other": "{{count}} Lücken, zuletzt {{time}}",
+      "noGaps": "Keine Lücken"
     }
   },
   "sensors": {
@@ -622,7 +633,11 @@
         "access_verified": "{{host}} hat über den Verwaltungskanal geantwortet, Paket {{package}}, Dienst {{service}}",
         "inventory_written": "{{username}} als {{probe_name}} ins Inventar geschrieben",
         "enrolled": "{{username}} ist auf {{host}} angemeldet",
-        "enroll_incomplete": "Dieser Lauf hat hinterlassen: Hostschlüssel hinterlegt {{pinned_host_key}}, Konto angelegt {{created_account}}, Inventar geschrieben {{wrote_inventory}}"
+        "enroll_incomplete": "Dieser Lauf hat hinterlassen: Hostschlüssel hinterlegt {{pinned_host_key}}, Konto angelegt {{created_account}}, Inventar geschrieben {{wrote_inventory}}",
+        "channel_found": "{{probe}}: Zertifikat für den Rückkanal {{certificate}}, Dienst {{service}}",
+        "channel_service_reinstalled": "{{probe}}: Dienst des Rückkanals neu installiert und gestartet",
+        "channel_repaired": "{{probe}}: Der Dienst des Rückkanals läuft wieder",
+        "channel_service_not_running": "{{probe}}: Der Dienst des Rückkanals läuft noch immer nicht ({{service}})"
       },
       "sensor": {
         "resolved": "{{sensor}} Version {{version}} für {{probes}} Probe(s)",
@@ -766,7 +781,8 @@
         "reconcile": "Abweichungen beheben",
         "refresh": "Zustand aktualisieren",
         "unenroll": "Probe ausbinden",
-        "validate": "Probe prüfen"
+        "validate": "Probe prüfen",
+        "channel_repair": "Rückkanal reparieren"
       },
       "sensor": {
         "deploy": "Sensor ausrollen",
@@ -851,7 +867,8 @@
         "refresh": "Zustand aktualisiert",
         "set_desired_state": "Soll-Zustand geändert",
         "update": "Probe geändert",
-        "validate": "Probe geprüft"
+        "validate": "Probe geprüft",
+        "channel_repair": "Rückkanal repariert"
       },
       "sensor": {
         "deploy": "Sensor ausgerollt",
@@ -1336,7 +1353,8 @@
     "probe.degraded": "{{probe}} hat {{deviations}} Abweichung(en)",
     "certificate.expired": "Das Zertifikat {{certificate}} ist abgelaufen",
     "certificate.expiring_soon": "Das Zertifikat {{certificate}} läuft in {{days_remaining}} Tagen ab",
-    "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel"
+    "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel",
+    "probe.channel_silent": "{{probe}} hat seit mehr als {{minutes}} Minuten nichts über den Rückkanal geliefert"
   },
   "credentials": {
     "title": "Konten ohne Probe",

@@ -198,6 +198,32 @@ state does not tell - a tunnel without a handshake, or one never asked. The
 summary in `GET /probes` carries `managed_over_tunnel`, true while the last
 answer came over the tunnel and is not stale.
 
+`GET /probes/{id}` also carries `return_channel`, the probe's channel back to
+the platform ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)):
+`last_contact_at`, `buffer_bytes` and `buffer_limit` from the probe's last
+batch, `gap_count` and `last_gap_at` from the gap records it delivered,
+`observed_at`, `certificate_expires` and `service` from its last
+`probe-info`, and `silent`. It is `null` for a probe that has neither
+delivered nor reported a certificate; the delivery fields stay `null` until
+the first batch arrives. The summary carries `channel_silent`.
+
+The channel has no heartbeat - the probe posts when a sensor wrote
+something - so only a probe that has delivered before can fall silent: once
+its last delivery is older than `PRTG_NATS_WEB_PROBE_CHANNEL_SILENCE_MINUTES`.
+The inventory sync then raises the alert `probe.channel_silent` and queues a
+repair (`trigger` `system`), at most one per probe every six hours and none
+for a probe management cannot reach.
+
+| | Permission | |
+| --- | --- | --- |
+| `POST /probes/{id}/return-channel/repair` | `probe.update` | repair the return channel → job `probe.channel_repair` |
+
+The repair asks the probe for its channel state first. A missing or expired
+certificate, or a service that runs while the probe stays quiet, gets a new
+certificate through the `install_return_channel` step, which rewrites and
+restarts the service as well; a stopped service with a valid certificate is
+reinstalled through `channel-service`. Audited as `probe.channel_repair`.
+
 The route is recorded for the calls the web platform makes. A call from the
 shell tooling still updates the inventory's cached address when the probe
 has moved, but leaves this record as it was, so after shell-only work

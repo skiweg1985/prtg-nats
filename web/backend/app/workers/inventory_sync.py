@@ -13,22 +13,36 @@ import contextlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.config import Settings
 from app.core.logging import get_logger
-from app.domain.enums import AlertSeverity, CertificateStatus, ProbeStatus
+from app.domain.enums import (
+    AlertSeverity,
+    CertificateStatus,
+    JobStatus,
+    ProbeStatus,
+)
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
 from app.infrastructure.probe_helper import ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
 from app.persistence.models.inventory import Alert, ProbeObservedState, ProbeRecord
+from app.persistence.models.jobs import Job
 from app.persistence.session import session_scope
+from app.services.events import get_broadcaster
+from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.services.probes import ProbeService
 from app.services.system import SystemService
+from app.workers.handlers import channel_repair
 
 logger = get_logger(__name__)
+
+# At most one automatic channel repair per probe in this window. A probe whose
+# channel stays dead after a repair needs a person, not a job every pass; the
+# warning stays up and the repair can still be started by hand.
+AUTO_REPAIR_INTERVAL = timedelta(hours=6)
 
 # How many probes to contact concurrently. High enough to finish a large fleet
 # quickly, low enough not to open fifty SSH connections at once.
@@ -121,6 +135,7 @@ class InventorySync:
                 connected, expected_ca_sha256=system.expected_ca_fingerprint()
             )
             await self._update_alerts(db, summaries, system)
+            await self._start_channel_repairs(db, summaries)
 
     async def _stale_usernames(self, db, usernames: list[str]) -> list[str]:  # type: ignore[no-untyped-def]
         if not usernames:
@@ -166,6 +181,53 @@ class InventorySync:
         await asyncio.gather(*(refresh(name) for name in usernames))
         logger.info("refreshed probe state", extra={"count": len(usernames)})
 
+    async def _start_channel_repairs(self, db, summaries) -> None:  # type: ignore[no-untyped-def]
+        """Queue a repair for every probe whose return channel fell silent.
+
+        Not for a probe management cannot reach: the repair goes over that
+        access, and the job would only fail. The unreachable alert already
+        says what is wrong there.
+        """
+        silent = [
+            summary
+            for summary in summaries
+            if summary.channel_silent and summary.status is not ProbeStatus.UNREACHABLE
+        ]
+        if not silent:
+            return
+        since = datetime.now(UTC) - AUTO_REPAIR_INTERVAL
+        recent = set(
+            await db.scalars(
+                select(Job.target_id).where(
+                    Job.type == channel_repair.JOB_TYPE,
+                    Job.target_id.in_([summary.id for summary in silent]),
+                    or_(
+                        Job.created_at >= since,
+                        Job.status.in_(
+                            [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.DETACHED]
+                        ),
+                    ),
+                )
+            )
+        )
+        jobs = JobService(db, get_broadcaster())
+        for summary in silent:
+            if summary.id in recent:
+                continue
+            await jobs.create(
+                JobRequest(
+                    type=channel_repair.JOB_TYPE,
+                    steps=channel_repair.STEPS,
+                    resources=(ResourceRef("probe", summary.id),),
+                    target_type="probe",
+                    target_id=summary.id,
+                    target_label=summary.nats_username,
+                    payload={"probes": [summary.nats_username]},
+                    trigger="system",
+                )
+            )
+            logger.info("channel repair queued", extra={"probe": summary.nats_username})
+
     async def _update_alerts(self, db, summaries, system: SystemService) -> None:  # type: ignore[no-untyped-def]
         """Raise what is wrong, clear what is not.
 
@@ -189,6 +251,18 @@ class InventorySync:
                     "object_type": "probe",
                     "object_label": summary.nats_username,
                     "params": {"deviations": str(summary.deviation_count)},
+                }
+            # Beside the status rather than part of it: a probe whose channel
+            # went quiet still measures and reports to PRTG; what it loses is
+            # the sensor log, and that has its own warning.
+            if summary.channel_silent:
+                wanted[("probe.channel_silent", summary.nats_username)] = {
+                    "severity": AlertSeverity.WARNING,
+                    "object_type": "probe",
+                    "object_label": summary.nats_username,
+                    "params": {
+                        "minutes": str(self._settings.probe_channel_silence_minutes)
+                    },
                 }
 
         for certificate in system.certificates():

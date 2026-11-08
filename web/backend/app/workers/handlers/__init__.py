@@ -13,6 +13,7 @@ from typing import Any
 
 from app.workers.context import JobContext
 from app.workers.handlers import (
+    channel_repair,
     deploy_sensor,
     iperf_enrollment,
     iperf_provisioning,
@@ -94,6 +95,12 @@ REGISTRY: dict[str, JobDefinition] = {
         type=probe_actions.HELPER_UPDATE_JOB_TYPE,
         steps=probe_actions.HELPER_UPDATE_STEPS,
         handler=probe_actions.helper_update,
+        permission="probe.update",
+    ),
+    channel_repair.JOB_TYPE: JobDefinition(
+        type=channel_repair.JOB_TYPE,
+        steps=channel_repair.STEPS,
+        handler=channel_repair.repair,
         permission="probe.update",
     ),
     probe_actions.REFRESH_JOB_TYPE: JobDefinition(
