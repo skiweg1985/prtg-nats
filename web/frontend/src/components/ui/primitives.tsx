@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { MoreHorizontal, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -232,8 +232,12 @@ export function ActionMenu({
   variant?: ButtonVariant
 }) {
   const [open, setOpen] = useState(false)
+  // Fixed to the viewport rather than to the row: cards and tables clip what
+  // overflows them, and a menu in the last row of a card would be cut off.
+  const [place, setPlace] = useState<{ top: number; right: number } | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const menuId = useId()
   const ordered = [
     ...actions.filter((action) => action.tone !== 'danger'),
@@ -241,14 +245,44 @@ export function ActionMenu({
   ]
   const firstDanger = ordered.findIndex((action) => action.tone === 'danger')
 
+  // Below the button, right edges aligned; above it when the viewport ends
+  // first. Measured before paint so the menu never flashes in the wrong spot.
+  useLayoutEffect(() => {
+    if (!open || !trigger.current) return
+    const button = trigger.current.getBoundingClientRect()
+    const height = panel.current?.offsetHeight ?? 0
+    const below = button.bottom + 4
+    const top =
+      below + height > window.innerHeight - 8 && button.top - height - 4 > 8
+        ? button.top - height - 4
+        : below
+    setPlace({ top, right: window.innerWidth - button.right })
+  }, [open])
+
+  // Focus moves in once the menu is placed: a hidden element cannot take it.
+  useEffect(() => {
+    if (open && place) {
+      panel.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus()
+    }
+  }, [open, place])
+
   useEffect(() => {
     if (!open) return
-    root.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus()
     function onPointerDown(event: PointerEvent) {
       if (!root.current?.contains(event.target as Node)) setOpen(false)
     }
+    // A fixed menu would stay put while its button scrolls away.
+    function onMove() {
+      setOpen(false)
+    }
     document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
+    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('resize', onMove)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('resize', onMove)
+    }
   }, [open])
 
   if (ordered.length === 0) return null
@@ -288,17 +322,22 @@ export function ActionMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          setPlace(null)
+          setOpen((value) => !value)
+        }}
         className={buttonClasses(variant, size, clsx(size === 'sm' ? 'w-7 px-0' : 'w-8 px-0'))}
       >
         <ButtonIcon icon={MoreHorizontal} size={size} />
       </button>
       {open && (
         <div
+          ref={panel}
           id={menuId}
           role="menu"
           aria-label={label}
-          className="border-rule bg-surface rounded-card absolute top-full right-0 z-(--z-popover) mt-1 min-w-48 border py-1 shadow-md"
+          style={place ?? { visibility: 'hidden' }}
+          className="border-rule bg-surface rounded-card fixed z-(--z-popover) min-w-48 border py-1 shadow-md"
         >
           {ordered.map((action, index) => (
             <div key={action.key}>
