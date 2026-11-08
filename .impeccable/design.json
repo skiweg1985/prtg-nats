@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-08T02:17:56+00:00",
+  "title": "Design System: PRTG-NATS",
+  "extensions": {
+    "colorMeta": {
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "oklch(52% 0.190 257)",
+        "tonalRamp": [
+          "oklch(27% 0.085 260)",
+          "oklch(33% 0.115 259)",
+          "oklch(40% 0.150 259)",
+          "oklch(52% 0.190 257)",
+          "oklch(66% 0.165 257)",
+          "oklch(79% 0.115 256)",
+          "oklch(88% 0.075 256)",
+          "oklch(97.2% 0.020 256)"
+        ]
+      },
+      "signal-blue-dark": {
+        "role": "primary",
+        "displayName": "Signal Blue (dark)",
+        "canonical": "oklch(66% 0.165 257)",
+        "tonalRamp": [
+          "oklch(27% 0.085 260)",
+          "oklch(33% 0.115 259)",
+          "oklch(40% 0.150 259)",
+          "oklch(52% 0.190 257)",
+          "oklch(66% 0.165 257)",
+          "oklch(79% 0.115 256)",
+          "oklch(88% 0.075 256)",
+          "oklch(97.2% 0.020 256)"
+        ]
+      },
+      "signal-blue-soft": {
+        "role": "primary",
+        "displayName": "Signal Wash",
+        "canonical": "oklch(97.2% 0.020 256)",
+        "tonalRamp": [
+          "oklch(27% 0.085 260)",
+          "oklch(33% 0.115 259)",
+          "oklch(40% 0.150 259)",
+          "oklch(52% 0.190 257)",
+          "oklch(66% 0.165 257)",
+          "oklch(79% 0.115 256)",
+          "oklch(88% 0.075 256)",
+          "oklch(97.2% 0.020 256)"
+        ]
+      },
+      "cool-paper": {
+        "role": "neutral",
+        "displayName": "Cool Paper",
+        "canonical": "oklch(98.5% 0.004 251)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "card-white": {
+        "role": "neutral",
+        "displayName": "Card White",
+        "canonical": "oklch(99.4% 0.003 250)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "inset-mist": {
+        "role": "neutral",
+        "displayName": "Inset Mist",
+        "canonical": "oklch(94% 0.006 252)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "graphite-ink": {
+        "role": "neutral",
+        "displayName": "Graphite Ink",
+        "canonical": "oklch(20% 0.016 260)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "slate-body": {
+        "role": "neutral",
+        "displayName": "Slate Body",
+        "canonical": "oklch(42.5% 0.018 257)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "slate-meta": {
+        "role": "neutral",
+        "displayName": "Slate Meta",
+        "canonical": "oklch(53.5% 0.016 256)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(86.5% 0.009 253)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "control-edge": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(77.5% 0.012 254)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-paper": {
+        "role": "neutral",
+        "displayName": "Night Paper",
+        "canonical": "oklch(20% 0.016 260)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-surface": {
+        "role": "neutral",
+        "displayName": "Night Surface",
+        "canonical": "oklch(24.5% 0.016 259)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-inset": {
+        "role": "neutral",
+        "displayName": "Night Inset",
+        "canonical": "oklch(34.5% 0.016 258)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-ink": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "canonical": "oklch(98.5% 0.004 251)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-body": {
+        "role": "neutral",
+        "displayName": "Night Body",
+        "canonical": "oklch(77.5% 0.012 254)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-meta": {
+        "role": "neutral",
+        "displayName": "Night Meta",
+        "canonical": "oklch(64.5% 0.015 255)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "night-hairline": {
+        "role": "neutral",
+        "displayName": "Night Hairline",
+        "canonical": "oklch(34.5% 0.016 258)",
+        "tonalRamp": [
+          "oklch(15% 0.016 261)",
+          "oklch(20% 0.016 260)",
+          "oklch(24.5% 0.016 259)",
+          "oklch(34.5% 0.016 258)",
+          "oklch(53.5% 0.016 256)",
+          "oklch(77.5% 0.012 254)",
+          "oklch(86.5% 0.009 253)",
+          "oklch(98.5% 0.004 251)"
+        ]
+      },
+      "healthy-green": {
+        "role": "status",
+        "displayName": "Healthy Green",
+        "canonical": "oklch(48% 0.112 156)",
+        "tonalRamp": [
+          "oklch(28.5% 0.058 159)",
+          "oklch(34.5% 0.075 158)",
+          "oklch(41.5% 0.095 157)",
+          "oklch(48% 0.112 156)",
+          "oklch(64% 0.135 155)",
+          "oklch(78% 0.120 155)",
+          "oklch(87% 0.080 155)",
+          "oklch(96.8% 0.022 155)"
+        ]
+      },
+      "caution-amber": {
+        "role": "status",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(53% 0.125 72)",
+        "tonalRamp": [
+          "oklch(30.5% 0.068 66)",
+          "oklch(37% 0.085 68)",
+          "oklch(45% 0.105 70)",
+          "oklch(53% 0.125 72)",
+          "oklch(72% 0.140 76)",
+          "oklch(82% 0.120 77)",
+          "oklch(88.5% 0.090 78)",
+          "oklch(97.5% 0.022 80)"
+        ]
+      },
+      "fault-red": {
+        "role": "status",
+        "displayName": "Fault Red",
+        "canonical": "oklch(50.5% 0.190 27)",
+        "tonalRamp": [
+          "oklch(30% 0.100 26)",
+          "oklch(36% 0.130 26)",
+          "oklch(43.5% 0.165 27)",
+          "oklch(50.5% 0.190 27)",
+          "oklch(66% 0.165 27)",
+          "oklch(79% 0.110 26)",
+          "oklch(88% 0.070 25)",
+          "oklch(96.8% 0.018 25)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The page title, one per screen."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card headers."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Values, running text, medium button labels."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Hints, timestamps, small button labels."
+      },
+      "value-mono": {
+        "displayName": "Value Mono",
+        "purpose": "Ids, addresses, versions, checksums, commands."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase column headers and metadata keys."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-layer",
+        "value": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        "purpose": "Only for layers that float over content, such as the action menu."
+      },
+      {
+        "name": "dialog-scrim",
+        "value": "rgb(0 0 0 / 0.4)",
+        "purpose": "Backdrop behind dialogs."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Default easing for state changes."
+      },
+      {
+        "name": "ease-in",
+        "value": "cubic-bezier(0.7, 0, 0.84, 0)",
+        "purpose": "Leaving elements."
+      },
+      {
+        "name": "ease-in-out",
+        "value": "cubic-bezier(0.65, 0, 0.35, 1)",
+        "purpose": "Overlays moving in and out."
+      },
+      {
+        "name": "dur-instant",
+        "value": "100ms",
+        "purpose": "Colour change on hover."
+      },
+      {
+        "name": "dur-short",
+        "value": "180ms",
+        "purpose": "State changes."
+      },
+      {
+        "name": "dur-medium",
+        "value": "320ms",
+        "purpose": "Overlays in and out."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one next step on a screen; at most one per view.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 7h-9\"/><path d=\"M14 17H5\"/><circle cx=\"17\" cy=\"17\" r=\"3\"/><circle cx=\"7\" cy=\"7\" r=\"3\"/></svg>Apply configuration</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-control,6px);font:500 0.875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);background:var(--color-accent,oklch(52% 0.19 257));color:var(--color-accent-ink,oklch(99.4% 0.003 250));} .ds-btn-primary:hover{background:color-mix(in oklch,var(--color-accent,oklch(52% 0.19 257)) 90%,transparent);} .ds-btn-primary:active{background:color-mix(in oklch,var(--color-accent,oklch(52% 0.19 257)) 80%,transparent);} .ds-btn-primary:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The everyday action: outlined, so it reads as a control.",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 7h-9\"/><path d=\"M14 17H5\"/><circle cx=\"17\" cy=\"17\" r=\"3\"/><circle cx=\"7\" cy=\"7\" r=\"3\"/></svg>Apply configuration</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-control,6px);font:500 0.875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);background:var(--color-surface,oklch(99.4% 0.003 250));color:var(--color-ink,oklch(20% 0.016 260));border-color:var(--color-rule-2,oklch(77.5% 0.012 254));} .ds-btn-secondary:hover{background:var(--color-surface-2,oklch(94% 0.006 252));} .ds-btn-secondary:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Ghost Row Action",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "A row's frequent action at its right edge; quiet until hovered.",
+      "html": "<button class=\"ds-btn-ghost\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg>Show password</button>",
+      "css": ".ds-btn-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-control,6px);font:500 0.875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);height:28px;padding:0 8px;gap:6px;font-size:0.75rem;background:transparent;color:var(--color-ink-2,oklch(42.5% 0.018 257));} .ds-btn-ghost:hover{background:var(--color-surface-2,oklch(94% 0.006 252));color:var(--color-ink,oklch(20% 0.016 260));} .ds-btn-ghost:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Action Menu Trigger",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Icon-only overflow for rare and destructive actions; label as tooltip.",
+      "html": "<button class=\"ds-btn-menu\" aria-label=\"More actions\" title=\"More actions\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/></svg></button>",
+      "css": ".ds-btn-menu{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-control,6px);font:500 0.875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);width:28px;height:28px;padding:0;background:transparent;color:var(--color-ink-2,oklch(42.5% 0.018 257));} .ds-btn-menu:hover{background:var(--color-surface-2,oklch(94% 0.006 252));color:var(--color-ink,oklch(20% 0.016 260));} .ds-btn-menu:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Danger Confirm Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Only inside a destructive confirmation dialog.",
+      "html": "<button class=\"ds-btn-danger\">Unenroll</button>",
+      "css": ".ds-btn-danger{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-control,6px);font:500 0.875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);background:var(--color-danger,oklch(50.5% 0.19 27));color:var(--color-accent-ink,oklch(99.4% 0.003 250));} .ds-btn-danger:hover{background:color-mix(in oklch,var(--color-danger,oklch(50.5% 0.19 27)) 90%,transparent);} .ds-btn-danger:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-healthy",
+      "description": "A state, never an action: flat tint, no border, sentence case.",
+      "html": "<span class=\"ds-badge ds-badge-ok\">Connected</span> <span class=\"ds-badge ds-badge-warn\">Outdated</span> <span class=\"ds-badge ds-badge-danger\">Unreachable</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:var(--radius-inset,4px);font:500 0.6875rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);white-space:nowrap;} .ds-badge-ok{background:var(--color-ok-soft,oklch(96.8% 0.022 155));color:var(--color-ok,oklch(48% 0.112 156));} .ds-badge-warn{background:var(--color-warn-soft,oklch(97.5% 0.022 80));color:var(--color-warn,oklch(53% 0.125 72));} .ds-badge-danger{background:var(--color-danger-soft,oklch(96.8% 0.018 25));color:var(--color-danger,oklch(50.5% 0.19 27));}"
+    },
+    {
+      "name": "Card with Detail Rows",
+      "kind": "card",
+      "refersTo": "detail-row",
+      "description": "The control room's unit: label, value, actions at the right edge.",
+      "html": "<section class=\"ds-card\"><header class=\"ds-card-head\">Identity</header><dl class=\"ds-rows\"><div class=\"ds-row\"><dt>NATS account</dt><dd><span class=\"ds-mono\">mpp-site-01</span><span class=\"ds-actions\"><button class=\"ds-ghost\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg>Show password</button><button class=\"ds-ghost ds-icon\" aria-label=\"More actions\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/></svg></button></span></dd></div><div class=\"ds-row\"><dt>Management via</dt><dd><span>Tunnel <span class=\"ds-mono\">10.99.0.2</span> <span class=\"ds-meta\">1 s ago</span></span></dd></div></dl></section>",
+      "css": ".ds-card{background:var(--color-surface,oklch(99.4% 0.003 250));border:1px solid var(--color-rule,oklch(86.5% 0.009 253));border-radius:var(--radius-card,10px);overflow:hidden;font:400 0.875rem/1.25rem var(--font-body,'Inter Variable',system-ui,sans-serif);color:var(--color-ink,oklch(20% 0.016 260));} .ds-card-head{padding:10px 16px;border-bottom:1px solid var(--color-rule,oklch(86.5% 0.009 253));font:600 0.875rem/1.25rem var(--font-display,'Space Grotesk Variable',system-ui,sans-serif);letter-spacing:-0.02em;} .ds-rows{margin:0;padding:0 16px;} .ds-row{display:grid;grid-template-columns:minmax(6.5rem,11rem) minmax(0,1fr);align-items:center;column-gap:16px;min-height:40px;padding:6px 0;border-bottom:1px solid var(--color-rule,oklch(86.5% 0.009 253));} .ds-row:last-child{border-bottom:0;} .ds-row dt{color:var(--color-ink-3,oklch(53.5% 0.016 256));} .ds-row dd{margin:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;} .ds-mono{font:400 0.75rem/1rem var(--font-mono,'JetBrains Mono Variable',ui-monospace,monospace);} .ds-meta{font-size:0.75rem;color:var(--color-ink-3,oklch(53.5% 0.016 256));} .ds-actions{display:flex;gap:4px;margin-right:-4px;} .ds-ghost{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:0;border-radius:var(--radius-control,6px);background:transparent;color:var(--color-ink-2,oklch(42.5% 0.018 257));font:500 0.75rem/1 inherit;cursor:pointer;} .ds-ghost.ds-icon{width:28px;padding:0;justify-content:center;} .ds-ghost:hover{background:var(--color-surface-2,oklch(94% 0.006 252));color:var(--color-ink,oklch(20% 0.016 260));} .ds-ghost:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Outlined field on the card surface; global focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"mpp-berlin-01\">",
+      "css": ".ds-input{height:32px;padding:6px 10px;border:1px solid var(--color-rule-2,oklch(77.5% 0.012 254));border-radius:var(--radius-control,6px);background:var(--color-surface,oklch(99.4% 0.003 250));color:var(--color-ink,oklch(20% 0.016 260));font:400 0.875rem/1.25rem var(--font-body,'Inter Variable',system-ui,sans-serif);} .ds-input::placeholder{color:var(--color-ink-3,oklch(53.5% 0.016 256));} .ds-input:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "button-ghost",
+      "description": "A filter that is on or off; quiet when off, an inset with a hairline when on.",
+      "html": "<button class=\"ds-filter\" aria-pressed=\"false\">Helper outdated only</button> <button class=\"ds-filter\" aria-pressed=\"true\">With deviations only</button>",
+      "css": ".ds-filter{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-control,6px);background:transparent;color:var(--color-ink-3,oklch(53.5% 0.016 256));font:500 0.75rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);} .ds-filter:hover{background:var(--color-surface-2,oklch(94% 0.006 252));color:var(--color-ink,oklch(20% 0.016 260));} .ds-filter[aria-pressed=\"true\"]{background:var(--color-surface-2,oklch(94% 0.006 252));border-color:var(--color-rule-2,oklch(77.5% 0.012 254));color:var(--color-ink,oklch(20% 0.016 260));} .ds-filter:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Control Room",
+    "overview": "PRTG-NATS is the control room for a fleet of probes spread over sites the operator cannot see. Its job is the job of a good control room: the state of everything is readable at a glance, and every intervention is deliberate, labelled and confirmed. The interface stays quiet so that the one thing that is wrong can be loud.\n\nDensity is that of a working tool, not a showcase. Rows of label and value, machine values in monospace, states as small flat tints, actions at the right edge of the row they belong to. Surfaces are flat and separated by hairlines, not lifted by shadows. One signal blue marks what can be done next; amber and red are reserved for what needs attention. Light and dark are equal citizens, because the same people check the fleet at a desk in the day and on a phone at night.\n\nIt is explicitly not a generic AI admin template (no gradients, glows, pill buttons, emoji icons or coloured tile dashboards), not a copy of PRTG's own look, and not playful consumer design (no illustrations, mascots or motion for its own sake).",
+    "keyCharacteristics": [
+      "Flat surfaces, hairline borders, no decorative depth.",
+      "One accent, used for the primary action, focus and running work only.",
+      "States are text with a tint, never shaped like buttons.",
+      "Every machine value - id, address, version, checksum - is monospaced.",
+      "Actions sit at the right edge of their row; rare and destructive ones wait in a menu."
+    ],
+    "rules": [
+      {
+        "name": "The One Signal Rule",
+        "body": "Signal Blue covers under 5% of any screen: one primary action per view, the focus ring, the active state. A second primary button on a screen is a bug - with one exception: the submit button of a form is primary within that form.",
+        "section": "colors"
+      },
+      {
+        "name": "The Meaning-Only Rule",
+        "body": "Green, amber and red say healthy, attention and fault. They are never used to decorate, to group, or to make a screen look alive.",
+        "section": "colors"
+      },
+      {
+        "name": "The Equal Night Rule",
+        "body": "Every surface is designed for light and dark at once; only the semantic aliases flip, the ramps never do.",
+        "section": "colors"
+      },
+      {
+        "name": "The Machine Value Rule",
+        "body": "If a machine produced it - an id, an address, a hash, a version - it is set in mono. If a person reads it as language, it is not.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Figures are tabular everywhere, so a column of numbers does not shift by a pixel per row.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Line Rule",
+        "body": "A value and its actions share one line where there is room, and wrap together where there is not. They are never spread over the card.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Nothing at rest casts a shadow. Depth appears only for a layer that floats over other content.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do put a row's actions at its right edge as ghost buttons with a Lucide icon, and move rare or destructive ones into the row's action menu.",
+      "Do confirm every destructive or secret-revealing step in a dialog; the solid red button lives only there.",
+      "Do keep one primary button per view, and none when nothing is the obvious next step.",
+      "Do set every machine value in mono and every figure tabular.",
+      "Do design each surface in light and dark at once."
+    ],
+    "donts": [
+      "Don't use gradients, glows, pill-shaped buttons, emoji icons or coloured tile dashboards.",
+      "Don't imitate PRTG's own visual style; the tool works with PRTG and does not present itself as part of it.",
+      "Don't add illustrations, mascots or motion for its own sake.",
+      "Don't shape a state like a control: no border, capitals or hover on a badge.",
+      "Don't place actions as loose text links beside or under a value.",
+      "Don't cast a shadow on anything at rest.",
+      "Don't make a badge clickable, or draw a selected filter as a primary button.",
+      "Don't use typed glyphs (arrows, check marks) where an icon belongs."
+    ]
+  }
+}

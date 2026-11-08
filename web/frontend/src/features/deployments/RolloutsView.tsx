@@ -10,6 +10,7 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Upload } from 'lucide-react'
 
 import { useDeployments } from '@/api/hooks'
 import type { Deployment, DeploymentTarget } from '@/api/types'
@@ -93,7 +94,7 @@ export function RolloutsView() {
       <div className="flex items-center justify-between gap-2">
         <p className="text-ink-3 text-sm">{t('deployments.subtitle')}</p>
         <PermissionGate permission="deployment.create">
-          <Button variant="primary" size="sm" onClick={() => setDeploying(true)}>
+          <Button variant="primary" size="sm" icon={Upload} onClick={() => setDeploying(true)}>
             {t('deployments.create')}
           </Button>
         </PermissionGate>
@@ -114,7 +115,7 @@ export function RolloutsView() {
         )}
         emptyAction={
           <PermissionGate permission="deployment.create">
-            <Button variant="primary" onClick={() => setDeploying(true)}>
+            <Button icon={Upload} onClick={() => setDeploying(true)}>
               {t('deployments.create')}
             </Button>
           </PermissionGate>

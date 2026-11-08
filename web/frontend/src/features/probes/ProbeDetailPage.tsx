@@ -68,6 +68,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   ActionMenu,
+  BackLink,
   Badge,
   Banner,
   Button,
@@ -184,9 +185,7 @@ export function ProbeDetailPage() {
           not fit, instead of squeezing the name into two lines. */}
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-64 flex-1">
-          <Link to={backToList} className="text-ink-3 text-xs">
-            ← {t('probes.title')}
-          </Link>
+          <BackLink to={backToList}>{t('probes.title')}</BackLink>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">
               {probeName(
@@ -1377,11 +1376,9 @@ function EndpointsCard({ detail }: { detail: ProbeDetail }) {
         tone="warn"
         title={t('probes.iperf.noneHeldTitle')}
         action={
-          <Link to="/infrastructure/iperf">
-            <Button size="sm" variant="primary">
+          <ButtonLink to="/infrastructure/iperf" size="sm" variant="primary">
               {t('probes.iperf.toEndpoints')}
-            </Button>
-          </Link>
+          </ButtonLink>
         }
       >
         {t('probes.iperf.noneHeldBody')}

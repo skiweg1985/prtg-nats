@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { FileCode, Upload } from 'lucide-react'
 
 import { fieldDescription, fieldLabel } from './parameterFields'
 
@@ -11,6 +12,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
+  BackLink,
   Badge,
   Button,
   Card,
@@ -91,17 +93,20 @@ export function SensorListPage() {
       // those probes already chosen.
       cell: (row) =>
         row.outdated_on > 0 ? (
-          <button
-            type="button"
-            className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
+          // A control that looks like one: the count used to be an amber badge
+          // that happened to be clickable, which is a state pretending.
+          <Button
+            size="sm"
+            icon={Upload}
             onClick={(event) => {
               event.stopPropagation()
               setUpdating(row.name)
             }}
             title={t('sensors.updateOutdated')}
+            aria-label={`${t('sensors.updateOutdated')}: ${row.outdated_on}`}
           >
-            <Badge tone="warn">{row.outdated_on}</Badge>
-          </button>
+            {row.outdated_on}
+          </Button>
         ) : (
           <span className="text-ink-3 text-sm">0</span>
         ),
@@ -146,9 +151,7 @@ export function SensorDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <Link to="/sensors" className="text-ink-3 text-xs">
-            ← {t('sensors.title')}
-          </Link>
+          <BackLink to="/sensors">{t('sensors.title')}</BackLink>
           <div className="mt-1 flex items-center gap-2">
             <h1 className="text-lg">{data.name}</h1>
             <Badge tone="accent">v{data.version}</Badge>
@@ -156,7 +159,7 @@ export function SensorDetailPage() {
           <p className="text-ink-2 text-sm">{data.description}</p>
         </div>
         <PermissionGate permission="deployment.create">
-          <Button variant="primary" size="sm" onClick={() => setDeploying(true)}>
+          <Button variant="primary" size="sm" icon={Upload} onClick={() => setDeploying(true)}>
             {t('sensors.deployTo')}
           </Button>
         </PermissionGate>
@@ -429,7 +432,8 @@ export function ParameterCard({
       </div>
 
       <div className="mt-4 flex items-center gap-2">
-        <Button variant="primary" size="sm" onClick={() => render.mutate(values)}>
+        {/* Secondary: the page's primary is rolling the sensor out. */}
+        <Button size="sm" icon={FileCode} onClick={() => render.mutate(values)}>
           {t('sensors.parametersResult')}
         </Button>
         {missing.length > 0 && (

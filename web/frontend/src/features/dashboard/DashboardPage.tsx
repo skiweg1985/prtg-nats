@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Wrench } from 'lucide-react'
 
 import { useDashboard, useSetupStack } from '@/api/hooks'
 import type { Alert, Certificate, Dashboard } from '@/api/types'
@@ -78,6 +79,7 @@ export function DashboardPage() {
             action={
               <PermissionGate permission="system.settings">
                 <Button
+                  icon={Wrench}
                   variant="primary"
                   size="sm"
                   onClick={() =>

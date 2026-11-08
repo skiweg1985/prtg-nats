@@ -3,12 +3,20 @@ import { useTranslation } from 'react-i18next'
 
 import { useCreateUser, useDeleteUser, useUpdateUser, useUsers } from '@/api/hooks'
 import type { WebUser } from '@/api/types'
+import {
+  Trash2,
+  UserCheck,
+  UserPlus,
+  UserX,
+} from 'lucide-react'
 import { useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   Dot,
   EmptyState,
   Field,
@@ -22,6 +30,7 @@ const ROLES = ['viewer', 'operator', 'administrator'] as const
 
 /** Web account administration, on the settings page. */
 export function UsersCard() {
+  const [deleting, setDeleting] = useState<WebUser | null>(null)
   const { t } = useTranslation()
   const { principal } = useAuth()
   const { data: users, isLoading, error, refetch } = useUsers()
@@ -63,7 +72,7 @@ export function UsersCard() {
     <Card
       title={t('settings.users')}
       action={
-        <Button size="sm" variant="primary" onClick={() => setAdding(!adding)}>
+        <Button size="sm" icon={UserPlus} onClick={() => setAdding(!adding)}>
           {t('settings.addUser')}
         </Button>
       }
@@ -140,10 +149,23 @@ export function UsersCard() {
               onToggleActive={() =>
                 update.mutate({ id: user.id, is_active: !user.is_active })
               }
-              onDelete={() => remove.mutate(user.id)}
+              onDelete={() => setDeleting(user)}
             />
           ))}
         </ul>
+      )}
+      {deleting && (
+        <ConfirmDialog
+          title={t('confirm.title')}
+          body={t('settings.deleteUserConfirm', { user: deleting.display_name })}
+          confirmLabel={t('credentials.delete')}
+          cancelLabel={t('common.cancel')}
+          pending={remove.isPending}
+          onConfirm={() =>
+            remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+          }
+          onClose={() => setDeleting(null)}
+        />
       )}
       {(update.error || remove.error) && (
         <div className="p-4">
@@ -191,7 +213,7 @@ function UserRow({
         value={user.roles[0] ?? 'viewer'}
         onChange={(event) => onRoleChange(event.target.value)}
         disabled={isSelf}
-        className="rounded-control border-rule-2 bg-surface text-ink border px-2 py-1 text-xs"
+        className="h-7 py-0 text-xs"
         aria-label={t('settings.role')}
       >
         {ROLES.map((name) => (
@@ -200,12 +222,31 @@ function UserRow({
           </option>
         ))}
       </Select>
-      <Button size="sm" variant="ghost" onClick={onToggleActive} disabled={isSelf}>
-        {user.is_active ? t('settings.deactivate') : t('settings.activate')}
-      </Button>
-      <Button size="sm" variant="danger" onClick={onDelete} disabled={isSelf}>
-        {t('credentials.delete')}
-      </Button>
+      {/* Locking somebody out and deleting them are rare and consequential:
+          both wait in the menu, and deleting asks first. Nobody acts on their
+          own account here. */}
+      <ActionMenu
+        label={t('common.moreActions')}
+        actions={
+          isSelf
+            ? []
+            : [
+                {
+                  key: 'active',
+                  label: user.is_active ? t('settings.deactivate') : t('settings.activate'),
+                  icon: user.is_active ? UserX : UserCheck,
+                  onSelect: onToggleActive,
+                },
+                {
+                  key: 'delete',
+                  label: t('credentials.delete'),
+                  icon: Trash2,
+                  tone: 'danger',
+                  onSelect: onDelete,
+                },
+              ]
+        }
+      />
     </li>
   )
 }

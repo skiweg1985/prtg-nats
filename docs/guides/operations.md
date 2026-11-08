@@ -321,9 +321,15 @@ output, the exit code and the JSON form are described in
 
 The probe list in the web interface takes a selection, and every action a
 single probe's page offers can be applied to it: refresh, run a check, install
-the CA, renew the helper, apply the configuration, fix deviations. Two filters
-above the table build the selection that is usually wanted - the probes whose
-helper is behind, and the ones that drifted from their desired state.
+the CA, renew the helper, apply the configuration, fix deviations. The filters
+above the table build the selection that is usually wanted - one chip per
+status, counted over the whole fleet, plus the probes whose helper is behind
+and the ones that drifted from their desired state. The list opens with the
+worst status first.
+
+A filter does not change what an action runs on. Probes that were selected and
+then filtered out of sight stay selected, and the bar above the table says how
+many of them are hidden; clear the selection there to start over.
 
 It runs as one job that takes one lock per probe, so it queues behind whatever
 else is already working on one of them instead of racing it. A probe that does

@@ -54,7 +54,10 @@
     "unknown": "Unknown",
     "updated": "Updated",
     "apply": "Apply",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden"
   },
   "auth": {
     "signIn": "Sign in",
@@ -1150,7 +1153,8 @@
       "caBundleStored": "A CA bundle is stored. Leave the field empty to keep it.",
       "removeToken": "Remove token",
       "removeCaBundle": "Remove CA bundle"
-    }
+    },
+    "deleteUserConfirm": "{{user}} is deleted and can no longer sign in. Their entries in the audit trail are kept."
   },
   "roles": {
     "viewer": "Viewer",
@@ -1378,7 +1382,6 @@
     "rotateWarning": "A new password is generated for {{account}}. The current one stops working immediately.",
     "rotateProbeHint": "The enrolled probe receives the new password in the same job and reconnects with it.",
     "delete": "Delete",
-    "deleteBlockedProbe": "A probe is enrolled for this account.",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
     "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog.",

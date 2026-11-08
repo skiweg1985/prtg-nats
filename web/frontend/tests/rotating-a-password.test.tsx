@@ -119,8 +119,10 @@ describe('changing the password of a NATS account', () => {
     const user = userEvent.setup()
     wrap('credentials')
 
-    const rows = await screen.findAllByRole('button', { name: 'Change password' })
-    await user.click(rows[0])
+    // Rotation sits in the row's menu.
+    const menus = await screen.findAllByRole('button', { name: 'More actions' })
+    await user.click(menus[0])
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/mpp-spare/)).toBeInTheDocument()
@@ -141,8 +143,10 @@ describe('changing the password of a NATS account', () => {
     const user = userEvent.setup()
     wrap('credentials')
 
-    const rows = await screen.findAllByRole('button', { name: 'Change password' })
-    await user.click(rows[0])
+    // Rotation sits in the row's menu.
+    const menus = await screen.findAllByRole('button', { name: 'More actions' })
+    await user.click(menus[0])
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
     const dialog = await screen.findByRole('dialog')
     await user.click(
       within(dialog).getByRole('button', { name: 'Change password' }),
@@ -158,7 +162,8 @@ describe('changing the password of a measurement endpoint', () => {
     const user = userEvent.setup()
     wrap('iperf')
 
-    await user.click(await screen.findByRole('button', { name: 'Change password' }))
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
     expect(await screen.findByText(/2 probe/)).toBeInTheDocument()
   })
 
@@ -172,7 +177,8 @@ describe('changing the password of a measurement endpoint', () => {
     const user = userEvent.setup()
     wrap('iperf')
 
-    await user.click(await screen.findByRole('button', { name: 'Change password' }))
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
     const dialog = await screen.findByRole('dialog')
     await user.click(
       within(dialog).getByRole('button', { name: 'Change password' }),
@@ -204,7 +210,8 @@ describe('changing the password of a measurement endpoint', () => {
     const user = userEvent.setup()
     wrap('iperf')
 
-    await user.click(await screen.findByRole('button', { name: 'Change password' }))
+    await user.click(await screen.findByRole('button', { name: 'More actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Change password' }))
     const dialog = await screen.findByRole('dialog')
     await user.click(
       within(dialog).getByRole('button', { name: 'Change password' }),

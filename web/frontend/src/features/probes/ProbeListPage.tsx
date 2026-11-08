@@ -1,16 +1,19 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Plus, Upload, X } from 'lucide-react'
 
 import { useInvitations, useProbes, usePrtgProbeNames } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
-import type { ProbeSummary } from '@/api/types'
+import type { ProbeStatus, ProbeSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Badge,
   Button,
+  ButtonLink,
+  FilterChip,
   Mono,
   PageHeader,
 } from '@/components/ui/primitives'
@@ -42,10 +45,34 @@ function OpenInvitationsHint() {
 
   if (!data || data.length === 0) return null
   return (
-    <Link to="/probes/new" className="text-accent text-sm hover:underline">
+    <ButtonLink to="/probes/new">
       {t('probes.openInvitations', { count: data.length })}
-    </Link>
+    </ButtonLink>
   )
+}
+
+/**
+ * Worst first. The list opens in this order because the question it is opened
+ * with is "what is broken", and an alphabetical fleet answers it only for
+ * somebody who reads every row.
+ */
+const STATUS_ORDER: ProbeStatus[] = [
+  'unreachable',
+  'degraded',
+  'pending',
+  'enrolled',
+  'healthy',
+]
+
+// Only the two states somebody has to act on get a dot; colouring all five
+// would make the chips a legend instead of a warning.
+const STATUS_DOT: Partial<Record<ProbeStatus, string>> = {
+  unreachable: 'bg-danger',
+  degraded: 'bg-warn',
+}
+
+function isProbeStatus(value: string): value is ProbeStatus {
+  return (STATUS_ORDER as string[]).includes(value)
 }
 
 export function ProbeListPage() {
@@ -79,16 +106,31 @@ export function ProbeListPage() {
   const active = new Set(params.getAll('filter'))
   const onlyHelperOutdated = active.has('helper')
   const onlyDeviations = active.has('deviations')
+  const statuses = new Set(params.getAll('status').filter(isProbeStatus))
   const [actionError, setActionError] = useState<ApiError | Error | null>(null)
 
+  // Every filter writes only its own parameter. Rebuilding the query from the
+  // filters alone used to drop the search term the moment a chip was pressed.
+  function setParamValues(key: string, values: Iterable<string>) {
+    const updated = new URLSearchParams(params)
+    updated.delete(key)
+    for (const value of values) updated.append(key, value)
+    setParams(updated, { replace: true })
+  }
+
+  function toggleIn<V extends string>(set: Set<V>, value: V): Set<V> {
+    const next = new Set(set)
+    if (next.has(value)) next.delete(value)
+    else next.add(value)
+    return next
+  }
+
   function toggleFilter(name: 'helper' | 'deviations') {
-    const next = new Set(active)
-    if (next.has(name)) next.delete(name)
-    else next.add(name)
-    setParams(
-      [...next].map((entry): [string, string] => ['filter', entry]),
-      { replace: true },
-    )
+    setParamValues('filter', toggleIn(active, name))
+  }
+
+  function toggleStatus(status: ProbeStatus) {
+    setParamValues('status', toggleIn(statuses, status))
   }
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
@@ -96,15 +138,26 @@ export function ProbeListPage() {
   const rows = (data ?? []).filter(
     (row) =>
       (!onlyHelperOutdated || row.helper_outdated) &&
-      (!onlyDeviations || row.deviation_count > 0),
+      (!onlyDeviations || row.deviation_count > 0) &&
+      (statuses.size === 0 || statuses.has(row.status)),
   )
+  // Counted over the whole fleet, so a chip keeps its number while another
+  // filter is on and says what pressing it would add.
+  const statusCounts = new Map<ProbeStatus, number>()
+  for (const row of data ?? []) {
+    statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1)
+  }
   // Out of the full list, not out of the filtered one: a probe that was picked
   // before a filter was set is still picked, and the confirmation names it.
   const selectedProbes = (data ?? []).filter((row) => selected.has(row.id))
-  const filtered = onlyHelperOutdated || onlyDeviations
+  const filtered = onlyHelperOutdated || onlyDeviations || statuses.size > 0
 
+  // Leaves the search term alone: it has a clear button of its own.
   function clearFilters() {
-    setParams([], { replace: true })
+    const updated = new URLSearchParams(params)
+    updated.delete('filter')
+    updated.delete('status')
+    setParams(updated, { replace: true })
   }
 
   // Carried into every row link and handed back by the detail page's own way
@@ -131,7 +184,11 @@ export function ProbeListPage() {
         <div className="min-w-0">
           <p className="text-ink truncate font-medium">{nameOf(row)}</p>
           <span className="flex items-center gap-2">
-            <Mono className="text-ink-3">{row.nats_username}</Mono>
+            {/* The account only when it says something the name does not -
+                for a probe without any other name it is the name. */}
+            {nameOf(row) !== row.nats_username && (
+              <Mono className="text-ink-2">{row.nats_username}</Mono>
+            )}
             {/* Only the tunnel is marked: the site address is the default
                 route, and marking every probe would mark none. */}
             {row.managed_over_tunnel && (
@@ -153,29 +210,19 @@ export function ProbeListPage() {
     {
       key: 'status',
       header: t('probes.columns.status'),
-      sortValue: (row) => row.status,
-      cell: (row) => (
-        <div className="flex items-center gap-2">
-          <ProbeStatusBadge status={row.status} />
-          {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
-          {/* Beside the status rather than in its own column: it decides
-              whether the next job on this probe will run at all. */}
-          {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
-          {/* Green here and invisible in PRTG is exactly what the status
-              colour hides; a pending probe has an earlier problem. */}
-          {!row.prtg_registered &&
-            row.status !== 'pending' &&
-            row.status !== 'enrolled' && (
-              <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>
-            )}
-        </div>
-      ),
+      // By severity, not by the alphabet of the translated label; the name
+      // keeps probes of one status in a stable order.
+      sortValue: (row) =>
+        `${STATUS_ORDER.indexOf(row.status)} ${nameOf(row).toLowerCase()}`,
+      cell: (row) => <StatusBadges row={row} />,
     },
     {
       key: 'version',
       header: t('probes.columns.version'),
       sortValue: (row) => row.package_version ?? '',
-      cell: (row) => <Mono>{row.package_version ?? '—'}</Mono>,
+      cell: (row) => (
+        <Mono className="whitespace-nowrap">{row.package_version ?? '—'}</Mono>
+      ),
     },
     {
       key: 'sensors',
@@ -224,6 +271,7 @@ export function ProbeListPage() {
               <Button
                 variant="primary"
                 size="sm"
+                icon={Plus}
                 onClick={() => navigate('/probes/new')}
               >
                 {t('probes.enroll.action')}
@@ -264,7 +312,8 @@ export function ProbeListPage() {
             </Button>
           ) : (
             <PermissionGate permission="probe.create">
-              <Button variant="primary" onClick={() => navigate('/probes/new')}>
+              {/* Secondary: the page header already carries the primary. */}
+              <Button icon={Plus} onClick={() => navigate('/probes/new')}>
                 {t('probes.enroll.action')}
               </Button>
             </PermissionGate>
@@ -272,8 +321,54 @@ export function ProbeListPage() {
         }
         rowHref={(row) => `/probes/${row.id}${listSearch ? `?${listSearch}` : ''}`}
         searchParamKey="q"
+        defaultSort={{ key: 'status', direction: 'asc' }}
+        rowLabel={nameOf}
+        mobileCard={(row) => (
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-ink truncate font-medium">{nameOf(row)}</p>
+              <span className={row.stale ? 'text-ink-3 shrink-0 text-xs' : 'text-ink-2 shrink-0 text-xs'}>
+                {row.observed_at ? formatRelative(row.observed_at) : t('common.never')}
+              </span>
+            </div>
+            <StatusBadges row={row} />
+            <div className="text-ink-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <Mono truncate>{row.host}</Mono>
+              {row.package_version && <Mono>{row.package_version}</Mono>}
+              <span>
+                {t('probes.columns.sensors')} {row.sensor_count}
+              </span>
+              {row.deviation_count > 0 && (
+                <Badge tone="warn">
+                  {t('probes.columns.deviations')} {row.deviation_count}
+                </Badge>
+              )}
+            </div>
+          </div>
+        )}
         filters={
-          <div className="flex flex-wrap items-center gap-2">
+          // One scrolling row on a phone: wrapped, seven chips pushed the
+          // first probe below the fold.
+          <div className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] md:mx-0 md:w-auto md:flex-wrap md:overflow-visible md:px-0">
+            {STATUS_ORDER.filter((status) => statusCounts.has(status)).map(
+              (status) => (
+                <FilterChip
+                  key={status}
+                  pressed={statuses.has(status)}
+                  onClick={() => toggleStatus(status)}
+                >
+                  {STATUS_DOT[status] && (
+                    <span
+                      aria-hidden
+                      className={`mr-1.5 size-1.5 rounded-full ${STATUS_DOT[status]}`}
+                    />
+                  )}
+                  {t(`status.probe.${status}`)}
+                  <span className="ml-1.5 tabular-nums">{statusCounts.get(status)}</span>
+                </FilterChip>
+              ),
+            )}
+            <span aria-hidden className="bg-rule mx-1 h-4 w-px shrink-0" />
             <FilterToggle
               label={t('probes.filters.helperOutdated')}
               active={onlyHelperOutdated}
@@ -285,7 +380,7 @@ export function ProbeListPage() {
               onToggle={() => toggleFilter('deviations')}
             />
             {filtered && (
-              <Button size="sm" variant="ghost" onClick={clearFilters}>
+              <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
                 {t('common.clearFilters')}
               </Button>
             )}
@@ -297,7 +392,7 @@ export function ProbeListPage() {
           actions: (
             <>
               <PermissionGate permission="deployment.create">
-                <Button size="sm" variant="primary" onClick={() => setDeploying(true)}>
+                <Button size="sm" icon={Upload} onClick={() => setDeploying(true)}>
                   {t('sensors.deploy')}
                 </Button>
               </PermissionGate>
@@ -325,6 +420,26 @@ export function ProbeListPage() {
   )
 }
 
+function StatusBadges({ row }: { row: ProbeSummary }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <ProbeStatusBadge status={row.status} />
+      {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
+      {/* Beside the status rather than in its own column: it decides
+          whether the next job on this probe will run at all. */}
+      {row.helper_outdated && <Badge tone="warn">{t('probes.helperOutdated')}</Badge>}
+      {/* Green here and invisible in PRTG is exactly what the status
+          colour hides; a pending probe has an earlier problem. */}
+      {!row.prtg_registered &&
+        row.status !== 'pending' &&
+        row.status !== 'enrolled' && (
+          <Badge tone="warn">{t('probes.prtg.missingBadge')}</Badge>
+        )}
+    </div>
+  )
+}
+
 function FilterToggle({
   label,
   active,
@@ -335,13 +450,8 @@ function FilterToggle({
   onToggle: () => void
 }) {
   return (
-    <Button
-      size="sm"
-      variant={active ? 'primary' : 'ghost'}
-      aria-pressed={active}
-      onClick={onToggle}
-    >
+    <FilterChip pressed={active} onClick={onToggle}>
       {label}
-    </Button>
+    </FilterChip>
   )
 }
