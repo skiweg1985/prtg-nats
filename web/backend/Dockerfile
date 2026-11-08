@@ -74,12 +74,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dependencies first, so a code change does not reinstall the world.
-COPY web/backend/pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+# Dependencies first, so a code change does not reinstall the world. They come
+# from the lockfile, hashes checked, so two builds of one commit carry the same
+# libraries and a scan of one image speaks for the other. The project itself
+# then goes in without resolving anything: everything it needs is already
+# there, and a dependency missing from the lock fails here instead of being
+# fetched in whatever version is current. scripts/lock-dependencies.sh
+# refreshes the lock.
+COPY web/backend/requirements.lock web/backend/pyproject.toml ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY web/backend/app ./app
+RUN pip install --no-cache-dir --no-deps .
 COPY web/backend/alembic.ini ./
 COPY web/backend/alembic ./alembic
 
