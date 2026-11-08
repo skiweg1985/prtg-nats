@@ -235,7 +235,8 @@ describe('a finding the interface has no words for', () => {
         ],
       }),
     )
-    wrap('/probes/P1?tab=deviations')
+    // On the overview: deviations are a section there, not a tab.
+    wrap('/probes/P1')
 
     expect(await screen.findByText('The probe differs from the desired state')).toBeInTheDocument()
     expect(screen.getByText('firmware_drifted')).toBeInTheDocument()
@@ -284,24 +285,27 @@ describe('the actions in the header', () => {
     const user = userEvent.setup()
     wrap()
 
-    expect(await screen.findByRole('button', { name: 'Refresh state' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Check state' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Apply configuration' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Run check/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /check report/ })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'More actions' }))
-    expect(screen.getByRole('menuitem', { name: 'Run check as job' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Create a check report' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Update helper' })).toBeInTheDocument()
   })
 
-  it('puts the helper update in front when the probe needs it', async () => {
+  it('keeps the same two when the helper is outdated, and offers the update in its notice', async () => {
+    // The header used to swap its second button for the helper update, so
+    // the same place meant two different things depending on the probe.
     await changeLanguage('en')
     serve(detail({ summary: { helper_outdated: true, helper_version: 9 }, observed: { helper_version: 9 } }))
-    const user = userEvent.setup()
     wrap()
 
-    expect(await screen.findByRole('button', { name: 'Update helper' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Apply configuration' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'More actions' }))
-    expect(screen.getByRole('menuitem', { name: 'Apply configuration' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Apply configuration' })).toBeInTheDocument()
+    const notice = screen
+      .getByText('The probe helper is older than this platform')
+      .closest('[role="status"]') as HTMLElement
+    expect(within(notice).getByRole('button', { name: 'Update helper' })).toBeInTheDocument()
   })
 
   it('names the probe in the unenroll confirmation', async () => {
@@ -412,6 +416,8 @@ describe('deviations and their fix', () => {
       }),
     )
     const user = userEvent.setup()
+    // A link from before the tab was folded into the overview still lands
+    // on the deviations.
     wrap('/probes/P1?tab=deviations')
 
     expect(await screen.findByText('Sensor dns-resolve is outdated (4 → 5)')).toBeInTheDocument()

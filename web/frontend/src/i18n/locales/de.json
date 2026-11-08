@@ -140,7 +140,6 @@
     "tabs": {
       "overview": "Übersicht",
       "sensors": "Sensoren",
-      "deviations": "Abweichungen",
       "diagnostics": "Diagnose"
     },
     "identity": "Identität",
@@ -154,8 +153,8 @@
     "accessKeyShow": "Access Key anzeigen",
     "caFingerprint": "CA-Fingerabdruck",
     "installCa": "CA installieren",
-    "validate": "Prüfung als Job starten",
-    "refreshState": "Zustand aktualisieren",
+    "validate": "Prüfbericht erstellen",
+    "refreshState": "Zustand prüfen",
     "helper": "Probe-Helper",
     "pendingTransaction": "Offene Transaktion",
     "helperVersion": "Version {{version}}",
@@ -168,7 +167,6 @@
     "notes": "Notizen",
     "displayName": "Anzeigename",
     "deviationsTitle": "Abweichungen",
-    "noDeviations": "Die Probe entspricht dem gewünschten Zustand.",
     "desiredState": "Gewünschter Zustand",
     "actualState": "Tatsächlicher Zustand",
     "fixDeviations": "Abweichungen beheben",
@@ -186,10 +184,10 @@
       "lastContact": "Letzter Kontakt {{time}} über {{route}} {{host}}.",
       "neverAnswered": "Sie hat noch nie geantwortet.",
       "lastAttempt": "Letzter Versuch {{time}}.",
-      "nextStep": "Prüfe, ob der Host läuft und unter {{host}} erreichbar ist, und frag dann mit „Zustand aktualisieren“ erneut an.",
+      "nextStep": "Prüfe, ob der Host läuft und unter {{host}} erreichbar ist, und frag dann mit „Zustand prüfen“ erneut an.",
       "details": "Technische Details",
       "datedTitle": "Diese Werte sind nicht mehr aktuell",
-      "datedBody": "Die Probe wurde zuletzt {{time}} abgefragt. „Zustand aktualisieren“ fragt sie jetzt ab."
+      "datedBody": "Die Probe wurde zuletzt {{time}} abgefragt. „Zustand prüfen“ fragt sie jetzt ab."
     },
     "diag": {
       "hostname": "Hostname",
@@ -824,9 +822,9 @@
         "helper_update": "Helfer aktualisieren",
         "install_ca": "CA installieren",
         "reconcile": "Abweichungen beheben",
-        "refresh": "Zustand aktualisieren",
+        "refresh": "Zustand prüfen",
         "unenroll": "Probe ausbinden",
-        "validate": "Probe prüfen",
+        "validate": "Prüfbericht erstellen",
         "channel_repair": "Rückkanal neu einrichten"
       },
       "sensor": {
@@ -909,10 +907,10 @@
         "helper_update": "Helfer aktualisiert",
         "install_ca": "CA installiert",
         "reconcile": "Abweichungen behoben",
-        "refresh": "Zustand aktualisiert",
+        "refresh": "Zustand geprüft",
         "set_desired_state": "Soll-Zustand geändert",
         "update": "Probe geändert",
-        "validate": "Probe geprüft",
+        "validate": "Prüfbericht erstellt",
         "channel_repair": "Rückkanal neu eingerichtet"
       },
       "sensor": {

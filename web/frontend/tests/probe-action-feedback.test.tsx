@@ -128,7 +128,7 @@ describe('what the probe actions report back', () => {
 
     // A job with a report, unlike the instant refresh: in the menu.
     await user.click(await screen.findByRole('button', { name: 'More actions' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Run check as job' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Create a check report' }))
     expect(await screen.findByText('job page')).toBeInTheDocument()
   })
 
