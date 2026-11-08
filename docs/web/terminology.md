@@ -31,6 +31,7 @@ does not settle, settle it here first.
 | WireGuard dial-in | Hub-Adresse / Endpoint des Overlays | hub address | — |
 | shipping a sensor | ausrollen (Verb), Rollout (Substantiv) | deploy / deployment | Ausrollvorgang, verteilen |
 | secret | Passwort | password | Kennwort |
+| one-time code for the first administrator, printed on the host | Einrichtungscode | setup code | Setup-Code, Bootstrap-Token, Token (for this sense) |
 | credentials | Zugangsdaten | credentials | Anmeldedaten |
 | async unit of work | Job | job | Vorgang, Auftrag |
 | job step log | Verlauf / Protokoll (job page only) | log | — |

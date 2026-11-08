@@ -600,6 +600,18 @@ whichever was used, the result is the same endpoint:
 | [registering it](foreign-iperf-endpoint.md) | a host somebody else operates, where nothing may be installed |
 | `./prtg-nats iperf-server install` | from the command line, unchanged |
 
+When the interface signs in over SSH it also checks which userspace platform
+the endpoint runs. If the release carries an iperf3 build for it -
+`linux-amd64-glibc`, `linux-arm64-glibc` or `linux-armhf-glibc`, the same
+builds the probes get - that build goes along. The endpoint checks its
+SHA-256 and version, installs it under `/opt/prtg-nats/endpoint/iperf3/`, and
+the service runs it instead of the distribution's package. That is what makes
+an Ubuntu 24.04 host usable, whose package is iperf3 3.16. The package stays
+installed for its service unit and its `iperf3` group. On any other platform
+the endpoint keeps its own iperf3, and the setup stops if that one is older
+than 3.17. The job log says which of the two happened. The invitation and the
+command line do not ship the build yet.
+
 The first three are in
 [Setting up an iperf measurement endpoint](../reference/api.md#setting-up-an-iperf-measurement-endpoint);
 what to ask for when nothing may be installed on the far side is in

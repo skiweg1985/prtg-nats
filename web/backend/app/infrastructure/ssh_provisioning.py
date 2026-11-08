@@ -21,6 +21,8 @@ written down nowhere - which is exactly what that field was built for.
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,6 +50,59 @@ SCAN_ALGORITHMS: tuple[tuple[str, ...], ...] = (
 # atomically, and checked against the pattern before anything is removed.
 _STAGE_TEMPLATE = "/tmp/prtg-iperf-enroll.XXXXXX"  # noqa: S108 - remote path
 _STAGE_PATTERN = "/tmp/prtg-iperf-enroll."  # noqa: S108 - remote path
+
+# The userspace platform, worked out the way prtg-nats-probe-helper does it:
+# the package manager's architecture first, because a 64-bit kernel above a
+# 32-bit userspace is an ordinary Raspberry Pi and "uname -m" alone would pick
+# a binary its loader cannot run. POSIX sh, because the login shell of an
+# administrator we have never met is not necessarily bash.
+PLATFORM_PROBE = r"""
+arch=unknown
+if command -v dpkg >/dev/null 2>&1; then
+  case "$(dpkg --print-architecture 2>/dev/null)" in
+    amd64) arch=amd64 ;;
+    arm64) arch=arm64 ;;
+    armhf)
+      if [ "$(uname -m 2>/dev/null)" = armv6l ]; then arch=armhf-v6; else arch=armhf; fi
+      ;;
+  esac
+fi
+if [ "$arch" = unknown ] && command -v rpm >/dev/null 2>&1; then
+  case "$(rpm --eval '%{_arch}' 2>/dev/null)" in
+    x86_64) arch=amd64 ;;
+    aarch64) arch=arm64 ;;
+    armv7hl|armv7l) arch=armhf ;;
+  esac
+fi
+if [ "$arch" = unknown ]; then
+  case "$(uname -m 2>/dev/null):$(getconf LONG_BIT 2>/dev/null)" in
+    x86_64:64) arch=amd64 ;;
+    aarch64:64|arm64:64) arch=arm64 ;;
+    aarch64:32|arm64:32|armv7l:32|armv8l:32) arch=armhf ;;
+    armv6l:32) arch=armhf-v6 ;;
+  esac
+fi
+libc=unknown
+case "$(getconf GNU_LIBC_VERSION 2>/dev/null)" in
+  glibc\ *) libc=glibc ;;
+  *) case "$(ldd --version 2>&1 | head -n 1)" in *musl*|*MUSL*) libc=musl ;; esac ;;
+esac
+printf 'linux-%s-%s\n' "$arch" "$libc"
+"""
+_PLATFORM_SHAPE = re.compile(r"^linux-[a-z0-9][a-z0-9_-]*-(?:glibc|musl|unknown)$")
+UNKNOWN_PLATFORM = "linux-unknown-unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class StagedTools:
+    """Executables that go along with the enrolment, chosen per platform.
+
+    ``arguments`` extend the enrolment command and may name the files with
+    ``@@STAGE@@`` like the command itself does.
+    """
+
+    files: dict[str, bytes] = field(default_factory=dict)
+    arguments: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +196,7 @@ async def install_access(
     known_hosts_path: Path,
     files: dict[str, str],
     command: list[str],
+    tools: Callable[[str], StagedTools] | None = None,
     timeout: int = 300,
 ) -> ProvisioningLog:
     """Sign in as an administrator, put the files there, run one command.
@@ -153,6 +209,10 @@ async def install_access(
     the staging directory goes again whichever way the run ends. Nothing here
     is written to the host outside that directory; the command is what installs
     anything permanent.
+
+    ``tools`` is asked once, with the host's userspace platform, for any
+    executables to stage beside the files. It is a question only this
+    connection can answer: the platform is not known before the sign-in.
     """
     report = ProvisioningLog()
     try:
@@ -171,6 +231,14 @@ async def install_access(
                 for name, content in files.items():
                     await _write_file(connection, stage, name, content, host)
                     report.add(f"transferred {name}")
+                if tools is not None:
+                    platform = await detect_platform(connection)
+                    report.add(f"userspace platform {platform}")
+                    staged = tools(platform)
+                    for name, payload in staged.files.items():
+                        await _write_file(connection, stage, name, payload, host)
+                        report.add(f"transferred {name} ({len(payload)} bytes)")
+                    command = [*command, *staged.arguments]
                 output = await asyncio.wait_for(
                     _run_privileged(connection, stage, command, credentials, host),
                     timeout=timeout,
@@ -216,23 +284,42 @@ async def _make_stage(connection: asyncssh.SSHClientConnection, host: str) -> st
     return stage
 
 
+async def detect_platform(connection: asyncssh.SSHClientConnection) -> str:
+    """The host's userspace platform, or ``linux-unknown-unknown``.
+
+    Unknown is an answer, not a failure: it means no release build fits, and
+    the endpoint goes on with whatever iperf3 its own packages provide.
+    """
+    result = await connection.run(PLATFORM_PROBE, check=False)
+    answer = str(result.stdout or "").strip()
+    if result.exit_status != 0 or not _PLATFORM_SHAPE.fullmatch(answer):
+        return UNKNOWN_PLATFORM
+    return answer
+
+
 async def _write_file(
     connection: asyncssh.SSHClientConnection,
     stage: str,
     name: str,
-    content: str,
+    content: str | bytes,
     host: str,
 ) -> None:
     # The name is ours, not the caller's, but quoting it costs nothing and the
     # day somebody passes one through is the day it matters.
     target = f"{stage}/{name}"
+    # An executable is bytes and has to arrive as exactly those bytes; asyncssh
+    # only leaves stdin alone when the session has no text encoding.
+    binary = isinstance(content, bytes)
     result = await connection.run(
-        f"umask 077; cat > {_quote(target)}", input=content, check=False
+        f"umask 077; cat > {_quote(target)}",
+        input=content,
+        check=False,
+        **({"encoding": None} if binary else {}),
     )
     if result.exit_status != 0:
         raise ProbeRejectedError(
             params={"probe": host, "command": "write"},
-            details=f"could not write {name}: {str(result.stderr or '')[:200]}",
+            details=f"could not write {name}: {_text(result.stderr)[:200]}",
         )
 
 
@@ -281,6 +368,12 @@ async def _remove_stage(connection: asyncssh.SSHClientConnection, stage: str) ->
         # The run is over either way, and a staging directory that survives is
         # worth neither a failure nor a second message.
         logger.debug("could not remove staging directory", extra={"stage": stage})
+
+
+def _text(output: object) -> str:
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return str(output or "")
 
 
 def _quote(value: str) -> str:

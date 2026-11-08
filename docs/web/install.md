@@ -70,12 +70,19 @@ see the
 
 ## First sign-in
 
-There is no default account and no default password. The first person to open
-the interface is asked to create the administrator:
+There is no default account and no default password. Creating the
+administrator needs the setup code `prtg-nats setup` prints at its end, so the
+installation belongs to someone with a shell on the host - not to whoever
+reaches the page first:
 
 1. Open `https://<NATS_FQDN>`.
-2. Enter a user name and a password of at least twelve characters.
+2. Enter the setup code, a user name and a password of at least twelve
+   characters.
 3. That account holds the `administrator` role and can create the others.
+
+The code is valid for 24 hours and for one account. `sudo ./prtg-nats
+setup-code` prints a new one and voids the old one; only its hash is stored,
+and it is deleted once the administrator exists.
 
 The window closes with that first account. A second call to the setup endpoint
 is refused, so the form cannot be used later to add an administrator.
@@ -197,7 +204,7 @@ the JetStream data.
 
 ```bash
 cd web/backend
-uv venv && uv pip install -e ".[dev]"
+uv venv && uv pip sync requirements-dev.lock && uv pip install --no-deps -e .
 PRTG_NATS_WEB_PROJECT_DIR=/path/to/installation \
 PRTG_NATS_WEB_ENVIRONMENT=development \
 PRTG_NATS_WEB_SESSION_COOKIE_SECURE=false \
@@ -211,7 +218,20 @@ npm run dev
 ```
 
 The Vite dev server proxies `/api` to port 8100, which keeps the session cookie
-first-party and makes development behave like production.
+first-party and makes development behave like production. It listens on
+loopback only; do not expose it or the test runner on a network.
+
+`package.json` lifts the `minimatch` that `typescript-eslint` pulls in to
+version 11 through `overrides`, because the 10.x line it asks for carries a
+known advisory. Remove the override once `typescript-eslint` depends on 11
+itself.
+
+The backend's dependencies are locked: `requirements.lock` is what the image
+installs, hashes checked, and `requirements-dev.lock` adds the test and lint
+tools at the same versions. `pyproject.toml` only states lower bounds. After
+changing a dependency there, or to pick up new releases, run
+`web/backend/scripts/lock-dependencies.sh` (with `--upgrade` for the latter)
+and commit both files; a test fails while a dependency is missing from them.
 
 `PRTG_NATS_WEB_DEV_AUTH_ENABLED=true` skips sign-in and acts as an
 administrator. It refuses to combine with `PRTG_NATS_WEB_ENVIRONMENT=production`

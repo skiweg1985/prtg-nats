@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.permissions import RoleName
 from app.persistence.models.audit import AuditEvent
 from app.persistence.models.jobs import Job
-from tests.conftest import REPO_ROOT, write_probe_inventory
+from tests.conftest import REPO_ROOT, SETUP_CODE, write_probe_inventory
 
 PASSWORD = "correct-horse-battery"
 PROBE = "mpp-berlin-01"
@@ -51,7 +51,8 @@ def real_sensors(project_dir: Path) -> None:
 
 async def sign_in(client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR) -> None:
     first = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert first.status_code == 201, first.text
     if role is RoleName.ADMINISTRATOR:

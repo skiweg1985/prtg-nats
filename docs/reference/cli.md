@@ -27,7 +27,8 @@ The values these commands read and write are in
 
 | Command | What it does |
 | --- | --- |
-| `setup` | ask for site settings, start the stack, initialise the runtime |
+| `setup` | ask for site settings, start the stack, initialise the runtime, print the setup code |
+| `setup-code` | issue a new one-time code for creating the first web administrator |
 | `config` / `config --edit` | show or rewrite the site settings in `.env` |
 | `status` | container state and certificate validity |
 | `logs` | follow the NATS log |
@@ -41,6 +42,13 @@ the proxy that serves the interface needs the certificate the initialisation
 issues, so until it has run there is no interface to defer to. NATS and the
 proxy restart against the missing state in the meantime and are restarted once
 it is there.
+
+The web interface creates its first administrator only with the setup code
+`setup` prints at the end. Without it, whoever reached the page first on a
+fresh installation would own it. The code is valid for 24 hours and for one
+account; `setup-code` issues a new one at any time and voids the previous one.
+Only its hash is kept, in the runtime's `private/` directory, and it is gone
+once the administrator exists. `setup` prints nothing once an account exists.
 
 `build` and `up` stamp the commit of this checkout into the images they build,
 and `git describe --tags` alongside it, which is what lets the interface say
@@ -266,7 +274,8 @@ The delegation needs the backend installed once:
 
 ```bash
 python3 -m venv web/backend/.venv
-web/backend/.venv/bin/pip install -e web/backend
+web/backend/.venv/bin/pip install --require-hashes -r web/backend/requirements.lock
+web/backend/.venv/bin/pip install --no-deps -e web/backend
 ```
 
 Without it, every recovery command explains exactly that instead of failing

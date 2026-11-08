@@ -33,7 +33,7 @@ from app.persistence.models.inventory import (
 )
 from app.services.events import job_topic
 from app.services.jobs import JobService, ResourceRef
-from app.workers.handlers import deploy_sensor, iperf_provisioning
+from app.workers.handlers import deploy_sensor, get_definition, iperf_provisioning
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -65,7 +65,11 @@ async def get_job(
     _: Annotated[object, Depends(require_permission(Permission.JOB_READ))],
 ) -> JobDetailOut:
     job = await jobs.get(job_id)
-    return JobDetailOut.model_validate(job)
+    detail = JobDetailOut.model_validate(job)
+    definition = get_definition(job.type)
+    permissions = definition.retry_permissions() if definition else None
+    detail.retry_permissions = None if permissions is None else list(permissions)
+    return detail
 
 
 @router.get("/{job_id}/log", response_model=list[JobEventOut])
@@ -196,6 +200,8 @@ async def retry_job(
     finished half of the history while its link kept pointing at the old job.
     """
     original = await jobs.get(job_id)
+    # Before anything below writes a row: the deployment retry creates one.
+    jobs.ensure_may_retry(original, principal)
     if original.type == iperf_provisioning.FOREIGN_CREDENTIALS_JOB_TYPE:
         raise ConflictError(
             params={"resource": "job", "id": job_id},

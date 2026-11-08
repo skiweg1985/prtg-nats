@@ -650,7 +650,7 @@ class FakeDocker:
                     # The demo container has no health check of its own; the
                     # stack's one asks /healthz, which is what this reports.
                     health="healthy" if state.get("Running") else "unhealthy",
-                    image="nats:2.10.29-alpine",
+                    image="nats:2.15.2-alpine",
                     started_at=state.get("StartedAt"),
                 )
             return module.ContainerState(
@@ -659,7 +659,7 @@ class FakeDocker:
                 running=True,
                 status="running",
                 health="healthy",
-                image="caddy:2.9-alpine",
+                image="caddy:2.11.9-alpine",
                 started_at=fake.started_at,
             )
 
