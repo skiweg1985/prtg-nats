@@ -34,7 +34,12 @@ application.
 | `POST /auth/setup` | create the first administrator - refused once one exists |
 | `POST /auth/login` | sign in, sets the session cookie |
 | `POST /auth/logout` | end the session |
-| `POST /auth/change-password` | change one's own password |
+| `POST /auth/change-password` | change one's own password, sets a fresh session cookie |
+
+A session of an account that still has to change its initial password answers
+every other route with `403 auth.password_change_required`. Only
+`change-password`, `logout` and `state` work for it; `state` reports
+`must_change_password: true` until the password is changed.
 
 Repeated failures are throttled with a lockout that doubles per attempt; the
 bounds are `login_max_attempts`, `login_lockout_base_seconds` and
