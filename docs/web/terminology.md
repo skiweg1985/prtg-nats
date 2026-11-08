@@ -58,14 +58,18 @@ approved. Anyone can rename the probe in PRTG afterwards, and PRTG does not
 tell us, so the stored value is never labelled as the name PRTG uses. What
 identifies a probe is its **Probe-Id** / **probe id**, which never changes.
 The name PRTG currently shows, once it is read from PRTG, is the **Name in
-PRTG** / **name in PRTG** and sits next to the enrollment name, not in its
-place. The enrollment wizard's „Anderer Name in PRTG" / "Different name in
-PRTG" sets the enrollment name - at that moment the two are the same.
+PRTG** / **name in PRTG**. The interface shows a probe under one name only:
+a display name chosen here, otherwise the name in PRTG for a linked probe,
+otherwise the enrollment name - never two of them side by side. The
+enrollment name stays in the shell's `probe show`, where it describes the
+probe's configuration. The enrollment wizard's „Anderer Name in PRTG" /
+"Different name in PRTG" sets the enrollment name - at that moment the two
+are the same.
 
 PRTG has no GID to look the probe id up by, so the name in PRTG is read by the
 **Objekt-Id** / **object id**, the number PRTG shows in the probe's address.
-A probe is **verknüpft** / **linked** to its PRTG object once, by a person. A
-difference between the two names is a note, never a warning.
+A probe is **verknüpft** / **linked** to its PRTG object once, by a person;
+the **PRTG-Verknüpfung** / **PRTG link** row shows that object id.
 
 A probe has two routes, and the interface names the one in use. Management
 goes **über den Tunnel** / **via the tunnel** - the overlay address - or
