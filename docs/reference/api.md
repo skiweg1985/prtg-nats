@@ -621,11 +621,13 @@ and what the sensor script reads to find the file.
 | `POST /jobs/{id}/retry` | a new job with the same inputs |
 | `POST /jobs/{id}/cancel` | ask it to stop |
 
-A retry needs `job.retry` and, on top of it, the permission the job's own
-type needs to be started - an operator cannot repeat a certificate renewal an
-administrator ran. The job detail names that permission as `retry_permission`.
-A job whose type this release no longer knows cannot be retried at all and
-answers `409`.
+A retry needs `job.retry` and, on top of it, what starting that kind of job
+needs - an operator cannot repeat a certificate renewal an administrator ran,
+and a rollout retry also needs `deployment.create`. The job detail lists those
+permissions as `retry_permissions`. It is `null`, and a retry answers `409`,
+for a stack update or a stack setup - their routes check more than a
+permission, which a retry would skip - and for a type this release no longer
+knows.
 
 Retrying a failed or partial `sensor.deploy` is the one exception to "same
 inputs": the retry gets a deployment row of its own and targets only the

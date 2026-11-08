@@ -121,8 +121,9 @@ the same reason" visible.
 Retrying asks for the same permission as starting that kind of job, on top
 of `job.retry`. An operator can repeat a rollout but not a certificate renewal
 or a stack update an administrator started, and the interface shows the button
-only to those who may use it. A job whose type a newer release no longer has
-cannot be retried; start it anew from where it came from.
+only to those who may use it. A stack update, a stack setup and a job whose
+type a newer release no longer has cannot be run again; start them anew from
+where they came from, which checks again whether that is safe right now.
 
 Only a finished job can be retried. A running one can be cancelled: a queued
 job stops immediately, and a running one is asked to stop and checks between

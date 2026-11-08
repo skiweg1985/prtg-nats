@@ -46,7 +46,7 @@ function job(overrides: Partial<JobDetail>): JobDetail {
     error_params: null,
     error_details: null,
     retry_of_job_id: null,
-    retry_permission: 'probe.create',
+    retry_permissions: ['probe.create'],
     ...overrides,
   }
 }

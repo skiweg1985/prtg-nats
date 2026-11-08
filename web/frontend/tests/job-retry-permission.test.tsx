@@ -57,7 +57,7 @@ const JOB = {
   error_params: null,
   error_details: null,
   retry_of_job_id: null,
-  retry_permission: 'certificate.renew',
+  retry_permissions: ['certificate.renew'],
 }
 
 const OPERATOR = ['job.read', 'job.retry', 'probe.read']
@@ -113,7 +113,7 @@ describe('the retry button', () => {
         HttpResponse.json(principal([...OPERATOR, 'certificate.renew'])),
       ),
       http.get('/api/v1/jobs/J1', () =>
-        HttpResponse.json({ ...JOB, retry_permission: null }),
+        HttpResponse.json({ ...JOB, retry_permissions: null }),
       ),
     )
     wrap()

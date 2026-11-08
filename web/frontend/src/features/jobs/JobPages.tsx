@@ -13,7 +13,7 @@ import {
   useRetryJob,
 } from '@/api/hooks'
 import type { JobDetail, JobSummary } from '@/api/types'
-import { PermissionGate } from '@/app/providers'
+import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog, ProgressBar } from '@/components/ui/JobProgress'
@@ -204,6 +204,7 @@ export function JobDetailPage() {
   const { t } = useTranslation()
   const { jobId } = useParams<{ jobId: string }>()
   const navigate = useNavigate()
+  const { can } = useAuth()
 
   const { data: job, isLoading, error, refetch } = useJob(jobId, {
     // While a job runs its status is pushed over the event stream, but the
@@ -235,6 +236,10 @@ export function JobDetailPage() {
 
   const running = !isTerminal(job.status)
   const needsForeignPassword = job.type === 'iperf.update_foreign_credentials'
+  // A retry needs job.retry and what starting this kind of job needs; the
+  // server refuses either way, the button only follows.
+  const mayRetry =
+    can('job.retry') && (job.retry_permissions?.every((permission) => can(permission)) ?? false)
 
   return (
     <div className="space-y-4">
@@ -282,24 +287,20 @@ export function JobDetailPage() {
               </Button>
             </PermissionGate>
           )}
-          {!running && !needsForeignPassword && job.retry_permission && (
-            <PermissionGate permission="job.retry">
-              <PermissionGate permission={job.retry_permission}>
-                <Button
-                  icon={RotateCw}
-                  size="sm"
-                  variant="primary"
-                  onClick={() =>
-                    retry.mutate(jobId, {
-                      onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                    })
-                  }
-                  disabled={retry.isPending}
-                >
-                  {t('jobs.retry')}
-                </Button>
-              </PermissionGate>
-            </PermissionGate>
+          {!running && !needsForeignPassword && mayRetry && (
+            <Button
+              icon={RotateCw}
+              size="sm"
+              variant="primary"
+              onClick={() =>
+                retry.mutate(jobId, {
+                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                })
+              }
+              disabled={retry.isPending}
+            >
+              {t('jobs.retry')}
+            </Button>
           )}
           {!running &&
             needsForeignPassword &&

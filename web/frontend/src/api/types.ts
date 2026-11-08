@@ -456,7 +456,7 @@ export interface JobDetail extends JobSummary {
   error_params: Record<string, unknown> | null
   error_details: string | null
   retry_of_job_id: string | null
-  retry_permission: string | null
+  retry_permissions: string[] | null
 }
 
 export interface DeploymentTarget {
