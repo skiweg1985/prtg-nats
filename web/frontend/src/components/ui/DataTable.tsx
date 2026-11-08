@@ -1,7 +1,8 @@
 import clsx from 'clsx'
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react'
 
 import { Button, EmptyState, Input, Skeleton } from './primitives'
 
@@ -12,6 +13,25 @@ import { Button, EmptyState, Input, Skeleton } from './primitives'
  * three things an administrator actually needs on a fleet of a few dozen rows,
  * and each is a few lines here rather than a configuration surface.
  */
+
+// Below Tailwind's md breakpoint. Asked in script rather than left to CSS so
+// only one of the two views is in the document: hidden by CSS, the other one
+// would still hold a second checkbox and a second link for every row.
+const PHONE_QUERY = '(max-width: 767px)'
+
+function subscribePhone(onChange: () => void) {
+  const query = window.matchMedia(PHONE_QUERY)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
+function useIsPhone() {
+  return useSyncExternalStore(
+    subscribePhone,
+    () => window.matchMedia(PHONE_QUERY).matches,
+    () => false,
+  )
+}
 
 export interface Column<T> {
   key: string
@@ -70,6 +90,22 @@ interface DataTableProps<T> {
    * is not an answer while two of them are broken. Omit it and rows stay flat.
    */
   expandedContent?: (row: T) => ReactNode
+  /**
+   * How a selected row is announced, for the checkbox label. Without it a
+   * screen reader reads out the row key, which for most lists is a ULID.
+   */
+  rowLabel?: (row: T) => string
+  /**
+   * The row as a card, for screens below the md breakpoint.
+   *
+   * A table of seven columns on a phone either scrolls sideways - and the
+   * column that matters, the status, is the one off screen - or squeezes every
+   * cell into a word per line. Lists that are opened on a phone pass a card;
+   * the others keep the scrolling table.
+   */
+  mobileCard?: (row: T) => ReactNode
+  /** The order before anybody clicks a header. */
+  defaultSort?: { key: string; direction: 'asc' | 'desc' }
 }
 
 export function DataTable<T>({
@@ -86,9 +122,13 @@ export function DataTable<T>({
   searchPlaceholder,
   searchParamKey,
   expandedContent,
+  rowLabel,
+  mobileCard,
+  defaultSort,
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const showCards = useIsPhone() && mobileCard !== undefined
   const [params, setParams] = useSearchParams()
   const [localQuery, setLocalQuery] = useState('')
   const query = searchParamKey ? (params.get(searchParamKey) ?? '') : localQuery
@@ -108,7 +148,7 @@ export function DataTable<T>({
   }
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
-    null,
+    defaultSort ?? null,
   )
 
   const visible = useMemo(() => {
@@ -147,6 +187,14 @@ export function DataTable<T>({
     visible.length > 0 &&
     visible.every((row) => selection.selected.has(rowKey(row)))
 
+  // Selected and then filtered or searched out of sight. The bulk action still
+  // runs on them - a filter is for finding probes, not for silently changing
+  // what a confirmed action does - so the bar has to say they are there.
+  const hiddenSelected = selection
+    ? selection.selected.size -
+      visible.filter((row) => selection.selected.has(rowKey(row))).length
+    : 0
+
   function toggleAll() {
     if (!selection) return
     const next = new Set(selection.selected)
@@ -177,33 +225,59 @@ export function DataTable<T>({
     setSort((current) => {
       if (current?.key !== key) return { key, direction: 'asc' }
       if (current.direction === 'asc') return { key, direction: 'desc' }
-      return null
+      // Back to the order the list opened in, not to no order at all: for a
+      // list with a default, "unsorted" is just the backend's insertion order.
+      return defaultSort ?? null
     })
   }
 
   return (
-    <div className="surface-card overflow-hidden">
+    <div className="surface-card flex flex-col">
       <div className="border-rule flex flex-wrap items-center gap-3 border-b px-3 py-2">
         <Input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={searchPlaceholder ?? t('common.search')}
-          className="w-56"
+          className="w-full sm:w-56"
           aria-label={t('common.search')}
         />
         {filters}
-        <span className="text-ink-3 ml-auto text-xs">
+        <span className="text-ink-2 ml-auto text-xs tabular-nums">
           {visible.length} {t('common.of')} {rows?.length ?? 0}
         </span>
       </div>
 
       {selection && selection.selected.size > 0 && (
-        <div className="border-rule bg-accent-soft flex items-center gap-3 border-b px-3 py-2">
+        // Last in the card and sticky on a phone: with the list longer than
+        // the screen, the actions for what was just ticked stay in reach
+        // instead of scrolling away above it.
+        <div
+          className={clsx(
+            'border-rule bg-accent-soft flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2',
+            'max-md:rounded-b-card max-md:sticky max-md:bottom-0 max-md:z-10 max-md:order-last max-md:border-t',
+            'md:border-b',
+          )}
+        >
           <span className="text-ink text-sm font-medium">
-            {t('common.selected', { count: selection.selected.size })}
+            {hiddenSelected > 0
+              ? t('common.selectedHidden', {
+                  count: selection.selected.size,
+                  hidden: hiddenSelected,
+                })
+              : t('common.selected', { count: selection.selected.size })}
           </span>
-          <div className="ml-auto flex items-center gap-2">{selection.actions}</div>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={X}
+            onClick={() => selection.onChange(new Set())}
+          >
+            {t('common.clearSelection')}
+          </Button>
+          <div className="flex flex-wrap items-center gap-2 md:ml-auto">
+            {selection.actions}
+          </div>
         </div>
       )}
 
@@ -230,6 +304,54 @@ export function DataTable<T>({
           <EmptyState title={emptyTitle} hint={emptyHint} action={emptyAction} />
         )
       ) : (
+        <>
+        {showCards && mobileCard ? (
+          <div>
+            {selection && (
+              <label className="border-rule text-ink-2 flex min-h-11 items-center gap-3 border-b px-3 text-sm">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                {t('common.selectAll')}
+              </label>
+            )}
+            <ul>
+              {visible.map((row) => {
+                const id = rowKey(row)
+                const href = rowHref?.(row) ?? null
+                return (
+                  <li key={id} className="border-rule flex items-stretch border-t first:border-t-0">
+                    {selection && (
+                      // The whole left strip is the checkbox: a 16px box is
+                      // not something a thumb hits on the first try.
+                      <label className="flex w-11 shrink-0 items-start justify-center pt-3.5">
+                        <input
+                          type="checkbox"
+                          checked={selection.selected.has(id)}
+                          onChange={() => toggleOne(id)}
+                          aria-label={rowLabel?.(row) ?? id}
+                        />
+                      </label>
+                    )}
+                    {href ? (
+                      <Link
+                        to={href}
+                        className={clsx(
+                          'focus-visible:outline-accent active:bg-surface-2 block min-w-0 flex-1 py-3 pr-3 focus-visible:outline-2 focus-visible:-outline-offset-2',
+                          !selection && 'pl-3',
+                        )}
+                      >
+                        {mobileCard(row)}
+                      </Link>
+                    ) : (
+                      <div className={clsx('min-w-0 flex-1 py-3 pr-3', !selection && 'pl-3')}>
+                        {mobileCard(row)}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <thead className="bg-surface-2">
@@ -240,7 +362,7 @@ export function DataTable<T>({
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleAll}
-                      aria-label={t('common.selected', { count: visible.length })}
+                      aria-label={t('common.selectAll')}
                     />
                   </th>
                 )}
@@ -249,8 +371,17 @@ export function DataTable<T>({
                   <th
                     key={column.key}
                     style={column.width ? { width: column.width } : undefined}
+                    aria-sort={
+                      sort?.key === column.key
+                        ? sort.direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : undefined
+                    }
                     className={clsx(
-                      'label-mono px-3 py-2 font-normal',
+                      // ink-2, not the label default: ink-3 on the grey
+                      // header band falls under 4.5:1 in both themes.
+                      'label-mono text-ink-2 px-3 py-2 font-normal whitespace-nowrap',
                       column.align === 'right' && 'text-right',
                     )}
                   >
@@ -258,16 +389,15 @@ export function DataTable<T>({
                       <button
                         type="button"
                         onClick={() => toggleSort(column.key)}
-                        className="hover:text-ink inline-flex items-center gap-1"
+                        className="hover:text-ink rounded-inset focus-visible:outline-accent -mx-1 inline-flex min-h-6 items-center gap-1 px-1 uppercase focus-visible:outline-2"
                       >
                         {column.header}
-                        <span aria-hidden className="text-[0.625rem]">
-                          {sort?.key === column.key
-                            ? sort.direction === 'asc'
-                              ? '▲'
-                              : '▼'
-                            : ''}
-                        </span>
+                        {sort?.key === column.key &&
+                          (sort.direction === 'asc' ? (
+                            <ChevronUp aria-hidden size={12} strokeWidth={1.75} />
+                          ) : (
+                            <ChevronDown aria-hidden size={12} strokeWidth={1.75} />
+                          ))}
                       </button>
                     ) : (
                       column.header
@@ -303,7 +433,7 @@ export function DataTable<T>({
                             type="checkbox"
                             checked={selection.selected.has(id)}
                             onChange={() => toggleOne(id)}
-                            aria-label={id}
+                            aria-label={rowLabel?.(row) ?? id}
                           />
                         </td>
                       )}
@@ -317,9 +447,13 @@ export function DataTable<T>({
                             onClick={() => toggleExpanded(id)}
                             aria-expanded={isOpen}
                             aria-label={t(isOpen ? 'common.hideDetails' : 'common.showDetails')}
-                            className="text-ink-3 hover:text-ink text-xs"
+                            className="text-ink-2 hover:text-ink inline-flex size-6 items-center justify-center"
                           >
-                            {isOpen ? '▾' : '▸'}
+                            {isOpen ? (
+                              <ChevronDown aria-hidden size={14} strokeWidth={1.75} />
+                            ) : (
+                              <ChevronRight aria-hidden size={14} strokeWidth={1.75} />
+                            )}
                           </button>
                         </td>
                       )}
@@ -364,6 +498,8 @@ export function DataTable<T>({
             </tbody>
           </table>
         </div>
+        )}
+        </>
       )}
     </div>
   )

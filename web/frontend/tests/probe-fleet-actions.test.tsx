@@ -134,12 +134,12 @@ describe('acting on a selection of probes', () => {
 
     // A probe that reports no helper version cannot be updated over the
     // channel, so the action stays away even though the row says "outdated".
-    await user.click(screen.getByLabelText('P2'))
+    await user.click(screen.getByLabelText('hamburg-01'))
     expect(screen.queryByRole('button', { name: 'Update helper' })).toBeNull()
     // It did drift, so fixing deviations is on offer for the same selection.
     expect(screen.getByRole('button', { name: 'Fix deviations' })).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('P1'))
+    await user.click(screen.getByLabelText('berlin-01'))
     expect(screen.getByRole('button', { name: 'Update helper' })).toBeInTheDocument()
   })
 
@@ -149,8 +149,8 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('P1'))
-    await user.click(screen.getByLabelText('P3'))
+    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByLabelText('munich-01'))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     const dialog = screen.getByRole('dialog')
@@ -172,9 +172,9 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('P1'))
-    await user.click(screen.getByLabelText('P2'))
-    await user.click(screen.getByLabelText('P3'))
+    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByLabelText('hamburg-01'))
+    await user.click(screen.getByLabelText('munich-01'))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     const dialog = screen.getByRole('dialog')
@@ -193,7 +193,7 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('P1'))
+    await user.click(screen.getByLabelText('berlin-01'))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     // One probe is what a single click does on the detail page; asking again
@@ -245,5 +245,48 @@ describe('acting on a selection of probes', () => {
     // empty state stops being read at all.
     expect(screen.queryByText('No probe is enrolled yet.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Add probe' })).toBeNull()
+  })
+})
+
+describe('what the list shows around a selection', () => {
+  it('says when a filter hides probes that are still selected', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrap()
+
+    await user.click(await screen.findByLabelText('munich-01'))
+    await user.click(screen.getByRole('button', { name: 'With deviations only' }))
+
+    // Still selected and still what an action would run on, so it is said.
+    expect(screen.getByText('1 selected, 1 of them hidden')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }))
+    expect(screen.queryByText(/selected/)).toBeNull()
+  })
+
+  it('opens with the worst status first and counts each one', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          ...PROBES.slice(0, 2),
+          probe({
+            id: 'P3',
+            nats_username: 'mpp-munich-01',
+            probe_name: 'munich-01',
+            status: 'unreachable',
+          }),
+        ]),
+      ),
+    )
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('munich-01')
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('munich-01')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Unreachable\s*1/ }))
+    expect(screen.getAllByRole('row')).toHaveLength(2)
   })
 })
