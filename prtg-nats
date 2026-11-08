@@ -26,6 +26,7 @@ Usage:
 
 First deployment:
   setup                 Ask for site settings, start the stack, initialise it
+  setup-code            Issue the one-time code for the first web administrator
   config [--edit]       Show the site settings; --edit asks and rewrites .env
 
 Stack lifecycle:
@@ -1714,8 +1715,14 @@ The stack is up. Continue in the web interface:
 
   $(web_interface_address "${WEB_FQDN}" "${WEB_HTTPS_PORT}")
 
-The first visit creates the administrator account.
 EOF
+    # The first visit creates the administrator account, and only with this
+    # code: otherwise whoever reached the page first would own the
+    # installation. Nothing is printed once an account exists.
+    if ! run_ops setup-code --if-needed; then
+      printf 'No setup code could be issued; run "./prtg-nats setup-code" once\n' >&2
+      printf 'the stack is healthy.\n' >&2
+    fi
     if [[ -t 0 ]]; then
       printf '\nSet up the "prtg-nats" command and tab completion now?\n'
       read -r -p 'This links it into PATH and edits your shell startup file. [Y/n]: ' \
@@ -1784,6 +1791,14 @@ EOF
     else
       compose logs "$@" nats
     fi
+    ;;
+  setup-code)
+    if [[ $# -gt 0 ]]; then
+      printf 'Usage: ./prtg-nats setup-code\n' >&2
+      exit 2
+    fi
+    ensure_environment
+    run_ops setup-code
     ;;
   verify)
     case "${1:-}" in

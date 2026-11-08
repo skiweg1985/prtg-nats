@@ -14,7 +14,11 @@ from fastapi import Cookie, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.errors import AuthenticationRequiredError, PermissionDeniedError
+from app.core.errors import (
+    AuthenticationRequiredError,
+    PasswordChangeRequiredError,
+    PermissionDeniedError,
+)
 from app.core.permissions import Permission
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
@@ -136,14 +140,31 @@ async def get_optional_principal(
     return principal
 
 
-async def get_principal(
+async def get_session_principal(
     principal: Annotated[Principal | None, Depends(get_optional_principal)],
 ) -> Principal:
+    """Any signed-in session, including one that still owes a password change.
+
+    Only for changing that password and for signing out. Everything else goes
+    through get_principal.
+    """
     if principal is None:
         raise AuthenticationRequiredError()
     return principal
 
 
+async def get_principal(
+    principal: Annotated[Principal, Depends(get_session_principal)],
+) -> Principal:
+    # Enforced here rather than in the interface: the flag has to hold for
+    # every client, and every protected route - require_permission included -
+    # depends on this function.
+    if principal.must_change_password:
+        raise PasswordChangeRequiredError()
+    return principal
+
+
+SessionPrincipalDep = Annotated[Principal, Depends(get_session_principal)]
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 OptionalPrincipalDep = Annotated[Principal | None, Depends(get_optional_principal)]
 

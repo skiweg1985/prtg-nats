@@ -37,7 +37,7 @@ from app.persistence.models.jobs import Job
 from app.services.events import get_broadcaster
 from app.workers.inventory_sync import InventorySync
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, write_probe_inventory
+from tests.conftest import SETUP_CODE, ScriptedTransport, write_probe_inventory
 
 PASSWORD = "correct-horse-battery"
 PROBE = "mpp-berlin-01"
@@ -104,7 +104,8 @@ def as_probe(app: Any) -> Iterator[None]:
 
 async def sign_in(client: AsyncClient) -> None:
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert response.status_code == 201, response.text
 

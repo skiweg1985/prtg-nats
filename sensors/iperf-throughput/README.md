@@ -164,11 +164,18 @@ the probe in a profile under its name. Whoever compromises one of them
 does not have the others.
 
 From the second on, a sensor has to say which one it measures against —
-the profile is named after the endpoint:
+the profile is named after the endpoint, and it already holds the address,
+the port and the user name:
 
 ```text
---server iperf-south.example.com --username prtg-probe --profile iperf-south --download-mbit 30 --upload-mbit 10
+--profile iperf-south --download-mbit 30 --upload-mbit 10
 ```
+
+`--server` and `--username` are only needed to override what the profile
+says. The endpoint's name belongs in `--profile`, not in `--server`: the
+sensor recognises the mix-up and says which parameter to use instead. A
+sensor without `--profile` on a probe with several endpoints lists the
+profiles the probe holds.
 
 As long as a probe holds only one, its profile is additionally called
 `default`, and the sensor finds it without further ado. From the second one on
@@ -341,7 +348,7 @@ that from what is installed, not from a claim by the caller.
 after the endpoint — `iperf-server deploy` creates it:
 
 ```text
---server iperf-south.example --username prtg-probe --profile iperf-south
+--profile iperf-south
 ```
 
 As long as a probe holds only one, its profile is additionally called
@@ -501,7 +508,7 @@ instead of measuring anew. The **Result Age** channel shows how old it is.
 
 | Parameter | Meaning |
 | --- | --- |
-| `--server HOST` | **Required.** The iperf3 endpoint |
+| `--server HOST` | the iperf3 endpoint. Needed only when no profile names it |
 | `--port PORT` | port of the endpoint, default 5201 |
 | `--download-mbit MBIT` | download target in Mbit/s. Without any target rate the capacity is measured |
 | `--upload-mbit MBIT` | upload target in Mbit/s |
@@ -509,7 +516,7 @@ instead of measuring anew. The **Result Age** channel shows how old it is.
 | `--username NAME` | user name for the endpoint. Without it the sensor measures unauthenticated |
 | `--password SECRET` | password in the sensor instead of on the probe, see [credentials](#credentials) |
 | `--public-key PATH` | public key as a file, if it is not in the profile |
-| `--profile NAME` | name of the deployed profile, default `default` |
+| `--profile NAME` | name of the deployed profile, default `default`. Holds the endpoint's address, port and user name |
 | `--seconds SECONDS` | transfer duration per direction, default 5, allowed 2 to 60 |
 | `--measure-every-minutes MINUTES` | minimum interval between real measurements, default 60, `0` disables it |
 | `--timeout-seconds SECONDS` | time budget for the whole run, default 60 |

@@ -49,9 +49,12 @@ NATS server and the tooling around it.
 
 ## Checks
 
-Run what your change touched. Everything below also runs in CI, in pull
-requests and on merges to `dev` or `main`, see
-[.gitea/workflows/ci.yaml](.gitea/workflows/ci.yaml).
+Run what your change touched. Everything below also runs in CI on GitHub, in
+pull requests and on merges to `dev` or `main`, see
+[.github/workflows/ci.yaml](.github/workflows/ci.yaml).
+[.github/workflows/security.yaml](.github/workflows/security.yaml) adds
+Gitleaks and Trivy on the same events and weekly. `.gitea/workflows/ci.yaml`
+is the older copy; it no longer receives this repository's pushes.
 
 Shell syntax, templates and rendering - seconds, no Docker, no network:
 
@@ -64,6 +67,13 @@ the direction `npm run i18n:check` does not cover:
 
 ```bash
 ./tests/check-job-messages.py
+```
+
+What `compose.yaml` exposes to which service - needs Docker Compose, writes a
+throwaway `.env`, so run it in a checkout without one:
+
+```bash
+./tests/check-compose.sh
 ```
 
 The full rollout against a real `prtgmpprobe` - minutes, needs Docker,
@@ -97,6 +107,19 @@ Markdown:
 
 ```bash
 npx --yes markdownlint-cli2 "**/*.md"
+```
+
+Secrets and known vulnerabilities, as the security workflow runs them. A
+finding in a test fixture goes into `.gitleaks.toml` by file and rule; an
+advisory that does not apply goes into `.trivyignore.yaml` with the reason and
+an expiry date, never a bare ID:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.1 \
+  git --config .gitleaks.toml --redact=100 .
+docker run --rm -v "$PWD:/repo:ro" aquasec/trivy:0.76.2 fs --include-dev-deps \
+  --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed \
+  --ignorefile /repo/.trivyignore.yaml /repo
 ```
 
 ## Conventions

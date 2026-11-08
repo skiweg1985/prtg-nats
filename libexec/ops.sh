@@ -66,7 +66,8 @@ run_ops() {
       printf '  sudo ./prtg-nats start\n' >&2
       printf 'For a checkout without the stack, install the backend once:\n' >&2
       printf '  python3 -m venv web/backend/.venv\n' >&2
-      printf '  web/backend/.venv/bin/pip install -e web/backend\n' >&2
+      printf '  web/backend/.venv/bin/pip install --require-hashes -r web/backend/requirements.lock\n' >&2
+      printf '  web/backend/.venv/bin/pip install --no-deps -e web/backend\n' >&2
       return 1
     }
   # The runtime path has to travel along. Without it the backend falls back to

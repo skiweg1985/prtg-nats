@@ -181,6 +181,31 @@ check "no compose file other than compose.yaml is referenced" \
   "$(grep -c 'compose\.[a-z]*\.yaml' "${PROJECT_DIR}/prtg-nats" || true)" \
   "0"
 
+# Every image pulled from a registry is pinned by digest: a tag can move under
+# a running installation, and a scan speaks only for the digest it saw. The
+# two images at the network edge also have a floor, so going back to a release
+# with known advisories fails here rather than on a probe's connection.
+compose_image() {
+  awk -v name="$1" '$1 == "image:" && index($2, name ":") == 1 { print $2 }' \
+    "${PROJECT_DIR}/compose.yaml"
+}
+version_at_least() {
+  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" == "$2" ]]
+}
+while IFS= read -r image; do
+  # Built here, not pulled.
+  [[ "${image}" == *:current ]] && continue
+  check "image ${image%%@*} is pinned by digest" \
+    "$([[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]] && echo pinned || echo floating)" \
+    "pinned"
+done < <(awk '$1 == "image:" { print $2 }' "${PROJECT_DIR}/compose.yaml")
+nats_version="$(compose_image nats | sed -E 's/^nats:([0-9.]+).*/\1/')"
+caddy_version="$(compose_image caddy | sed -E 's/^caddy:([0-9.]+).*/\1/')"
+check "NATS is at least 2.15.2 (found ${nats_version})" \
+  "$(version_at_least "${nats_version}" 2.15.2 && echo yes || echo no)" "yes"
+check "Caddy is at least 2.11.9 (found ${caddy_version})" \
+  "$(version_at_least "${caddy_version}" 2.11.9 && echo yes || echo no)" "yes"
+
 printf '\n== Configuration template ==\n'
 # shellcheck source=../libexec/mpp-config.sh
 source "${PROJECT_DIR}/libexec/mpp-config.sh"

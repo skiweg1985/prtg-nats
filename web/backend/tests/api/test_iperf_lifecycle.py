@@ -15,6 +15,7 @@ accepting them, because the other order strands the fleet.
 from __future__ import annotations
 
 import base64
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,13 @@ from app.services import job_secrets
 from app.services.events import get_broadcaster
 from app.services.provisioning import ProvisioningService
 from app.workers.job_runner import JobRunner
-from tests.conftest import ScriptedTransport, write_probe_inventory, write_sensor
+from tests.conftest import (
+    SETUP_CODE,
+    ScriptedTransport,
+    write_probe_inventory,
+    write_sensor,
+    write_tool_artifact,
+)
 
 PASSWORD = "correct-horse-battery"
 PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg\n-----END PUBLIC KEY-----\n"
@@ -75,11 +82,18 @@ class RecordingInstaller:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.failure: Exception | None = None
+        # What the host would report when asked for its userspace platform.
+        # None leaves the question unasked, as an older installer would.
+        self.platform: str | None = None
+        self.staged: Any = None
 
     async def __call__(self, **kwargs: Any) -> _Report:
         self.calls.append(kwargs)
         if self.failure is not None:
             raise self.failure
+        tools = kwargs.get("tools")
+        if tools is not None and self.platform is not None:
+            self.staged = tools(self.platform)
         return _Report()
 
 
@@ -135,7 +149,8 @@ async def _sign_in(
     client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR
 ) -> None:
     first = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert first.status_code == 201, first.text
     if role is RoleName.ADMINISTRATOR:
@@ -300,6 +315,97 @@ async def test_the_push_pins_first_then_installs_then_sets_up(
     )
     assert "IPERF_MANAGED=true" in record
     assert "IPERF_SSH_PORT=22" in record
+
+
+async def test_the_push_ships_the_release_iperf3_where_the_release_has_one(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+    installer: RecordingInstaller,
+) -> None:
+    # Ubuntu 24.04 carries iperf3 3.16, too old for authenticated endpoints.
+    # The release already builds 3.21 for the probes; the endpoint gets the
+    # same bytes, with the digest the host checks before it runs anything.
+    build = b"\x7fELF release iperf3"
+    write_tool_artifact(project_dir, "iperf3", "linux-amd64-glibc", build)
+    installer.platform = "linux-amd64-glibc"
+    await _sign_in(client)
+    _initialise()
+    transport.responses.update(
+        {"endpoint-info": ENDPOINT_INFO, "endpoint-setup": _setup_answer()}
+    )
+
+    accepted = await _provision(client)
+    runner, endpoints = _build_runner(get_settings(), transport)
+    await _drain(runner, endpoints)
+
+    staged = installer.staged
+    assert staged.files == {"iperf3": build}
+    digest = hashlib.sha256(build).hexdigest()
+    assert staged.arguments == [
+        "--iperf3",
+        "@@STAGE@@/iperf3",
+        "--iperf3-sha256",
+        digest,
+        "--iperf3-version",
+        "3.21",
+        "--iperf3-platform",
+        "linux-amd64-glibc",
+    ]
+    log = await client.get(f"/api/v1/jobs/{accepted['job_id']}/log")
+    shipped = [e for e in log.json() if e["code"] == "jobs.iperf.release_iperf3"]
+    assert shipped and shipped[0]["params"]["version"] == "3.21"
+
+
+async def test_a_host_without_a_release_build_keeps_its_own_iperf3(
+    client: AsyncClient,
+    project_dir: Path,
+    transport: ScriptedTransport,
+    installer: RecordingInstaller,
+) -> None:
+    # ARMv6 has no release build. Nothing is staged, and the setup script's
+    # own version check decides whether the system package is good enough.
+    write_tool_artifact(project_dir, "iperf3", "linux-amd64-glibc", b"elf")
+    installer.platform = "linux-armhf-v6-glibc"
+    await _sign_in(client)
+    _initialise()
+    transport.responses.update(
+        {"endpoint-info": ENDPOINT_INFO, "endpoint-setup": _setup_answer()}
+    )
+
+    accepted = await _provision(client)
+    runner, endpoints = _build_runner(get_settings(), transport)
+    await _drain(runner, endpoints)
+
+    assert installer.staged.files == {}
+    assert installer.staged.arguments == []
+    log = await client.get(f"/api/v1/jobs/{accepted['job_id']}/log")
+    codes = [entry["code"] for entry in log.json()]
+    assert "jobs.iperf.system_iperf3" in codes
+    assert "jobs.iperf.release_iperf3" not in codes
+
+
+async def test_a_release_without_built_artifacts_still_sets_up_endpoints(
+    client: AsyncClient,
+    transport: ScriptedTransport,
+    installer: RecordingInstaller,
+) -> None:
+    # A source checkout has no manifest. The endpoint's own iperf3 may well be
+    # new enough, and the setup script is what checks that.
+    installer.platform = "linux-amd64-glibc"
+    await _sign_in(client)
+    _initialise()
+    transport.responses.update(
+        {"endpoint-info": ENDPOINT_INFO, "endpoint-setup": _setup_answer()}
+    )
+
+    accepted = await _provision(client)
+    runner, endpoints = _build_runner(get_settings(), transport)
+    await _drain(runner, endpoints)
+
+    assert installer.staged.files == {}
+    job = (await client.get(f"/api/v1/jobs/{accepted['job_id']}")).json()
+    assert job["status"] == "successful"
 
 
 async def test_a_failed_sign_in_leaves_no_record(
