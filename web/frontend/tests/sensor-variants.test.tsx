@@ -287,7 +287,8 @@ describe('SensorVariants', () => {
     wrap()
 
     await screen.findByText('standort-nord')
-    await user.click(screen.getByRole('button', { name: /entfernen|remove/i }))
+    await user.click(screen.getByRole('button', { name: /more actions|weitere aktionen/i }))
+    await user.click(screen.getByRole('menuitem', { name: /entfernen|remove/i }))
 
     // Named, not counted - and nothing was deleted yet.
     expect(

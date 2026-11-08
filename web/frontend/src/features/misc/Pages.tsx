@@ -13,7 +13,10 @@ import type {
   AuditEvent,
   Certificate,
 } from '@/api/types'
-import { ArrowRight } from 'lucide-react'
+import {
+  ArrowRight,
+  RotateCcw,
+} from 'lucide-react'
 import { PermissionGate, useAuth, useTheme } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -259,7 +262,7 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
               shows the expiry date had no way to act on it. */}
           {certificate.kind === 'server' && (
             <PermissionGate permission="certificate.renew">
-              <Button size="sm" onClick={() => setConfirming(true)}>
+              <Button size="sm" icon={RotateCcw} onClick={() => setConfirming(true)}>
                 {t('infrastructure.renewServer')}
               </Button>
             </PermissionGate>

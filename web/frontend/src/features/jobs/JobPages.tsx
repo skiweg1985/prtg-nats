@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { CircleStop, RotateCw } from 'lucide-react'
 
 import { ApiError } from '@/api/client'
 import {
@@ -17,11 +18,14 @@ import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog, ProgressBar } from '@/components/ui/JobProgress'
 import {
+  BackLink,
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   DetailRow,
+  FilterChip,
   Mono,
   PageHeader,
   Skeleton,
@@ -74,12 +78,12 @@ export function JobListPage() {
       <div className="space-y-4">
         <PageHeader title={t('jobs.title')} subtitle={t('jobs.subtitle')} />
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setView(false)}>
+          <FilterChip pressed={false} onClick={() => setView(false)}>
             {t('jobs.filters.all')}
-          </Button>
-          <Button size="sm" variant="primary" aria-pressed>
+          </FilterChip>
+          <FilterChip pressed onClick={() => undefined}>
             {t('jobs.filters.rollouts')}
-          </Button>
+          </FilterChip>
         </div>
         <RolloutsView />
       </div>
@@ -171,24 +175,17 @@ export function JobListPage() {
         filters={
           <div className="flex flex-wrap items-center gap-2">
             {JOB_FILTERS.map((entry) => (
-              <Button
+              <FilterChip
                 key={entry}
-                size="sm"
-                variant={status === entry ? 'primary' : 'ghost'}
-                aria-pressed={status === entry}
+                pressed={status === entry}
                 onClick={() => setStatus(status === entry ? null : entry)}
               >
                 {t(`jobs.filters.${entry}`)}
-              </Button>
+              </FilterChip>
             ))}
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-pressed={false}
-              onClick={() => setView(true)}
-            >
+            <FilterChip pressed={false} onClick={() => setView(true)}>
               {t('jobs.filters.rollouts')}
-            </Button>
+            </FilterChip>
           </div>
         }
       />
@@ -236,9 +233,7 @@ export function JobDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <Link to="/jobs" className="text-ink-3 text-xs">
-            ← {t('jobs.title')}
-          </Link>
+          <BackLink to="/jobs">{t('jobs.title')}</BackLink>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {/* The human name first; the raw type code stays beside it because
                 it is what the audit trail and the API speak. */}
@@ -271,6 +266,7 @@ export function JobDetailPage() {
           {running && (
             <PermissionGate permission="job.cancel">
               <Button
+                icon={CircleStop}
                 size="sm"
                 onClick={() => cancel.mutate(jobId)}
                 disabled={cancel.isPending}
@@ -282,6 +278,7 @@ export function JobDetailPage() {
           {!running && !needsForeignPassword && (
             <PermissionGate permission="job.retry">
               <Button
+                icon={RotateCw}
                 size="sm"
                 variant="primary"
                 onClick={() =>
@@ -300,11 +297,9 @@ export function JobDetailPage() {
             job.status !== 'successful' &&
             job.target_id && (
               <PermissionGate permission="iperf.manage">
-                <Link to={`/infrastructure/iperf/${job.target_id}`}>
-                  <Button size="sm" variant="primary">
-                    {t('jobs.reenterPassword')}
-                  </Button>
-                </Link>
+                <ButtonLink to={`/infrastructure/iperf/${job.target_id}`} size="sm" variant="primary">
+                  {t('jobs.reenterPassword')}
+                </ButtonLink>
               </PermissionGate>
             )}
         </div>
@@ -419,11 +414,9 @@ function NextSteps({ job, probeRoute }: { job: JobDetail; probeRoute: string | n
         <div className="space-y-2">
           <p>{t('probes.enroll.step3.donePrtg')}</p>
           {probeRoute && (
-            <Link to={`/probes/${probeRoute}`}>
-              <Button size="sm" variant="primary">
-                {t('probes.enroll.step3.toProbe')}
-              </Button>
-            </Link>
+            <ButtonLink to={`/probes/${probeRoute}`} size="sm" variant="primary">
+              {t('probes.enroll.step3.toProbe')}
+            </ButtonLink>
           )}
         </div>
       </Banner>
@@ -441,11 +434,9 @@ function NextSteps({ job, probeRoute }: { job: JobDetail; probeRoute: string | n
         title={t('jobs.deploy.prtgNextTitle')}
         action={
           sensor && (
-            <Link to={`/sensors/${sensor}`}>
-              <Button size="sm" variant="primary">
-                {t('jobs.deploy.toSensor')}
-              </Button>
-            </Link>
+            <ButtonLink to={`/sensors/${sensor}`} size="sm" variant="primary">
+              {t('jobs.deploy.toSensor')}
+            </ButtonLink>
           )
         }
       >

@@ -135,16 +135,22 @@ function wrap() {
 describe('IperfPage', () => {
   it('marks an endpoint somebody else operates', async () => {
     await changeLanguage('en')
+    const user = userEvent.setup()
     wrap()
 
     expect(await screen.findByText('berlin')).toBeInTheDocument()
     expect(screen.getByText('provider')).toBeInTheDocument()
     // Managed rotation and a password supplied by a foreign operator are
     // different actions, so each row offers only the one that applies.
-    const rotate = screen.getAllByRole('button', { name: /change password/i })
-    expect(rotate).toHaveLength(1)
-    const update = screen.getAllByRole('button', { name: /update stored password/i })
-    expect(update).toHaveLength(1)
+    // Both live in the row's menu, next to removing it.
+    const offered: string[] = []
+    for (const trigger of screen.getAllByRole('button', { name: 'More actions' })) {
+      await user.click(trigger)
+      offered.push(...screen.getAllByRole('menuitem').map((item) => item.textContent ?? ''))
+      await user.keyboard('{Escape}')
+    }
+    expect(offered.filter((label) => /change password/i.test(label))).toHaveLength(1)
+    expect(offered.filter((label) => /update stored password/i.test(label))).toHaveLength(1)
   })
 
   it('leads to the endpoint, and says which one nothing measures against', async () => {

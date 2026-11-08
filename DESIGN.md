@@ -192,7 +192,8 @@ where it means something.
 
 **The One Signal Rule.** Signal Blue covers under 5% of any screen: one
 primary action per view, the focus ring, the active state. A second primary
-button on a screen is a bug.
+button on a screen is a bug - with one exception: the submit button of a
+form is primary within that form.
 
 **The Meaning-Only Rule.** Green, amber and red say healthy, attention and
 fault. They are never used to decorate, to group, or to make a screen look
@@ -302,6 +303,19 @@ icon; destructive items come last, after a divider, in Fault Red text, and
 open their own confirmation. Arrow keys move, Escape closes and returns focus,
 and the menu is pinned to the viewport so no card can clip it.
 
+### Filter Chips
+
+A filter that is on or off, never a button variant: 28px tall, 6px radius,
+small medium-weight text. Off, it is quiet meta text that fills with Inset
+Mist on hover; on, it sits on Inset Mist with a Control Edge hairline and ink
+text. The signal colour stays for actions, so a row of filters never reads
+as a row of next steps.
+
+### Back Link
+
+The way from a detail page to its list: meta-size slate text with a 14px
+Lucide arrow, ink on hover. No typed arrow glyphs.
+
 ### Badges
 
 A state, never an action: flat tinted text on its soft background, 20px tall,
@@ -362,4 +376,7 @@ direct; rare or destructive ones go into the row's action menu.
 - **Don't** shape a state like a control: no border, capitals or hover on a
   badge.
 - **Don't** place actions as loose text links beside or under a value.
+- **Don't** make a badge clickable, or draw a selected filter as a primary
+  button.
+- **Don't** use typed glyphs (arrows, check marks) where an icon belongs.
 - **Don't** cast a shadow on anything at rest.

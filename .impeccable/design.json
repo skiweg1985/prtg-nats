@@ -469,6 +469,14 @@
       "description": "Outlined field on the card surface; global focus ring.",
       "html": "<input class=\"ds-input\" placeholder=\"mpp-berlin-01\">",
       "css": ".ds-input{height:32px;padding:6px 10px;border:1px solid var(--color-rule-2,oklch(77.5% 0.012 254));border-radius:var(--radius-control,6px);background:var(--color-surface,oklch(99.4% 0.003 250));color:var(--color-ink,oklch(20% 0.016 260));font:400 0.875rem/1.25rem var(--font-body,'Inter Variable',system-ui,sans-serif);} .ds-input::placeholder{color:var(--color-ink-3,oklch(53.5% 0.016 256));} .ds-input:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "button-ghost",
+      "description": "A filter that is on or off; quiet when off, an inset with a hairline when on.",
+      "html": "<button class=\"ds-filter\" aria-pressed=\"false\">Helper outdated only</button> <button class=\"ds-filter\" aria-pressed=\"true\">With deviations only</button>",
+      "css": ".ds-filter{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-control,6px);background:transparent;color:var(--color-ink-3,oklch(53.5% 0.016 256));font:500 0.75rem/1 var(--font-body,'Inter Variable',system-ui,sans-serif);cursor:pointer;transition:background-color 100ms cubic-bezier(0.16,1,0.3,1),color 100ms cubic-bezier(0.16,1,0.3,1);} .ds-filter:hover{background:var(--color-surface-2,oklch(94% 0.006 252));color:var(--color-ink,oklch(20% 0.016 260));} .ds-filter[aria-pressed=\"true\"]{background:var(--color-surface-2,oklch(94% 0.006 252));border-color:var(--color-rule-2,oklch(77.5% 0.012 254));color:var(--color-ink,oklch(20% 0.016 260));} .ds-filter:focus-visible{outline:2px solid var(--color-focus,oklch(52% 0.19 257));outline-offset:2px;}"
     }
   ],
   "narrative": {
@@ -484,7 +492,7 @@
     "rules": [
       {
         "name": "The One Signal Rule",
-        "body": "Signal Blue covers under 5% of any screen: one primary action per view, the focus ring, the active state. A second primary button on a screen is a bug.",
+        "body": "Signal Blue covers under 5% of any screen: one primary action per view, the focus ring, the active state. A second primary button on a screen is a bug - with one exception: the submit button of a form is primary within that form.",
         "section": "colors"
       },
       {
@@ -531,7 +539,9 @@
       "Don't add illustrations, mascots or motion for its own sake.",
       "Don't shape a state like a control: no border, capitals or hover on a badge.",
       "Don't place actions as loose text links beside or under a value.",
-      "Don't cast a shadow on anything at rest."
+      "Don't cast a shadow on anything at rest.",
+      "Don't make a badge clickable, or draw a selected filter as a primary button.",
+      "Don't use typed glyphs (arrows, check marks) where an icon belongs."
     ]
   }
 }

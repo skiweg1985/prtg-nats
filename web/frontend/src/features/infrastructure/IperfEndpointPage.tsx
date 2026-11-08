@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { KeyRound, Network, Trash2 } from 'lucide-react'
 
 import { useIperfEndpoint, useProbes, useSensor, useSensors } from '@/api/hooks'
 import type { IperfEndpoint, IperfHolder } from '@/api/types'
@@ -8,6 +9,8 @@ import { PermissionGate } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
+  ActionMenu,
+  BackLink,
   Badge,
   Banner,
   Button,
@@ -55,9 +58,7 @@ export function IperfEndpointPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <Link to="/infrastructure/iperf" className="text-ink-3 text-xs">
-            ← {t('infrastructure.iperfTitle')}
-          </Link>
+          <BackLink to="/infrastructure/iperf">{t('infrastructure.iperfTitle')}</BackLink>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{data.name}</h1>
             {!data.managed && (
@@ -75,23 +76,38 @@ export function IperfEndpointPage() {
         </div>
         <span className="flex flex-wrap gap-2">
           <PermissionGate permission="sensor.deploy">
-            <Button size="sm" variant="primary" onClick={() => setDialog('assign')}>
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Network}
+              onClick={() => setDialog('assign')}
+            >
               {t('infrastructure.iperf.assign')}
             </Button>
           </PermissionGate>
           <PermissionGate permission="iperf.manage">
             {data.managed ? (
-              <Button size="sm" onClick={() => setDialog('rotate')}>
+              <Button size="sm" icon={KeyRound} onClick={() => setDialog('rotate')}>
                 {t('infrastructure.iperf.rotate')}
               </Button>
             ) : data.username && data.has_public_key ? (
-              <Button size="sm" onClick={() => setDialog('foreignCredentials')}>
+              <Button size="sm" icon={KeyRound} onClick={() => setDialog('foreignCredentials')}>
                 {t('infrastructure.iperf.updateForeign')}
               </Button>
             ) : null}
-            <Button size="sm" variant="ghost" onClick={() => setDialog('remove')}>
-              {t('common.remove')}
-            </Button>
+            <ActionMenu
+              label={t('common.moreActions')}
+              variant="secondary"
+              actions={[
+                {
+                  key: 'remove',
+                  label: t('common.remove'),
+                  icon: Trash2,
+                  tone: 'danger',
+                  onSelect: () => setDialog('remove'),
+                },
+              ]}
+            />
           </PermissionGate>
         </span>
       </header>
@@ -102,7 +118,7 @@ export function IperfEndpointPage() {
           title={t('infrastructure.iperf.notDeployedTitle')}
           action={
             <PermissionGate permission="sensor.deploy">
-              <Button size="sm" variant="primary" onClick={() => setDialog('assign')}>
+              <Button size="sm" icon={Network} onClick={() => setDialog('assign')}>
                 {t('infrastructure.iperf.assign')}
               </Button>
             </PermissionGate>

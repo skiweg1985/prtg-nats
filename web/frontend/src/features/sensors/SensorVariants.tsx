@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 
 import {
   useDeleteSensorProfile,
@@ -13,6 +14,7 @@ import type { FileField, ParameterSchema, ProfileField, SensorProfile } from '@/
 import { PermissionGate } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
+  ActionMenu,
   Badge,
   Button,
   Card,
@@ -75,7 +77,7 @@ export function SensorVariants({
       title={t('sensors.variants.title')}
       action={
         <PermissionGate permission="sensor.configure">
-          <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+          <Button size="sm" icon={Plus} onClick={() => setCreating(true)}>
             {t('sensors.variants.add')}
           </Button>
         </PermissionGate>
@@ -94,17 +96,9 @@ export function SensorVariants({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-ink font-medium">{variant.name}</span>
+                  {/* A state only; deploying the variant is the row's Edit. */}
                   {variant.probes.length === 0 && (
-                    // The state and its cure are the same click: deploying a
-                    // variant means ticking probes in the edit dialog.
-                    <button
-                      type="button"
-                      className="rounded-inset focus-visible:outline-focus cursor-pointer hover:opacity-80 focus-visible:outline-2"
-                      onClick={() => setEditing(variant.name)}>
-                      <Badge tone="warn">
-                        {t('sensors.variants.notDeployed')}
-                      </Badge>
-                    </button>
+                    <Badge tone="warn">{t('sensors.variants.notDeployed')}</Badge>
                   )}
                 </div>
                 <p className="text-ink-3 mt-0.5 text-xs">
@@ -138,16 +132,28 @@ export function SensorVariants({
                 </span>
                 <CopyButton value={variant.parameter_line} />
                 <PermissionGate permission="sensor.configure">
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(variant.name)}>
-                    {t('common.edit')}
-                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setRemoving(variant)}
+                    icon={Pencil}
+                    onClick={() => setEditing(variant.name)}
                   >
-                    {t('common.remove')}
+                    {t('common.edit')}
                   </Button>
+                  {/* Removing a variant can take it from probes that use it:
+                      in the menu, behind the confirmation below. */}
+                  <ActionMenu
+                    label={t('common.moreActions')}
+                    actions={[
+                      {
+                        key: 'remove',
+                        label: t('common.remove'),
+                        icon: Trash2,
+                        tone: 'danger',
+                        onSelect: () => setRemoving(variant),
+                      },
+                    ]}
+                  />
                 </PermissionGate>
               </div>
             </li>

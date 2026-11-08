@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Download, Hammer, RefreshCw, ScrollText } from 'lucide-react'
 
 import {
   keys,
@@ -19,11 +19,13 @@ import {
   Badge,
   Banner,
   Button,
+  ButtonLink,
   Card,
   DetailRow,
   EmptyState,
   Mono,
   PageHeader,
+  RowActions,
   Skeleton,
 } from '@/components/ui/primitives'
 import { formatDateTime, formatRelative } from '@/utils/format'
@@ -164,6 +166,7 @@ export function UpdatesPage() {
         action={
           data.available && !running ? (
             <Button
+              icon={RefreshCw}
               onClick={() => void check.mutateAsync()}
               disabled={check.isPending}
             >
@@ -269,7 +272,18 @@ function VersionCard({ data }: { data: StackVersion }) {
             updated", when the truth is that updates from the host leave no
             record here. */}
         {data.last_update_at && (
-          <DetailRow label={t('updates.last_update')}>
+          <DetailRow
+            label={t('updates.last_update')}
+            actions={
+              data.last_update_job_id && (
+                <RowActions>
+                  <ButtonLink to={`/jobs/${data.last_update_job_id}`} icon={ScrollText}>
+                    {t('updates.view_log')}
+                  </ButtonLink>
+                </RowActions>
+              )
+            }
+          >
             <span title={formatDateTime(data.last_update_at)}>
               {formatRelative(data.last_update_at)}
             </span>
@@ -277,14 +291,6 @@ function VersionCard({ data }: { data: StackVersion }) {
               <Mono className="text-ink-3 ml-2">
                 {short(data.last_update_commit)}
               </Mono>
-            )}
-            {data.last_update_job_id && (
-              <Link
-                to={`/jobs/${data.last_update_job_id}`}
-                className="text-accent ml-2 text-xs hover:underline"
-              >
-                {t('updates.view_log')}
-              </Link>
             )}
           </DetailRow>
         )}
@@ -324,6 +330,7 @@ function ActionCard({
         action={
           <Button
             variant="primary"
+            icon={Hammer}
             onClick={() => void onStart('rebuild')}
             disabled={busy}
           >
@@ -345,6 +352,7 @@ function ActionCard({
       action={
         <Button
           variant="primary"
+          icon={Download}
           onClick={() => void onStart('update')}
           disabled={busy || data.checkout_dirty}
         >
