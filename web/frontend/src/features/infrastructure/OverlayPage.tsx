@@ -27,12 +27,12 @@ import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
   ActionMenu,
-  Badge,
   Banner,
   Button,
   Card,
   DetailRow,
   Dialog,
+  Dot,
   EmptyState,
   Field,
   Input,
@@ -109,10 +109,12 @@ export function OverlayPage() {
       key: 'mode',
       header: t('infrastructure.overlay.columns.mode'),
       sortValue: (row) => row.mode,
+      // Configuration, not state: plain text. A blue badge made "Auto" look
+      // like something to act on.
       cell: (row) => (
-        <Badge tone={row.mode === 'off' ? 'neutral' : 'accent'}>
+        <span className="text-ink-2 text-sm">
           {t(`infrastructure.overlay.modes.${row.mode}.name`)}
-        </Badge>
+        </span>
       ),
     },
     {
@@ -121,12 +123,17 @@ export function OverlayPage() {
       sortValue: (row) => row.last_state ?? '',
       cell: (row) => {
         const state = row.last_state ?? 'unknown'
+        const tone = pathTone(row.mode, state)
+        // An "auto" probe on the tunnel says why, so the amber explains itself.
+        const label =
+          row.mode === 'auto' && state === 'tunnel'
+            ? t('infrastructure.overlay.paths.tunnelFallback')
+            : t(`infrastructure.overlay.paths.${state}`, { defaultValue: state })
         return (
-          <Badge tone={pathTone(row.mode, state)}>
-            {t(`infrastructure.overlay.paths.${state}`, {
-              defaultValue: state,
-            })}
-          </Badge>
+          <span className="text-ink-2 inline-flex items-center gap-1.5 text-sm">
+            {tone !== 'neutral' && <Dot tone={tone} />}
+            {label}
+          </span>
         )
       },
     },

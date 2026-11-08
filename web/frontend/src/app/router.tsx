@@ -64,7 +64,10 @@ export function AppRoutes() {
             <Route path="iperf/:name" element={<IperfEndpointPage />} />
             <Route path="overlay" element={<OverlayPage />} />
             <Route path="credentials" element={<CredentialsPage />} />
-            <Route path="system" element={<SystemPage />} />
+            {/* Named after the nav entry it belongs to; the old address
+                stays as a redirect for bookmarks and the docs. */}
+            <Route path="maintenance" element={<SystemPage />} />
+            <Route path="system" element={<Navigate to="/infrastructure/maintenance" replace />} />
           </Route>
 
           <Route path="audit" element={<AuditPage />} />

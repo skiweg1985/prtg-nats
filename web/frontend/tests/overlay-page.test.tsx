@@ -151,8 +151,22 @@ describe('the overlay page', () => {
     const table = within(screen.getByRole('table'))
     expect(table.getAllByText('Auto')).toHaveLength(2)
     expect(table.getByText('Direct')).toBeInTheDocument()
-    expect(table.getByText('Tunnel')).toBeInTheDocument()
+    // Auto on the tunnel says why it is worth a look; the mode itself is
+    // configuration and reads as plain text, not as a badge.
+    expect(table.getByText('Tunnel - direct path disrupted')).toBeInTheDocument()
     expect(table.getByText('No handshake')).toBeInTheDocument()
+  })
+
+  it('keeps colour for the rows that are a fault', async () => {
+    await changeLanguage('en')
+    wrap()
+
+    expect(await screen.findByText('mpp-berlin')).toBeInTheDocument()
+    const table = within(screen.getByRole('table'))
+    const cell = (text: string) => table.getByText(text).closest('span')!
+    expect(cell('Direct').querySelector('.bg-ok, .bg-warn, .bg-danger')).toBeNull()
+    expect(cell('Tunnel - direct path disrupted').querySelector('.bg-warn')).not.toBeNull()
+    expect(cell('No handshake').querySelector('.bg-danger')).not.toBeNull()
   })
 
   it('offers to turn the overlay on rather than naming a shell command', async () => {

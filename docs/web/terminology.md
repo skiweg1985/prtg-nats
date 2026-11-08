@@ -35,6 +35,7 @@ does not settle, settle it here first.
 | job step log | Verlauf / Protokoll (job page only) | log | — |
 | audit trail | Audit | audit | Protokoll (for this sense) |
 | PRTG access key | PRTG Access Key | PRTG access key | Zugriffsschlüssel |
+| PRTG's server | PRTG-Core | PRTG core | PRTG Core (DE, without hyphen) |
 | name a probe announced at enrollment | Name bei der Einbindung | enrollment name | Probe-Name in PRTG, probe name in PRTG (for this value) |
 | PRTG's number for a probe object | Objekt-Id | object id | GID, GUID, PRTG-Objekt-Id, PRTG object id |
 | connecting a probe to its PRTG object | verknüpfen / Verknüpfung | link | — |
