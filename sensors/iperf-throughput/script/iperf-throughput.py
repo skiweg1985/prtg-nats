@@ -28,12 +28,13 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
 import sys
 import time
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Optional
 
 IPERF = "/opt/prtg-nats/tools/iperf3/current/iperf3"
 APPROVED_IPERF_VERSION = "3.21"
@@ -436,7 +437,7 @@ def validate(args: dict[str, Any]) -> None:
     was wrong.
     """
     if not args["server"]:
-        raise ConfigError(NO_SERVER_MESSAGE)
+        raise ConfigError(no_server_message(args))
 
     targets = (("--download-mbit", args["download_mbit"]),
                ("--upload-mbit", args["upload_mbit"]))
@@ -537,6 +538,76 @@ def merge_profile(args: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             args["port"] = DEFAULT_PORT
     return args
+
+
+# What a profile may be called on the probe. The helper writes nothing else,
+# and a name that does not fit is not shown back in a message.
+PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+DEFAULT_PROFILE = "default"
+
+
+def available_profiles() -> list[str]:
+    """The profiles on this probe, by name, without the "default" alias.
+
+    The names are endpoint names, not secrets, and they are the one thing an
+    administrator in front of PRTG cannot look up anywhere else. "default" is
+    left out because it only ever mirrors one of the others.
+    """
+    try:
+        entries = os.listdir(PROFILE_DIR)
+    except OSError:
+        return []
+    names = []
+    for entry in entries:
+        if not entry.endswith(".env"):
+            continue
+        name = entry[:-len(".env")]
+        if name != DEFAULT_PROFILE and PROFILE_NAME.fullmatch(name):
+            names.append(name)
+    return sorted(names)
+
+
+def server_names_a_profile(args: dict[str, Any]) -> Optional[str]:
+    """The profile --server was given instead of, if that is what happened.
+
+    The endpoint's name in the platform is easy to mistake for its address,
+    and iperf3 answers an unresolvable name with "Invalid argument" - nothing
+    in that points at the parameter. A short host name that happens to equal
+    the profile's own host is a real address and is left alone.
+    """
+    server = args.get("server")
+    if not server or server not in available_profiles():
+        return None
+    profile = read_profile("%s/%s.env" % (PROFILE_DIR, server)) or {}
+    if profile.get(PROFILE_HOST) == server:
+        return None
+    return server
+
+
+def no_server_message(args: dict[str, Any]) -> str:
+    """What to say when neither the parameters nor a profile name an endpoint.
+
+    With profiles on the probe the answer is one of their names, so the
+    message lists them. That is the common case: a probe that holds two
+    endpoints has no "default" alias, and a sensor without --profile then
+    finds nothing.
+    """
+    profiles = available_profiles()
+    if not profiles:
+        return NO_SERVER_MESSAGE
+    listed = ", ".join(profiles)
+    if args.get("profile") and args["profile"] != DEFAULT_PROFILE:
+        return ('There is no profile "%s" on this probe. It holds: %s. '
+                'Use "--profile NAME" with one of them. %s'
+                % (args["profile"], listed, DOCUMENTATION_HINT))
+    if len(profiles) == 1:
+        return ('No measurement endpoint given. This probe holds the profile '
+                '%s; add "--profile %s". %s'
+                % (listed, profiles[0], DOCUMENTATION_HINT))
+    return ('No measurement endpoint given. This probe holds several '
+            'profiles: %s. Choose one with "--profile NAME", for example '
+            '"--profile %s --download-mbit 30 --upload-mbit 10". %s'
+            % (listed, profiles[0], DOCUMENTATION_HINT))
 
 
 def read_profile(path: str):
@@ -1282,6 +1353,15 @@ def self_check(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def work(args: dict[str, Any]):
+    # Checked before the profile fills anything in: afterwards the name given
+    # as --server can no longer be told apart from a real address.
+    mistaken = server_names_a_profile(args)
+    if mistaken:
+        fail('"%s" is the name of a profile on this probe, not the address of '
+             'an endpoint. Use "--profile %s" instead of "--server %s"; the '
+             'profile already holds the address, port and user name. %s'
+             % (mistaken, mistaken, mistaken, DOCUMENTATION_HINT))
+
     # Before anything reads the endpoint, and before the self-test: a variant
     # that names its endpoint has to be as good as parameters that do.
     args = merge_profile(args)
