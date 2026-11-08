@@ -30,7 +30,7 @@ class SensorLogRecordIn(ApiModel):
 
     id: UUID
     sensor: str = Field(pattern=SENSOR_NAME_PATTERN.pattern)
-    # The sensor's job identity, truncated on the probe. Not an ID of ours.
+    # A label the probe gives the sensor's job. Not an ID of ours.
     job: str | None = Field(default=None, max_length=64)
     time: datetime
     result: RecordResult

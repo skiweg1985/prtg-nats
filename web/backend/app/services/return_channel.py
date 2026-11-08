@@ -92,11 +92,12 @@ def certificate_usable(expires: str | None, today: date) -> bool:
 
 async def last_contact(session: AsyncSession, nats_username: str) -> datetime | None:
     """When the probe last delivered anything, heartbeats included."""
-    return await session.scalar(
+    contact: datetime | None = await session.scalar(
         select(ProbeReturnChannel.last_contact_at)
         .join(ProbeRecord, ProbeRecord.id == ProbeReturnChannel.probe_id)
         .where(ProbeRecord.nats_username == nats_username)
     )
+    return contact
 
 
 async def record_delivery(

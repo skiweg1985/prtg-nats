@@ -134,6 +134,12 @@ https://{$WEB_FQDN}:{$PROBE_CHANNEL_PORT}, https://{$WEB_BIND_IP}:{$PROBE_CHANNE
 	# Only the probe routes. The interface and its API are not reachable on
 	# this port, so a probe certificate never opens anything but these.
 	handle /probe/v1/* {
+		# A full batch of wlan-auth records stays well under a megabyte.
+		# The limit keeps one misbehaving probe from filling the runtime
+		# volume, where the CA and the database live too.
+		request_body {
+			max_size 16MB
+		}
 		reverse_proxy 127.0.0.1:8100 {
 			# The verified certificate's subject, which the probe CA issues
 			# as CN=<NATS username> and nothing else. Setting the header

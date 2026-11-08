@@ -1234,6 +1234,20 @@ def job_identity(job):
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def job_label(job):
+    """A short name for a job that may leave the probe.
+
+    Not a prefix of job_identity: that hash covers the credentials, and
+    48 bits of it next to the SSID and the other fields in a record are
+    enough to test guessed passwords against, at hash speed rather than
+    the PBKDF2 speed WPA imposes. Two jobs that differ only in their
+    credentials share a label, which is fine for telling runs apart.
+    """
+    material = json.dumps([job.get(field) for field in IDENTITY_FIELDS
+                           if field not in SECRET_FIELDS], sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
+
+
 def round_budget(jobs):
     """The time a round over every job on this radio can take.
 
@@ -1334,7 +1348,7 @@ def build_record(job, result, log):
     return {
         "id": str(uuid.uuid4()),
         "sensor": "wlan-auth",
-        "job": job_identity(job)[:12],
+        "job": job_label(job),
         "time": datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec="seconds"),
         "result": record_result(result),
@@ -1600,18 +1614,18 @@ class Scheduler:
         Without it nothing about a running schedule is observable: the
         probe writes no sensor output to the journal, so the only other
         way to tell a job that expired from one that was never registered
-        is to wait and guess. Credentials are deliberately absent - the
-        truncated identity is enough to tell two jobs apart.
+        is to wait and guess. Credentials are deliberately absent, and so
+        is any hash over them - see job_label.
         """
         now = time.monotonic()
         jobs = []
         with self._guard:
             budget = round_budget(self._jobs)
-            for identity, entry in sorted(self._jobs.items()):
+            for _identity, entry in sorted(self._jobs.items()):
                 result = entry["result"] or {}
                 age = entry["measured"]
                 jobs.append({
-                    "job": identity[:12],
+                    "job": job_label(entry["job"]),
                     "interface": entry["job"]["interface"],
                     "ssid": entry["job"].get("ssid") or "",
                     "stage": entry["job"]["stage"],

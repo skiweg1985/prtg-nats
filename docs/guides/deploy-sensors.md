@@ -214,7 +214,7 @@ unless the buffer overflows. Several lines may go over one connection.
 | `result` | yes | `ok` or `error`; `gap` is reserved for the service |
 | `id` | no | a UUID; assigned by the service when it is missing |
 | `time` | no | ISO 8601 with time zone; the time of arrival when missing |
-| `job` | no | the sensor's job identity, at most 64 characters |
+| `job` | no | a label for the sensor's job, at most 64 characters; never derived from a credential |
 | `code` | no | a machine-readable result code, at most 128 characters |
 | `summary` | no | one line for lists, cut at 2000 characters |
 | `body` | no | a JSON object with whatever the sensor wants to show |

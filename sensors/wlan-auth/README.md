@@ -390,7 +390,9 @@ that hangs cannot hold up the radio.
 A record carries:
 
 - the result (`ok` or `error`), the failure code and the message PRTG got,
-  the job identity, truncated to 12 characters, and the time
+  a 12-character job label, and the time. The label is a hash over the
+  job without its credentials, so a record never carries anything derived
+  from a password
 - the network, the authentication method, the interface, the stage, the
   identity and the profile name
 - what the run saw: access point, client address, leased address, DHCP

@@ -31,13 +31,13 @@ RECORD_ID = "0b6f3c1e-8f0a-4d7e-9a43-6a2f1c9e5d10"
 
 # The day the records below were measured. Spelled out in every query so the
 # tests do not depend on the clock of the machine running them.
-DAY = {"since": "2026-11-08T00:00:00Z", "until": "2026-11-08T23:59:59Z"}
+DAY = {"since": "2025-03-08T00:00:00Z", "until": "2025-03-08T23:59:59Z"}
 
 
 def record(
     record_id: str = RECORD_ID,
     *,
-    time: str = "2026-11-08T09:15:00Z",
+    time: str = "2025-03-08T09:15:00Z",
     result: str = "error",
     sensor: str = "wlan-auth",
     ssid: str = "Example-Corp",
@@ -94,6 +94,33 @@ async def test_a_submitted_record_is_readable_through_list_and_detail(
     ]
 
 
+@pytest.mark.parametrize(
+    "when",
+    [
+        pytest.param("2031-01-01T00:00:00Z", id="a clock years ahead"),
+        pytest.param("0001-01-01T00:00:00+05:00", id="before year one in UTC"),
+        pytest.param("9999-12-31T23:00:00-05:00", id="after year 9999 in UTC"),
+    ],
+)
+async def test_a_record_with_an_impossible_time_is_filed_under_its_arrival(
+    client: AsyncClient, as_probe: None, when: str
+) -> None:
+    # Refusing it would make the probe drop the whole batch, and a time
+    # far ahead would keep its day file out of the retention for years.
+    before = datetime.now(UTC)
+    response = await client.post(
+        "/probe/v1/records", json={"records": [record(time=when)]}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["stored"] == [RECORD_ID]
+
+    await sign_in(client)
+    detail = await client.get(f"/api/v1/sensor-logs/{RECORD_ID}")
+    assert detail.status_code == 200, detail.text
+    stored = datetime.fromisoformat(detail.json()["time"])
+    assert before - timedelta(seconds=1) <= stored <= datetime.now(UTC)
+
+
 async def test_resubmitting_a_batch_stores_nothing_twice(
     client: AsyncClient, as_probe: None, settings: Settings
 ) -> None:
@@ -107,7 +134,7 @@ async def test_resubmitting_a_batch_stores_nothing_twice(
     assert again.status_code == 200, again.text
     assert again.json() == {"stored": [other], "duplicates": [RECORD_ID]}
 
-    day_file = settings.sensor_log_dir / PROBE / "wlan-auth" / "2026-11-08.jsonl"
+    day_file = settings.sensor_log_dir / PROBE / "wlan-auth" / "2025-03-08.jsonl"
     ids = [json.loads(line)["id"] for line in day_file.read_text().splitlines()]
     assert ids == [RECORD_ID, other]
 
@@ -117,12 +144,12 @@ async def test_records_land_as_json_lines_per_probe_sensor_and_day(
 ) -> None:
     batch = [
         record("11111111-0000-4000-8000-000000000001"),
-        record("11111111-0000-4000-8000-000000000002", time="2026-11-09T00:30:00Z"),
+        record("11111111-0000-4000-8000-000000000002", time="2025-03-09T00:30:00Z"),
         record(
             "11111111-0000-4000-8000-000000000003",
             sensor="aruba-uplink",
             # Local time on the probe; the day is the UTC day.
-            time="2026-11-09T00:30:00+02:00",
+            time="2025-03-09T00:30:00+02:00",
         ),
     ]
     response = await client.post("/probe/v1/records", json={"records": batch})
@@ -131,12 +158,12 @@ async def test_records_land_as_json_lines_per_probe_sensor_and_day(
     root = settings.sensor_log_dir / PROBE
     files = sorted(str(path.relative_to(root)) for path in root.rglob("*.jsonl"))
     assert files == [
-        "aruba-uplink/2026-11-08.jsonl",
-        "wlan-auth/2026-11-08.jsonl",
-        "wlan-auth/2026-11-09.jsonl",
+        "aruba-uplink/2025-03-08.jsonl",
+        "wlan-auth/2025-03-08.jsonl",
+        "wlan-auth/2025-03-09.jsonl",
     ]
-    line = json.loads((root / "aruba-uplink" / "2026-11-08.jsonl").read_text())
-    assert line["time"] == "2026-11-08T22:30:00Z"
+    line = json.loads((root / "aruba-uplink" / "2025-03-08.jsonl").read_text())
+    assert line["time"] == "2025-03-08T22:30:00Z"
     assert line["probe"] == PROBE
 
 
@@ -158,12 +185,12 @@ async def test_a_gap_record_is_stored_and_returned_as_a_gap(
     gap = {
         "id": RECORD_ID,
         "sensor": "wlan-auth",
-        "time": "2026-11-08T10:00:00Z",
+        "time": "2025-03-08T10:00:00Z",
         "result": "gap",
         "summary": "37 records dropped from a full buffer",
         "body": {
-            "from": "2026-11-08T06:00:00Z",
-            "until": "2026-11-08T09:45:00Z",
+            "from": "2025-03-08T06:00:00Z",
+            "until": "2025-03-08T09:45:00Z",
             "lost": 37,
         },
     }
@@ -263,8 +290,8 @@ async def test_each_filter_narrows_the_list(
         record(ids[0], result="ok", ssid="Example-Corp", raw="EAP success"),
         record(ids[1], result="error", ssid="Example-Guest", raw="dhclient: no lease"),
         record(ids[2], result="error", sensor="aruba-uplink", raw="link down"),
-        record(ids[3], result="ok", time="2026-11-08T20:00:00Z", raw="EAP success"),
-        record(ids[4], result="error", time="2026-11-07T20:00:00Z"),
+        record(ids[3], result="ok", time="2025-03-08T20:00:00Z", raw="EAP success"),
+        record(ids[4], result="error", time="2025-03-07T20:00:00Z"),
     ]
     response = await client.post("/probe/v1/records", json={"records": batch})
     assert response.status_code == 200, response.text
@@ -282,8 +309,8 @@ async def test_each_filter_narrows_the_list(
     assert await listed(ssid="Example-Guest") == [ids[1]]
     assert await listed(result="ok") == sorted([ids[0], ids[3]])
     assert await listed(q="NO LEASE") == [ids[1]]
-    assert await listed(since="2026-11-08T12:00:00Z") == [ids[3]]
-    assert await listed(since="2026-11-07T00:00:00Z") == sorted(ids)
+    assert await listed(since="2025-03-08T12:00:00Z") == [ids[3]]
+    assert await listed(since="2025-03-07T00:00:00Z") == sorted(ids)
     bad = await client.get("/api/v1/sensor-logs", params={"result": "pending"})
     assert bad.status_code == 422
 
@@ -335,7 +362,7 @@ async def test_without_a_time_range_the_last_24_hours_are_listed(
 async def test_the_list_pages_newest_first(client: AsyncClient, as_probe: None) -> None:
     ids = [f"44444444-0000-4000-8000-00000000000{n}" for n in range(5)]
     batch = [
-        record(record_id, time=f"2026-11-08T1{n}:00:00Z")
+        record(record_id, time=f"2025-03-08T1{n}:00:00Z")
         for n, record_id in enumerate(ids)
     ]
     await client.post("/probe/v1/records", json={"records": batch})

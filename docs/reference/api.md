@@ -802,8 +802,14 @@ Content-Type: application/json
 
 The record ID is a UUID set on the probe. Sending a batch again stores nothing
 twice: records already stored come back under `duplicates`, and the probe drops
-both lists from its buffer. A batch holds at most 500 records. A `probe` field
-in a record is ignored - who sent it is what the certificate says.
+both lists from its buffer. A batch holds at most 500 records, and the proxy
+refuses a request body over 16 MB. A `probe` field in a record is ignored -
+who sent it is what the certificate says.
+
+A record is not refused for its time. One more than an hour ahead of the
+platform host, or outside what can be expressed in UTC, is stored under the
+time it arrived: refusing it would cost the whole batch, and a day file far in
+the future would outlast the retention.
 
 A batch with no records is the channel's heartbeat: the service sends one
 with its buffer figures at least every five minutes when there is nothing

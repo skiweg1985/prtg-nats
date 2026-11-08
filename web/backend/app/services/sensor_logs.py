@@ -73,6 +73,29 @@ def format_time(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+# How far ahead of this host a probe's clock may run before its record is
+# filed under the time it arrived instead. Further ahead, the day file would
+# outlive the retention and stay out of every default view.
+CLOCK_SKEW_ALLOWED = timedelta(hours=1)
+
+
+def record_time(value: datetime, now: datetime) -> str:
+    """The stored time of an incoming record, kept to what can be filed.
+
+    A record is never refused for its time: the probe drops a refused batch
+    whole, and one bad clock would cost every record beside it.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    try:
+        stored = format_time(value)
+    except OverflowError:
+        return format_time(now)
+    if parse_time(stored) is None or value - now > CLOCK_SKEW_ALLOWED:
+        return format_time(now)
+    return stored
+
+
 def parse_time(value: object) -> datetime | None:
     """An ISO 8601 time as an aware datetime, UTC if it named no zone.
 

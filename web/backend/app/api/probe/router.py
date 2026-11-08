@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from cryptography import x509
 from fastapi import APIRouter
 
@@ -16,7 +18,7 @@ from app.api.schemas.probe_channel import CertificateRenewalIn, CertificateRenew
 from app.api.schemas.sensor_logs import SensorLogBatchIn, SensorLogBatchOut
 from app.infrastructure.pki import Pki
 from app.services.return_channel import record_delivery
-from app.services.sensor_logs import format_time, ingest
+from app.services.sensor_logs import ingest, record_time
 
 probe_router = APIRouter(prefix="/probe/v1", tags=["probe channel"])
 
@@ -35,12 +37,13 @@ async def submit_records(
     back with its IDs under ``duplicates``, and the probe drops both lists
     from its buffer.
     """
+    now = datetime.now(UTC)
     records = [
         {
             "id": str(item.id),
             "sensor": item.sensor,
             "job": item.job,
-            "time": format_time(item.time),
+            "time": record_time(item.time, now),
             "result": item.result,
             "code": item.code,
             "summary": item.summary,

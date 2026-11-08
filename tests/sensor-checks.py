@@ -1003,6 +1003,14 @@ def check_wlan_auth_scheduler():
     check("a changed freshness is the same job",
           module.job_identity(dict(job, max_age=60)),
           module.job_identity(dict(job, max_age=600)))
+    # The label leaves the probe in every sensor log record. A hash over
+    # the password would let anyone who reads the logs test guesses.
+    check("the label a record carries ignores the credentials",
+          module.job_label(job),
+          module.job_label(dict(job, password="other", psk="other")))
+    check("the label still tells two networks apart",
+          module.job_label(job) != module.job_label(dict(job, ssid="Guest")),
+          True)
 
     # The gateway is an address or the word that switches the step off. A
     # name would have to be resolved, and a sensor that cannot reach its
@@ -1331,8 +1339,8 @@ def check_wlan_auth_sensor_log():
         check("it is the wlan-auth sensor's", record.get("sensor"),
               "wlan-auth")
         check("and an ok run is an ok record", record.get("result"), "ok")
-        check("the job is the truncated identity", record.get("job"),
-              module.job_identity(job)[:12])
+        check("the job is the label without credentials", record.get("job"),
+              module.job_label(job))
         check("the result points the sensor at its record",
               entry["result"].get("record_id"), record.get("id"))
         check("without an interface address it carries no full link",
