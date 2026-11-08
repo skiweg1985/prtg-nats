@@ -1,0 +1,143 @@
+name: Security scans
+
+# Secrets in the history, known vulnerabilities in the dependencies, and in the
+# images the stack runs - on every pull request, on merges, and weekly, so an
+# advisory published after the last merge still turns something red.
+#
+# The scanners run from images pinned by digest, not from third-party actions:
+# nothing but GitHub's own actions executes with this workflow's token, and
+# that token can only read. No secrets are used, and pull_request_target is
+# deliberately not, so a fork's pull request cannot reach anything here.
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  schedule:
+    # Mondays, early, before anyone looks at it.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+
+jobs:
+  gitleaks:
+    name: Secrets in the working tree and the history
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository with its history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # .gitleaks.toml allows the handful of test fixtures that look like
+      # keys on purpose. Findings are redacted, so a log never repeats one.
+      - name: Scan every commit
+        run: |
+          docker run --rm -v "${PWD}:/repo" -w /repo "${GITLEAKS_IMAGE}" \
+            git --config .gitleaks.toml --redact=100 --no-banner \
+            --log-opts="--all" .
+
+      - name: Scan the working tree
+        run: |
+          docker run --rm -v "${PWD}:/repo" -w /repo "${GITLEAKS_IMAGE}" \
+            dir --config .gitleaks.toml --redact=100 --no-banner .
+
+  dependencies:
+    name: Dependencies, including the development ones
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Fixed advisories only: one without a release to move to is a decision
+      # for .trivyignore.yaml, not a red build nobody can act on.
+      - name: Scan the lockfiles
+        run: |
+          docker run --rm -v "${PWD}:/repo:ro" "${TRIVY_IMAGE}" \
+            fs --quiet --include-dev-deps --scanners vuln,secret \
+            --severity HIGH,CRITICAL --ignore-unfixed \
+            --ignorefile /repo/.trivyignore.yaml --exit-code 1 /repo
+
+  pulled-images:
+    name: Images the stack pulls
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every registry image in compose.yaml, at the digest it pins - the same
+      # list check-static.sh holds to being pinned.
+      - name: Scan each image compose.yaml pins
+        run: |
+          failed=0
+          while read -r image; do
+            [[ "${image}" == *:current ]] && continue
+            echo "== ${image%%@*}"
+            docker run --rm -v "${PWD}:/repo:ro" "${TRIVY_IMAGE}" \
+              image --quiet --image-src remote --platform linux/amd64 \
+              --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+              --ignorefile /repo/.trivyignore.yaml --exit-code 1 "${image}" ||
+              failed=1
+          done < <(awk '$1 == "image:" { print $2 }' compose.yaml)
+          exit "${failed}"
+
+  built-images:
+    name: Images this repository builds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the API and interface images
+        run: |
+          docker build -f web/backend/Dockerfile -t prtg-nats-web-api:scan .
+          docker build -t prtg-nats-web-frontend:scan web/frontend
+
+      # The SBOM is what a later scan of a running installation compares
+      # against: it names exactly what this commit's image carries.
+      - name: Scan them and record what they contain
+        run: |
+          mkdir -p sbom
+          failed=0
+          for image in prtg-nats-web-api:scan prtg-nats-web-frontend:scan; do
+            echo "== ${image}"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${PWD}:/repo" "${TRIVY_IMAGE}" \
+              image --quiet --scanners vuln --severity HIGH,CRITICAL \
+              --ignore-unfixed --ignorefile /repo/.trivyignore.yaml \
+              --exit-code 1 "${image}" || failed=1
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${PWD}/sbom:/sbom" "${TRIVY_IMAGE}" \
+              image --quiet --format cyclonedx \
+              --output "/sbom/${image%%:*}.cdx.json" "${image}"
+          done
+          exit "${failed}"
+
+      - name: Keep the SBOMs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/
+          retention-days: 90
