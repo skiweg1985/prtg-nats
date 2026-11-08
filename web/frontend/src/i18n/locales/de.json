@@ -1489,6 +1489,32 @@
       "sensor": "Sensor",
       "anySensor": "Alle Sensoren",
       "network": "Netz (SSID)"
+    },
+    "wlanAuth": {
+      "ssid": "Netz (SSID)",
+      "auth": "Authentifizierung",
+      "interface": "Schnittstelle",
+      "stage": "Stufe",
+      "identity": "Identität",
+      "profile": "Profil",
+      "bssid": "Access Point (BSSID)",
+      "clientMac": "Client-Adresse",
+      "clientMacKind": "Herkunft der Client-Adresse",
+      "ipAddress": "Bezogene Adresse",
+      "dhcpServer": "DHCP-Server",
+      "gateway": "Gateway",
+      "gatewayKind": "Herkunft des Gateways",
+      "frequency": "Frequenz (MHz)",
+      "signal": "Signal (dBm)",
+      "timings": "Dauer der Stufen",
+      "assocMs": "Assoziierung (ms)",
+      "authMs": "Authentifizierung (ms)",
+      "dhcpMs": "DHCP (ms)",
+      "gatewayMs": "Gateway-Ping (ms)",
+      "totalMs": "Gesamt (ms)",
+      "supplicant": "Ausgabe von wpa_supplicant",
+      "dhcp": "Ausgabe des DHCP-Clients",
+      "events": "Ereignisse des Helpers"
     }
   }
 }

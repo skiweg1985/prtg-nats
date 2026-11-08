@@ -371,6 +371,57 @@ schedules the radio, so it has to outlive the request that asked. A restart
 empties its memory — the jobs and the credentials with them — and the next
 scan of each sensor registers it again.
 
+## Sensor logs
+
+Every run leaves one record in the platform's sensor log: a scheduled run
+and a hand-run `--measure-now` alike, successful or not. A run that never
+got the radio because another test held it leaves none, since nothing was
+measured. Open the records under **Sensor log** in the web interface, or on
+the probe's page.
+
+The privileged service writes the record. It hands the record to the return
+channel service on `/run/prtg-nats-return-channel.sock`, which keeps it on
+disk until the platform has it
+([ADR 0013](../../docs/architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+Without that service the sensor measures and reports to PRTG as before; only
+the record is missing. The handover gives up after two seconds, so a service
+that hangs cannot hold up the radio.
+
+A record carries:
+
+- the result (`ok` or `error`), the failure code and the message PRTG got,
+  the job identity, truncated to 12 characters, and the time
+- the network, the authentication method, the interface, the stage, the
+  identity and the profile name
+- what the run saw: access point, client address, leased address, DHCP
+  server, gateway, frequency, signal, and the stage timings
+- the raw lines of `wpa_supplicant`
+- the raw output of the DHCP client, including its error output
+- the service's own account of the run: the lock, the stages it reached,
+  the cause it ended on
+
+The passphrase, the enterprise password and the private key passphrase are
+removed before the record leaves the service — from every field and from
+every raw line, in plain text, in the hex form the supplicant configuration
+uses, and for a passphrase also as the key derived from it. A secret
+shorter than four characters cannot be blanked without making the line
+unreadable, so a line holding one is dropped entirely. The identity, the
+addresses and the certificate subjects stay: they are what a failed sign-in
+is looked up by in the RADIUS and gateway logs. Very long output is
+shortened to the first and last lines so that a record stays below the
+service's 64 KB limit.
+
+The PRTG message of a failed run ends with the path of its record:
+
+```text
+Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; code dhcp-timeout; age 20 s; log /sensor-logs/3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10
+```
+
+Put it after the address you open the platform with. The probe does not
+know that address — the return channel talks to a port of its own — so the
+message carries the path only. The message stays within PRTG's 2000
+characters; the path is never the part that is cut.
+
 ## How the test runs
 
 The sensor script itself must not configure any Wi-Fi — and it does not

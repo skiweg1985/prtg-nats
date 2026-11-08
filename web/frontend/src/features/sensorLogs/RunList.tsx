@@ -192,7 +192,47 @@ function RunBody({ id }: { id: string }) {
   if (isLoading) return <Skeleton className="h-24" />
   if (error) return <ErrorDetails error={error} />
   if (!data) return null
-  return <RecordBody body={data.body} />
+  return <RecordBody body={data.body} sensor={data.sensor} />
+}
+
+/**
+ * Readable names for the body fields of the sensors that ship with the
+ * platform. A sensor not listed here keeps its own field names - the body is
+ * whatever it sent, and a guessed label would be worse than the raw key.
+ */
+const FIELD_LABELS: Record<string, Record<string, string>> = {
+  'wlan-auth': {
+    ssid: 'sensorLogs.wlanAuth.ssid',
+    auth: 'sensorLogs.wlanAuth.auth',
+    interface: 'sensorLogs.wlanAuth.interface',
+    stage: 'sensorLogs.wlanAuth.stage',
+    identity: 'sensorLogs.wlanAuth.identity',
+    profile: 'sensorLogs.wlanAuth.profile',
+    bssid: 'sensorLogs.wlanAuth.bssid',
+    client_mac: 'sensorLogs.wlanAuth.clientMac',
+    client_mac_kind: 'sensorLogs.wlanAuth.clientMacKind',
+    ip_address: 'sensorLogs.wlanAuth.ipAddress',
+    dhcp_server: 'sensorLogs.wlanAuth.dhcpServer',
+    gateway: 'sensorLogs.wlanAuth.gateway',
+    gateway_kind: 'sensorLogs.wlanAuth.gatewayKind',
+    frequency_mhz: 'sensorLogs.wlanAuth.frequency',
+    signal_dbm: 'sensorLogs.wlanAuth.signal',
+    timings: 'sensorLogs.wlanAuth.timings',
+    assoc_ms: 'sensorLogs.wlanAuth.assocMs',
+    auth_ms: 'sensorLogs.wlanAuth.authMs',
+    dhcp_ms: 'sensorLogs.wlanAuth.dhcpMs',
+    gateway_ms: 'sensorLogs.wlanAuth.gatewayMs',
+    total_ms: 'sensorLogs.wlanAuth.totalMs',
+    supplicant: 'sensorLogs.wlanAuth.supplicant',
+    dhcp: 'sensorLogs.wlanAuth.dhcp',
+    events: 'sensorLogs.wlanAuth.events',
+  },
+}
+
+function useFieldLabel(sensor: string | undefined): (key: string) => string {
+  const { t } = useTranslation()
+  const labels = (sensor && FIELD_LABELS[sensor]) || {}
+  return (key) => (labels[key] ? t(labels[key]) : key)
 }
 
 type Scalar = string | number | boolean | null
@@ -228,8 +268,15 @@ function show(value: unknown): string {
  * of values (stage timings, say) as a list of their own, and lines of raw
  * output as preformatted blocks - the part an operator came for.
  */
-export function RecordBody({ body }: { body: Record<string, unknown> }) {
+export function RecordBody({
+  body,
+  sensor,
+}: {
+  body: Record<string, unknown>
+  sensor?: string
+}) {
   const { t } = useTranslation()
+  const label = useFieldLabel(sensor)
   const entries = Object.entries(body)
   const scalars = entries.filter(([, value]) => isScalar(value))
   const groups = entries.filter(
@@ -243,16 +290,16 @@ export function RecordBody({ body }: { body: Record<string, unknown> }) {
 
   return (
     <div className="space-y-4">
-      {scalars.length > 0 && <Values entries={scalars} />}
+      {scalars.length > 0 && <Values entries={scalars} label={label} />}
       {groups.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{key}</h3>
-          <Values entries={Object.entries(value)} />
+          <h3 className="label-mono">{label(key)}</h3>
+          <Values entries={Object.entries(value)} label={label} />
         </section>
       ))}
       {raw.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{key}</h3>
+          <h3 className="label-mono">{label(key)}</h3>
           <pre className="bg-surface border-rule rounded-control max-h-96 overflow-auto border p-3 font-mono text-xs whitespace-pre-wrap">
             {isLines(value)
               ? value.join('\n')
@@ -266,12 +313,18 @@ export function RecordBody({ body }: { body: Record<string, unknown> }) {
   )
 }
 
-function Values({ entries }: { entries: [string, unknown][] }) {
+function Values({
+  entries,
+  label,
+}: {
+  entries: [string, unknown][]
+  label: (key: string) => string
+}) {
   return (
     <dl className="grid grid-cols-[minmax(8rem,14rem)_1fr] gap-x-3 gap-y-1">
       {entries.map(([key, value]) => (
         <Fragment key={key}>
-          <dt className="text-ink-3 font-mono text-xs">{key}</dt>
+          <dt className="text-ink-3 font-mono text-xs">{label(key)}</dt>
           <dd className="text-ink min-w-0 font-mono text-xs break-all">{show(value)}</dd>
         </Fragment>
       ))}

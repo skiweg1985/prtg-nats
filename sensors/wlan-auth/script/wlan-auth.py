@@ -315,6 +315,30 @@ def lookup_value(condition) -> int:
     return LOOKUP_YES if condition else LOOKUP_NO
 
 
+# PRTG keeps a sensor message up to this length.
+MESSAGE_LIMIT = 2000
+
+# Where the platform shows one run of the sensor log. The probe does not know
+# the platform's address - the return channel talks to a port of its own - so
+# the message carries the path, and the operator puts it after the address
+# they open the platform with.
+RUN_PATH = "/sensor-logs/%s"
+RECORD_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                       r"[0-9a-f]{12}")
+
+
+def with_run_link(message: str, record_id: Any) -> str:
+    """The message, cut to PRTG's limit, ending on the run in the log.
+
+    The link goes last and is never the part that is cut: on a failed run
+    it is the way to the raw supplicant and DHCP output.
+    """
+    if not isinstance(record_id, str) or not RECORD_ID.fullmatch(record_id):
+        return message[:MESSAGE_LIMIT]
+    link = "; log " + RUN_PATH % record_id
+    return message[:MESSAGE_LIMIT - len(link)] + link
+
+
 def age_part(age) -> list[str]:
     """How long ago this was measured, where there is an age at all."""
     return [] if age is None else ["age %d s" % int(age)]
@@ -383,8 +407,10 @@ def work(args: dict[str, Any]):
     # permissions, wrong parameters. That is a sensor failure, not a
     # statement about the Wi-Fi.
     if answer.get("result") == "blocked":
-        fail("Test could not run (%s): %s"
-             % (answer.get("code", "unknown"), answer.get("message", "")))
+        fail(with_run_link(
+            "Test could not run (%s): %s"
+            % (answer.get("code", "unknown"), answer.get("message", "")),
+            answer.get("record_id")))
 
     outcome = answer.get("result")
     timings = answer.get("timings") or {}
@@ -535,6 +561,12 @@ def work(args: dict[str, Any]):
         parts.insert(0, "Set --max-age >= %d s (%d %s on this radio)" % (
             budget, sharing, "network" if sharing == 1 else "networks"))
     message = "; ".join(parts)
+    # Only a failed run carries the way to its record: a green sensor sends
+    # nobody looking, and a stored result that is too old or not there yet
+    # says nothing about a run.
+    failed = outcome == "failed" and not stale
+    message = with_run_link(message,
+                            answer.get("record_id") if failed else None)
 
     # A failed sign-in remains a valid measurement: the sensor keeps
     # delivering values and the "Auth Result" channel carries the alarm.
@@ -542,7 +574,7 @@ def work(args: dict[str, Any]):
     return {
         "version": 2,
         "status": "ok",
-        "message": message[:2000],
+        "message": message,
         "channels": channels,
     }
 

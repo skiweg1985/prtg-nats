@@ -376,4 +376,61 @@ describe('a single run', () => {
     expect(screen.getByText(/No DHCPOFFERS received/)).toBeInTheDocument()
     expect(screen.getByText('R42')).toBeInTheDocument()
   })
+
+  // wlan-auth names its fields for the helper, not for the reader; the run
+  // page puts them in words, in both languages.
+  function wlanAuthRun() {
+    server.use(
+      http.get('/api/v1/sensor-logs/:id', () =>
+        HttpResponse.json({
+          ...record({ id: 'R7' }),
+          body: {
+            ssid: 'corp-wifi',
+            auth: 'peap',
+            client_mac: '00:00:5e:00:53:10',
+            bssid: '00:00:5e:00:53:c2',
+            timings: { assoc_ms: 41, total_ms: 2100 },
+            supplicant: ['+0.500s wlan0: CTRL-EVENT-EAP-FAILURE'],
+            events: ['+0.000s interface wlan0 locked'],
+          },
+        }),
+      ),
+    )
+    wrap('/sensor-logs/R7')
+  }
+
+  it('labels the fields of a wlan-auth run', async () => {
+    wlanAuthRun()
+
+    expect(await screen.findByText('Client address')).toBeInTheDocument()
+    expect(screen.getByText('Access point (BSSID)')).toBeInTheDocument()
+    expect(screen.getByText('Authentication')).toBeInTheDocument()
+    expect(screen.getByText('Stage timings')).toBeInTheDocument()
+    expect(screen.getByText('Association (ms)')).toBeInTheDocument()
+    expect(screen.getByText('wpa_supplicant output')).toBeInTheDocument()
+    expect(screen.getByText('Helper events')).toBeInTheDocument()
+    expect(screen.queryByText('client_mac')).toBeNull()
+  })
+
+  it('labels them in German too', async () => {
+    await changeLanguage('de')
+    wlanAuthRun()
+
+    expect(await screen.findByText('Client-Adresse')).toBeInTheDocument()
+    expect(screen.getByText('Ausgabe von wpa_supplicant')).toBeInTheDocument()
+  })
+
+  it('keeps the field names of a sensor it has no labels for', async () => {
+    server.use(
+      http.get('/api/v1/sensor-logs/:id', () =>
+        HttpResponse.json({
+          ...record({ id: 'R8', sensor: 'aruba-uplink' }),
+          body: { client_mac: '00:00:5e:00:53:10' },
+        }),
+      ),
+    )
+    wrap('/sensor-logs/R8')
+
+    expect(await screen.findByText('client_mac')).toBeInTheDocument()
+  })
 })
