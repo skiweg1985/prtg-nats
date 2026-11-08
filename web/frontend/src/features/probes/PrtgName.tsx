@@ -22,8 +22,11 @@ import {
 } from '@/components/ui/primitives'
 
 /**
- * The name PRTG uses today, next to the enrollment name and never in its
- * place. PRTG has no probe GID to look a probe up by, so the probe is linked
+ * Which object in PRTG this probe is, and the actions to change that.
+ *
+ * The name read through the link heads the page; repeating it here, next to
+ * the enrollment name and a note that the two differ, said one thing three
+ * times. PRTG has no probe GID to look a probe up by, so the probe is linked
  * to its PRTG object id once and read by that id from then on.
  */
 export function PrtgNameRow({ probeId }: { probeId: string }) {
@@ -68,27 +71,13 @@ export function PrtgNameRow({ probeId }: { probeId: string }) {
 
 function PrtgNameValue({ name }: { name: PrtgName }) {
   const { t } = useTranslation()
-  if (name.state !== 'ok' || name.name_in_prtg == null) {
-    return (
-      <span className="text-ink-3 block text-xs">
-        {t(`probes.prtgName.reasons.${name.state}`, {
-          id: name.object_id ?? '',
-        })}
-      </span>
-    )
+  if (name.state === 'ok' && name.object_id) {
+    return <span className="block">{t('probes.prtgName.objectId', { id: name.object_id })}</span>
   }
   return (
-    <>
-      <span className="flex flex-wrap items-center gap-2">
-        <span>{name.name_in_prtg}</span>
-        {/* A note, not a warning: renaming a probe in PRTG is allowed and
-            harmless, the operator only needs to know the two differ. */}
-        {name.differs && <Badge tone="neutral">{t('probes.prtgName.differs')}</Badge>}
-      </span>
-      <span className="text-ink-3 block text-xs">
-        {t('probes.prtgName.objectId', { id: name.object_id })}
-      </span>
-    </>
+    <span className="text-ink-3 block text-xs">
+      {t(`probes.prtgName.reasons.${name.state}`, { id: name.object_id ?? '' })}
+    </span>
   )
 }
 

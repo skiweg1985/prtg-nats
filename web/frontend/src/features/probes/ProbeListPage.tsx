@@ -19,6 +19,7 @@ import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { FleetActionBar } from './FleetActions'
+import { probeName } from './probeName'
 
 /**
  * The fleet, one row per probe.
@@ -57,6 +58,9 @@ export function ProbeListPage() {
   const prtgNameOf = new Map(
     (prtgNames?.names ?? []).map((entry) => [entry.nats_username, entry]),
   )
+  // One name per probe, by the same rule as the probe page.
+  const nameOf = (row: ProbeSummary) =>
+    probeName(row, prtgNameOf.get(row.nats_username)?.name_in_prtg)
   const prtgMissing =
     prtgNames && ['unreachable', 'rejected'].includes(prtgNames.state)
       ? prtgNames.state
@@ -112,7 +116,7 @@ export function ProbeListPage() {
     {
       key: 'name',
       header: t('probes.columns.name'),
-      sortValue: (row) => row.display_name ?? row.nats_username,
+      sortValue: (row) => nameOf(row),
       searchValue: (row) =>
         [
           row.nats_username,
@@ -125,25 +129,7 @@ export function ProbeListPage() {
           .join(' '),
       cell: (row) => (
         <div className="min-w-0">
-          <p
-            className="text-ink truncate font-medium"
-            // A display name was chosen here; the probe name is only what the
-            // probe announced at enrollment, so it says so on hover.
-            title={
-              row.display_name == null && row.probe_name != null
-                ? t('probes.enrollmentNameTitle')
-                : undefined
-            }
-          >
-            {row.display_name ?? row.probe_name ?? row.nats_username}
-          </p>
-          {prtgNameOf.get(row.nats_username)?.differs && (
-            <p className="text-ink-3 truncate text-xs">
-              {t('probes.prtgName.inList', {
-                name: prtgNameOf.get(row.nats_username)?.name_in_prtg,
-              })}
-            </p>
-          )}
+          <p className="text-ink truncate font-medium">{nameOf(row)}</p>
           <span className="flex items-center gap-2">
             <Mono className="text-ink-3">{row.nats_username}</Mono>
             {/* Only the tunnel is marked: the site address is the default
