@@ -17,16 +17,21 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from app.core.config import Settings
-from app.core.errors import ConflictError, RuntimeStateError
+from app.core.errors import ConflictError, RuntimeStateError, ValidationFailedError
+from app.infrastructure.runtime_files import RuntimeFileStore
 
 CA_VALID_DAYS = 3650
 SERVER_VALID_DAYS = 397
 CA_KEY_BITS = 4096
 SERVER_KEY_BITS = 3072
+# ADR 0013: short enough that a probe which left without being unenrolled
+# loses the channel on its own, long enough that renewal is routine.
+PROBE_CLIENT_VALID_DAYS = 90
+PROBE_IDENTITY_URN = "urn:prtg-nats:probe:"
 
 
 def _host_san(host: str) -> x509.GeneralName:
@@ -347,3 +352,200 @@ class Pki:
 
     def management_public_key(self) -> str:
         return Path(f"{self._settings.ssh_key_path}.pub").read_text(encoding="utf-8")
+
+    # --- Probe client CA ----------------------------------------------------
+
+    def ensure_probe_ca(self) -> bool:
+        """Create the probe client CA if it is missing. Returns whether it did.
+
+        Separate from the NATS CA on purpose (ADR 0013), so neither side's
+        certificate opens the other's door. Created on demand rather than by
+        initialisation: every installation set up before the return channel
+        existed has a runtime without it, and the first startup or the first
+        enrolment after the upgrade fills the gap.
+
+        The public copy in web-certs/ is restored from the key's directory when
+        only it went missing - it carries nothing the CA directory lacks.
+        """
+        key_path, cert_path = self._probe_ca_paths()
+        if key_path.exists() != cert_path.exists():
+            raise RuntimeStateError(
+                params={"path": str(self._settings.probe_ca_dir)},
+                details="incomplete probe client CA; restore it from a backup",
+            )
+        created = False
+        if not key_path.exists():
+            self._create_probe_ca(key_path, cert_path)
+            created = True
+
+        public = self._settings.probe_ca_public_path
+        if (
+            created
+            or not public.is_file()
+            or public.read_bytes() != (cert_path.read_bytes())
+        ):
+            public.parent.mkdir(parents=True, exist_ok=True)
+            public.parent.chmod(0o755)
+            _write_public(public, cert_path.read_bytes())
+        return created
+
+    def probe_ca_pem(self) -> str:
+        self.ensure_probe_ca()
+        return self._probe_ca_paths()[1].read_text(encoding="ascii")
+
+    def sign_probe_csr(self, csr_pem: str, identity: str) -> str:
+        """Sign a probe's CSR as a client certificate for ``identity``.
+
+        The identity is the probe's NATS username (ADR 0011), taken from the
+        inventory and never from the request: the subject the probe wrote into
+        its CSR is ignored, and an identity that is not enrolled is refused.
+        Only the public key is taken over, after the CSR has proved that its
+        sender holds the matching private key.
+        """
+        # Raises NotFoundError for anything that is not an enrolled probe.
+        RuntimeFileStore(self._settings).read_probe(identity)
+
+        try:
+            csr = x509.load_pem_x509_csr(csr_pem.encode("ascii"))
+        except (ValueError, UnicodeEncodeError) as error:
+            raise ValidationFailedError(
+                params={"probe": identity}, details=f"unreadable CSR: {error}"
+            ) from error
+        if not csr.is_signature_valid:
+            raise ValidationFailedError(
+                params={"probe": identity},
+                details="the CSR signature does not verify",
+            )
+        public_key = csr.public_key()
+        if not isinstance(public_key, ec.EllipticCurvePublicKey | rsa.RSAPublicKey):
+            raise ValidationFailedError(
+                params={"probe": identity},
+                details="the CSR carries a key type the channel does not accept",
+            )
+
+        self.ensure_probe_ca()
+        ca_key, ca_cert = self._load_probe_ca()
+        now = datetime.now(UTC)
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(
+                x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, identity)])
+            )
+            .issuer_name(ca_cert.subject)
+            .public_key(public_key)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + timedelta(days=PROBE_CLIENT_VALID_DAYS))
+            .add_extension(
+                x509.BasicConstraints(ca=False, path_length=None), critical=True
+            )
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True,
+                    key_encipherment=False,
+                    content_commitment=False,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=False,
+                    crl_sign=False,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),
+                critical=False,
+            )
+            # The identity once more, as a SAN. The proxy reads the CN, but a
+            # strict RFC 5280 verifier refuses a leaf without any SAN, and a
+            # NATS username is not always a valid DNS name - hence a URN.
+            .add_extension(
+                x509.SubjectAlternativeName(
+                    [x509.UniformResourceIdentifier(f"{PROBE_IDENTITY_URN}{identity}")]
+                ),
+                critical=False,
+            )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(public_key),
+                critical=False,
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+        return certificate.public_bytes(serialization.Encoding.PEM).decode("ascii")
+
+    def _probe_ca_paths(self) -> tuple[Path, Path]:
+        directory = self._settings.probe_ca_dir
+        return directory / "ca-key.pem", directory / "ca.pem"
+
+    def _create_probe_ca(self, key_path: Path, cert_path: Path) -> None:
+        # EC rather than the RSA-4096 of the NATS CA: nothing old has to
+        # verify it, and the proxy checks a signature on every connection.
+        key = ec.generate_private_key(ec.SECP384R1())
+        name = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COMMON_NAME, "PRTG NATS probe client CA"),
+                x509.NameAttribute(
+                    NameOID.ORGANIZATION_NAME,
+                    RuntimeFileStore(self._settings).site_settings().ca_organization,
+                ),
+            ]
+        )
+        now = datetime.now(UTC)
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + timedelta(days=CA_VALID_DAYS))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=False,
+                    key_cert_sign=True,
+                    crl_sign=True,
+                    content_commitment=False,
+                    key_encipherment=False,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+        # On a fresh volume this runs before initialisation has made private/,
+        # so the parent gets its mode here rather than the umask's.
+        for directory in (self._settings.private_dir, key_path.parent):
+            directory.mkdir(parents=True, exist_ok=True)
+            directory.chmod(0o700)
+        _write_private(
+            key_path,
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ),
+        )
+        _write_public(cert_path, certificate.public_bytes(serialization.Encoding.PEM))
+
+    def _load_probe_ca(self) -> tuple[ec.EllipticCurvePrivateKey, x509.Certificate]:
+        key_path, cert_path = self._probe_ca_paths()
+        key = serialization.load_pem_private_key(key_path.read_bytes(), password=None)
+        if not isinstance(key, ec.EllipticCurvePrivateKey):
+            raise RuntimeStateError(
+                params={"path": str(key_path)},
+                details="the probe client CA key is not the EC key it was made with",
+            )
+        return key, x509.load_pem_x509_certificate(cert_path.read_bytes())

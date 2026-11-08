@@ -201,6 +201,25 @@ class Settings(BaseSettings):
         return self.runtime_dir / "web-certs"
 
     @property
+    def probe_ca_dir(self) -> Path:
+        """The CA that signs probe client certificates, key and certificate.
+
+        A CA of its own rather than the NATS one (ADR 0013): a certificate
+        that opens the return channel must not be one that the NATS server
+        would accept as well, and the other way round.
+        """
+        return self.private_dir / "probe-ca"
+
+    @property
+    def probe_ca_public_path(self) -> Path:
+        """The public copy the proxy verifies client certificates against.
+
+        In web-certs/ because that is the only part of the runtime the proxy
+        mounts; the key stays behind in probe_ca_dir.
+        """
+        return self.web_cert_dir / "probe-ca.pem"
+
+    @property
     def backup_dir(self) -> Path:
         """Inside runtime/, so one volume holds everything a restore needs."""
         return self.runtime_dir / "backups"

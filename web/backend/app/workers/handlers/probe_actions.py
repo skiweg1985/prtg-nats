@@ -16,6 +16,7 @@ from app.infrastructure.helper_signing import HelperSigner
 from app.infrastructure.probe_helper import ProbeConnection
 from app.services.probes import ProbeService
 from app.workers.context import JobContext
+from app.workers.handlers import return_channel
 from app.workers.handlers.fanout import over_targets
 
 INSTALL_CA_STEPS: tuple[str, ...] = ("check_reachable", "install_ca", "verify")
@@ -24,7 +25,12 @@ INSTALL_CA_JOB_TYPE = "probe.install_ca"
 VALIDATE_STEPS: tuple[str, ...] = ("check_reachable", "collect_state", "evaluate")
 VALIDATE_JOB_TYPE = "probe.validate"
 
-HELPER_UPDATE_STEPS: tuple[str, ...] = ("check_reachable", "send_helper", "verify")
+HELPER_UPDATE_STEPS: tuple[str, ...] = (
+    "check_reachable",
+    "send_helper",
+    "verify",
+    return_channel.STEP,
+)
 HELPER_UPDATE_JOB_TYPE = "probe.helper_update"
 
 # Refreshing one probe stays a synchronous request - it is one round trip while
@@ -120,10 +126,16 @@ async def helper_update_on(context: JobContext, username: str) -> dict[str, Any]
     await context.log(
         "jobs.probe.helper_updated", params={"probe": username, "version": version}
     )
+
+    await context.step(return_channel.STEP)
+    channel_cert = await return_channel.install_if_missing(
+        context, username, connection, after
+    )
     return {
         "probe": username,
         "helper_version": version,
         "helper_sha256": after.value("helper_sha256"),
+        "channel_cert": channel_cert,
     }
 
 

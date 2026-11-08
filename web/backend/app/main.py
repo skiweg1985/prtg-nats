@@ -91,6 +91,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("issued the missing interface certificate")
     except Exception:
         logger.exception("could not issue the interface certificate")
+    try:
+        if await asyncio.to_thread(
+            ProvisioningService(settings, docker).ensure_probe_ca
+        ):
+            logger.info("created the probe client CA")
+    except Exception:
+        logger.exception("could not create the probe client CA")
     helper = ProbeHelperClient(
         management_transport(settings),
         default_timeout=settings.ssh_command_timeout_seconds,

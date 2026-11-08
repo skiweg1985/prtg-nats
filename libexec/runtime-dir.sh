@@ -69,6 +69,15 @@ SSH_KNOWN_HOSTS="${SSH_PRIVATE_DIR}/known_hosts"
 # losing the ability to accept an update.
 HELPER_SIGNING_KEY_PATH="${PRIVATE_DIR}/helper-signing-key.pem"
 HELPER_SIGNING_PUBLIC_PATH="${PRIVATE_DIR}/helper-signing.pub"
+# Signs the client certificates probes report back with (ADR 0013). A CA of
+# its own, so a certificate for the return channel is never one NATS accepts.
+# The proxy verifies against the public copy in web-certs/, the only part of
+# the runtime it mounts.
+WEB_CERT_DIR="${RUNTIME_DIR}/web-certs"
+PROBE_CA_DIR="${PRIVATE_DIR}/probe-ca"
+PROBE_CA_KEY_PATH="${PROBE_CA_DIR}/ca-key.pem"
+PROBE_CA_CERT_PATH="${PROBE_CA_DIR}/ca.pem"
+PROBE_CA_PUBLIC_PATH="${WEB_CERT_DIR}/probe-ca.pem"
 
 # The overlay hub keeps its key and its rendered configuration here, and not
 # in private/ - the hub runs in a container of its own, and that container has
