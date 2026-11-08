@@ -207,6 +207,26 @@ async def change_password(
     user = await db.get(WebUser, principal.user_id)
     if user is None:
         raise AuthenticationRequiredError()
+    # The current password goes through the same counter and back-off as a
+    # sign-in. Otherwise a session cookie alone would buy unlimited guesses at
+    # the account's password.
+    try:
+        await auth.authenticate(
+            user.username, payload.current_password, source_ip=client_ip(request)
+        )
+    except Exception as exc:
+        audit.record(
+            action="user.change_password",
+            object_type="web_user",
+            object_id=user.id,
+            object_label=user.username,
+            result=AuditResult.FAILURE,
+            error_code=getattr(exc, "code", "auth.invalid_credentials"),
+        )
+        # Committed for the same reason as a failed sign-in: the counter has
+        # to survive the error it exists to remember.
+        await db.commit()
+        raise
     await auth.change_password(user, payload.current_password, payload.new_password)
     # Changing the password ends every session of the account, this one
     # included. A fresh one keeps the person who just proved they know the new

@@ -137,20 +137,12 @@ function SetupScreen() {
             autoComplete="name"
           />
         </Field>
-        <Field
+        <NewPasswordField
           label={t('auth.password')}
-          hint={t('auth.passwordHint')}
-          error={passwordProblems.map((problem) => t(`validation.${problem}`)).join(' ')}
-        >
-          <Input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="new-password"
-            minLength={12}
-            required
-          />
-        </Field>
+          value={password}
+          onChange={setPassword}
+          problems={passwordProblems}
+        />
 
         {error && passwordProblems.length === 0 && <ErrorDetails error={error} />}
 
@@ -192,20 +184,12 @@ function ChangePasswordScreen() {
             required
           />
         </Field>
-        <Field
+        <NewPasswordField
           label={t('auth.newPassword')}
-          hint={t('auth.passwordHint')}
-          error={passwordProblems.map((problem) => t(`validation.${problem}`)).join(' ')}
-        >
-          <Input
-            type="password"
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-            autoComplete="new-password"
-            minLength={12}
-            required
-          />
-        </Field>
+          value={newPassword}
+          onChange={setNewPassword}
+          problems={passwordProblems}
+        />
 
         {error && passwordProblems.length === 0 && <ErrorDetails error={error} />}
 
@@ -222,5 +206,36 @@ function ChangePasswordScreen() {
         </Button>
       </form>
     </CenteredCard>
+  )
+}
+
+/** A password being chosen, with the server's objections to it beneath. */
+function NewPasswordField({
+  label,
+  value,
+  onChange,
+  problems,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  problems: string[]
+}) {
+  const { t } = useTranslation()
+  return (
+    <Field
+      label={label}
+      hint={t('auth.passwordHint')}
+      error={problems.map((problem) => t(`validation.${problem}`)).join(' ')}
+    >
+      <Input
+        type="password"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="new-password"
+        minLength={12}
+        required
+      />
+    </Field>
   )
 }

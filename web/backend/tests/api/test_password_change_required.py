@@ -101,3 +101,25 @@ async def test_an_account_without_the_flag_is_not_affected(
     assert (await client.get("/api/v1/jobs")).status_code == 200
     state = await client.get("/api/v1/auth/state")
     assert state.json()["principal"]["must_change_password"] is False
+
+
+async def test_guessing_the_current_password_is_throttled_like_a_sign_in(
+    client: AsyncClient,
+) -> None:
+    """A session cookie alone must not buy unlimited guesses at the password."""
+    await _operator_with_initial_password(client)
+    await _sign_in(client)
+
+    for _ in range(5):
+        wrong = await client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": "not-the-password", "new_password": NEW_PASSWORD},
+        )
+        assert wrong.status_code == 401, wrong.text
+
+    locked = await client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": PASSWORD, "new_password": NEW_PASSWORD},
+    )
+    assert locked.status_code == 429, locked.text
+    assert locked.json()["error"]["code"] == "auth.account_locked"

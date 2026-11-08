@@ -77,7 +77,8 @@ kept in JavaScript, and an administrator can end a session immediately.
   and signing out until it is changed. The interface shows only that form.
 - Five failed attempts start an exponential back-off, capped at fifteen
   minutes. It is a delay, never a permanent lock-out that would need a second
-  administrator to undo.
+  administrator to undo. A wrong current password when changing it counts the
+  same way, so a session alone does not allow guessing the password.
 
 ## What is recorded
 
