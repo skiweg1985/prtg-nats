@@ -195,6 +195,17 @@ class ProvisioningService:
         )
         return True
 
+    def ensure_probe_ca(self) -> bool:
+        """Create the probe client CA if it is missing. Returns whether it did.
+
+        At startup for the same reason as the interface certificate: the proxy
+        site for the return channel needs the public copy before the first
+        probe connects, and an installation from before ADR 0013 has none.
+        Unlike that certificate it needs no site settings, so it is created
+        on a fresh installation as well.
+        """
+        return self._pki.ensure_probe_ca()
+
     # --- Certificate renewal ------------------------------------------------
 
     def renew_server_certificate(self) -> None:

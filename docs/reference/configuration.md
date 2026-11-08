@@ -1,7 +1,7 @@
 ---
 title: Configuration reference
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Configuration reference
@@ -260,6 +260,8 @@ one of them is a backup that cannot manage the fleet afterwards.
 | `ssh/known_hosts` | the pinned host keys of every enrolled probe, filed under the address it was enrolled at and under `prtg-nats-probe-USER`, which is what management calls verify against ([ADR 0011](../architecture/decisions/0011-a-probe-is-reached-by-identity-not-by-address.md)) |
 | `helper-signing-key.pem` | signs the probe helper before it is sent over the channel |
 | `helper-signing.pub` | the public half, installed on a probe during enrollment |
+| `probe-ca/ca-key.pem` | the probe client CA that signs the certificates probes report back with, separate from the NATS CA ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)) |
+| `probe-ca/ca.pem` | its certificate; the proxy reads a copy as `web-certs/probe-ca.pem` |
 | `prtg/` | the PRTG core URL, API token and CA bundle - see [PRTG core](#prtg-core) |
 
 The signing pair is created on first use, so an installation from before it
@@ -267,6 +269,12 @@ existed grows one the moment a helper update or an enrollment needs it. Losing
 it means the probes reject every further helper update until they are enrolled
 again - see
 [ADR 0006](../architecture/decisions/0006-signed-helper-updates.md).
+
+The probe client CA is created the same way: at startup, or by the first
+enrollment that needs it. A probe certificate is valid for 90 days and names
+the probe's NATS username, never its address. Losing the CA means every probe
+needs a new certificate, which a repair or a fresh enrollment issues over the
+management channel.
 
 ## Backend settings
 
