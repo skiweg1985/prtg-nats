@@ -14,8 +14,17 @@ import { formatPercent, formatRelative } from '@/utils/format'
  *
  * Left out for a probe without a channel, the way the overlay row is: a line
  * saying 'none' on every probe enrolled before the channel existed would be
- * noise. The repair is the job the platform also starts on its own.
+ * noise. The repair is the job the platform also starts on its own, and it
+ * is offered only when there is something to repair: a channel that went
+ * silent, an expired certificate, or a gap in the last day. On a healthy
+ * channel the button only invited a needless reinstall.
+ *
+ * A missing certificate is not among them: the API reports none as well for
+ * a helper too old to say and for a probe that did not answer, and neither
+ * is something a reinstall fixes.
  */
+const RECENT_GAP_MS = 24 * 60 * 60 * 1000
+
 export function ReturnChannelRow({
   probeId,
   channel,
@@ -28,6 +37,14 @@ export function ReturnChannelRow({
   const repair = useRepairReturnChannel()
 
   if (!channel) return null
+
+  const certificateExpired = channel.certificate_expired === true
+  // The gap count only ever grows; one from last month is history, not a
+  // reason to reinstall today.
+  const recentGap =
+    channel.last_gap_at != null &&
+    Date.now() - new Date(channel.last_gap_at).getTime() < RECENT_GAP_MS
+  const needsRepair = channel.silent || certificateExpired || recentGap
 
   const fill =
     channel.buffer_bytes != null && channel.buffer_limit
@@ -48,20 +65,27 @@ export function ReturnChannelRow({
           {channel.silent && (
             <Badge tone='warn'>{t('probes.returnChannel.silent')}</Badge>
           )}
-          <PermissionGate permission='probe.update'>
-            <Button
-              size='sm'
-              variant='ghost'
-              onClick={() =>
-                repair.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                })
-              }
-              disabled={repair.isPending}
-            >
-              {t('probes.returnChannel.repair')}
-            </Button>
-          </PermissionGate>
+          {certificateExpired && (
+            <Badge tone='danger'>
+              {t('probes.returnChannel.certificateExpired')}
+            </Badge>
+          )}
+          {needsRepair && (
+            <PermissionGate permission='probe.update'>
+              <Button
+                size='sm'
+                variant='ghost'
+                onClick={() =>
+                  repair.mutate(probeId, {
+                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                  })
+                }
+                disabled={repair.isPending}
+              >
+                {t('probes.returnChannel.repair')}
+              </Button>
+            </PermissionGate>
+          )}
         </span>
         {channel.last_contact_at && (
           <span className='text-ink-3 block text-xs'>

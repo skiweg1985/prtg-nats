@@ -50,7 +50,7 @@
     "selected_other": "{{count}} selected",
     "showAll": "Show all",
     "showTechnicalDetails": "Show technical details",
-    "stale": "Cached, last checked {{time}}",
+    "stale": "As of {{time}}",
     "unknown": "Unknown",
     "updated": "Updated",
     "apply": "Apply",
@@ -150,7 +150,7 @@
     "accessKeyAudited": "This disclosure has been recorded in the audit trail.",
     "caFingerprint": "CA fingerprint",
     "installCa": "Install CA",
-    "validate": "Run check",
+    "validate": "Run check as job",
     "refreshState": "Refresh state",
     "helper": "Probe helper",
     "pendingTransaction": "Pending transaction",
@@ -159,8 +159,8 @@
     "helperOutdated": "outdated",
     "updateHelper": "Update helper",
     "helperOutdatedTitle": "The probe helper is older than this platform",
-    "helperOutdatedBody": "It will refuse requests it does not know yet. \"Update helper\" replaces it over the management channel; the probe checks the signature before it writes anything.",
-    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enroll it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
+    "helperOutdatedBody": "Newer actions fail on this probe until you replace it with \"Update helper\".",
+    "helperUnsignedBody": "This probe cannot renew its helper through the platform. Enroll it again once - with a fresh invitation or \"probe enroll ADMIN@HOST --reenroll\" - and \"Update helper\" works from then on.",
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
@@ -174,6 +174,29 @@
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
     "unenrollWarning": "This removes the management access, the inventory and the NATS account of {{probe}}. The probe loses its connection; enrolling it again later hands it a new PRTG access key.",
+    "unenrollTitle": "Unenroll {{probe}}?",
+    "fault": {
+      "unreachableTitle": "The probe does not answer",
+      "lastContact": "Last contact {{time}} via {{route}} {{host}}.",
+      "neverAnswered": "It has never answered.",
+      "lastAttempt": "Last attempt {{time}}.",
+      "nextStep": "Check that the host is up and reachable at {{host}}, then ask again with \"Refresh state\".",
+      "details": "Technical details",
+      "datedTitle": "These values are no longer current",
+      "datedBody": "The probe was last asked {{time}}. \"Refresh state\" asks it now."
+    },
+    "diag": {
+      "hostname": "Host name",
+      "configPath": "Configuration file",
+      "caSha256": "CA fingerprint (SHA-256)",
+      "errorDetails": "Last error message"
+    },
+    "planStep": {
+      "install": "Install {{sensor}} version {{to}}",
+      "update": "Bring {{sensor}} from version {{from}} to {{to}}",
+      "redeploy": "Deploy {{sensor}} version {{to}} again"
+    },
+    "deviationVersions": "({{from}} → {{to}})",
     "cleanup": {
       "legend": "Also clear",
       "removeSensors": "Remove sensors",
@@ -368,6 +391,7 @@
       "link": "Link",
       "relink": "Change link",
       "unlink": "Remove link",
+      "unlinkTitle": "Remove the link to PRTG?",
       "listMissing": "Names in PRTG are missing: {{reason}}",
       "dialogTitle": "Link to the probe in PRTG",
       "dialogIntro": "Pick this probe as PRTG lists it. Probes already linked to another probe here are not listed. Nothing is changed in PRTG.",
@@ -386,6 +410,7 @@
       "unlinkConfirm": "The link to PRTG object {{id}} is removed. The probe is then shown under its enrollment name again; nothing changes in PRTG."
     },
     "removeSensorConfirm": "{{sensor}} is removed from this probe. The sensor in PRTG reports an error until it is deleted or rolled out again.",
+    "removeSensorTitle": "Remove {{sensor}} from the probe?",
     "returnChannel": {
       "label": "Return channel",
       "lastReport": "Last report {{time}}",
@@ -395,6 +420,7 @@
       "buffer": "Buffer {{percent}} full",
       "gaps_one": "{{count}} gap, {{time}}",
       "gaps_other": "{{count}} gaps, the last {{time}}",
+      "certificateExpired": "Certificate expired",
       "noGaps": "No gaps"
     }
   },
