@@ -1,7 +1,7 @@
 ---
 title: Documentation
 role: everyone
-updated: 2026-08-27
+updated: 2026-11-08
 ---
 
 # PRTG-NATS documentation
@@ -41,6 +41,7 @@ automation path.
 | web roles and permissions | [Roles and permissions](web/roles.md) |
 | job states, locks, retries, and logs | [Jobs and deployments](web/jobs.md) |
 | translation rules | [Languages and translation](web/i18n.md) |
+| how the user guide under `/docs` is built | [The user guide under /docs](web/guide.md) |
 
 Exact CLI flags come from `./prtg-nats help` and subcommand help. The OpenAPI
 contract at `/api/openapi.json` owns the complete API schema; the human pages

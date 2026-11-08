@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useLogout } from '@/api/hooks'
 import { useAuth } from '@/app/providers'
 import { Badge, Button } from '@/components/ui/primitives'
+import { guideHref } from '@/utils/guide'
 
 /**
  * The frame. A single left rail with the object types, a thin header for
@@ -182,8 +183,29 @@ function NavSections() {
 
       <div className="border-rule mt-5 border-t pt-3">
         <NavGroup entries={visible(SECONDARY)} />
+        <GuideLink />
       </div>
     </>
+  )
+}
+
+/**
+ * The guide is a separate set of static pages, not a route of this
+ * application, so it is a plain link in a new tab rather than a NavLink: the
+ * reader keeps the page they were on and reads beside it.
+ */
+function GuideLink() {
+  const { t, i18n } = useTranslation()
+  const location = useLocation()
+  return (
+    <a
+      href={guideHref(location.pathname, i18n.resolvedLanguage)}
+      target="_blank"
+      rel="noopener"
+      className="rounded-control text-ink-2 hover:bg-surface-2 hover:text-ink mt-0.5 block px-2.5 py-1.5 text-sm transition-colors duration-100"
+    >
+      {t('nav.guide')} <span aria-hidden>↗</span>
+    </a>
   )
 }
 
