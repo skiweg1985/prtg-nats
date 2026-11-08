@@ -366,6 +366,13 @@ probe after another. From the shell:
 sudo ./prtg-nats probe mpp-upgrade mpp-probe-01
 ```
 
+A probe whose last system update stopped halfway fails with "An earlier system
+update on this probe did not finish", because apt installs nothing until that
+is done. Start the upgrade again and tick "Finish the interrupted system update
+first": the probe completes the pending packages, checks that none are left
+and then upgrades. It configures every half-installed system package on the
+probe, not only the probe software, which is why the option starts off.
+
 The fleet comparison makes up for package caches that are days old: a probe
 whose cache has not seen the release yet still shows it once another probe
 has. Check that the new version fits the PRTG core before upgrading many

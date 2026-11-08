@@ -24,6 +24,7 @@ import asyncssh
 
 from app.core.errors import (
     ProbeHelperOutdatedError,
+    ProbePackageOperationsPendingError,
     ProbeProtocolError,
     ProbeRejectedError,
     ProbeUnreachableError,
@@ -32,6 +33,7 @@ from app.core.errors import (
 from app.core.logging import get_logger
 from app.infrastructure import known_hosts
 from app.infrastructure.probe_helper.protocol import (
+    PENDING_PACKAGES_MESSAGE,
     UNSUPPORTED_REQUEST_MESSAGE,
     ChannelSettings,
     HelperCommand,
@@ -48,6 +50,7 @@ MANAGEMENT_USER = "prtg-nats-admin"
 
 # Same shape libexec/common.sh validates before it dials.
 _HOST_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$")
+_PENDING_COUNT_PATTERN = re.compile(r"did not finish: (\d+) package")
 _ACTIVE_TRANSACTION_PATTERN = re.compile(
     r"^active_transaction=([A-Za-z0-9][A-Za-z0-9._-]{0,63})$", re.MULTILINE
 )
@@ -55,7 +58,7 @@ _ACTIVE_TRANSACTION_PATTERN = re.compile(
 
 def refusal_error(
     probe: str, command: HelperCommand, output: str
-) -> ProbeRejectedError | ProbeHelperOutdatedError:
+) -> ProbeRejectedError | ProbeHelperOutdatedError | ProbePackageOperationsPendingError:
     """Which error a non-zero exit from the helper deserves.
 
     Its own refusal messages are precise, so they are kept verbatim in
@@ -70,6 +73,10 @@ def refusal_error(
         params["active_transaction"] = active_transaction.group(1)
     if UNSUPPORTED_REQUEST_MESSAGE in reason:
         return ProbeHelperOutdatedError(params=params, details=reason)
+    if PENDING_PACKAGES_MESSAGE in reason:
+        pending = _PENDING_COUNT_PATTERN.search(reason)
+        params["count"] = pending.group(1) if pending else "?"
+        return ProbePackageOperationsPendingError(params=params, details=reason)
     return ProbeRejectedError(params=params, details=reason)
 
 
@@ -366,6 +373,7 @@ class ProbeHelperClient:
             ProbeRejectedError,
             ProbeProtocolError,
             ProbeHelperOutdatedError,
+            ProbePackageOperationsPendingError,
         ):
             return False
         return True
@@ -705,12 +713,22 @@ class ProbeHelperClient:
         """
         return await self._call(connection, HelperCommand.MPP_UNINSTALL, timeout=900)
 
-    async def mpp_upgrade(self, connection: ProbeConnection) -> HelperResponse:
+    async def mpp_upgrade(
+        self, connection: ProbeConnection, *, finish_pending: bool = False
+    ) -> HelperResponse:
         """Bring the probe package up to the newest version its repository has.
 
-        As generous as the uninstall, for the same package-manager lock.
+        ``finish_pending`` first completes a system update that stopped
+        halfway. The timeout is the longest here: that can mean configuring
+        dozens of packages on a Raspberry Pi.
         """
-        return await self._call(connection, HelperCommand.MPP_UPGRADE, timeout=900)
+        arguments = ("finish-pending",) if finish_pending else ()
+        return await self._call(
+            connection,
+            HelperCommand.MPP_UPGRADE,
+            *arguments,
+            timeout=1800 if finish_pending else 900,
+        )
 
     async def unenroll(self, connection: ProbeConnection) -> HelperResponse:
         """Remove the management access from the probe side."""

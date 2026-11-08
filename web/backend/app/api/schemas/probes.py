@@ -189,6 +189,17 @@ class ProbeActionIn(ApiModel):
     probe_ids: list[str] = Field(min_length=1)
 
 
+class MppUpgradeIn(ProbeActionIn):
+    """The upgrade's one option.
+
+    ``finish_pending`` lets the probe complete a system update that stopped
+    halfway before it upgrades. Off unless asked for: it installs every
+    half-installed package on the host, not only the probe software.
+    """
+
+    finish_pending: bool = False
+
+
 class DesiredSensorIn(ApiModel):
     name: str
     version: str | None = None

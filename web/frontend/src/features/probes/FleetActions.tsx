@@ -16,7 +16,13 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '@/app/providers'
-import { ActionMenu, Button, Dialog, Mono } from '@/components/ui/primitives'
+import {
+  ActionMenu,
+  Button,
+  CheckboxField,
+  Dialog,
+  Mono,
+} from '@/components/ui/primitives'
 
 import { probeName } from './probeName'
 
@@ -53,6 +59,8 @@ interface Spec {
    * not do unannounced.
    */
   confirmNoteKey?: string
+  /** One opt-in field the confirmation offers, sent along when ticked. */
+  option?: { field: string; labelKey: string; hintKey: string }
 }
 
 const SPECS: Spec[] = [
@@ -98,6 +106,11 @@ const SPECS: Spec[] = [
     // channel can renew - the upgrade needs a current one.
     appliesTo: (probe) => probe.package_update != null && probe.helper_version != null,
     confirmNoteKey: 'probes.mppUpgrade.restartNote',
+    option: {
+      field: 'finish_pending',
+      labelKey: 'probes.mppUpgrade.finishPending',
+      hintKey: 'probes.mppUpgrade.finishPendingHint',
+    },
   },
   {
     action: 'configure',
@@ -131,26 +144,36 @@ export function FleetActionBar({
   const run = useFleetAction()
   const { can } = useAuth()
   const [confirming, setConfirming] = useState<Spec | null>(null)
+  const [optionChecked, setOptionChecked] = useState(false)
 
   function targetsOf(spec: Spec): ProbeSummary[] {
     return probes.filter(spec.appliesTo)
+  }
+
+  function close() {
+    setConfirming(null)
+    setOptionChecked(false)
   }
 
   function execute(spec: Spec) {
     const targets = targetsOf(spec)
     onError(null)
     run.mutate(
-      { action: spec.action, probeIds: targets.map((probe) => probe.id) },
+      {
+        action: spec.action,
+        probeIds: targets.map((probe) => probe.id),
+        options: spec.option ? { [spec.option.field]: optionChecked } : undefined,
+      },
       {
         onSuccess: (accepted) => {
-          setConfirming(null)
+          close()
           onDone()
           // Into the job, because that is the only place the fan-out reports
           // from: which probe answered, which one did not, and why.
           navigate(`/jobs/${accepted.job_id}`)
         },
         onError: (error) => {
-          setConfirming(null)
+          close()
           onError(error)
         },
       },
@@ -202,10 +225,18 @@ export function FleetActionBar({
         <ConfirmFleetAction
           label={t(confirming.labelKey)}
           note={confirming.confirmNoteKey ? t(confirming.confirmNoteKey) : undefined}
+          option={
+            confirming.option && {
+              label: t(confirming.option.labelKey),
+              hint: t(confirming.option.hintKey),
+              checked: optionChecked,
+              onChange: setOptionChecked,
+            }
+          }
           targets={targetsOf(confirming)}
           skipped={probes.length - targetsOf(confirming).length}
           pending={run.isPending}
-          onCancel={() => setConfirming(null)}
+          onCancel={close}
           onConfirm={() => execute(confirming)}
         />
       )}
@@ -216,6 +247,7 @@ export function FleetActionBar({
 function ConfirmFleetAction({
   label,
   note,
+  option,
   targets,
   skipped,
   pending,
@@ -224,6 +256,12 @@ function ConfirmFleetAction({
 }: {
   label: string
   note?: string
+  option?: {
+    label: string
+    hint: string
+    checked: boolean
+    onChange: (checked: boolean) => void
+  }
   targets: ProbeSummary[]
   skipped: number
   pending: boolean
@@ -253,6 +291,16 @@ function ConfirmFleetAction({
         ))}
       </ul>
       {note && <p className="text-ink-2 mt-3 text-sm">{note}</p>}
+      {option && (
+        <div className="mt-3">
+          <CheckboxField
+            label={option.label}
+            hint={option.hint}
+            checked={option.checked}
+            onChange={option.onChange}
+          />
+        </div>
+      )}
       {skipped > 0 && (
         <p className="text-ink-3 mt-3 text-xs">
           {t('probes.fleet.skipped', { count: skipped })}

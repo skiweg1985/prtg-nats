@@ -11,6 +11,7 @@ import {
   useExecuteReconcile,
   useIperfEndpoints,
   useProbe,
+  useMppUpgrade,
   useProbeAction,
   useProbePlan,
   useProbePrtgName,
@@ -129,7 +130,7 @@ export function ProbeDetailPage() {
   const installCa = useProbeAction('install-ca')
   const validate = useProbeAction('validate')
   const updateHelper = useProbeAction('helper-update')
-  const upgradeMpp = useProbeAction('mpp-upgrade')
+  const upgradeMpp = useMppUpgrade()
   const configure = useConfigureProbe()
   const unenroll = useUnenrollProbe()
   const updateProbe = useUpdateProbe()
@@ -155,6 +156,7 @@ export function ProbeDetailPage() {
   const backToList = `/probes${listSearch ? `?${listSearch}` : ''}`
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
   const [confirmUpgrade, setConfirmUpgrade] = useState(false)
+  const [finishPending, setFinishPending] = useState(false)
   // Every option starts off. Retiring a probe is destructive enough on its
   // own; what else goes has to be chosen, not merely left checked.
   const [cleanup, setCleanup] = useState<Required<UnenrollOptions>>({
@@ -385,7 +387,10 @@ export function ProbeDetailPage() {
       {confirmUpgrade && (
         <Dialog
           title={t('probes.mppUpgrade.confirmTitle', { probe: name })}
-          onClose={() => setConfirmUpgrade(false)}
+          onClose={() => {
+            setConfirmUpgrade(false)
+            setFinishPending(false)
+          }}
         >
           <p className="text-ink-2 text-sm">
             {summary.package_update
@@ -398,17 +403,37 @@ export function ProbeDetailPage() {
                 })}
           </p>
           <p className="text-ink-2 mt-3 text-sm">{t('probes.mppUpgrade.restartNote')}</p>
+          <div className="mt-4 border-t pt-3">
+            <CheckboxField
+              label={t('probes.mppUpgrade.finishPending')}
+              hint={t('probes.mppUpgrade.finishPendingHint')}
+              checked={finishPending}
+              onChange={setFinishPending}
+            />
+          </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirmUpgrade(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setConfirmUpgrade(false)
+                setFinishPending(false)
+              }}
+            >
               {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
               onClick={() =>
-                upgradeMpp.mutate(probeId, {
-                  onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
-                  onSettled: () => setConfirmUpgrade(false),
-                })
+                upgradeMpp.mutate(
+                  { id: probeId, finishPending },
+                  {
+                    onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
+                    onSettled: () => {
+                      setConfirmUpgrade(false)
+                      setFinishPending(false)
+                    },
+                  },
+                )
               }
               disabled={upgradeMpp.isPending}
             >

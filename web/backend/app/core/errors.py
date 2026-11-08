@@ -224,6 +224,18 @@ class ProbePackageMissingError(AppError):
     http_status = status.HTTP_409_CONFLICT
 
 
+class ProbePackageOperationsPendingError(AppError):
+    """An interrupted system update on the probe blocks every install.
+
+    Separated from the general refusal because the way out is known and the
+    platform can take it: the upgrade can finish the pending operations first,
+    once the operator agrees that it touches more than the probe package.
+    """
+
+    code = "probe.package_operations_pending"
+    http_status = status.HTTP_409_CONFLICT
+
+
 class DockerUnavailableError(AppError):
     """The Docker socket is not mounted, so server lifecycle actions are off."""
 

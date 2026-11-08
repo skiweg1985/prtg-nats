@@ -107,7 +107,9 @@ FIELD_SEPARATOR = "\t"
 #
 # Version 15 has mpp-upgrade name an interrupted system update and pass apt's
 # own error on, instead of a bare "could not upgrade".
-CURRENT_HELPER_VERSION = 15
+#
+# Version 16 lets mpp-upgrade finish such an update first ("finish-pending").
+CURRENT_HELPER_VERSION = 16
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
@@ -132,6 +134,8 @@ def probe_profile_file_path(sensor: str, profile: str, filename: str) -> str:
 # because it is the one refusal that says "the probe is behind" rather than
 # "the request was wrong", and it deserves its own error.
 UNSUPPORTED_REQUEST_MESSAGE = "Unsupported management request"
+# How mpp-upgrade names a probe whose last system update stopped halfway.
+PENDING_PACKAGES_MESSAGE = "An earlier system update on this probe did not finish"
 
 
 class HelperCommand(StrEnum):
