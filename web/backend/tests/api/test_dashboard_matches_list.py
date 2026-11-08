@@ -14,19 +14,20 @@ from pathlib import Path
 
 from httpx import AsyncClient
 
+from tests.conftest import SETUP_CODE, write_probe_inventory
+
 PASSWORD = "correct-horse-battery"
 
 
 async def test_every_dashboard_count_matches_the_list(
     client: AsyncClient, project_dir: Path
 ) -> None:
-    from tests.conftest import write_probe_inventory
-
     write_probe_inventory(project_dir, "mpp-berlin-01")
     write_probe_inventory(project_dir, "mpp-hamburg-01", host="hamburg.example.test")
     write_probe_inventory(project_dir, "mpp-koeln-01", host="koeln.example.test")
     response = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert response.status_code == 201, response.text
 
