@@ -134,6 +134,12 @@ jobs:
       - name: Type-check
         run: mypy app
 
+      # tests/unit/test_updater_against_docker.py creates containers through
+      # the Docker API, which does not pull. The Gitea runners happened to
+      # have the image; a fresh GitHub runner does not.
+      - name: Provide the image the Docker API tests start
+        run: docker pull --quiet alpine:3.22
+
       - name: Test
         run: pytest -q
 
