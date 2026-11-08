@@ -323,6 +323,9 @@ async def test_a_probe_that_already_has_a_certificate_keeps_it(
     assert job.status is JobStatus.SUCCESSFUL, job.error_details
     assert "channel-csr" not in transport.commands()
     assert "jobs.probe.return_channel_present" in [e.code for e in job.events]
+    # The new helper brings a new version of the service; the certificate
+    # stays, the service is rewritten and restarted.
+    assert transport.commands()[3] == "channel-service"
 
 
 async def test_a_helper_too_old_for_the_channel_is_noted_not_failed(

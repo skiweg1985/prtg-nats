@@ -435,6 +435,25 @@ Preview the rendered result without changing any system:
   --nats-password-file runtime/credentials/mpp-probe-01.env
 ```
 
+### Return channel on the probe
+
+The return channel service reads
+`/etc/prtg-nats/return-channel/channel.env` on the probe when it starts. The
+helper writes `PLATFORM_URL` during enrolment and helper updates; the other
+two keys are set by hand on the probe and survive a new certificate. Restart
+`prtg-nats-return-channel.service` after a change.
+
+| Name | Description | Type | Default | Required |
+| --- | --- | --- | --- | --- |
+| `PLATFORM_URL` | Where records are delivered, `https://HOST:PROBE_CHANNEL_PORT` | URL | written by the helper | yes |
+| `BUFFER_LIMIT_BYTES` | Hard limit of the buffer under `/var/lib/prtg-nats-return-channel/`; the oldest records are dropped first, values below 262144 are raised to it | bytes | `20971520` | no |
+| `SERVER_CA` | CA the platform's certificate is checked against | path | `/etc/paessler/mpprobe/certs/nats-docker-ca.pem` | no |
+
+The default CA is the stack CA the probe already trusts for NATS; it issued
+the web certificate the channel port answers with. What sensors send to the
+service is described in
+[Deploy sensors](../guides/deploy-sensors.md#writing-to-the-sensor-log).
+
 ## Changing a setting safely
 
 1. Back up first - `sudo ./prtg-nats backup`, and copy `runtime/` away.

@@ -418,6 +418,14 @@ class ProbeHelperClient:
             timeout=60,
         )
 
+    async def channel_service(self, connection: ProbeConnection) -> HelperResponse:
+        """Rewrite and restart the return channel service on the probe.
+
+        For a probe that keeps its certificate: the service is part of the
+        helper, so a new helper only runs its new service once this is asked.
+        """
+        return await self._call(connection, HelperCommand.CHANNEL_SERVICE, timeout=60)
+
     # --- Overlay ------------------------------------------------------------
 
     async def overlay_configure(

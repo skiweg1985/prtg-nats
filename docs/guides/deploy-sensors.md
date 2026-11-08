@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-08-30
+updated: 2026-11-08
 ---
 
 # Manage sensor scripts centrally
@@ -184,6 +184,60 @@ is not subject to the seccomp rules of the MPP unit. A DHCP request needs
 `AF_PACKET`, and the MPP unit does not allow that.
 
 `./prtg-nats sensor status USER` shows this state as `helper=listening`.
+
+## Writing to the sensor log
+
+A sensor that wants a run to show up in the sensor log hands a record to the
+return channel service on the probe
+([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
+The sensor never talks to the platform itself: the service buffers the
+record on disk and delivers it over mutual TLS, also after an outage.
+
+The service listens on `/run/prtg-nats-return-channel.sock`, owned by root
+with mode `0600`. Only the privileged part of a sensor can write to it; the
+script that runs as the MPP service user cannot.
+
+Connect with `AF_UNIX`/`SOCK_STREAM` and write one record per line as a JSON
+object. The service answers every line with one line:
+
+```json
+{"ok": true, "id": "3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10"}
+{"ok": false, "error": "sensor must match ^[a-z0-9][a-z0-9_-]{0,63}$"}
+```
+
+An `ok` answer means the record is on disk; it is never lost after that,
+unless the buffer overflows. Several lines may go over one connection.
+
+| Field | Required | Content |
+| --- | --- | --- |
+| `sensor` | yes | the sensor's name, `^[a-z0-9][a-z0-9_-]{0,63}$` |
+| `result` | yes | `ok` or `error`; `gap` is reserved for the service |
+| `id` | no | a UUID; assigned by the service when it is missing |
+| `time` | no | ISO 8601 with time zone; the time of arrival when missing |
+| `job` | no | the sensor's job identity, at most 64 characters |
+| `code` | no | a machine-readable result code, at most 128 characters |
+| `summary` | no | one line for lists, cut at 2000 characters |
+| `body` | no | a JSON object with whatever the sensor wants to show |
+
+A record may be at most 64 KB as one line. Anything beyond these fields is
+dropped, a `probe` field in particular: which probe sent a record is what its
+certificate says. Keep the body free of keys the platform masks in its logs,
+such as `password`, `secret` or `token`.
+
+A sensor that needs the record ID - to put it into its PRTG message, for
+example - either takes it from the answer or sets `id` itself before it
+sends, which also works when the service is briefly unreachable.
+
+When the buffer reaches its limit (20 MB by default, see
+[the configuration reference](../reference/configuration.md#return-channel-on-the-probe))
+the oldest records are dropped first. The service then delivers a record of
+its own with `sensor` `return-channel`, `result` `gap`, `code` `buffer_full`
+and `dropped`, `from` and `until` in the body. A record the platform refuses
+outright is accounted for the same way with `code` `refused`.
+
+The service is written by the probe helper during enrolment and every helper
+update and removed on unenroll. `probe-info` reports it as
+`channel_service=active`, `inactive` or `absent`.
 
 ## Prerequisite: a current probe helper
 

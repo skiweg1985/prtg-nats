@@ -3197,6 +3197,397 @@ def check_aruba_uplink_secrets(module):
           "--timeout-ms takes a number")
 
 
+# --- The return channel service ------------------------------------------
+#
+# The service is not a file of its own in the repository: the helper writes it
+# from a heredoc, because only the helper arrives under a signature (ADR
+# 0006). The checks cut it out of the helper the same way, so what they load
+# is byte for byte what a probe runs.
+
+HELPER_PATH = os.path.join(PROJECT_DIR, "libexec", "prtg-nats-probe-helper")
+CHANNEL_HEREDOC = "CHANNELEOF"
+
+
+def return_channel_source():
+    with open(HELPER_PATH, encoding="utf-8") as handle:
+        lines = handle.read().splitlines(keepends=True)
+    start = next(index for index, line in enumerate(lines)
+                 if line.rstrip().endswith("<<'%s'" % CHANNEL_HEREDOC))
+    end = next(index for index in range(start + 1, len(lines))
+               if lines[index].rstrip("\n") == CHANNEL_HEREDOC)
+    return "".join(lines[start + 1:end])
+
+
+def load_return_channel(directory):
+    path = os.path.join(directory, "prtg-nats-return-channel")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(return_channel_source())
+    return load_module("return_channel", path)
+
+
+def channel_record(**overrides):
+    record = {"sensor": "wlan-auth", "result": "ok", "summary": "fine",
+              "job": "0123456789ab", "body": {"ssid": "Example"}}
+    record.update(overrides)
+    return record
+
+
+def offer(module, buffer, record):
+    """Hand one record over the way a sensor does, as one JSON line."""
+    line = json.dumps(record).encode("utf-8")
+    return json.loads(module.handle_line(buffer, line))
+
+
+def check_return_channel_interface():
+    """What a sensor sees: one JSON line in, the record ID back."""
+    print("\n== return channel: local interface ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        buffer = module.Buffer(os.path.join(directory, "buffer"),
+                               limit=module.MINIMUM_LIMIT)
+
+        reply = offer(module, buffer, channel_record())
+        check("a record without an ID is accepted", reply.get("ok"), True)
+        check_true("and the answer carries the ID it was given",
+                   re.fullmatch(r"[0-9a-f-]{36}", reply.get("id", "")))
+
+        chosen = "3f0c3d1e-58a4-4c39-9a3b-7e0f2b6f4d10"
+        reply = offer(module, buffer, channel_record(id=chosen))
+        check("a record that brings its own ID keeps it",
+              reply.get("id"), chosen)
+
+        reply = offer(module, buffer, channel_record(probe="someone-else"))
+        batch = module.Buffer(os.path.join(directory, "buffer"),
+                              limit=module.MINIMUM_LIMIT).batch(10)
+        check("records come out in the order they went in",
+              [record["id"] for record in batch][1:], [chosen, reply["id"]])
+        check("the probe is the transport's to say, not the record's",
+              "probe" in batch[2], False)
+        check_true("a record without a time gets one in UTC",
+                   batch[0]["time"].endswith("Z"))
+
+        for description, record in [
+            ("a sensor name with a slash is refused",
+             channel_record(sensor="../wlan")),
+            ("a gap is the service's to write, not a sensor's",
+             channel_record(result="gap")),
+            ("a result outside ok and error is refused",
+             channel_record(result="maybe")),
+            ("an ID that is no UUID is refused", channel_record(id="7")),
+            ("a body that is no object is refused", channel_record(body=[1])),
+            ("a code longer than the platform takes is refused",
+             channel_record(code="x" * 129)),
+            ("a time that does not parse is refused",
+             channel_record(time="yesterday")),
+        ]:
+            check(description, offer(module, buffer, record).get("ok"), False)
+        check("a line that is no JSON is answered, not dropped",
+              json.loads(module.handle_line(buffer, b"{nope")).get("ok"),
+              False)
+        check("and nothing refused reached the buffer",
+              len(buffer.batch(50)), 3)
+
+
+def fill(module, buffer, count, size=3000):
+    """Records of a known size, numbered by their time so order shows."""
+    identities = []
+    for number in range(count):
+        record = module.normalise(channel_record(
+            summary="run %d" % number, body={"padding": "x" * size},
+            time="2026-11-08T10:%02d:%02dZ" % divmod(number, 60)))
+        identities.append(buffer.append(record))
+    return identities
+
+
+def check_return_channel_overflow():
+    """A full buffer drops its oldest records and says so."""
+    print("\n== return channel: buffer limit ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        path = os.path.join(directory, "buffer")
+        buffer = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        identities = fill(module, buffer, 200)
+
+        stats = buffer.stats()
+        check_true("the buffer stays within its limit",
+                   0 < stats["bytes"] <= stats["limit"])
+        batch = buffer.batch(500)
+        gap = batch[0]
+        kept = [record["id"] for record in batch[1:]]
+        dropped = len(identities) - len(kept)
+        check("the first thing to deliver is the gap", gap["result"], "gap")
+        check("it is reported under the service's own name",
+              gap["sensor"], "return-channel")
+        check("the newest records are the ones kept",
+              kept, identities[-len(kept):])
+        check("the gap counts exactly what is missing",
+              gap["body"]["dropped"], dropped)
+        check("and names the time range of what it lost",
+              (gap["body"]["from"], gap["body"]["until"]),
+              ("2026-11-08T10:00:00.000000Z",
+               "2026-11-08T10:%02d:%02d.000000Z" % divmod(dropped - 1, 60)))
+        check("one overflow after another is still one gap",
+              [record["result"] for record in batch].count("gap"), 1)
+
+        # Offered to the platform, the gap may be stored there already.
+        # What is dropped after that is counted in a gap of its own.
+        fill(module, buffer, 5)
+        later = buffer.batch(500)
+        check("a gap that went out is not counted into again",
+              (later[0]["id"], later[0]["body"]["dropped"]),
+              (gap["id"], gap["body"]["dropped"]))
+        check("the drops after it make a second gap",
+              later[1]["result"], "gap")
+
+        reopened = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        check("a restart finds the same records in the same order",
+              [record["id"] for record in reopened.batch(500)],
+              [record["id"] for record in later])
+        check("a record larger than the service takes is refused",
+              offer(module, buffer, channel_record(
+                  body={"padding": "x" * module.MAXIMUM_RECORD_BYTES})
+              ).get("ok"), False)
+
+
+class StubPlatform:
+    """The records endpoint, idempotent on the ID like the real one."""
+
+    def __init__(self):
+        self.stored = []
+        self.requests = []
+        self.down = False
+        self.lose_answer = False
+        self.acknowledge_only = None
+        self.refuse = set()
+
+    def post(self, path, document):
+        self.requests.append((path, document))
+        if self.down:
+            raise ConnectionRefusedError(111, "Connection refused")
+        records = document["records"]
+        if any(record["id"] in self.refuse for record in records):
+            return 422, {"detail": "invalid"}
+        stored, duplicates = [], []
+        for record in records[:self.acknowledge_only]:
+            if record["id"] in self.stored:
+                duplicates.append(record["id"])
+            else:
+                self.stored.append(record["id"])
+                stored.append(record["id"])
+        if self.lose_answer:
+            self.lose_answer = False
+            raise TimeoutError("timed out")
+        return 200, {"stored": stored, "duplicates": duplicates}
+
+
+def check_return_channel_delivery():
+    """Delivery in order, without loss or duplicates, across an outage."""
+    print("\n== return channel: delivery ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        # Small enough that every acknowledgement rewrites the file, so the
+        # rewrite is what the restart below has to survive.
+        module.COMPACT_AFTER = 1
+        path = os.path.join(directory, "buffer")
+        buffer = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        platform = StubPlatform()
+        check("a buffer that never held a record sends nothing",
+              module.deliver_once(buffer, platform.post), False)
+        identities = fill(module, buffer, 10, size=10)
+
+        platform.down = True
+        for _ in range(3):
+            try:
+                module.deliver_once(buffer, platform.post)
+            except OSError:
+                pass
+        check("an outage keeps every record", len(buffer.batch(500)), 10)
+
+        platform.down = False
+        platform.acknowledge_only = 4
+        module.deliver_once(buffer, platform.post)
+        path_sent, document = platform.requests[-1]
+        check("records go to the platform's records endpoint",
+              path_sent, "/probe/v1/records")
+        check("with the buffer's fill level beside them",
+              sorted(document["buffer"]), ["bytes", "limit"])
+        check("only what was acknowledged leaves the buffer",
+              [record["id"] for record in buffer.batch(500)], identities[4:])
+
+        platform.acknowledge_only = None
+        platform.lose_answer = True
+        try:
+            module.deliver_once(buffer, platform.post)
+        except OSError:
+            pass
+        check("a lost answer keeps the records it was about",
+              len(buffer.batch(500)), 6)
+        module.deliver_once(buffer, platform.post)
+        check("sent again, they come back as duplicates and leave",
+              buffer.pending(), False)
+        check("the platform holds every record once, in order",
+              platform.stored, identities)
+        check("an empty buffer sends nothing",
+              module.deliver_once(buffer, platform.post), False)
+
+        reopened = module.Buffer(path, limit=module.MINIMUM_LIMIT)
+        check("and stays empty after a restart", reopened.pending(), False)
+
+        late = fill(module, reopened, 3, size=10)
+        platform.refuse = {late[1]}
+        with contextlib.redirect_stderr(io.StringIO()):
+            module.deliver_once(reopened, platform.post)
+        module.deliver_once(reopened, platform.post)
+        check("a record the platform refuses holds up nothing behind it",
+              [identity for identity in platform.stored if identity in late],
+              [late[0], late[2]])
+        gap = platform.requests[-1][1]["records"][0]
+        check("and is accounted for as a gap",
+              (gap["result"], gap["code"], gap["body"]["dropped"]),
+              ("gap", "refused", 1))
+        check("which leaves the buffer once acknowledged",
+              reopened.pending(), False)
+
+
+def openssl_run(directory, *arguments):
+    subprocess.run(["openssl"] + list(arguments), cwd=directory, check=True,
+                   capture_output=True, timeout=60)
+
+
+class StubSigner:
+    """The certificate endpoint: signs a CSR with a throwaway CA."""
+
+    def __init__(self, directory):
+        self.directory = directory
+        self.refuse = False
+        self.requests = 0
+
+    def post(self, path, document):
+        self.requests += 1
+        if self.refuse:
+            return 403, {"detail": "not enrolled"}
+        with open(os.path.join(self.directory, "request.csr"), "w") as handle:
+            handle.write(document["csr"])
+        self.sign("request.csr", "signed.pem")
+        with open(os.path.join(self.directory, "signed.pem")) as handle:
+            return 200, {"certificate": handle.read(),
+                         "not_after": "2027-02-06T00:00:00Z"}
+
+    def sign(self, request, output):
+        openssl_run(self.directory, "x509", "-req", "-in", request,
+                    "-CA", "ca.pem", "-CAkey", "ca-key.pem",
+                    "-set_serial", str(int(time.time() * 1000)),
+                    "-days", "90", "-sha256", "-extfile", "client.ext",
+                    "-out", output)
+
+
+def channel_pki(directory):
+    """A client CA and a first certificate, as channel-install leaves them."""
+    with open(os.path.join(directory, "client.ext"), "w") as handle:
+        handle.write("basicConstraints=CA:FALSE\n"
+                     "keyUsage=critical,digitalSignature\n"
+                     "extendedKeyUsage=clientAuth\n")
+    openssl_run(directory, "genpkey", "-algorithm", "EC", "-pkeyopt",
+                "ec_paramgen_curve:P-256", "-out", "ca-key.pem")
+    openssl_run(directory, "req", "-x509", "-new", "-key", "ca-key.pem",
+                "-subj", "/CN=Example probe CA", "-days", "365",
+                "-addext", "basicConstraints=critical,CA:TRUE",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                "-out", "ca.pem")
+    openssl_run(directory, "genpkey", "-algorithm", "EC", "-pkeyopt",
+                "ec_paramgen_curve:P-256", "-out", "key.pem")
+    openssl_run(directory, "req", "-new", "-key", "key.pem", "-subj",
+                "/CN=prtg-nats-probe", "-out", "first.csr")
+    signer = StubSigner(directory)
+    signer.sign("first.csr", "cert.pem")
+    return signer
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def check_return_channel_renewal():
+    """From day 60 of 90 the service fetches a certificate for a new key."""
+    print("\n== return channel: certificate renewal ==")
+    with tempfile.TemporaryDirectory() as directory:
+        module = load_return_channel(directory)
+        day = 86400
+        check("on day 59 the certificate is left alone",
+              module.renewal_due(0, 90 * day, 59 * day), False)
+        check("from day 60 it is renewed",
+              module.renewal_due(0, 90 * day, 60 * day), True)
+
+        if not shutil.which("openssl"):
+            print("  skip  no openssl to sign a renewal with")
+            return
+        pki = os.path.join(directory, "pki")
+        os.mkdir(pki)
+        signer = channel_pki(pki)
+        key, certificate = (read_text(os.path.join(pki, name))
+                            for name in ("key.pem", "cert.pem"))
+
+        check("a fresh certificate is not renewed",
+              module.renew_if_due(signer, pki), False)
+        check("and the platform is not asked", signer.requests, 0)
+
+        later = time.time() + 61 * day
+        signer.refuse = True
+        with contextlib.suppress(module.DeliveryError):
+            module.renew_if_due(signer, pki, now=later)
+        check("a refused renewal keeps the pair that works",
+              (read_text(os.path.join(pki, "key.pem")),
+               read_text(os.path.join(pki, "cert.pem"))), (key, certificate))
+        check("and leaves nothing half done behind",
+              sorted(name for name in os.listdir(pki)
+                     if ".next." in name or ".csr." in name), [])
+
+        signer.refuse = False
+        with contextlib.redirect_stderr(io.StringIO()):
+            renewed = module.renew_if_due(signer, pki, now=later)
+        check("an old certificate is renewed", renewed, True)
+        check("with a key that was never used before",
+              read_text(os.path.join(pki, "key.pem")) != key, True)
+        check("and the certificate that belongs to it",
+              module.matches(os.path.join(pki, "cert.pem"),
+                             os.path.join(pki, "key.pem")), True)
+
+        # A crash between the two renames: the key is in place, the
+        # certificate still waits beside it.
+        openssl_run(pki, "req", "-new", "-key", "key.pem", "-subj",
+                    "/CN=prtg-nats-probe", "-out", "again.csr")
+        signer.sign("again.csr", "cert.next.pem")
+        module.recover_renewal(pki)
+        check("an interrupted swap is finished on the next start",
+              (os.path.exists(os.path.join(pki, "cert.next.pem")),
+               module.matches(os.path.join(pki, "cert.pem"),
+                              os.path.join(pki, "key.pem"))), (False, True))
+
+
+def check_return_channel_units():
+    """The unit the helper writes for the service, hardened like the rest."""
+    print("\n== return channel: unit ==")
+    with open(HELPER_PATH, encoding="utf-8") as handle:
+        source = handle.read()
+    unit = source.split("${RETURN_CHANNEL_UNIT}.service.new\" <<EOF", 1)[1]
+    unit = unit.split("\nEOF\n", 1)[0]
+    for setting in ("Restart=always", "LimitCORE=0", "NoNewPrivileges=yes",
+                    "ProtectSystem=strict", "ProtectHome=yes",
+                    "PrivateTmp=yes", "ReadWritePaths=${RETURN_CHANNEL_DIR}",
+                    "StateDirectory=prtg-nats-return-channel",
+                    "WantedBy=multi-user.target"):
+        check("the service unit sets %s" % setting, setting in unit, True)
+    socket_unit = source.split(
+        "${RETURN_CHANNEL_UNIT}.socket.new\" <<EOF", 1)[1].split("\nEOF\n")[0]
+    check("only root may hand records over",
+          ("SocketUser=root" in socket_unit, "SocketMode=0600" in socket_unit),
+          (True, True))
+    check("unenrolling takes the service along",
+          "remove_return_channel_service\n  rm -rf -- \"${RETURN_CHANNEL_DIR}\""
+          in source, True)
+
+
 if __name__ == "__main__":
     check_manifests()
     check_parameter_declarations()
@@ -3209,6 +3600,11 @@ if __name__ == "__main__":
     check_link_quality_output()
     check_link_quality_helper()
     check_aruba_uplink_output()
+    check_return_channel_interface()
+    check_return_channel_overflow()
+    check_return_channel_delivery()
+    check_return_channel_renewal()
+    check_return_channel_units()
     if FAILURES:
         print("\n%d sensor check(s) failed." % FAILURES,
               file=sys.stderr)

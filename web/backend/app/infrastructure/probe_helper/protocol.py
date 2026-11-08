@@ -90,15 +90,21 @@ FIELD_SEPARATOR = "\t"
 # the return channel (ADR 0013), and channel_cert in probe-info. The minimum
 # stays at 1: a probe below 11 is enrolled and updated as before and simply
 # gets no certificate until its helper is current.
-CURRENT_HELPER_VERSION = 11
+#
+# Version 12 adds the return channel service: channel-install also writes and
+# starts it, channel-service rewrites and restarts it for a probe that keeps
+# its certificate, probe-info reports channel_service and unenroll removes it.
+# The return channel requests move to 12 with it - a certificate without the
+# service that uses it is of no use to anyone.
+CURRENT_HELPER_VERSION = 12
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
 # told it cannot be put on the overlay when it can.
 OVERLAY_HELPER_VERSION = 9
-# The return channel requests arrived with version 11, asked for separately
-# for the same reason.
-RETURN_CHANNEL_HELPER_VERSION = 11
+# The return channel requests arrived with version 11 and its service with 12,
+# asked for separately for the same reason.
+RETURN_CHANNEL_HELPER_VERSION = 12
 
 # Where a variant's files land on the probe. The helper builds the same path
 # from its own validated tokens - this side only needs to know it, because the
@@ -171,6 +177,9 @@ class HelperCommand(StrEnum):
     # client CA and the address to report to.
     CHANNEL_CSR = "channel-csr"
     CHANNEL_INSTALL = "channel-install"
+    # Rewrites and restarts the service from the helper that is installed,
+    # leaving key and certificate alone. What a helper update ends with.
+    CHANNEL_SERVICE = "channel-service"
 
     HELPER_UPDATE = "helper-update"
     MPP_UNINSTALL = "mpp-uninstall"

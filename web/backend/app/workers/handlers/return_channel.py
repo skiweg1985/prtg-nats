@@ -69,8 +69,9 @@ async def install_if_missing(
     through anyway. A probe that already has a certificate keeps it - renewal
     belongs to the channel itself, and replacing a working certificate as a
     side effect of an update would only add a way for the update to break
-    it. A helper too old to make a key is noted and left alone: the update
-    itself succeeded, and the next one will catch up.
+    it; only its service is refreshed. A helper too old to make a key is
+    noted and left alone: the update itself succeeded, and the next one will
+    catch up.
     """
     reported = info.value("helper_version") or ""
     if not reported.isdigit() or int(reported) < RETURN_CHANNEL_HELPER_VERSION:
@@ -92,6 +93,10 @@ async def install_if_missing(
             params={"probe": username, "expires": present},
             target=username,
         )
+        # The service is written by the helper, so the helper that was just
+        # installed brings its own version of it. Rewritten and restarted
+        # here; the certificate stays as it is.
+        await context.helper.channel_service(connection)
         return present
 
     return await install_return_channel(context, username, connection)
