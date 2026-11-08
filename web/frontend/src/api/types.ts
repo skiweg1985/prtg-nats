@@ -101,6 +101,7 @@ export interface ProbeSummary {
   prtg_registered: boolean
   managed_over_tunnel: boolean
   channel_silent?: boolean
+  channel_certificate_expired?: boolean
 }
 
 export interface SensorState {

@@ -44,6 +44,7 @@ class ProbeSummaryOut(ApiModel):
     prtg_registered: bool = False
     managed_over_tunnel: bool = False
     channel_silent: bool = False
+    channel_certificate_expired: bool = False
 
 
 class SensorStateOut(ApiModel):

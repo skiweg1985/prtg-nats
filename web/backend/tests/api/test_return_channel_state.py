@@ -352,6 +352,10 @@ async def test_an_expired_certificate_starts_a_repair(
     await build_sync(settings, transport).run_once()
 
     assert [job.trigger for job in await repair_jobs(session_factory)] == ["system"]
+    await sign_in(client)
+    detail = await probe_detail(client)
+    assert detail["return_channel"]["certificate_expired"] is True
+    assert detail["summary"]["channel_certificate_expired"] is True
 
 
 # --- Repair --------------------------------------------------------------------

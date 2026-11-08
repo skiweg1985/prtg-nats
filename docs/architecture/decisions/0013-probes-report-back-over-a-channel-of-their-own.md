@@ -128,6 +128,31 @@ unreachable.
 platform sees that is fine; if it stops being fine, an index is a cache
 next to the files, not a replacement for them.
 
+**Cost.** The probe channel's listener runs with
+`strict_sni_host insecure_off`. A probe that reaches the platform by
+address sends no server name, and with client auth on, Caddy would then
+answer every request with 421 because the Host header cannot match an
+absent name. The check exists to keep a certificate admitted for one site
+from being used on another behind the same listener; this listener carries
+only the probe channel, with one client-auth policy for both its names, so
+there is nothing to cross over to. A future site on the same listener
+would have to bring the check back.
+
+**Cost.** A record the platform refuses with `422` is dropped on the probe
+and replaced by a gap record with `code=refused`. Keeping it would hold up
+every record behind it for good, since the platform will refuse it again
+on every attempt; the gap record keeps the loss visible on the platform,
+the probe's journal names the record and the platform's answer, and a
+refusal at all points at a service and a backend whose limits disagree -
+the case the backend's contract test for the duplicated limits is there to
+catch.
+
+**Note.** "Silent" needs a sign of life that does not depend on sensors
+writing to the log. The service sends an empty batch as a heartbeat at
+least every five minutes, and the platform counts silence from the later
+of the last delivery and the certificate's issue time, with a default
+threshold of three missed heartbeats.
+
 ## Alternatives considered
 
 **Pull over the SSH helper.** A `sensor-log` helper command, called by the

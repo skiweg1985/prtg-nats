@@ -203,9 +203,10 @@ the platform ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-
 `last_contact_at`, `buffer_bytes` and `buffer_limit` from the probe's last
 batch, `gap_count` and `last_gap_at` from the gap records it delivered,
 `observed_at`, `certificate_expires`, `certificate_issued_at` and `service`
-from its last `probe-info`, `certificate_expired`, and `silent`. It is `null` for a probe that has neither
-delivered nor reported a certificate; the delivery fields stay `null` until
-the first batch arrives. The summary carries `channel_silent`.
+from its last `probe-info`, `certificate_expired`, and `silent`. It is
+`null` for a probe that has neither delivered nor reported a certificate;
+the delivery fields stay `null` until the first batch arrives. The summary
+carries `channel_silent` and `channel_certificate_expired`.
 
 Besides what sensors write, the probe sends an empty batch as a heartbeat at
 least every five minutes. A channel falls silent once nothing arrived for
