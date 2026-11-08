@@ -9,7 +9,7 @@ installation in daily use. Nothing here runs in production or in an image.
 
 Real: the backend, its database, the runtime it creates with its own setup
 job, every job, deployment and audit entry (created through the API as the
-account that would have done it), and a NATS server (`nats:2.10.29-alpine`
+account that would have done it), and a NATS server (`nats:2.15.2-alpine`
 in the container `prtg-nats-guide-demo-nats`) that the five probes connect
 to with their own credentials.
 
