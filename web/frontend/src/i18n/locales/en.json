@@ -13,6 +13,7 @@
     "nats": "NATS",
     "iperf": "iperf endpoints",
     "certificates": "Certificates",
+    "credentials": "Accounts without a probe",
     "audit": "Audit",
     "settings": "Settings",
     "updates": "Updates",
@@ -50,7 +51,7 @@
     "selected_other": "{{count}} selected",
     "showAll": "Show all",
     "showTechnicalDetails": "Show technical details",
-    "stale": "Cached, last checked {{time}}",
+    "stale": "As of {{time}}",
     "unknown": "Unknown",
     "updated": "Updated",
     "apply": "Apply",
@@ -100,7 +101,7 @@
     "endpoint": "Address",
     "coreAddress": "PRTG core",
     "notConfigured": "This installation has not been set up yet. Run the stack setup on the server first.",
-    "natsUnavailable": "The NATS monitoring endpoint did not answer. Container state and probe connections cannot be reported.",
+    "natsUnavailable": "NATS did not answer at its monitoring address. Container state and probe connections cannot be reported.",
     "setupTitle": "This installation has not been initialised",
     "setupHint": "Site settings exist, but certificates, credentials and the server configuration have not been created yet. Initialisation runs as a job and takes under a minute.",
     "setupAction": "Initialise now",
@@ -150,7 +151,7 @@
     "accessKeyAudited": "This disclosure has been recorded in the audit trail.",
     "caFingerprint": "CA fingerprint",
     "installCa": "Install CA",
-    "validate": "Run check",
+    "validate": "Run check as job",
     "refreshState": "Refresh state",
     "helper": "Probe helper",
     "pendingTransaction": "Pending transaction",
@@ -159,8 +160,8 @@
     "helperOutdated": "outdated",
     "updateHelper": "Update helper",
     "helperOutdatedTitle": "The probe helper is older than this platform",
-    "helperOutdatedBody": "It will refuse requests it does not know yet. \"Update helper\" replaces it over the management channel; the probe checks the signature before it writes anything.",
-    "helperUnsignedBody": "This probe was enrolled before helper updates were signed, so it carries no key to check one against. Enroll it again - on the console with \"probe enroll ADMIN@HOST --reenroll\", or with a fresh invitation from \"Add probe\" - and the button below works from then on.",
+    "helperOutdatedBody": "Newer actions fail on this probe until you replace it with \"Update helper\".",
+    "helperUnsignedBody": "This probe cannot renew its helper through the platform. Enroll it again once - with a fresh invitation or \"probe enroll ADMIN@HOST --reenroll\" - and \"Update helper\" works from then on.",
     "notes": "Notes",
     "displayName": "Display name",
     "deviationsTitle": "Deviations",
@@ -174,6 +175,29 @@
     "configure": "Apply configuration",
     "unenroll": "Unenroll",
     "unenrollWarning": "This removes the management access, the inventory and the NATS account of {{probe}}. The probe loses its connection; enrolling it again later hands it a new PRTG access key.",
+    "unenrollTitle": "Unenroll {{probe}}?",
+    "fault": {
+      "unreachableTitle": "The probe does not answer",
+      "lastContact": "Last contact {{time}} via {{route}} {{host}}.",
+      "neverAnswered": "It has never answered.",
+      "lastAttempt": "Last attempt {{time}}.",
+      "nextStep": "Check that the host is up and reachable at {{host}}, then ask again with \"Refresh state\".",
+      "details": "Technical details",
+      "datedTitle": "These values are no longer current",
+      "datedBody": "The probe was last asked {{time}}. \"Refresh state\" asks it now."
+    },
+    "diag": {
+      "hostname": "Host name",
+      "configPath": "Configuration file",
+      "caSha256": "CA fingerprint (SHA-256)",
+      "errorDetails": "Last error message"
+    },
+    "planStep": {
+      "install": "Install {{sensor}} version {{to}}",
+      "update": "Bring {{sensor}} from version {{from}} to {{to}}",
+      "redeploy": "Deploy {{sensor}} version {{to}} again"
+    },
+    "deviationVersions": "({{from}} → {{to}})",
     "cleanup": {
       "legend": "Also clear",
       "removeSensors": "Remove sensors",
@@ -368,6 +392,7 @@
       "link": "Link",
       "relink": "Change link",
       "unlink": "Remove link",
+      "unlinkTitle": "Remove the link to PRTG?",
       "listMissing": "Names in PRTG are missing: {{reason}}",
       "dialogTitle": "Link to the probe in PRTG",
       "dialogIntro": "Pick this probe as PRTG lists it. Probes already linked to another probe here are not listed. Nothing is changed in PRTG.",
@@ -386,6 +411,7 @@
       "unlinkConfirm": "The link to PRTG object {{id}} is removed. The probe is then shown under its enrollment name again; nothing changes in PRTG."
     },
     "removeSensorConfirm": "{{sensor}} is removed from this probe. The sensor in PRTG reports an error until it is deleted or rolled out again.",
+    "removeSensorTitle": "Remove {{sensor}} from the probe?",
     "returnChannel": {
       "label": "Return channel",
       "lastReport": "Last report {{time}}",
@@ -395,6 +421,7 @@
       "buffer": "Buffer {{percent}} full",
       "gaps_one": "{{count}} gap, {{time}}",
       "gaps_other": "{{count}} gaps, the last {{time}}",
+      "certificateExpired": "Certificate expired",
       "noGaps": "No gaps"
     }
   },
@@ -418,6 +445,7 @@
     "parameters": "Parameters",
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
     "parametersResult": "Parameter line for PRTG",
+    "parametersBuild": "Build the parameter line yourself ({{count}} parameters)",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
     "reference": {
       "recommendedLine": "Recommended start of the parameter line",
@@ -451,7 +479,9 @@
       "confirmDeleteBody": "It is removed from the server and from these probes: {{probes}}. PRTG objects naming it via --profile fail afterwards.",
       "confirmDeleteUnused": "It is not deployed to any probe; only the record on the server is removed."
     },
-    "iperfBadge": "needs an endpoint",
+    "metaInterface": "reserved interface",
+    "metaHelper": "privileged helper",
+    "metaEndpoint": "needs an endpoint",
     "updateOnProbe": "Update",
     "requirements": "Requirements",
     "prtg": {
@@ -907,6 +937,26 @@
   "infrastructure": {
     "natsTitle": "NATS server",
     "certificatesTitle": "Certificates",
+    "natsSubtitle": "The server probes and the PRTG core connect to",
+    "certificatesSubtitle": "The CA and server certificate NATS encrypts with",
+    "serverName": "Server name",
+    "version": "Version",
+    "uptime": "Up for",
+    "consumers": "Consumers",
+    "subject": "Subject",
+    "issuer": "Issuer",
+    "notAfter": "Valid until",
+    "certificateKind": {
+      "ca": "CA",
+      "server": "Server certificate"
+    },
+    "certificateMissing": "The certificate is created when the installation is initialised.",
+    "toSetup": "Go to initialisation",
+    "containerState": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "absent": "Not present"
+    },
     "certificatesEmpty": "No certificate is on record.",
     "containers": "Containers",
     "containersEmpty": "No container of the stack is running.",
@@ -959,7 +1009,8 @@
       "setupHelpCheck": "Then the counter-check, on the endpoint itself: the first command has to fail and the second one has to succeed. An endpoint that still answers without credentials looks exactly like a working one.",
       "setupHelpBackTitle": "What has to come back from there",
       "setupHelpBackBody": "The user name, the password the last two lines print, and the contents of /etc/iperf3/public.pem - the three fields below. The password cannot be read back from that host afterwards, because only its hash is on disk.",
-      "removeBody": "\"{{name}}\" is taken off {{count}} probe(s), removed from its host and forgotten here.",
+      "removeBody_one": "\"{{name}}\" is taken off {{count}} probe, removed from its host and forgotten here.",
+      "removeBody_other": "\"{{name}}\" is taken off {{count}} probes, removed from its host and forgotten here.",
       "removeForeign": "Somebody else operates this host. Only the record here and the credentials on the probes are removed.",
       "removePackage": "The iperf3 package is not uninstalled - something else on that host may be using it.",
       "removeTitle": "Remove endpoint",
@@ -968,7 +1019,8 @@
       "updateForeign": "Update stored password",
       "updatingForeign": "Updating …",
       "updateForeignTitle": "Update the stored password",
-      "updateForeignBody": "The operator has already changed the password for \"{{name}}\". This stores the replacement here and deploys it to {{count}} probe(s). The endpoint is not contacted.",
+      "updateForeignBody_one": "The operator has already changed the password for \"{{name}}\". This stores the replacement here and deploys it to {{count}} probe. The endpoint is not contacted.",
+      "updateForeignBody_other": "The operator has already changed the password for \"{{name}}\". This stores the replacement here and deploys it to {{count}} probes. The endpoint is not contacted.",
       "updateForeignHint": "The password is stored only in protected runtime and in the profiles on current holders. It is not written to the job or audit log.",
       "updateForeignSubmit": "Update and deploy",
       "newPassword": "New password",
@@ -982,7 +1034,8 @@
       "startedBody": "The platform signs in, installs the access and sets up iperf3. The job carries the progress.",
       "startedTitle": "The endpoint is being set up",
       "rotateTitle": "Change the endpoint password",
-      "rotateBody": "A new password is set for \"{{name}}\" and handed to the {{count}} probe(s) measuring against it.",
+      "rotateBody_one": "A new password is set for \"{{name}}\" and handed to the probe measuring against it.",
+      "rotateBody_other": "A new password is set for \"{{name}}\" and handed to the {{count}} probes measuring against it.",
       "probesTitle": "Probes measuring against this endpoint",
       "probesBody": "Pick the probes that should hold the credentials of {{name}}. A probe taken out here stays out: deploying the sensor reads the same assignment.",
       "probesEmpty": "No probe is enrolled.",
@@ -1042,14 +1095,15 @@
       "title": "Overlay",
       "subtitle": "The WireGuard tunnel between this host and the probes",
       "hub": "Hub",
-      "endpoint": "Endpoint",
-      "hubAddress": "Hub address",
+      "endpoint": "Hub address",
+      "hubAddress": "Hub overlay address",
       "subnet": "Address range",
       "defaultMode": "Default for new probes",
       "search": "Search probes and addresses",
       "modeLegend": "When NATS traffic takes the tunnel",
       "offWarning": "Switching a probe off goes over its ordinary address. A probe that does not answer there is refused rather than left unreachable.",
-      "removeBody": "Take {{count}} probe(s) off the overlay. They keep reaching this installation the ordinary way.",
+      "removeBody_one": "Take {{count}} probe off the overlay. It keeps reaching this installation the ordinary way.",
+      "removeBody_other": "Take {{count}} probes off the overlay. They keep reaching this installation the ordinary way.",
       "columns": {
         "probe": "Probe",
         "address": "Overlay address",
@@ -1073,6 +1127,7 @@
       "paths": {
         "direct": "Direct",
         "tunnel": "Tunnel",
+        "tunnelFallback": "Tunnel - direct path disrupted",
         "down": "Interface down",
         "no_handshake": "No handshake",
         "off": "Off",
@@ -1097,7 +1152,8 @@
       },
       "add": {
         "title": "Add probes",
-        "body": "{{count}} enrolled probe(s) are not on the overlay yet.",
+        "body_one": "{{count}} enrolled probe is not on the overlay yet.",
+        "body_other": "{{count}} enrolled probes are not on the overlay yet.",
         "action": "Add probes",
         "dialog": "The probe generates its own key and reports back the public half. Its ordinary address stays as it is.",
         "confirm": "Add to the overlay",
@@ -1118,8 +1174,12 @@
       }
     }
   },
+  "notFound": {
+    "title": "There is no page at \"{{path}}\"."
+  },
   "settings": {
     "title": "Settings",
+    "subtitle": "Language, appearance, PRTG connection and users",
     "general": "General",
     "users": "Users and roles",
     "language": "Language",
@@ -1130,8 +1190,13 @@
     "themeSystem": "Follow system",
     "capabilities": "Capabilities of this installation",
     "dockerAvailable": "Container control available",
-    "dockerUnavailable": "The Docker socket is not mounted. Server lifecycle actions are hidden.",
+    "dockerUnavailable": "Docker socket not mounted",
     "runtimeState": "Runtime state",
+    "runtimeStates": {
+      "missing": "Not initialised",
+      "partial": "Incomplete",
+      "complete": "Complete"
+    },
     "addUser": "Add user",
     "role": "Role",
     "lastLogin": "Last sign-in",
@@ -1365,7 +1430,7 @@
   },
   "credentials": {
     "title": "Accounts without a probe",
-    "subtitle": "The credentials the PRTG core signs in with, and accounts without a probe",
+    "subtitle": "The PRTG core account and any leftovers; a probe's own account is on its page",
     "empty": "No account exists yet.",
     "columns": {
       "account": "Account",
@@ -1384,11 +1449,11 @@
     "delete": "Delete",
     "deleteWarning": "The account {{account}} and its credentials are removed from the server. A client still using them loses its connection on the next reconnect.",
     "revealTitle": "Password for {{account}}",
-    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog.",
-    "autoHint": "The PRTG core account and accounts no probe uses. A probe's own account is on its page."
+    "revealHint": "This disclosure has been recorded in the audit trail. Paste the value where it is needed and close this dialog."
   },
   "updates": {
     "title": "Updates",
+    "subtitle": "Which version runs and what is new on the branch",
     "check_now": "Check now",
     "progress": "Progress",
     "changes": "What is new",
@@ -1451,6 +1516,7 @@
       "body": "Restarts the NATS container. Every probe and the PRTG core reconnect afterwards.",
       "run": "Restart",
       "confirmTitle": "Really restart NATS?",
+      "dockerMissing": "Without the Docker socket mounted this only works on the server: ./prtg-nats restart",
       "confirmBody": "All probes and the core briefly lose their connection and reconnect. Measurements of that moment are lost."
     },
     "backup": {
@@ -1474,6 +1540,7 @@
   },
   "sensorLogs": {
     "title": "Sensor log",
+    "subtitle": "Every sensor run on every probe, with its output",
     "empty": "No runs in this period",
     "emptyFiltered": "No runs match these filters",
     "count": "{{shown}} of {{total}}",
@@ -1528,14 +1595,14 @@
       "dhcpServer": "DHCP server",
       "gateway": "Gateway",
       "gatewayKind": "Gateway source",
-      "frequency": "Frequency (MHz)",
-      "signal": "Signal (dBm)",
+      "frequency": "Frequency",
+      "signal": "Signal strength",
       "timings": "Stage timings",
-      "assocMs": "Association (ms)",
-      "authMs": "Authentication (ms)",
-      "dhcpMs": "DHCP (ms)",
-      "gatewayMs": "Gateway ping (ms)",
-      "totalMs": "Total (ms)",
+      "assocMs": "Association",
+      "authMs": "Authentication",
+      "dhcpMs": "DHCP",
+      "gatewayMs": "Gateway ping",
+      "totalMs": "Total",
       "supplicant": "wpa_supplicant output",
       "dhcp": "DHCP client output",
       "events": "Helper events"

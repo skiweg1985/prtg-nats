@@ -133,20 +133,18 @@ export function OverlayAttachDialog({
 }
 
 /**
- * How alarming the path a probe is on should look.
+ * Whether the path a probe is on is a fault, and how bad.
  *
- * "auto" on the tunnel is a warning rather than a success: it works, and it
- * means the ordinary route is down and nobody has noticed.
+ * The route a probe is meant to take is not news and carries no colour - a
+ * table of green "Direkt" and "Tunnel" hid the one row that mattered. Colour
+ * is kept for the faults: a tunnel that is down, and "auto" on the tunnel,
+ * which works but means the ordinary route is down and nobody has noticed.
  */
-export function pathTone(
-  mode: OverlayMode,
-  state: string,
-): 'ok' | 'warn' | 'danger' | 'neutral' {
+export function pathTone(mode: OverlayMode, state: string): 'warn' | 'danger' | 'neutral' {
   if (mode === 'off') return 'neutral'
   if (state === 'down' || state === 'no_handshake') {
     return mode === 'on' ? 'danger' : 'warn'
   }
-  if (state === 'tunnel') return mode === 'auto' ? 'warn' : 'ok'
-  if (state === 'direct') return 'ok'
+  if (state === 'tunnel' && mode === 'auto') return 'warn'
   return 'neutral'
 }

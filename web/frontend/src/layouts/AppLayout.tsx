@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { useCapabilities, useLogout } from '@/api/hooks'
+import { useLogout } from '@/api/hooks'
 import { useAuth } from '@/app/providers'
 import { Badge, Button } from '@/components/ui/primitives'
 
@@ -42,7 +42,18 @@ const INFRASTRUCTURE: NavEntry[] = [
     labelKey: 'nav.overlay',
     permission: 'overlay.read',
   },
-  { to: '/infrastructure/system', labelKey: 'nav.system', permission: 'system.read' },
+  // Reached from the NATS page before, and from nowhere else: an account
+  // nobody could find was an account nobody cleaned up.
+  {
+    to: '/infrastructure/credentials',
+    labelKey: 'nav.credentials',
+    permission: 'credential.read',
+  },
+  {
+    to: '/infrastructure/maintenance',
+    labelKey: 'nav.system',
+    permission: 'system.read',
+  },
 ]
 
 const SECONDARY: NavEntry[] = [
@@ -56,7 +67,6 @@ const SECONDARY: NavEntry[] = [
 export function AppLayout() {
   const { t } = useTranslation()
   const { principal } = useAuth()
-  const { data: capabilities } = useCapabilities()
   const logout = useLogout()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
@@ -86,12 +96,6 @@ export function AppLayout() {
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           <NavSections />
         </nav>
-
-        {capabilities && !capabilities.docker && (
-          <p className="text-ink-3 border-rule border-t px-4 py-2.5 text-xs">
-            {t('settings.dockerUnavailable')}
-          </p>
-        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

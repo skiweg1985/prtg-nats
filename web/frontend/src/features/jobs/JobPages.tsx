@@ -29,6 +29,7 @@ import {
   Mono,
   PageHeader,
   Skeleton,
+  Tabs,
 } from '@/components/ui/primitives'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import { RolloutsView } from '@/features/deployments/RolloutsView'
@@ -44,6 +45,10 @@ import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
  */
 const JOB_FILTERS = ['running', 'failed'] as const
 type JobFilter = (typeof JOB_FILTERS)[number]
+
+/** The two views of the job history, drawn as the same tabs as a probe's page. */
+const JOB_VIEWS = ['all', 'rollouts'] as const
+type JobView = (typeof JOB_VIEWS)[number]
 
 function asJobFilter(value: string | null): JobFilter | null {
   return JOB_FILTERS.find((entry) => entry === value) ?? null
@@ -67,9 +72,20 @@ export function JobListPage() {
     setParams(next ? { status: next } : {}, { replace: true })
   }
 
-  function setView(rollouts: boolean) {
-    setParams(rollouts ? { view: 'rollouts' } : {}, { replace: true })
+  function setView(view: JobView) {
+    setParams(view === 'rollouts' ? { view: 'rollouts' } : {}, { replace: true })
   }
+
+  // A view is a different list, a filter narrows the one on screen: the
+  // rollouts used to sit among the status chips as if they were a status.
+  const viewTabs = (
+    <Tabs
+      tabs={JOB_VIEWS}
+      active={showRollouts ? 'rollouts' : 'all'}
+      onSelect={setView}
+      renderLabel={(view) => t(`jobs.filters.${view}`)}
+    />
+  )
 
   if (error) return <ErrorDetails error={error} onRetry={() => void refetch()} />
 
@@ -77,14 +93,7 @@ export function JobListPage() {
     return (
       <div className="space-y-4">
         <PageHeader title={t('jobs.title')} subtitle={t('jobs.subtitle')} />
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterChip pressed={false} onClick={() => setView(false)}>
-            {t('jobs.filters.all')}
-          </FilterChip>
-          <FilterChip pressed onClick={() => undefined}>
-            {t('jobs.filters.rollouts')}
-          </FilterChip>
-        </div>
+        {viewTabs}
         <RolloutsView />
       </div>
     )
@@ -157,6 +166,7 @@ export function JobListPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('jobs.title')} subtitle={t('jobs.subtitle')} />
+      {viewTabs}
 
       <DataTable
         rows={data}
@@ -183,9 +193,6 @@ export function JobListPage() {
                 {t(`jobs.filters.${entry}`)}
               </FilterChip>
             ))}
-            <FilterChip pressed={false} onClick={() => setView(true)}>
-              {t('jobs.filters.rollouts')}
-            </FilterChip>
           </div>
         }
       />
@@ -254,7 +261,7 @@ export function JobDetailPage() {
                 {job.target_label}
               </Link>
             ) : job.target_type === 'deployment' ? (
-              <Link to="/deployments" className="text-accent text-sm hover:underline">
+              <Link to="/jobs?view=rollouts" className="text-accent text-sm hover:underline">
                 {job.target_label}
               </Link>
             ) : (

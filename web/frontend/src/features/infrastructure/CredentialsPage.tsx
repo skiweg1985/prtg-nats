@@ -139,10 +139,11 @@ export function CredentialsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Probe accounts are managed by enrolment and retirement; the subtitle
+          says where they are, which keeps people from deleting one by hand
+          and stranding a probe. Once is enough - title, subtitle and a
+          paragraph used to say the same thing three times. */}
       <PageHeader title={t('credentials.title')} subtitle={t('credentials.subtitle')} />
-      {/* Probe accounts are managed by enrolment and retirement; saying so
-          here keeps people from deleting one by hand and stranding a probe. */}
-      <p className="text-ink-3 text-xs">{t('credentials.autoHint')}</p>
 
       <DataTable
         rows={data?.filter((account) => !account.probe_enrolled)}

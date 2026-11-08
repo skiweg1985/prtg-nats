@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import clsx from 'clsx'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -27,10 +28,13 @@ import {
   type UnenrollOptions,
 } from '@/api/hooks'
 import type {
+  CaState,
   Deviation,
   DeviationSeverity,
+  PlannedAction,
   ProbeDetail,
   SensorState,
+  ServiceState,
   WirelessInterface,
 } from '@/api/types'
 import {
@@ -178,6 +182,21 @@ export function ProbeDetailPage() {
   const toJob = {
     onSuccess: (accepted: { job_id: string }) => navigate(`/jobs/${accepted.job_id}`),
   }
+  const name = probeName(
+    summary,
+    prtgName?.state === 'ok' ? prtgName.name_in_prtg : null,
+  )
+  // Two different kinds of old. A probe that did not answer has nothing
+  // left to show: the failed attempt replaced what it said before, so its
+  // service and CA read "unknown" on their own. A probe that answered, but
+  // longer ago than the staleness window, still shows what it said then -
+  // and that is what must not pass for the present.
+  const unreachable = observed != null && !observed.reachable
+  const dated = observed != null && observed.reachable && summary.stale
+  // Asking again is the next step for both, so it takes the one primary.
+  const refreshFirst = unreachable || dated
+  const helperVisible = canUpdate && summary.helper_outdated && helperUpdatable
+  const helperPrimary = helperVisible && !refreshFirst
 
   return (
     <div className="space-y-4">
@@ -187,75 +206,89 @@ export function ProbeDetailPage() {
         <div className="min-w-64 flex-1">
           <BackLink to={backToList}>{t('probes.title')}</BackLink>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="text-lg">
-              {probeName(
-                summary,
-                prtgName?.state === 'ok' ? prtgName.name_in_prtg : null,
-              )}
-            </h1>
+            <h1 className="text-lg">{name}</h1>
             <ProbeStatusBadge status={summary.status} />
-            {summary.stale && summary.observed_at && (
-              <span className="text-ink-3 text-xs">
-                {t('common.stale', { time: formatRelative(summary.observed_at) })}
-              </span>
-            )}
           </div>
+          {/* The account is what the shell, the logs and NATS call the
+              probe; it stays readable, second to the name. */}
+          {name !== summary.nats_username && (
+            <Mono className="text-ink-3">{summary.nats_username}</Mono>
+          )}
         </div>
 
-        {/* Three groups, by how often and how far-reaching. Reading the
-            state is always at hand; checking and applying the configuration
-            are the everyday changes; installing the CA, renewing the helper
-            and unenrolling are rare, so they wait in the menu - unenrolling
-            last, in danger text, behind its own confirmation. Renewing the
-            helper comes out as the one primary action only when the probe
-            actually needs it. */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Two visible actions and the menu. Reading the state again is
+            always at hand, and the primary when what the page shows is old
+            or unanswered. The second is the helper update when the probe
+            needs it, otherwise applying the configuration. Everything rare -
+            the check report, the CA, unenrolling - waits in the menu,
+            unenrolling last, in danger text, behind its own confirmation.
+            On a phone the buttons grow to a finger's size, and a button
+            that is not the primary keeps only its icon so the row - with the
+            menu - still fits one line; its name stays for screen readers. */}
+        <div className="flex flex-wrap items-center gap-2 max-md:[&_button]:h-11 max-md:[&_button]:min-w-11 max-md:[&_button]:justify-center">
           <Button
             size="sm"
-            variant="ghost"
+            variant={refreshFirst ? 'primary' : 'ghost'}
             icon={RefreshCw}
             onClick={() => refresh.mutate(probeId)}
             disabled={refresh.isPending}
           >
-            {t('probes.refreshState')}
+            <span className={refreshFirst ? undefined : 'max-md:sr-only'}>
+              {t('probes.refreshState')}
+            </span>
           </Button>
-          {canUpdate && summary.helper_outdated && helperUpdatable && (
+          {helperVisible ? (
             <Button
               size="sm"
-              variant="primary"
+              variant={helperPrimary ? 'primary' : 'secondary'}
               icon={ArrowUpCircle}
               onClick={() => updateHelper.mutate(probeId, toJob)}
               disabled={updateHelper.isPending}
             >
-              {t('probes.updateHelper')}
+              <span className={helperPrimary ? undefined : 'max-md:sr-only'}>
+                {t('probes.updateHelper')}
+              </span>
             </Button>
+          ) : (
+            <PermissionGate permission="probe.update">
+              <Button
+                size="sm"
+                icon={Settings2}
+                onClick={() => configure.mutate(probeId, toJob)}
+                disabled={configure.isPending}
+              >
+                <span className="max-md:sr-only">{t('probes.configure')}</span>
+              </Button>
+            </PermissionGate>
           )}
-          <PermissionGate permission="probe.read">
-            <Button
-              size="sm"
-              icon={ShieldCheck}
-              onClick={() => validate.mutate(probeId, toJob)}
-              disabled={validate.isPending}
-            >
-              {t('probes.validate')}
-            </Button>
-          </PermissionGate>
-          <PermissionGate permission="probe.update">
-            <Button
-              size="sm"
-              icon={Settings2}
-              onClick={() => configure.mutate(probeId, toJob)}
-              disabled={configure.isPending}
-            >
-              {t('probes.configure')}
-            </Button>
-          </PermissionGate>
           <ActionMenu
             label={t('common.moreActions')}
             variant="secondary"
             actions={[
+              ...(can('probe.read')
+                ? [
+                    {
+                      key: 'validate',
+                      label: t('probes.validate'),
+                      icon: ShieldCheck,
+                      disabled: validate.isPending,
+                      onSelect: () => validate.mutate(probeId, toJob),
+                    },
+                  ]
+                : []),
               ...(canUpdate
                 ? [
+                    ...(helperVisible
+                      ? [
+                          {
+                            key: 'configure',
+                            label: t('probes.configure'),
+                            icon: Settings2,
+                            disabled: configure.isPending,
+                            onSelect: () => configure.mutate(probeId, toJob),
+                          },
+                        ]
+                      : []),
                     {
                       key: 'install-ca',
                       label: t('probes.installCa'),
@@ -263,7 +296,7 @@ export function ProbeDetailPage() {
                       disabled: installCa.isPending,
                       onSelect: () => installCa.mutate(probeId, toJob),
                     },
-                    ...(summary.helper_outdated && helperUpdatable
+                    ...(helperVisible
                       ? []
                       : [
                           {
@@ -293,9 +326,12 @@ export function ProbeDetailPage() {
       </header>
 
       {confirmUnenroll && (
-        <Dialog title={t('confirm.title')} onClose={() => setConfirmUnenroll(false)}>
+        <Dialog
+          title={t('probes.unenrollTitle', { probe: name })}
+          onClose={() => setConfirmUnenroll(false)}
+        >
           <p className="text-ink-2 text-sm">
-            {t('probes.unenrollWarning', { probe: summary.nats_username })}
+            {t('probes.unenrollWarning', { probe: name })}
           </p>
 
           <fieldset className="mt-4 space-y-3 border-t pt-3">
@@ -357,12 +393,21 @@ export function ProbeDetailPage() {
         </Dialog>
       )}
 
-      {lastFailure && (
-        <ErrorDetails error={lastFailure} target={summary.nats_username} />
+      {lastFailure && <ErrorDetails error={lastFailure} target={name} />}
+      {unreachable && observed && (
+        <UnreachableBanner
+          detail={data}
+          attemptAt={observed.observed_at}
+          onDetails={
+            observed.error_details ? () => selectTab('diagnostics') : undefined
+          }
+        />
       )}
-      {observed && !observed.reachable && (
-        <Banner tone="danger" title={t('status.probe.unreachable')}>
-          {observed.error_details ?? t('errors.probe.unreachable', { probe: summary.nats_username })}
+      {dated && summary.observed_at && (
+        <Banner tone="neutral" title={t('probes.fault.datedTitle')}>
+          {t('probes.fault.datedBody', {
+            time: formatRelative(summary.observed_at),
+          })}
         </Banner>
       )}
       {summary.helper_outdated && (
@@ -422,34 +467,44 @@ export function ProbeDetailPage() {
         </p>
       )}
 
-      <Tabs
-        tabs={TABS}
-        active={tab}
-        onSelect={selectTab}
-        renderLabel={(entry) => (
-          <>
-            {t(`probes.tabs.${entry}`)}
-            {entry === 'deviations' && data.deviations.length > 0 && (
-              <Badge
-                tone={needsAttention(data.deviations) ? 'warn' : 'neutral'}
-                className="ml-2"
-              >
-                {data.deviations.length}
-              </Badge>
-            )}
-          </>
-        )}
-      />
+      {/* The strip scrolls sideways on a phone rather than squeezing a
+          label, and each tab is a finger's height there. */}
+      <div className="max-md:[&_[role=tab]]:min-h-11">
+        <Tabs
+          tabs={TABS}
+          active={tab}
+          onSelect={selectTab}
+          renderLabel={(entry) => (
+            <>
+              {t(`probes.tabs.${entry}`)}
+              {entry === 'deviations' && data.deviations.length > 0 && (
+                <Badge
+                  tone={needsAttention(data.deviations) ? 'warn' : 'neutral'}
+                  className="ml-2"
+                >
+                  {data.deviations.length}
+                </Badge>
+              )}
+            </>
+          )}
+        />
+      </div>
 
-      {tab === 'overview' && <OverviewTab detail={data} />}
+      {tab === 'overview' && <OverviewTab detail={data} dated={dated} />}
       {tab === 'sensors' && <SensorsTab probeId={probeId} detail={data} />}
-      {tab === 'deviations' && <DeviationsTab probeId={probeId} detail={data} />}
+      {tab === 'deviations' && (
+        <DeviationsTab
+          probeId={probeId}
+          detail={data}
+          headerHasPrimary={refreshFirst || helperPrimary}
+        />
+      )}
       {tab === 'diagnostics' && <DiagnosticsTab detail={data} />}
     </div>
   )
 }
 
-function OverviewTab({ detail }: { detail: ProbeDetail }) {
+function OverviewTab({ detail, dated }: { detail: ProbeDetail; dated: boolean }) {
   const { t } = useTranslation()
   const { summary, inventory, observed } = detail
   const reveal = useRevealAccessKey()
@@ -553,27 +608,44 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
           </dl>
         </Card>
 
-        <Card title={t('probes.actualState')}>
+        {/* On a phone the state comes first: that is what somebody opens
+            the page for at night, and the identity rarely changes. */}
+        <Card
+          title={t('probes.actualState')}
+          className="max-md:order-first"
+          action={
+            dated && summary.observed_at ? (
+              <span className="text-ink-3 text-xs">
+                {t('common.stale', { time: formatRelative(summary.observed_at) })}
+              </span>
+            ) : undefined
+          }
+        >
           <dl>
             <DetailRow label={t('probes.columns.service')}>
-              <StateCell kind="service" value={summary.service} />
+              <ObservedStateCell kind="service" value={summary.service} dated={dated} />
             </DetailRow>
             <DetailRow label={t('probes.columns.version')}>
-              <Mono>{summary.package_version ?? '—'}</Mono>
+              <Mono className={dated ? 'text-ink-3' : undefined}>
+                {summary.package_version ?? '—'}
+              </Mono>
             </DetailRow>
+            {/* Asked of the NATS server on every load, not of the probe, so
+                it stays current - and green beside an unreachable management
+                route is the useful news that the probe still measures. */}
             <DetailRow label={t('probes.columns.nats')}>
               <StateCell kind="nats" value={summary.nats_connection} />
             </DetailRow>
             <DetailRow label={t('probes.caFingerprint')}>
               <span className="flex items-center gap-2">
-                <StateCell kind="ca" value={summary.ca_state} />
+                <ObservedStateCell kind="ca" value={summary.ca_state} dated={dated} />
                 <Mono className="text-ink-3">
                   {shortFingerprint(observed?.ca_sha256)}
                 </Mono>
               </span>
             </DetailRow>
             <DetailRow label={t('probes.helper')}>
-              <span className="flex items-center gap-2">
+              <span className={clsx('flex items-center gap-2', dated && 'text-ink-3')}>
                 {observed?.helper_version != null
                   ? t('probes.helperVersion', { version: observed.helper_version })
                   : t('probes.helperUnknown')}
@@ -697,6 +769,78 @@ function OverviewTab({ detail }: { detail: ProbeDetail }) {
         </Dialog>
       )}
     </>
+  )
+}
+
+/**
+ * A state the probe reported, drawn without its colour once it is old.
+ *
+ * A green dot says "running" in the present tense; on a value from hours ago
+ * it says something nobody has checked. The label stays, so the last known
+ * answer is still there to read.
+ */
+function ObservedStateCell({
+  kind,
+  value,
+  dated,
+}: {
+  kind: 'service' | 'ca'
+  value: ServiceState | CaState
+  dated: boolean
+}) {
+  const { t } = useTranslation()
+  if (!dated) return <StateCell kind={kind} value={value} />
+  return (
+    <span className="text-ink-3 inline-flex items-center gap-1.5 text-sm">
+      <Dot tone="neutral" />
+      {t(`status.${kind}.${value}`)}
+    </span>
+  )
+}
+
+/**
+ * What an operator needs when the probe stops answering: since when it has
+ * been silent, which way management last reached it, and what to do.
+ *
+ * The last contact is the last answer on the management route, not the time
+ * of the failed attempt - that one is when the platform last asked.
+ */
+function UnreachableBanner({
+  detail,
+  attemptAt,
+  onDetails,
+}: {
+  detail: ProbeDetail
+  attemptAt: string
+  onDetails?: () => void
+}) {
+  const { t } = useTranslation()
+  const route = detail.management_route
+  const host = route?.host ?? detail.inventory.ssh_host
+  return (
+    <Banner
+      tone="danger"
+      title={t('probes.fault.unreachableTitle')}
+      action={
+        onDetails && (
+          <Button size="sm" variant="ghost" onClick={onDetails}>
+            {t('probes.fault.details')}
+          </Button>
+        )
+      }
+    >
+      <p>
+        {route
+          ? t('probes.fault.lastContact', {
+              time: formatRelative(route.observed_at),
+              route: t(`probes.routes.${route.via}`),
+              host: route.host,
+            })
+          : t('probes.fault.neverAnswered')}{' '}
+        {t('probes.fault.lastAttempt', { time: formatRelative(attemptAt) })}
+      </p>
+      <p className="mt-1">{t('probes.fault.nextStep', { host })}</p>
+    </Banner>
   )
 }
 
@@ -1093,7 +1237,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       )}
       {removing !== null && (
         <ConfirmDialog
-          title={t('confirm.title')}
+          title={t('probes.removeSensorTitle', { sensor: removing })}
           body={t('probes.removeSensorConfirm', { sensor: removing })}
           confirmLabel={t('sensors.remove')}
           cancelLabel={t('common.cancel')}
@@ -1117,7 +1261,16 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
   )
 }
 
-function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail }) {
+function DeviationsTab({
+  probeId,
+  detail,
+  headerHasPrimary,
+}: {
+  probeId: string
+  detail: ProbeDetail
+  /** The header already carries the page's one primary action. */
+  headerHasPrimary: boolean
+}) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [preview, setPreview] = useState(false)
@@ -1137,17 +1290,21 @@ function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDeta
       <Card
         title={t('probes.deviationsTitle')}
         action={
-          <PermissionGate permission="probe.reconcile">
-            <Button size="sm" variant="primary" onClick={() => setPreview(true)}>
-              {t('probes.fixDeviations')}
-            </Button>
-          </PermissionGate>
+          // Opens the plan, changes nothing: secondary, and gone once the
+          // plan is on screen with its own button to run it.
+          !preview && (
+            <PermissionGate permission="probe.reconcile">
+              <Button size="sm" onClick={() => setPreview(true)}>
+                {t('probes.fixDeviations')}
+              </Button>
+            </PermissionGate>
+          )
         }
         dense
       >
         <ul>
           {detail.deviations.map((deviation, index) => (
-            <DeviationRow key={index} deviation={deviation} />
+            <DeviationRow key={index} deviation={deviation} sensors={detail.sensors} />
           ))}
         </ul>
       </Card>
@@ -1171,7 +1328,7 @@ function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDeta
                   <li key={index} className="flex items-start gap-2 text-sm">
                     <span className="text-ink-3 font-mono text-xs">{index + 1}.</span>
                     <span>
-                      {t(action.description_key, action.params)}
+                      <PlannedActionText action={action} sensors={detail.sensors} />
                       {action.risk_key && (
                         <span className="text-warn block text-xs">
                           {t(action.risk_key)}
@@ -1181,9 +1338,12 @@ function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDeta
                   </li>
                 ))}
               </ol>
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setPreview(false)}>
+                  {t('common.cancel')}
+                </Button>
                 <Button
-                  variant="primary"
+                  variant={headerHasPrimary ? 'secondary' : 'primary'}
                   onClick={() =>
                     execute.mutate(probeId, {
                       onSuccess: (accepted) => navigate(`/jobs/${accepted.job_id}`),
@@ -1207,11 +1367,64 @@ function DeviationsTab({ probeId, detail }: { probeId: string; detail: ProbeDeta
   )
 }
 
-function DeviationRow({ deviation }: { deviation: Deviation }) {
+/** The installed and wanted version of a sensor, when both are plain. */
+function versionStep(
+  sensors: SensorState[],
+  name: string,
+): { from: string | null; to: string | null } {
+  const sensor = sensors.find((entry) => entry.name === name)
+  return {
+    from: sensor?.installed_version ?? null,
+    to: sensor?.desired_version ?? null,
+  }
+}
+
+/**
+ * One planned step as a sentence. A rollout names its versions from the
+ * sensor table: the plan's own version field holds a checksum for a sensor
+ * that was changed on the probe, which says nothing to the person confirming.
+ */
+function PlannedActionText({
+  action,
+  sensors,
+}: {
+  action: PlannedAction
+  sensors: SensorState[]
+}) {
   const { t } = useTranslation()
+  if (action.kind === 'deploy_sensor') {
+    const sensor = action.params.sensor ?? action.target
+    const { from, to } = versionStep(sensors, sensor)
+    if (to) {
+      if (!from) return <>{t('probes.planStep.install', { sensor, to })}</>
+      if (from !== to) return <>{t('probes.planStep.update', { sensor, from, to })}</>
+      return <>{t('probes.planStep.redeploy', { sensor, to })}</>
+    }
+  }
+  return <>{t(action.description_key, action.params)}</>
+}
+
+function DeviationRow({
+  deviation,
+  sensors,
+}: {
+  deviation: Deviation
+  sensors: SensorState[]
+}) {
+  const { t } = useTranslation()
+  const step =
+    deviation.kind === 'sensor_outdated'
+      ? versionStep(sensors, deviation.object_ref)
+      : null
+  // An outdated sensor reads best with its versions in the sentence. Where
+  // the versions agree, it is the sensor's tool that is behind, and the
+  // comparison below says which.
+  const inSentence = step?.from && step.to && step.from !== step.to ? step : null
   return (
     <li className="border-rule flex items-start gap-3 border-b px-4 py-2.5 last:border-0">
-      <Dot tone={SEVERITY_TONE[deviation.severity]} />
+      <span className="pt-1.5">
+        <Dot tone={SEVERITY_TONE[deviation.severity]} />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="text-ink text-sm">
           {t(`deviations.${deviation.kind}`, {
@@ -1219,9 +1432,13 @@ function DeviationRow({ deviation }: { deviation: Deviation }) {
             sensor: deviation.object_ref,
             defaultValue: deviation.kind,
           })}
+          {inSentence &&
+            ` ${t('probes.deviationVersions', { from: inSentence.from, to: inSentence.to })}`}
         </p>
-        {(deviation.expected || deviation.actual) && (
-          <p className="text-ink-3 mt-0.5 font-mono text-xs">
+        {/* The raw comparison stays for whoever has to look closer: a
+            checksum or a tool path, second to the sentence. */}
+        {!inSentence && (deviation.expected || deviation.actual) && (
+          <p className="text-ink-3 mt-0.5 font-mono text-xs break-all">
             {shortFingerprint(deviation.actual) ?? '—'} → {shortFingerprint(deviation.expected) ?? '—'}
           </p>
         )}
@@ -1246,13 +1463,13 @@ function DiagnosticsTab({ detail }: { detail: ProbeDetail }) {
   return (
     <Card title={t('probes.tabs.diagnostics')}>
       <dl>
-        <DetailRow label="hostname">
+        <DetailRow label={t('probes.diag.hostname')}>
           <Mono>{observed?.hostname ?? '—'}</Mono>
         </DetailRow>
-        <DetailRow label="config">
+        <DetailRow label={t('probes.diag.configPath')}>
           <Mono truncate>{observed?.config_path ?? '—'}</Mono>
         </DetailRow>
-        <DetailRow label="ca_sha256">
+        <DetailRow label={t('probes.diag.caSha256')}>
           <Mono truncate>{observed?.ca_sha256 ?? '—'}</Mono>
         </DetailRow>
         <DetailRow label={t('probes.pendingTransaction')}>
@@ -1260,9 +1477,12 @@ function DiagnosticsTab({ detail }: { detail: ProbeDetail }) {
         </DetailRow>
       </dl>
       {observed?.error_details && (
-        <pre className="bg-surface-2 rounded-inset text-ink-2 mt-3 max-h-48 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
-          {observed.error_details}
-        </pre>
+        <>
+          <p className="text-ink-3 mt-4 text-xs">{t('probes.diag.errorDetails')}</p>
+          <pre className="bg-surface-2 rounded-inset text-ink-2 mt-1 max-h-48 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
+            {observed.error_details}
+          </pre>
+        </>
       )}
     </Card>
   )

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileCode, Upload } from 'lucide-react'
+import { ChevronRight, FileCode, Upload } from 'lucide-react'
 
 import { fieldDescription, fieldLabel } from './parameterFields'
 
@@ -51,16 +51,7 @@ export function SensorListPage() {
       cell: (row) => (
         <div className="min-w-0">
           <p className="text-ink font-medium">{row.name}</p>
-          <div className="mt-0.5 flex flex-wrap gap-1">
-            {row.needs_interface && <Badge tone="neutral">iface</Badge>}
-            {row.requires_privileged_helper && <Badge tone="neutral">helper</Badge>}
-            {/* The kind is a token the catalog matches endpoints on. What it
-                means to somebody reading the list is that this sensor needs
-                one. */}
-            {row.iperf_kind && (
-              <Badge tone="neutral">{t('sensors.iperfBadge')}</Badge>
-            )}
-          </div>
+          <SensorTraits sensor={row} />
         </div>
       ),
     },
@@ -74,7 +65,13 @@ export function SensorListPage() {
       key: 'description',
       header: t('sensors.columns.description'),
       searchValue: (row) => row.description,
-      cell: (row) => <span className="text-ink-2 text-sm">{row.description}</span>,
+      cell: (row) => (
+        // The manifest ships English only; marked so a screen reader
+        // reading the German interface pronounces it as English.
+        <span lang="en" className="text-ink-2 text-sm">
+          {row.description}
+        </span>
+      ),
     },
     {
       key: 'installed',
@@ -137,6 +134,26 @@ export function SensorListPage() {
   )
 }
 
+/**
+ * What a sensor needs from a probe, as a quiet line under its name.
+ *
+ * These are facts about the sensor, not states of anything: as badges they
+ * stood level with the outdated count, the one thing in the row that does
+ * ask for attention.
+ */
+function SensorTraits({ sensor }: { sensor: SensorSummary }) {
+  const { t } = useTranslation()
+  const traits = [
+    sensor.needs_interface && t('sensors.metaInterface'),
+    sensor.requires_privileged_helper && t('sensors.metaHelper'),
+    // The kind is a token the catalog matches endpoints on. What it means to
+    // somebody reading the list is that this sensor needs one.
+    sensor.iperf_kind && t('sensors.metaEndpoint'),
+  ].filter(Boolean)
+  if (traits.length === 0) return null
+  return <p className="text-ink-3 mt-0.5 text-xs">{traits.join(' · ')}</p>
+}
+
 export function SensorDetailPage() {
   const { t } = useTranslation()
   const { name } = useParams<{ name: string }>()
@@ -156,7 +173,7 @@ export function SensorDetailPage() {
             <h1 className="text-lg">{data.name}</h1>
             <Badge tone="accent">v{data.version}</Badge>
           </div>
-          <p className="text-ink-2 text-sm">{data.description}</p>
+          <p lang="en" className="text-ink-2 text-sm">{data.description}</p>
         </div>
         <PermissionGate permission="deployment.create">
           <Button variant="primary" size="sm" icon={Upload} onClick={() => setDeploying(true)}>
@@ -208,8 +225,28 @@ export function SensorDetailPage() {
         </Card>
       </div>
 
-      <Card title={t('sensors.files')}>
-        <dl>
+      <SensorVariants
+        sensorName={name}
+        schema={data.parameter_schema}
+        needsInterface={data.needs_interface}
+      />
+      <ParameterCard sensorName={name} schema={data.parameter_schema} />
+
+      {/* Reference, last and folded: paths and checksums are what somebody
+          comparing a probe against the catalog looks up, not what somebody
+          rolling the sensor out reads on the way to the button. */}
+      <details className="surface-card group overflow-hidden">
+        <summary className="hover:bg-surface-2 flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden
+            size={16}
+            strokeWidth={1.75}
+            className="text-ink-3 shrink-0 transition-transform group-open:rotate-90"
+          />
+          {t('sensors.files')}
+          <span className="text-ink-3 font-normal tabular-nums">{data.files.length}</span>
+        </summary>
+        <dl className="border-rule border-t p-4">
           {data.files.map((file) => (
             <DetailRow key={file.slot} label={file.slot}>
               <Mono truncate>{file.relative_path}</Mono>
@@ -219,16 +256,7 @@ export function SensorDetailPage() {
             </DetailRow>
           ))}
         </dl>
-      </Card>
-
-      <SensorVariants
-        sensorName={name}
-        schema={data.parameter_schema}
-        needsInterface={data.needs_interface}
-      />
-      {/* The builder first: it is what somebody setting up a sensor came for,
-          and the reference below lists the same parameters a second time. */}
-      <ParameterCard sensorName={name} schema={data.parameter_schema} />
+      </details>
 
       {deploying && (
         <DeployDialog
@@ -324,6 +352,10 @@ export function ParameterCard({
   const { t } = useTranslation()
   const [values, setValues] = useState<Record<string, unknown>>({})
   const render = useRenderParameters(sensorName)
+  // Folded when a recommended line exists: most setups copy that line, or
+  // take a variant's single parameter, and never fill in twenty fields. A
+  // sensor without one has nothing to copy, so the form starts open.
+  const [formOpen, setFormOpen] = useState(!schema?.default_parameter_line)
 
   // 'internal' is deployment plumbing (--self-check would build a line whose
   // sensor never measures); 'moved' produces a line the script rejects. The
@@ -374,86 +406,101 @@ export function ParameterCard({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {fields.map((field) => (
-          <Field
-            key={field.name}
-            label={fieldLabel(t, field) + (field.required ? ' *' : '')}
-            hint={
-              [
-                fieldDescription(t, field),
-                suppliedBy.has(field.name)
-                  ? t('sensors.reference.fromVariant', {
-                      key: suppliedBy.get(field.name),
-                    })
-                  : '',
-              ]
-                .filter(Boolean)
-                .join(' · ') || undefined
-            }
-          >
-            {field.type === 'boolean' ? (
-              <input
-                type="checkbox"
-                checked={Boolean(values[field.name])}
-                onChange={(event) =>
-                  setValues({ ...values, [field.name]: event.target.checked })
-                }
-              />
-            ) : field.type === 'choice' ? (
-              <Select
-                value={String(values[field.name] ?? '')}
-                onChange={(event) =>
-                  setValues({ ...values, [field.name]: event.target.value })
-                }
-                className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
-              >
-                <option value="">—</option>
-                {field.choices?.map((choice) => (
-                  <option key={choice} value={choice}>
-                    {choice}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input
-                type={field.type === 'integer' ? 'number' : 'text'}
-                value={String(values[field.name] ?? '')}
-                min={field.minimum}
-                max={field.maximum}
-                placeholder={field.placeholder ?? String(field.default ?? '')}
-                onChange={(event) =>
-                  setValues({ ...values, [field.name]: event.target.value })
-                }
-              />
-            )}
-          </Field>
-        ))}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2">
-        {/* Secondary: the page's primary is rolling the sensor out. */}
-        <Button size="sm" icon={FileCode} onClick={() => render.mutate(values)}>
-          {t('sensors.parametersResult')}
-        </Button>
-        {missing.length > 0 && (
-          <span className="text-ink-3 text-xs">
-            {t('sensors.parametersMissing', {
-              fields: missing.map((field) => field.name).join(', '),
-            })}
-          </span>
-        )}
-      </div>
-
-      {render.data && (
-        <div className="bg-surface-2 rounded-inset mt-3 flex items-start gap-2 p-3">
-          <InlineCode className="flex-1">
-            {render.data.parameters || '—'}
-          </InlineCode>
-          <CopyButton value={render.data.parameters} />
+      <details
+        open={formOpen}
+        onToggle={(event) => setFormOpen(event.currentTarget.open)}
+        className="group"
+      >
+        <summary className="text-ink-2 hover:text-ink -mx-1 flex min-h-11 cursor-pointer list-none items-center gap-2 px-1 text-sm [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            aria-hidden
+            size={16}
+            strokeWidth={1.75}
+            className="text-ink-3 shrink-0 transition-transform group-open:rotate-90"
+          />
+          {t('sensors.parametersBuild', { count: fields.length })}
+        </summary>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          {fields.map((field) => (
+            <Field
+              key={field.name}
+              label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+              hint={
+                [
+                  fieldDescription(t, field),
+                  suppliedBy.has(field.name)
+                    ? t('sensors.reference.fromVariant', {
+                        key: suppliedBy.get(field.name),
+                      })
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || undefined
+              }
+            >
+              {field.type === 'boolean' ? (
+                <input
+                  type="checkbox"
+                  checked={Boolean(values[field.name])}
+                  onChange={(event) =>
+                    setValues({ ...values, [field.name]: event.target.checked })
+                  }
+                />
+              ) : field.type === 'choice' ? (
+                <Select
+                  value={String(values[field.name] ?? '')}
+                  onChange={(event) =>
+                    setValues({ ...values, [field.name]: event.target.value })
+                  }
+                  className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
+                >
+                  <option value="">—</option>
+                  {field.choices?.map((choice) => (
+                    <option key={choice} value={choice}>
+                      {choice}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  type={field.type === 'integer' ? 'number' : 'text'}
+                  value={String(values[field.name] ?? '')}
+                  min={field.minimum}
+                  max={field.maximum}
+                  placeholder={field.placeholder ?? String(field.default ?? '')}
+                  onChange={(event) =>
+                    setValues({ ...values, [field.name]: event.target.value })
+                  }
+                />
+              )}
+            </Field>
+          ))}
         </div>
-      )}
-      {render.error && <ErrorDetails error={render.error} />}
+
+        <div className="mt-4 flex items-center gap-2">
+          {/* Secondary: the page's primary is rolling the sensor out. */}
+          <Button size="sm" icon={FileCode} onClick={() => render.mutate(values)}>
+            {t('sensors.parametersResult')}
+          </Button>
+          {missing.length > 0 && (
+            <span className="text-ink-3 text-xs">
+              {t('sensors.parametersMissing', {
+                fields: missing.map((field) => field.name).join(', '),
+              })}
+            </span>
+          )}
+        </div>
+
+        {render.data && (
+          <div className="bg-surface-2 rounded-inset mt-3 flex items-start gap-2 p-3">
+            <InlineCode className="flex-1">
+              {render.data.parameters || '—'}
+            </InlineCode>
+            <CopyButton value={render.data.parameters} />
+          </div>
+        )}
+        {render.error && <ErrorDetails error={render.error} />}
+      </details>
 
       {fromPrtg.length > 0 && (
         <details className="mt-4">

@@ -72,7 +72,9 @@ export function DashboardPage() {
         <Banner tone="danger">{t('dashboard.notConfigured')}</Banner>
       )}
       {data.system.site.is_configured &&
-        data.system.capabilities.runtime_state === 'missing' && (
+        // Partial as well: the setup job completes what is missing, and the
+        // certificates page sends anyone with a missing certificate here.
+        ['missing', 'partial'].includes(data.system.capabilities.runtime_state) && (
           <Banner
             tone="warn"
             title={t('dashboard.setupTitle')}

@@ -98,6 +98,23 @@ describe('the narrow-screen menu', () => {
     }
   })
 
+  it('lists the accounts without a probe, and names maintenance after its page', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    wrapLayout()
+
+    await user.click(await screen.findByRole('button', { name: /Menu/ }))
+    const panel = within(document.getElementById('app-menu')!)
+    expect(panel.getByRole('link', { name: 'Accounts without a probe' })).toHaveAttribute(
+      'href',
+      '/infrastructure/credentials',
+    )
+    expect(panel.getByRole('link', { name: 'Maintenance' })).toHaveAttribute(
+      'href',
+      '/infrastructure/maintenance',
+    )
+  })
+
   it('closes once it has been used', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
@@ -154,6 +171,19 @@ describe('the job list filters', () => {
 
     await screen.findByRole('button', { name: 'Failed only' })
     expect(jobRequests).toContain('')
+  })
+
+  it('switches to the rollouts as a tab, not as one more status filter', async () => {
+    await changeLanguage('en')
+    wrapJobs('/jobs')
+
+    const tab = await screen.findByRole('tab', { name: 'Rollouts' })
+    expect(tab).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: 'All jobs' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByRole('button', { name: 'Rollouts' })).not.toBeInTheDocument()
   })
 
   it('puts the filter in the address, so a number elsewhere can link to it', async () => {

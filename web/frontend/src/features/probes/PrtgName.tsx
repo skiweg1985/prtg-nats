@@ -80,7 +80,7 @@ export function PrtgNameRow({ probeId }: { probeId: string }) {
       {linking && <PrtgLinkDialog probeId={probeId} onClose={() => setLinking(false)} />}
       {confirmUnlink && (
         <ConfirmDialog
-          title={t('confirm.title')}
+          title={t('probes.prtgName.unlinkTitle')}
           body={t('probes.prtgName.unlinkConfirm', { id: data?.object_id ?? '' })}
           confirmLabel={t('probes.prtgName.unlink')}
           cancelLabel={t('common.cancel')}
