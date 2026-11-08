@@ -1,7 +1,7 @@
 ---
 title: Command reference
 role: operator
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Command reference
@@ -64,7 +64,8 @@ Unchanged, and staying: these need an interactive terminal.
 | `install-mpp [ADMIN@HOST] [--nats-user USER]` | install or reconfigure a probe over SSH |
 | `probe enroll [USER] ADMIN@HOST [--reenroll]` | enroll a probe, or renew the enrollment |
 | `probe list/show/status/configure/install-ca/adopt/unenroll` | manage enrolled probes; `list` and `show` name every management route in the order it is tried, and show the name the probe announced at enrollment - PRTG may call it something else, the probe id identifies it |
-| `probe helper-update USER\|--all` | renew the management helper on the probe |
+| `probe helper-update USER\|--all` | renew the management helper on the probe; a probe without a return channel certificate gets one, one with a certificate gets its service rewritten |
+| `probe return-channel USER [--if-missing]` | issue the probe's return channel certificate and install its service; `--if-missing` keeps a certificate the probe already has |
 | `sensor list/show/deploy/prepare/status/recover/remove/reserve/release/profile` | manage sensors from the shell |
 | `iperf-server install/list/show/deploy/revoke/forget` | measurement endpoints |
 | `overlay status/enable/disable/add/remove/mode/show` | the WireGuard overlay |
@@ -90,6 +91,26 @@ the helper answers `already-committed`, the command keeps the committed sensor
 and records the central assignment that the interrupted deployment did not
 reach. The operational procedure is in
 [Deploy sensors](../guides/deploy-sensors.md#recover-an-interrupted-transaction).
+
+### The return channel
+
+Probes deliver their sensor logs over a channel of their own, authenticated
+with a client certificate from the probe CA - see
+[ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md).
+`install-mpp` issues the certificate right after it installs the CA, and
+`probe helper-update` catches up every probe enrolled before the channel
+existed. Both run the same step the web platform's enrollment and helper
+update jobs run, through `python -m app.ops return-channel`.
+
+```bash
+sudo ./prtg-nats probe return-channel mpp-berlin-01
+```
+
+Without `--if-missing` the probe always gets a new certificate, which is how
+to replace one by hand. A failure leaves the rollout alone and says so: the
+probe still measures and reports to PRTG, only its sensor logs wait. The
+platform's repair job, **Repair** on the probe page, does the same from the
+interface.
 
 ### The overlay
 
@@ -239,6 +260,7 @@ end-to-end test uses.
 | `verify [--offline]` | the stack checks, ending in an authenticated NATS login |
 | `renew-certificate` | renew the server certificate and restart NATS |
 | `backup` | consistent JetStream backup with checksum |
+| `return-channel USER [--if-missing]` | issue a probe's return channel certificate; what `probe return-channel` calls |
 
 The delegation needs the backend installed once:
 

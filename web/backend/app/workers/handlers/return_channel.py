@@ -8,21 +8,54 @@ certificate cross the management channel.
 
 from __future__ import annotations
 
+from typing import Any, Protocol
+
 from cryptography import x509
 
+from app.core.config import Settings
 from app.infrastructure.pki import Pki
-from app.infrastructure.probe_helper import HelperResponse, ProbeConnection
+from app.infrastructure.probe_helper import (
+    HelperResponse,
+    ProbeConnection,
+    ProbeHelperClient,
+)
 from app.infrastructure.probe_helper.protocol import (
     RETURN_CHANNEL_HELPER_VERSION,
     normalise_optional,
 )
-from app.workers.context import JobContext
+from app.infrastructure.runtime_files import RuntimeFileStore
 
 STEP = "install_return_channel"
 
 
+class ChannelContext(Protocol):
+    """What the step needs from its caller.
+
+    A job context satisfies it, and so does the recovery command line, which
+    runs the same step for the shell enrolment and helper update without a
+    job behind it - one implementation of how a probe gets its certificate.
+    """
+
+    @property
+    def settings(self) -> Settings: ...
+
+    @property
+    def runtime(self) -> RuntimeFileStore: ...
+
+    @property
+    def helper(self) -> ProbeHelperClient: ...
+
+    async def log(
+        self,
+        code: str,
+        *,
+        params: dict[str, Any] | None = None,
+        target: str | None = None,
+    ) -> None: ...
+
+
 async def install_return_channel(
-    context: JobContext, username: str, connection: ProbeConnection
+    context: ChannelContext, username: str, connection: ProbeConnection
 ) -> str:
     """Issue a certificate for the probe and install it. Returns its expiry.
 
@@ -58,7 +91,7 @@ async def install_return_channel(
 
 
 async def install_if_missing(
-    context: JobContext,
+    context: ChannelContext,
     username: str,
     connection: ProbeConnection,
     info: HelperResponse,

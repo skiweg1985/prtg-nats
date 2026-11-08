@@ -778,9 +778,9 @@ Content-Type: application/json
       "job": "a1b2c3d4e5f6",
       "time": "2026-11-08T09:15:00Z",
       "result": "error",
-      "code": "eap_failure",
+      "code": "auth-failed-eap",
       "summary": "EAP authentication failed",
-      "body": {"ssid": "Example-Corp", "supplicant_lines": ["…"]}
+      "body": {"ssid": "Example-Corp", "supplicant": ["…"]}
     }
   ],
   "buffer": {"bytes": 18432, "limit": 20971520}

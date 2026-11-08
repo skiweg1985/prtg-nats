@@ -1180,6 +1180,13 @@ install_remote_mpp() {
   if [[ "${enroll_probe}" == "true" && "${config_mode}" == "generate" ]]; then
     printf '\nApplying the generated MPP configuration through the restricted channel...\n'
     run_internal manage-probes.sh install-ca "${selected_user}"
+    # After the CA, in the order the enrollment job uses: the service verifies
+    # the platform with the CA that was just installed. A probe without it
+    # still measures and reports to PRTG; only its sensor logs wait, so this
+    # warns rather than stopping the rollout halfway.
+    run_internal manage-probes.sh return-channel "${selected_user}" ||
+      printf 'WARNING: the return channel is not installed on %s; run ./prtg-nats probe return-channel %s\n' \
+        "${selected_user}" "${selected_user}" >&2
     if [[ -n "${probe_name}" ]]; then
       run_internal manage-probes.sh configure "${selected_user}" \
         --probe-name "${probe_name}"

@@ -17,6 +17,7 @@ Usage:
   ./prtg-nats probe configure USER [--probe-name NAME]
   ./prtg-nats probe install-ca USER
   ./prtg-nats probe helper-update USER|--all
+  ./prtg-nats probe return-channel USER [--if-missing]
   ./prtg-nats probe adopt USER
   ./prtg-nats probe apply USER
   ./prtg-nats probe unenroll USER [--remove-access] [--remove-sensors]
@@ -34,8 +35,12 @@ case "${1:-}" in
 esac
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# ops.sh needs it to find runtime-dir.sh. Unset, every run_ops here failed
+# outside the API container - unnoticed while the only caller was the
+# best-effort overlay refresh after an unenrollment.
+LIBEXEC_DIR="${SCRIPT_DIR}"
 # shellcheck source=ops.sh
-source "${SCRIPT_DIR}/ops.sh"
+source "${LIBEXEC_DIR}/ops.sh"
 
 require_command ssh
 require_command scp
@@ -594,7 +599,27 @@ update_probe_helper() {
   {
     printf 'helper-update\t%s\n' "${signature}"
     cat "${helper}"
-  } | managed_ssh "${username}"
+  } | managed_ssh "${username}" || return
+  # As in the web platform's helper update job: every probe enrolled before
+  # the return channel passes through here, so this is where it gets one. A
+  # probe that already has a certificate keeps it and only has its service
+  # rewritten by the helper that was just installed.
+  install_return_channel "${username}" --if-missing ||
+    printf 'WARNING: the helper is updated, but the return channel on %s is not; run ./prtg-nats probe return-channel %s\n' \
+      "${username}" "${username}" >&2
+}
+
+# The return channel (ADR 0013): a client certificate issued by the probe CA,
+# and the service that delivers sensor logs with it. The same step the
+# enrollment and helper update jobs run, reached through app.ops rather than
+# copied here - the CSR, the signing and the install request stay in one place.
+install_return_channel() {
+  local username="$1"
+  shift
+
+  [[ -f "$(probe_path "${username}")" ]] ||
+    die "Probe is not enrolled: ${username}"
+  run_ops return-channel "${username}" "$@"
 }
 
 # One failure does not stop the fleet: a probe that is down should not keep
@@ -1028,6 +1053,14 @@ case "${command_name}" in
       require_username "$1"
       update_probe_helper "$1"
     fi
+    ;;
+  return-channel)
+    require_username "${1:-}"
+    case "$#:${2:-}" in
+      1: | 2:--if-missing) ;;
+      *) die "Usage: ./prtg-nats probe return-channel USER [--if-missing]" ;;
+    esac
+    install_return_channel "$@"
     ;;
   adopt)
     require_username "${1:-}"

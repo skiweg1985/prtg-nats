@@ -15,12 +15,14 @@ import argparse
 import asyncio
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.core.config import Settings
     from app.infrastructure.probe_helper import ProbeHelperClient
+    from app.infrastructure.runtime_files import RuntimeFileStore
 
 
 def _fail(message: str) -> None:
@@ -303,6 +305,60 @@ async def _cmd_overlay(args: argparse.Namespace) -> None:
         return
 
 
+@dataclass(slots=True)
+class _ChannelCommand:
+    """The return channel step's context outside a job.
+
+    The step logs through job message codes; here they go to the terminal as
+    the code and its parameters, which is all the shell around it needs.
+    """
+
+    settings: Settings
+    runtime: RuntimeFileStore
+    helper: ProbeHelperClient
+
+    async def log(
+        self,
+        code: str,
+        *,
+        params: dict[str, Any] | None = None,
+        target: str | None = None,
+    ) -> None:
+        details = " ".join(f"{key}={value}" for key, value in (params or {}).items())
+        print(f"{code.removeprefix('jobs.')} {details}".rstrip())
+
+
+async def _cmd_return_channel(args: argparse.Namespace) -> None:
+    """Give one probe its return channel certificate and service (ADR 0013).
+
+    The step the enrolment and helper update jobs run, for the same two paths
+    in the shell tooling.
+    """
+    from app.infrastructure.docker import DockerAdapter
+    from app.infrastructure.probe_helper import ProbeConnection
+    from app.infrastructure.runtime_files import RuntimeFileStore
+    from app.services.provisioning import ProvisioningService
+    from app.workers.handlers import return_channel
+
+    settings = _settings()
+    runtime = RuntimeFileStore(settings)
+    if args.username not in runtime.list_probe_usernames():
+        _fail(f"{args.username} is not enrolled")
+    # The API creates the probe CA when it starts; an installation run from
+    # the shell alone may never have started it.
+    provisioning = ProvisioningService(settings, DockerAdapter(settings.docker_socket))
+    provisioning.ensure_probe_ca()
+    context = _ChannelCommand(settings, runtime, _helper_client(settings))
+    connection = ProbeConnection.for_probe(runtime.read_probe(args.username))
+    if args.if_missing:
+        info = await context.helper.probe_info(connection)
+        await return_channel.install_if_missing(
+            context, args.username, connection, info
+        )
+    else:
+        await return_channel.install_return_channel(context, args.username, connection)
+
+
 def _interface_state(up: bool | None) -> str:
     """Three answers, because "cannot tell" is not "down"."""
     if up is None:
@@ -478,6 +534,17 @@ def main(argv: list[str] | None = None) -> None:
     tool_policy.add_argument("expected_version")
     tool_policy.add_argument("expected_fallback_minimum")
 
+    channel = commands.add_parser(
+        "return-channel",
+        help="issue a probe's return channel certificate and install its service",
+    )
+    channel.add_argument("username")
+    channel.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="keep a certificate the probe already has; only refresh its service",
+    )
+
     user = commands.add_parser("user", help="manage NATS accounts")
     user_actions = user.add_subparsers(dest="action", required=True)
     user_actions.add_parser("list")
@@ -510,6 +577,7 @@ def main(argv: list[str] | None = None) -> None:
         "tool-policy": _cmd_tool_policy,
         "user": _cmd_user,
         "overlay": _cmd_overlay,
+        "return-channel": _cmd_return_channel,
     }
     try:
         asyncio.run(handlers[args.command](args))

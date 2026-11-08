@@ -138,6 +138,10 @@ port only completes a TLS handshake with a probe's client certificate and
 serves nothing of the interface. The full list of ports is in
 [Installing the web platform](../web/install.md#network-access).
 
+Probes enrolled before the return channel existed have no client certificate
+yet. They get one with their next helper update - in the interface, or for
+the whole fleet with `sudo ./prtg-nats probe helper-update --all`.
+
 ## Monitoring the stack
 
 Container health checks, the PRTG sensors that watch NATS and JetStream, the
@@ -487,7 +491,10 @@ should be tested before they reach real probes:
 The second test rolls out a complete probe in throwaway containers and covers
 exactly the failures that only show up against the real package - file
 permissions for the service user, say, or a package that still counts as
-installed after `apt-get remove`.
+installed after `apt-get remove`. It also runs the API and the proxy beside
+NATS and sends a sensor log record through the return channel, so the channel
+service's sandbox is checked under a real systemd and the delivery through the
+client certificate check on the proxy is exercised end to end.
 
 An image update is its own reviewed change. Do not bump version and digest in
 `compose.yaml` to `latest` unchecked.
