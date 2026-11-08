@@ -15,7 +15,7 @@ STATE_DIR="${1:-${PRTG_NATS_DEMO_STATE:-/tmp/prtg-nats-guide-demo}}"
 NATS_CONTAINER="prtg-nats-guide-demo-nats"
 # The image compose.yaml pins, so the demo runs the server version the stack
 # ships.
-NATS_IMAGE="nats:2.10.29-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927"
+NATS_IMAGE="nats:2.15.2-alpine@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'run.sh: %s\n' "$*" >&2; exit 1; }
