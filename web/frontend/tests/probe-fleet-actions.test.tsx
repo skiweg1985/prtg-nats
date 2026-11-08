@@ -223,6 +223,33 @@ describe('acting on a selection of probes', () => {
     expect(screen.getByText('mpp-munich-01')).toBeInTheDocument()
   })
 
+  it('narrows to the probes still missing in PRTG, the way the dashboard counts them', async () => {
+    await changeLanguage('en')
+    server.use(
+      http.get('/api/v1/probes', () =>
+        HttpResponse.json([
+          probe({ id: 'P1', nats_username: 'mpp-berlin-01', prtg_registered: true }),
+          probe({ id: 'P2', nats_username: 'mpp-hamburg-01', prtg_registered: false }),
+          // Still enrolling: PRTG is not its problem yet.
+          probe({
+            id: 'P3',
+            nats_username: 'mpp-munich-01',
+            status: 'pending',
+            prtg_registered: false,
+          }),
+        ]),
+      ),
+    )
+    const user = userEvent.setup()
+    wrap()
+
+    await screen.findByText('mpp-munich-01')
+    await user.click(screen.getByRole('button', { name: 'Not in PRTG only' }))
+    expect(screen.getByText('mpp-hamburg-01')).toBeInTheDocument()
+    expect(screen.queryByText('mpp-berlin-01')).toBeNull()
+    expect(screen.queryByText('mpp-munich-01')).toBeNull()
+  })
+
   it('does not call a filtered-out fleet an empty one', async () => {
     await changeLanguage('en')
     // A fleet where nothing has drifted - so the filter matches nothing while

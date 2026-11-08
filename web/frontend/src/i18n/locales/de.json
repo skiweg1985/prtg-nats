@@ -93,10 +93,8 @@
     "withDeviations": "Mit Abweichungen",
     "failedJobs": "Fehlgeschlagene Jobs (24 h)",
     "runningJobs": "Laufende Jobs",
-    "expiringCertificates": "Bald ablaufende Zertifikate",
     "recentJobs": "Letzte Jobs",
     "recentActivity": "Letzte administrative Aktionen",
-    "activeWarnings": "Aktive Warnungen",
     "connections": "Verbindungen",
     "streams": "Streams",
     "messages": "Nachrichten",
@@ -108,8 +106,29 @@
     "setupTitle": "Diese Installation ist noch nicht initialisiert",
     "setupHint": "Standortdaten sind vorhanden, aber Zertifikate, Zugangsdaten und die Serverkonfiguration wurden noch nicht erzeugt. Die Initialisierung läuft als Job und dauert unter einer Minute.",
     "setupAction": "Jetzt initialisieren",
-    "pendingEnrolled": "Anmeldung offen",
-    "prtgMissing": "PRTG fehlt"
+    "attention": {
+      "title": "Braucht Aufmerksamkeit",
+      "unreachable_one": "Eine Probe antwortet nicht",
+      "unreachable_other": "{{count}} Probes antworten nicht",
+      "degraded_one": "Eine Probe ist beeinträchtigt",
+      "degraded_other": "{{count}} Probes sind beeinträchtigt",
+      "channelSilent_one": "Eine Probe liefert nichts mehr über den Rückkanal",
+      "channelSilent_other": "{{count}} Probes liefern nichts mehr über den Rückkanal",
+      "failedJobs_one": "Ein Job ist in den letzten 24 Stunden fehlgeschlagen",
+      "failedJobs_other": "{{count}} Jobs sind in den letzten 24 Stunden fehlgeschlagen",
+      "certificatesExpired_one": "Ein Zertifikat ist abgelaufen",
+      "certificatesExpired_other": "{{count}} Zertifikate sind abgelaufen",
+      "certificatesExpiring_one": "Ein Zertifikat läuft bald ab",
+      "certificatesExpiring_other": "{{count}} Zertifikate laufen bald ab",
+      "certificatesMismatched_one": "Ein Zertifikat passt nicht zu seinem Schlüssel",
+      "certificatesMismatched_other": "{{count}} Zertifikate passen nicht zu ihrem Schlüssel",
+      "pending_one": "Bei einer Probe ist die Anmeldung offen",
+      "pending_other": "Bei {{count}} Probes ist die Anmeldung offen",
+      "prtgMissing_one": "Eine Probe ist in PRTG noch nicht eingetragen",
+      "prtgMissing_other": "{{count}} Probes sind in PRTG noch nicht eingetragen",
+      "more_one": "und eine weitere",
+      "more_other": "und {{count}} weitere"
+    }
   },
   "probes": {
     "title": "Probes",
@@ -119,6 +138,7 @@
     "filters": {
       "helperOutdated": "Nur Helper veraltet",
       "deviations": "Nur mit Abweichungen",
+      "prtgMissing": "Nur nicht in PRTG",
       "empty": "Keine Probe passt zu diesen Filtern."
     },
     "fleet": {
