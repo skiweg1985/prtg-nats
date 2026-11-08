@@ -268,7 +268,7 @@ describe('IperfPage', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: /register a foreign one/i }))
+    await user.click(await screen.findByRole('button', { name: /add an external endpoint/i }))
 
     // Collapsed to start with: whoever already has the password and the key
     // should not have to scroll past a shell script to enter them.
@@ -299,7 +299,7 @@ describe('IperfPage', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByRole('button', { name: /register a foreign one/i }))
+    await user.click(await screen.findByRole('button', { name: /add an external endpoint/i }))
     // The credential fields follow the user name: an endpoint measuring
     // unauthenticated needs neither.
     await user.type(screen.getByLabelText(/measurement user/i), 'prtg-probe')

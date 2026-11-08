@@ -7,6 +7,7 @@ import type { IperfEndpoint } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Banner, Button, Dialog } from '@/components/ui/primitives'
+import { useProbeNames } from '@/features/probes/probeName'
 
 /**
  * Which probes measure against this endpoint.
@@ -31,6 +32,7 @@ export function IperfProbesDialog({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { nameOfProbe } = useProbeNames()
   const navigate = useNavigate()
   const { data: probes, isLoading } = useProbes()
   const deploy = useEndpointDeployment('deploy')
@@ -91,7 +93,7 @@ export function IperfProbesDialog({
                     onChange={() => toggle(probe.nats_username)}
                   />
                   <span className="text-ink min-w-0 flex-1 truncate">
-                    {probe.display_name || probe.nats_username}
+                    {nameOfProbe(probe)}
                   </span>
                   {holding.has(probe.nats_username) && (
                     <Badge tone="ok">{t('infrastructure.iperf.probeHolds')}</Badge>

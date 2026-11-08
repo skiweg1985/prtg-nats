@@ -20,6 +20,7 @@ import { PermissionGate } from '@/app/providers'
 import { Button } from '@/components/ui/primitives'
 import { CertificateStatusBadge, JobStatusBadge } from '@/components/ui/status'
 import { formatBytes, formatNumber, formatRelative } from '@/utils/format'
+import { useProbeNames } from '@/features/probes/probeName'
 
 /**
  * One question: is the platform operational, and is there anything to do?
@@ -372,14 +373,18 @@ function JobCard({ dashboard }: { dashboard: Dashboard }) {
 
 function AlertRow({ alert }: { alert: Alert }) {
   const { t } = useTranslation()
+  // A probe alert carries the NATS account; the warning names the probe the
+  // way the list does.
+  const { nameOf } = useProbeNames()
+  const label = alert.object_type === 'probe' ? nameOf(alert.object_ref) : alert.object_label
   return (
     <li className="border-rule flex items-center gap-3 border-b px-4 py-2 last:border-0">
       <Dot tone={alert.severity === 'critical' ? 'danger' : 'warn'} />
       <span className="text-ink min-w-0 flex-1 truncate text-sm">
         {t(`alerts.${alert.kind}`, {
           ...alert.params,
-          probe: alert.object_label,
-          certificate: alert.object_label,
+          probe: label,
+          certificate: label,
           defaultValue: alert.kind,
         })}
       </span>

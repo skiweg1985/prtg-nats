@@ -104,10 +104,21 @@ describe('ParameterCard', () => {
     const { container } = wrap(
       <ParameterCard
         sensorName="aruba-uplink"
-        schema={{ ...schema, default_parameter_line: '' }}
+        schema={{ ...schema, default_parameter_line: '', settings: [] }}
       />,
     )
     expect(container.querySelector('details')?.open).toBe(true)
+  })
+
+  it('folds the form away behind variants, which replace most of it', () => {
+    const { container } = wrap(
+      <ParameterCard
+        sensorName="wlan-auth"
+        schema={{ ...schema, default_parameter_line: '' }}
+      />,
+    )
+    expect(container.querySelector('details')?.open).toBe(false)
+    expect(screen.getByText(/PRTG needs only its name/)).toBeInTheDocument()
   })
 
   it('renders nothing at all for a sensor without parameters', () => {

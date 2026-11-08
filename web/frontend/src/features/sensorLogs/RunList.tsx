@@ -141,10 +141,16 @@ export function RunTable({
 }
 
 function RunSummary({ run }: { run: SensorLogSummary }) {
+  const codeLabel = useCodeLabel()
+  const words = codeLabel(run.sensor, run.code)
   return (
     <>
-      <span>{run.summary || '—'}</span>
-      {run.code && <Mono className="text-ink-3 ml-2">{run.code}</Mono>}
+      <span>{run.summary || words || '—'}</span>
+      {run.code && (
+        <span className="ml-2" title={words ?? undefined}>
+          <Mono className="text-ink-3">{run.code}</Mono>
+        </span>
+      )}
     </>
   )
 }
@@ -261,6 +267,8 @@ type Unit = 'ms' | 'mhz' | 'dbm'
 interface FieldInfo {
   label: string
   unit?: Unit
+  /** Words for the fixed values a field takes; anything else stays raw. */
+  values?: Record<string, string>
 }
 
 /**
@@ -276,16 +284,36 @@ const FIELDS: Record<string, Record<string, FieldInfo>> = {
     ssid: { label: 'sensorLogs.wlanAuth.ssid' },
     auth: { label: 'sensorLogs.wlanAuth.auth' },
     interface: { label: 'sensorLogs.wlanAuth.interface' },
-    stage: { label: 'sensorLogs.wlanAuth.stage' },
+    stage: {
+      label: 'sensorLogs.wlanAuth.stage',
+      values: {
+        assoc: 'sensorLogs.wlanAuth.values.stage.assoc',
+        dhcp: 'sensorLogs.wlanAuth.values.stage.dhcp',
+      },
+    },
     identity: { label: 'sensorLogs.wlanAuth.identity' },
     profile: { label: 'sensorLogs.wlanAuth.profile' },
     bssid: { label: 'sensorLogs.wlanAuth.bssid' },
     client_mac: { label: 'sensorLogs.wlanAuth.clientMac' },
-    client_mac_kind: { label: 'sensorLogs.wlanAuth.clientMacKind' },
+    client_mac_kind: {
+      label: 'sensorLogs.wlanAuth.clientMacKind',
+      values: {
+        auto: 'sensorLogs.wlanAuth.values.clientMacKind.auto',
+        permanent: 'sensorLogs.wlanAuth.values.clientMacKind.permanent',
+        fixed: 'sensorLogs.wlanAuth.values.clientMacKind.fixed',
+      },
+    },
     ip_address: { label: 'sensorLogs.wlanAuth.ipAddress' },
     dhcp_server: { label: 'sensorLogs.wlanAuth.dhcpServer' },
     gateway: { label: 'sensorLogs.wlanAuth.gateway' },
-    gateway_kind: { label: 'sensorLogs.wlanAuth.gatewayKind' },
+    gateway_kind: {
+      label: 'sensorLogs.wlanAuth.gatewayKind',
+      values: {
+        gateway: 'sensorLogs.wlanAuth.values.gatewayKind.gateway',
+        router: 'sensorLogs.wlanAuth.values.gatewayKind.router',
+        'dhcp server': 'sensorLogs.wlanAuth.values.gatewayKind.dhcpServer',
+      },
+    },
     frequency_mhz: { label: 'sensorLogs.wlanAuth.frequency', unit: 'mhz' },
     signal_dbm: { label: 'sensorLogs.wlanAuth.signal', unit: 'dbm' },
     timings: { label: 'sensorLogs.wlanAuth.timings' },
@@ -298,6 +326,57 @@ const FIELDS: Record<string, Record<string, FieldInfo>> = {
     dhcp: { label: 'sensorLogs.wlanAuth.dhcp' },
     events: { label: 'sensorLogs.wlanAuth.events' },
   },
+}
+
+/**
+ * Words for the result codes of the shipped sensors, from their READMEs.
+ * The raw code stays beside the words: it is what the sensor's own channel
+ * and documentation use, and what a colleague will search for.
+ */
+const CODES: Record<string, Record<string, string>> = {
+  'wlan-auth': {
+    'ok': 'sensorLogs.wlanAuth.codes.ok',
+    'assoc-timeout': 'sensorLogs.wlanAuth.codes.assocTimeout',
+    'auth-failed-psk': 'sensorLogs.wlanAuth.codes.authFailedPsk',
+    'auth-failed-eap': 'sensorLogs.wlanAuth.codes.authFailedEap',
+    'server-cert-rejected': 'sensorLogs.wlanAuth.codes.serverCertRejected',
+    'auth-rejected': 'sensorLogs.wlanAuth.codes.authRejected',
+    'assoc-rejected': 'sensorLogs.wlanAuth.codes.assocRejected',
+    'ssid-not-found': 'sensorLogs.wlanAuth.codes.ssidNotFound',
+    'dhcp-timeout': 'sensorLogs.wlanAuth.codes.dhcpTimeout',
+    'auth-timeout': 'sensorLogs.wlanAuth.codes.authTimeout',
+    'assoc-lost': 'sensorLogs.wlanAuth.codes.assocLost',
+    'not-measured': 'sensorLogs.wlanAuth.codes.notMeasured',
+    'result-stale': 'sensorLogs.wlanAuth.codes.resultStale',
+    'max-age-too-low': 'sensorLogs.wlanAuth.codes.maxAgeTooLow',
+    'gateway-unreachable': 'sensorLogs.wlanAuth.codes.gatewayUnreachable',
+    'iface-missing': 'sensorLogs.wlanAuth.codes.ifaceMissing',
+    'iface-down': 'sensorLogs.wlanAuth.codes.ifaceDown',
+    'iface-busy': 'sensorLogs.wlanAuth.codes.ifaceBusy',
+    'iface-blocked': 'sensorLogs.wlanAuth.codes.ifaceBlocked',
+    'iface-not-wireless': 'sensorLogs.wlanAuth.codes.ifaceNotWireless',
+    'iface-not-reserved': 'sensorLogs.wlanAuth.codes.ifaceNotReserved',
+    'iface-protected': 'sensorLogs.wlanAuth.codes.ifaceProtected',
+    'mac-not-settable': 'sensorLogs.wlanAuth.codes.macNotSettable',
+    'dhcp-client-broken': 'sensorLogs.wlanAuth.codes.dhcpClientBroken',
+    'profile-missing': 'sensorLogs.wlanAuth.codes.profileMissing',
+    'file-missing': 'sensorLogs.wlanAuth.codes.fileMissing',
+    'tool-missing': 'sensorLogs.wlanAuth.codes.toolMissing',
+    'ping-missing': 'sensorLogs.wlanAuth.codes.pingMissing',
+    'no-privileges': 'sensorLogs.wlanAuth.codes.noPrivileges',
+    'too-many-jobs': 'sensorLogs.wlanAuth.codes.tooManyJobs',
+    'bad-request': 'sensorLogs.wlanAuth.codes.badRequest',
+    'internal-error': 'sensorLogs.wlanAuth.codes.internalError',
+  },
+}
+
+/** The words for a run's result code, or null where there are none. */
+export function useCodeLabel(): (sensor: string, code: string | null | undefined) => string | null {
+  const { t } = useTranslation()
+  return (sensor, code) => {
+    const key = code ? CODES[sensor]?.[code] : undefined
+    return key ? t(key) : null
+  }
 }
 
 /** How a field is shown: its words, if known, and its value with its unit. */
@@ -314,7 +393,10 @@ function useFields(sensor: string | undefined): (key: string) => Field {
     const info = fields[key] as FieldInfo | undefined
     return {
       label: info ? t(info.label) : null,
-      value: (value) => withUnit(value, info?.unit),
+      value: (value) => {
+        const word = typeof value === 'string' ? info?.values?.[value] : undefined
+        return word ? t(word) : withUnit(value, info?.unit)
+      },
     }
   }
 }
@@ -342,6 +424,12 @@ function isLines(value: unknown): value is string[] {
 
 function isGroup(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isEmptyBlock(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length === 0
+  if (isGroup(value)) return Object.keys(value).length === 0
+  return typeof value === 'string' && value.includes('\n') && value.trim() === ''
 }
 
 function show(value: unknown): string {
@@ -378,7 +466,9 @@ export function RecordBody({
   const { t } = useTranslation()
   const field = useFields(sensor)
   const label = useLabel(sensor)
-  const entries = Object.entries(body)
+  // An empty transcript or an empty group is a heading over nothing - a run
+  // that stopped before DHCP has no DHCP output to show.
+  const entries = Object.entries(body).filter(([, value]) => !isEmptyBlock(value))
   const scalars = entries.filter(([, value]) => isScalar(value))
   const groups = entries.filter(
     (entry): entry is [string, Record<string, unknown>] => isGroup(entry[1]),

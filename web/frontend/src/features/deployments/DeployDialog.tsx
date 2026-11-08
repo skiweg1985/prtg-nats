@@ -22,6 +22,7 @@ import {
   Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { useProbeNames } from '@/features/probes/probeName'
 
 /**
  * Start a rollout.
@@ -45,6 +46,7 @@ export function DeployDialog({
   onDone?: () => void
 }) {
   const { t } = useTranslation()
+  const { nameOfProbe } = useProbeNames()
   const navigate = useNavigate()
   const { data: sensors } = useSensors()
   const { data: probes } = useProbes()
@@ -205,7 +207,7 @@ export function DeployDialog({
                   }
                 />
                 <span className="min-w-0 flex-1 truncate">
-                  {probe.display_name ?? probe.nats_username}
+                  {nameOfProbe(probe)}
                 </span>
                 {(() => {
                   const entry = installations.get(probe.nats_username)

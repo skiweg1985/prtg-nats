@@ -148,7 +148,12 @@ describe('a probe that does not answer', () => {
     await changeLanguage('en')
     serve(
       detail({
-        summary: { status: 'unreachable', service: 'unknown', ca_state: 'unknown' },
+        summary: {
+          status: 'unreachable',
+          service: 'unknown',
+          ca_state: 'unknown',
+          nats_connection: 'disconnected',
+        },
         observed: {
           reachable: false,
           service: 'unknown',
@@ -177,6 +182,25 @@ describe('a probe that does not answer', () => {
     expect(await screen.findByText(/timed out/)).toBeInTheDocument()
   })
 
+  it('says what still works when NATS has it connected', async () => {
+    await changeLanguage('en')
+    serve(
+      detail({
+        summary: { status: 'unreachable', service: 'unknown', ca_state: 'unknown' },
+        observed: { reachable: false, service: 'unknown' },
+      }),
+    )
+    wrap()
+
+    // Management lost the probe, NATS did not: it still measures, and the
+    // banner leads with that instead of reading like an outage.
+    const banner = (await screen.findByText('Management cannot reach the probe')).closest(
+      '[role="status"]',
+    ) as HTMLElement
+    expect(within(banner).getByText(/connected over NATS and keeps measuring/)).toBeInTheDocument()
+    expect(screen.queryByText('The probe does not answer')).not.toBeInTheDocument()
+  })
+
   it('says when it has never answered at all', async () => {
     await changeLanguage('de')
     serve(
@@ -189,6 +213,34 @@ describe('a probe that does not answer', () => {
 
     expect(await screen.findByText(/Sie hat noch nie geantwortet/)).toBeInTheDocument()
     expect(screen.getByText(/unter 192\.0\.2\.10 erreichbar/)).toBeInTheDocument()
+  })
+})
+
+describe('a finding the interface has no words for', () => {
+  it('says so in a sentence and keeps the raw kind as the detail', async () => {
+    await changeLanguage('en')
+    serve(
+      detail({
+        deviations: [
+          {
+            kind: 'firmware_drifted',
+            severity: 'warning',
+            object_type: 'probe',
+            object_ref: '',
+            expected: null,
+            actual: null,
+            remediation: 'probe.flash_firmware',
+            params: {},
+          },
+        ],
+      }),
+    )
+    wrap('/probes/P1?tab=deviations')
+
+    expect(await screen.findByText('The probe differs from the desired state')).toBeInTheDocument()
+    expect(screen.getByText('firmware_drifted')).toBeInTheDocument()
+    // A remediation without words is left out rather than shown raw.
+    expect(screen.queryByText('probe.flash_firmware')).not.toBeInTheDocument()
   })
 })
 
