@@ -73,6 +73,8 @@
     "setupTitle": "Create the first administrator",
     "setupIntro": "No account exists yet. The account you create here administers the platform.",
     "displayName": "Display name",
+    "setupCode": "Setup code",
+    "setupCodeHint": "Printed at the end of \"sudo ./prtg-nats setup\". \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
     "createAccount": "Create account",
     "passwordHint": "At least 12 characters. Length matters more than symbols.",
     "developmentBanner": "Development authentication is active. Every request runs as an administrator without signing in.",
@@ -1341,6 +1343,7 @@
       "permission_denied": "This action needs the permission \"{{permission}}\".",
       "setup_required": "No account exists yet. Create the first administrator.",
       "probe_not_enrolled": "This probe is not enrolled on this platform.",
+      "setup_code_invalid": "The setup code is wrong or has expired. \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
       "password_change_required": "Change your password before you continue."
     },
     "probe": {

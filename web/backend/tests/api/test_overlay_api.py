@@ -21,7 +21,7 @@ from app.infrastructure.overlay import (
     generate_keypair,
 )
 from app.infrastructure.runtime_files import RuntimeFileStore
-from tests.conftest import write_probe_inventory
+from tests.conftest import SETUP_CODE, write_probe_inventory
 
 PASSWORD = "correct-horse-battery"
 PROBE = "mpp-berlin-01"
@@ -29,7 +29,8 @@ PROBE = "mpp-berlin-01"
 
 async def sign_in(client: AsyncClient, role: RoleName = RoleName.ADMINISTRATOR) -> None:
     first = await client.post(
-        "/api/v1/auth/setup", json={"username": "admin", "password": PASSWORD}
+        "/api/v1/auth/setup",
+        json={"setup_code": SETUP_CODE, "username": "admin", "password": PASSWORD},
     )
     assert first.status_code == 201, first.text
     if role is RoleName.ADMINISTRATOR:

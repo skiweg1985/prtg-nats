@@ -153,10 +153,17 @@ async def seed(
     try:
         # --- Day one: the installation is set up -----------------------------
         with timeline.at(21, 9, 12):
+            # What `prtg-nats setup` prints on the host. The demo shares the
+            # API's process, so it issues the code the same way.
+            from app.core.config import get_settings
+            from app.services.setup_code import SetupCodeStore
+
+            setup_code = SetupCodeStore(get_settings()).issue()
             await admin.call(
                 "POST",
                 "/auth/setup",
                 {
+                    "setup_code": setup_code,
                     "username": admin_account.username,
                     "password": admin_account.password,
                     "display_name": admin_account.display_name,

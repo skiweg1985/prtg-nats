@@ -20,10 +20,15 @@ from app.api.schemas.auth import (
     PrincipalOut,
     SetupIn,
 )
-from app.core.errors import AuthenticationRequiredError, SetupRequiredError
+from app.core.errors import (
+    AuthenticationRequiredError,
+    SetupCodeInvalidError,
+    SetupRequiredError,
+)
 from app.domain.enums import AuditResult
 from app.persistence.models.identity import WebUser
 from app.services.auth import AuthService, Principal
+from app.services.setup_code import SetupCodeStore
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -76,29 +81,47 @@ async def initial_setup(
     request: Request,
     response: Response,
     auth: AuthDep,
+    db: DbSession,
     settings: SettingsDep,
     audit: AuditDep,
 ) -> AuthStateOut:
-    user = await auth.create_initial_administrator(
-        username=payload.username,
-        password=payload.password,
-        display_name=payload.display_name,
-    )
-    audit.record(
-        action="user.create",
-        object_type="web_user",
-        object_id=user.id,
-        object_label=user.username,
-        after={"username": user.username, "roles": sorted(user.role_names)},
-        comment="initial administrator",
-        actor_id=user.id,
-        actor_name=user.username,
-    )
-    issued = await auth.issue_session(
-        user,
-        source_ip=client_ip(request),
-        user_agent=request.headers.get("user-agent"),
-    )
+    # Before anything else: without the code from the host's console, a fresh
+    # installation would belong to whoever reached this page first. Claimed
+    # rather than only checked, so a second request with the same code cannot
+    # race this one to a second administrator.
+    setup_code = SetupCodeStore(settings)
+    if not setup_code.claim(payload.setup_code):
+        raise SetupCodeInvalidError()
+    try:
+        user = await auth.create_initial_administrator(
+            username=payload.username,
+            password=payload.password,
+            display_name=payload.display_name,
+        )
+        audit.record(
+            action="user.create",
+            object_type="web_user",
+            object_id=user.id,
+            object_label=user.username,
+            after={"username": user.username, "roles": sorted(user.role_names)},
+            comment="initial administrator",
+            actor_id=user.id,
+            actor_name=user.username,
+        )
+        issued = await auth.issue_session(
+            user,
+            source_ip=client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        # Committed here, not at the end of the request, so the code is spent
+        # only once the account certainly exists.
+        await db.commit()
+    except BaseException:
+        # A refused password or a failed commit leaves no account; the code
+        # stays usable instead of sending the operator back to the console.
+        setup_code.release()
+        raise
+    setup_code.consume()
     _set_session_cookie(
         response, settings, issued.token, settings.session_lifetime_hours * 3600
     )
