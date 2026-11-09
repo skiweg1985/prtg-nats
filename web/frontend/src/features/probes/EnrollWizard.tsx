@@ -365,22 +365,12 @@ function InvitationForm({
         )}
 
         {overlayEnabled ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={overlayBootstrap}
-              onChange={(event) => setOverlayBootstrap(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">
-                {t('probes.enroll.fields.overlayBootstrap')}
-              </span>
-              <span className="text-ink-3 block text-xs">
-                {t('probes.enroll.fields.overlayBootstrapHint')}
-              </span>
-            </span>
-          </label>
+          <CheckboxField
+            label={t('probes.enroll.fields.overlayBootstrap')}
+            hint={t('probes.enroll.fields.overlayBootstrapHint')}
+            checked={overlayBootstrap}
+            onChange={setOverlayBootstrap}
+          />
         ) : null}
         {overlayEnabled && overlayBootstrap ? (
           <Banner tone="warn">

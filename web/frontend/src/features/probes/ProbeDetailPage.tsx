@@ -1155,7 +1155,8 @@ function ToolCell({ row }: { row: SensorState }) {
         : t('probes.sensorTool.notVerified')
   const system = row.tool_source === 'system'
   const popover = usePopover({
-    className: 'max-w-sm',
+    wide: true,
+    inlineWhenNarrow: false,
     content: (
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">

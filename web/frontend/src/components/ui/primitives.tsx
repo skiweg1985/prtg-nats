@@ -672,14 +672,21 @@ function FieldHead({
 }) {
   const { t } = useTranslation()
   return (
-    <div className="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-      <label htmlFor={htmlFor} className="text-ink text-sm font-medium">
+    // One line, whatever the column width: a wrapped row pushed its control
+    // below the neighbour's in a two-column grid. The technical name gives
+    // way first; label, "optional" and the (i) always stay whole.
+    <div className="flex min-h-5 min-w-0 items-center gap-1.5">
+      <label htmlFor={htmlFor} className="text-ink shrink-0 text-sm font-medium">
         {label}
       </label>
       {technicalName && (
-        <span className="text-ink-3 font-mono text-xs">{technicalName}</span>
+        <span className="text-ink-3 min-w-0 truncate font-mono text-xs" title={technicalName}>
+          {technicalName}
+        </span>
       )}
-      {optional && <span className="text-ink-3 text-xs">{t('common.optional')}</span>}
+      {optional && (
+        <span className="text-ink-3 shrink-0 text-xs">{t('common.optional')}</span>
+      )}
       {help}
     </div>
   )
@@ -758,7 +765,6 @@ export function Field({
         optional={optional}
         help={help.button}
       />
-      {help.inline}
       <FieldContext.Provider
         value={{
           id,
@@ -768,6 +774,7 @@ export function Field({
       >
         {children}
       </FieldContext.Provider>
+      {help.inline}
       <FieldMessage id={messageId} error={error} note={note} />
       {help.hidden}
     </div>
@@ -822,7 +829,6 @@ export function FilePicker({
         optional={optional}
         help={help.button}
       />
-      {help.inline}
       <input
         id={id}
         type="file"
@@ -856,6 +862,7 @@ export function FilePicker({
           {fileName ?? prompt}
         </span>
       </label>
+      {help.inline}
       <FieldMessage id={messageId} error={error} note={note} />
       {help.hidden}
     </div>
@@ -936,12 +943,16 @@ export function CheckboxField({
           aria-describedby={help.hintId}
           onChange={(event) => onChange(event.target.checked)}
         />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <label htmlFor={id} className="text-ink">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {/* A checkbox label can be a sentence; it wraps, the (i) stays
+              beside its last line. */}
+          <label htmlFor={id} className="text-ink min-w-0">
             {label}
           </label>
           {technicalName && (
-            <span className="text-ink-3 font-mono text-xs">{technicalName}</span>
+            <span className="text-ink-3 min-w-0 truncate font-mono text-xs" title={technicalName}>
+              {technicalName}
+            </span>
           )}
           {help.button}
         </div>

@@ -530,7 +530,7 @@
     "requirements": "Requirements",
     "prtg": {
       "title": "In PRTG",
-      "intro": "The sensor object is created in PRTG as a Script v2 sensor on the probe’s device. This is the name in the script dropdown:",
+      "intro": "In PRTG, add a Script v2 sensor on the probe's device and pick this name:",
       "parametersHint": "The builder below produces the parameter line; for variants it stands next to each variant.",
       "readme": "The sensor’s own manual (README)"
     },

@@ -80,11 +80,16 @@ export interface Popover {
 
 export function usePopover({
   content,
-  className,
+  wide = false,
+  inlineWhenNarrow = true,
 }: {
   content: ReactNode
-  /** Extra classes for the panel, e.g. a wider max-width for a hover card. */
-  className?: string
+  /** 24rem instead of 20rem, for a hover card with a table of facts. */
+  wide?: boolean
+  /** False keeps the panel floating on a phone too, held inside the screen:
+      for a trigger in a table cell, where an inline panel would be squeezed
+      into the width of one column. */
+  inlineWhenNarrow?: boolean
 }): Popover {
   const [open, setOpen] = useState(false)
   // Opened by a click or tap rather than by passing over it: it then stays
@@ -98,6 +103,7 @@ export function usePopover({
   // focus and then close again on the click that follows.
   const pressing = useRef(false)
   const narrow = useIsNarrow()
+  const inlineMode = narrow && inlineWhenNarrow
   const id = useId()
 
   const clear = useCallback(() => {
@@ -134,9 +140,9 @@ export function usePopover({
   }, [])
 
   useLayoutEffect(() => {
-    if (open && !narrow) measure()
+    if (open && !inlineMode) measure()
     else setPlace(null)
-  }, [open, narrow, measure])
+  }, [open, inlineMode, measure])
 
   useEffect(() => {
     if (!open) return
@@ -223,7 +229,7 @@ export function usePopover({
   }
 
   const floating =
-    open && !narrow
+    open && !inlineMode
       ? createPortal(
           <div
             ref={panel}
@@ -237,9 +243,11 @@ export function usePopover({
             onClick={(event) => event.stopPropagation()}
             style={place ?? { visibility: 'hidden', top: 0, left: 0 }}
             className={clsx(
-              'border-rule bg-surface rounded-card text-ink-2 fixed z-(--z-popover) max-w-xs border px-3 py-2.5 text-sm shadow-md',
+              'border-rule bg-surface rounded-card text-ink-2 fixed z-(--z-popover) border px-3 py-2.5 text-sm shadow-md',
               'outline-none',
-              className,
+              wide
+                ? 'max-w-[min(24rem,calc(100vw-1rem))]'
+                : 'max-w-[min(20rem,calc(100vw-1rem))]',
             )}
           >
             {content}
@@ -249,7 +257,7 @@ export function usePopover({
       : null
 
   const inline =
-    open && narrow ? (
+    open && inlineMode ? (
       <div
         ref={panel}
         id={id}

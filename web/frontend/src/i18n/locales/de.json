@@ -530,7 +530,7 @@
     "requirements": "Voraussetzungen",
     "prtg": {
       "title": "In PRTG",
-      "intro": "Das Sensorobjekt entsteht in PRTG als Script-v2-Sensor auf dem Gerät der Probe. Im Skript-Auswahlfeld steht dieser Name:",
+      "intro": "Lege in PRTG auf dem Gerät der Probe einen Script-v2-Sensor an und wähle diesen Namen:",
       "parametersHint": "Die Parameterzeile liefert der Baukasten unten; bei Varianten steht sie an der jeweiligen Variante.",
       "readme": "Anleitung des Sensors (README)"
     },
