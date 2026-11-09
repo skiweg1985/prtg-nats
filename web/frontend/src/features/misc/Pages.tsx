@@ -18,6 +18,7 @@ import {
   ArrowRight,
   RotateCcw,
 } from 'lucide-react'
+import { auditIcon } from '@/app/icons'
 import { PermissionGate, useAuth, useTheme } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
@@ -35,6 +36,7 @@ import {
   PageHeader,
   Select,
   Skeleton,
+  StatusText,
 } from '@/components/ui/primitives'
 import { CertificateStatusBadge } from '@/components/ui/status'
 import {
@@ -81,11 +83,15 @@ export function AuditPage() {
       // Both spellings stay searchable: the reader knows the German word,
       // the runbook quotes the code.
       searchValue: (row) => `${row.action} ${t(`audit.actions.${row.action}`, '')}`,
-      cell: (row) => (
-        <span title={row.action}>
-          {t(`audit.actions.${row.action}`, row.action)}
-        </span>
-      ),
+      cell: (row) => {
+        const Icon = auditIcon(row.object_type, row.action)
+        return (
+          <span title={row.action} className="text-ink inline-flex items-center gap-2 text-sm">
+            <Icon aria-hidden size={14} strokeWidth={1.75} className="text-ink-3 shrink-0" />
+            {t(`audit.actions.${row.action}`, row.action)}
+          </span>
+        )
+      },
     },
     {
       key: 'object',
@@ -102,10 +108,11 @@ export function AuditPage() {
       header: t('audit.columns.result'),
       sortValue: (row) => row.result,
       cell: (row) => (
-        <span className="inline-flex items-center gap-1.5 text-sm">
-          <Dot tone={row.result === 'success' ? 'ok' : row.result === 'denied' ? 'warn' : 'danger'} />
+        <StatusText
+          tone={row.result === 'success' ? 'ok' : row.result === 'denied' ? 'warn' : 'danger'}
+        >
           {t(`status.audit.${row.result}`)}
-        </span>
+        </StatusText>
       ),
     },
     {

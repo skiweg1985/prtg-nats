@@ -20,7 +20,7 @@ import type {
   ServiceState,
 } from '@/api/types'
 
-import { Badge, Dot } from './primitives'
+import { Badge, StatusText } from './primitives'
 
 /**
  * Status rendering, in one place.
@@ -146,6 +146,39 @@ export function JobStatusIcon({ status }: { status: JobStatus }) {
   )
 }
 
+/** A row's state in a table, after StatusText: dot and word. */
+export function ProbeStatusText({ status }: { status: ProbeStatus }) {
+  const { t } = useTranslation()
+  return <StatusText tone={PROBE_TONE[status]}>{t(`status.probe.${status}`)}</StatusText>
+}
+
+export function SensorStatusText({ status }: { status: SensorInstallationStatus }) {
+  const { t } = useTranslation()
+  return <StatusText tone={SENSOR_TONE[status]}>{t(`status.sensor.${status}`)}</StatusText>
+}
+
+/** A job's state in a table: its icon, which turns while it runs, and the
+    word. */
+export function JobStatusText({ status }: { status: JobStatus }) {
+  const { t } = useTranslation()
+  const Icon = JOB_ICON[status]
+  return (
+    <span className="text-ink-2 inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
+      <Icon
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className={clsx(
+          'shrink-0',
+          ICON_TONE[JOB_TONE[status]],
+          (status === 'running' || status === 'detached') && 'animate-spin [animation-duration:2s]',
+        )}
+      />
+      {t(`status.job.${status}`)}
+    </span>
+  )
+}
+
 export function CertificateStatusBadge({ status }: { status: CertificateStatus }) {
   const { t } = useTranslation()
   return (
@@ -169,10 +202,5 @@ export function StateCell({
         ? CA_TONE[value as CaState]
         : NATS_TONE[value as NatsConnectionState]
 
-  return (
-    <span className="inline-flex items-center gap-1.5 text-sm">
-      <Dot tone={tone} />
-      {t(`status.${kind}.${value}`)}
-    </span>
-  )
+  return <StatusText tone={tone}>{t(`status.${kind}.${value}`)}</StatusText>
 }

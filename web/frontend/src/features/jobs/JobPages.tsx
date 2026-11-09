@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CircleStop, RotateCw } from 'lucide-react'
+import { CircleStop, Pause, RotateCw } from 'lucide-react'
 
 import { ApiError } from '@/api/client'
 import {
@@ -20,7 +20,6 @@ import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { UrlDetails } from '@/components/ui/UrlDetails'
 import { JobSteps, LiveLog, ProgressBar } from '@/components/ui/JobProgress'
 import {
-  Badge,
   Banner,
   Button,
   ButtonLink,
@@ -35,7 +34,7 @@ import {
 } from '@/components/ui/primitives'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import { RolloutsView } from '@/features/deployments/RolloutsView'
-import { JobStatusBadge } from '@/components/ui/status'
+import { JobStatusBadge, JobStatusText } from '@/components/ui/status'
 import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
 import { useUrlState } from '@/utils/urlState'
 
@@ -110,9 +109,11 @@ export function JobListPage() {
       header: t('jobs.columns.type'),
       sortValue: (row) => row.type,
       searchValue: (row) => `${row.type} ${row.target_label ?? ''}`,
+      // What the job does in words; the machine name of its type is what
+      // the search matches, so typing "sensor.deploy" still finds it.
       cell: (row) => (
         <div className="min-w-0">
-          <Mono className="text-ink">{row.type}</Mono>
+          <p className="text-ink truncate text-sm">{t(`jobs.types.${row.type}`, row.type)}</p>
           {row.target_label && (
             <p className="text-ink-3 truncate text-xs">{row.target_label}</p>
           )}
@@ -125,8 +126,17 @@ export function JobListPage() {
       sortValue: (row) => row.status,
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <JobStatusBadge status={row.status} />
-          {row.blocked_reason_key && <Badge tone="neutral">⏸</Badge>}
+          <JobStatusText status={row.status} />
+          {row.blocked_reason_key && (
+            <span
+              role="img"
+              aria-label={t(row.blocked_reason_key, { jobId: row.blocked_by_job_id })}
+              title={t(row.blocked_reason_key, { jobId: row.blocked_by_job_id })}
+              className="text-ink-3 inline-flex"
+            >
+              <Pause aria-hidden size={14} strokeWidth={1.75} />
+            </span>
+          )}
         </div>
       ),
     },

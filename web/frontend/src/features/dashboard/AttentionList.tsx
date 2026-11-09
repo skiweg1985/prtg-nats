@@ -1,9 +1,9 @@
-import { ChevronRight, TriangleAlert } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import type { Alert, Dashboard } from '@/api/types'
-import { Badge, Card, Dot } from '@/components/ui/primitives'
+import { AttentionTitle, Card, Dot } from '@/components/ui/primitives'
 import { useProbeNames } from '@/features/probes/probeName'
 
 /** More names than this and the row stops being readable at a glance. */
@@ -195,16 +195,9 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
   return (
     <Card
       title={
-        <>
-          <TriangleAlert
-            aria-hidden
-            size={16}
-            strokeWidth={1.75}
-            className={tone === 'danger' ? 'text-danger shrink-0' : 'text-warn shrink-0'}
-          />
+        <AttentionTitle count={items.length} tone={tone}>
           {t('dashboard.attention.title')}
-          <Badge tone={tone}>{items.length}</Badge>
-        </>
+        </AttentionTitle>
       }
       dense
     >

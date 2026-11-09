@@ -39,6 +39,7 @@ import {
   FilterChip,
   Mono,
   Skeleton,
+  StatusText,
 } from '@/components/ui/primitives'
 import { SensorStatusBadge } from '@/components/ui/status'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
@@ -148,9 +149,9 @@ export function ProbeSensorPage() {
             {sensor.helper_state !== null && sensor.helper_state !== 'none' && (
               <DetailRow label={t('probes.sensorHelper')}>
                 {sensor.helper_state === 'listening' ? (
-                  <Badge tone="ok">{t('sensors.helperState.listening')}</Badge>
+                  <StatusText tone="ok">{t('sensors.helperState.listening')}</StatusText>
                 ) : (
-                  <Badge tone="danger">{t('sensors.helperState.inactive')}</Badge>
+                  <StatusText tone="danger">{t('sensors.helperState.inactive')}</StatusText>
                 )}
               </DetailRow>
             )}

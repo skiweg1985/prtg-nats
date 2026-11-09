@@ -53,11 +53,11 @@ typography:
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1rem
-  label:
-    fontFamily: "JetBrains Mono Variable, ui-monospace, SF Mono, Menlo, Consolas, monospace"
-    fontSize: "0.6875rem"
-    fontWeight: 400
-    letterSpacing: "0.06em"
+  table-head:
+    fontFamily: "Inter Variable, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontSize: "0.75rem"
+    fontWeight: 500
+    lineHeight: 1rem
 rounded:
   inset: "4px"
   control: "6px"
@@ -230,15 +230,17 @@ trade roles.
   timestamps.
 - **Value Mono** (400, 0.75rem): ids, addresses, versions, checksums,
   commands.
-- **Label** (400, 0.6875rem, 0.06em, uppercase): table column heads, and
-  nothing else. The name of a value outside a table, a group heading in a
-  form, the step name in a job log line and the title of a copy block are
-  sentence case in Meta.
+- **Table Head** (500, 0.75rem, 1rem, Slate Meta): table column heads, in
+  sentence case on the card surface with a hairline below - no grey band, no
+  capitals. The name of a value outside a table, a group heading in a form,
+  the step name in a job log line and the title of a copy block are sentence
+  case in Meta.
 
 ### Named Rules
 
-**The Table Head Rule.** Tracked mono capitals mark a table column head and
-nothing else. Anywhere else they shout over the data they name.
+**The Quiet Head Rule.** A column head names the data; it never outshouts
+it. Tracked mono capitals on a grey band were the loudest thing on every
+list and are gone; nothing in the interface is set in capitals.
 
 **The Machine Value Rule.** If a machine produced it - an id, an address, a
 hash, a version - it is set in mono. If a person reads it as language, it is
@@ -343,6 +345,17 @@ hover. It navigates, so it carries neither a fill nor the signal colour.
 A state, never an action: flat tinted text on its soft background, 20px tall,
 4px radius, 11px medium weight, sentence case, no border and no hover. A
 neutral, healthy, caution, fault and accent tone, one meaning each.
+
+Badges are for the state of the one object a page is about, beside its
+title, and for flags next to a row's state ("helper outdated"). The state of
+a row in a table is Status Text instead.
+
+### Status Text
+
+A row's state in a table or a detail row: an 8px status dot and the word in
+Slate Body, body size. A job's state uses its Lucide icon in the status
+colour in place of the dot; a running job's icon turns. A column of badges
+was a stripe of tinted boxes; a column of dots reads as a column of states.
 
 ### Cards
 

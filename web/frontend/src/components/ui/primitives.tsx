@@ -1,5 +1,12 @@
 import clsx from 'clsx'
-import { ArrowRight, ChevronRight, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
+import {
+  ArrowRight,
+  ChevronRight,
+  MoreHorizontal,
+  TriangleAlert,
+  Upload,
+  type LucideIcon,
+} from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -90,6 +97,21 @@ export function Dot({ tone = 'neutral' }: { tone?: Tone }) {
       aria-hidden
       className={clsx('inline-block size-2 shrink-0 rounded-full', fill[tone])}
     />
+  )
+}
+
+/**
+ * The state of a row in a table: a dot and the word. A badge per row turned
+ * a status column into a stripe of tinted boxes; the dot carries the colour,
+ * the word the meaning. Badges stay for the flags beside it and for the
+ * state of the one object a page is about.
+ */
+export function StatusText({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
+  return (
+    <span className="text-ink-2 inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
+      <Dot tone={tone} />
+      {children}
+    </span>
   )
 }
 
@@ -620,6 +642,34 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
+/**
+ * The title of a card that lists what wants somebody to act: a warning icon
+ * in the colour of the worst entry, the words, and how many there are. The
+ * entries themselves carry their own dots; nothing here fills a surface red.
+ */
+export function AttentionTitle({
+  children,
+  count,
+  tone,
+}: {
+  children: ReactNode
+  count: number
+  tone: 'danger' | 'warn'
+}) {
+  return (
+    <>
+      <TriangleAlert
+        aria-hidden
+        size={16}
+        strokeWidth={1.75}
+        className={clsx('shrink-0', tone === 'danger' ? 'text-danger' : 'text-warn')}
+      />
+      {children}
+      <Badge tone={tone}>{count}</Badge>
+    </>
+  )
+}
+
 export function Card({
   title,
   icon: Icon,
@@ -1123,7 +1173,7 @@ export function MetricRow({
 }
 
 /** The name of a value outside a table: small, muted, sentence case. The
-    tracked mono capitals of .label-mono belong to table column heads only. */
+    column heads of a table have their own style, .table-head. */
 export function Label({ children }: { children: ReactNode }) {
   return <span className="text-ink-3 text-xs">{children}</span>
 }

@@ -8,7 +8,7 @@ import type { SensorLogResult, SensorLogSummary } from '@/api/types'
 import { useIsPhone } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink, ProbeSensorLink } from '@/components/ui/ProbeLink'
-import { Badge, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
+import { Badge, EmptyState, Mono, Skeleton, StatusText } from '@/components/ui/primitives'
 import { formatDateTime, formatNumber } from '@/utils/format'
 import { useUrlSet } from '@/utils/urlState'
 
@@ -21,6 +21,12 @@ const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
 export function ResultBadge({ result }: { result: SensorLogResult }) {
   const { t } = useTranslation()
   return <Badge tone={RESULT_TONE[result]}>{t(`sensorLogs.result.${result}`)}</Badge>
+}
+
+/** The result as a row of a list shows it: dot and word. */
+function ResultText({ result }: { result: SensorLogResult }) {
+  const { t } = useTranslation()
+  return <StatusText tone={RESULT_TONE[result]}>{t(`sensorLogs.result.${result}`)}</StatusText>
 }
 
 /** Where a single run can be opened and sent to a colleague. */
@@ -57,14 +63,12 @@ export function RunTable({
   if (isPhone) return <RunCards runs={runs} showProbe={showProbe} />
 
   const columnCount = showProbe ? 7 : 6
-  // ink-2, not the label default: ink-3 on the grey header band falls under
-  // 4.5:1 in both themes - the same call the fleet tables made.
-  const header = 'label-mono text-ink-2 px-3 py-2 font-normal whitespace-nowrap'
+  const header = 'table-head h-9 px-3 whitespace-nowrap'
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left">
-        <thead className="bg-surface-2">
+        <thead>
           <tr>
             <th className="w-11 p-0" />
             <th className={header}>{t('sensorLogs.columns.time')}</th>
@@ -129,7 +133,7 @@ export function RunTable({
                     <Mono>{run.ssid ?? '—'}</Mono>
                   </td>
                   <td className="px-3 py-3">
-                    <ResultBadge result={run.result} />
+                    <ResultText result={run.result} />
                   </td>
                   <td className="text-ink-2 px-3 py-3 text-sm">
                     <RunSummary run={run} />
@@ -188,7 +192,7 @@ function RunCards({ runs, showProbe }: { runs: SensorLogSummary[]; showProbe: bo
               <span className="text-ink text-sm font-medium tabular-nums">
                 {formatDateTime(run.time)}
               </span>
-              <ResultBadge result={run.result} />
+              <ResultText result={run.result} />
             </div>
             <p className="text-ink-2 mt-1 text-sm break-words">
               <RunSummary run={run} />
