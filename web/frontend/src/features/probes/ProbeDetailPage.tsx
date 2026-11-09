@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -72,10 +72,10 @@ import { probeName } from '@/features/probes/probeName'
 import { ReturnChannelRow } from '@/features/probes/ReturnChannelRow'
 import { MiniTimeline } from '@/features/sensorLogs/SensorTimeline'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   ActionMenu,
-  BackLink,
   Badge,
   Banner,
   Button,
@@ -97,6 +97,7 @@ import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { usePopover } from '@/components/ui/Popover'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
+import { useUrlChoice } from '@/utils/urlState'
 
 // Deviations are a section of the overview, not a tab: they are empty most
 // of the time, and a tab that is usually empty is a click to learn nothing.
@@ -140,22 +141,7 @@ export function ProbeDetailPage() {
   // job, and coming back from one used to put the overview in front of
   // somebody who had been reading the deviations. It also makes a tab
   // something that can be linked to and survives a reload.
-  const [params, setParams] = useSearchParams()
-  const tab: Tab = TABS.find((entry) => entry === params.get(TAB_PARAM)) ?? 'overview'
-
-  function selectTab(next: Tab) {
-    const updated = new URLSearchParams(params)
-    if (next === 'overview') updated.delete(TAB_PARAM)
-    else updated.set(TAB_PARAM, next)
-    setParams(updated, { replace: true })
-  }
-
-  // What the list was showing when this page was opened: the row link brings
-  // its filters and search term along, and the way out hands them back.
-  const listParams = new URLSearchParams(params)
-  listParams.delete(TAB_PARAM)
-  const listSearch = listParams.toString()
-  const backToList = `/probes${listSearch ? `?${listSearch}` : ''}`
+  const [tab, selectTab] = useUrlChoice<Tab>(TAB_PARAM, TABS, 'overview')
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
   const [confirmUpgrade, setConfirmUpgrade] = useState(false)
   const [finishPending, setFinishPending] = useState(false)
@@ -209,7 +195,7 @@ export function ProbeDetailPage() {
           not fit, instead of squeezing the name into two lines. */}
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-64 flex-1">
-          <BackLink to={backToList}>{t('probes.title')}</BackLink>
+          <Breadcrumb trail={[{ to: '/probes', label: t('probes.title') }]} />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{name}</h1>
             <ProbeStatusBadge status={summary.status} />
@@ -1130,6 +1116,7 @@ function InterfacesCard({
           columns={columns}
           rowKey={(row) => row.name}
           emptyTitle={t('probes.interfaces.empty')}
+          urlKey="interfaces"
         />
       )}
     </Card>

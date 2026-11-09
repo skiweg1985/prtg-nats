@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUpRight } from 'lucide-react'
 
 import { useLogout } from '@/api/hooks'
+import { useLastSearch, useNavigationTracking } from '@/app/navigation'
 import { useAuth } from '@/app/providers'
 import { Badge, Button } from '@/components/ui/primitives'
 import { guideHref } from '@/utils/guide'
@@ -66,12 +67,17 @@ const SECONDARY: NavEntry[] = [
   { to: '/settings', labelKey: 'nav.settings' },
 ]
 
+// The pages the sidebar opens, whose last address it restores.
+const NAV_PATHS = new Set([...PRIMARY, ...INFRASTRUCTURE, ...SECONDARY].map((entry) => entry.to))
+const isNavPath = (pathname: string) => NAV_PATHS.has(pathname)
+
 export function AppLayout() {
   const { t } = useTranslation()
   const { principal } = useAuth()
   const logout = useLogout()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
+  useNavigationTracking(isNavPath)
 
   // Arriving somewhere is the end of navigating there.
   useEffect(() => setMenuOpen(false), [location.pathname])
@@ -225,9 +231,12 @@ function NavGroup({ entries }: { entries: NavEntry[] }) {
 
 function NavItem({ entry }: { entry: NavEntry }) {
   const { t } = useTranslation()
+  // The page as it was last left in this browser tab: coming back to the
+  // probe list after a look at one probe keeps its filter.
+  const lastSearch = useLastSearch(entry.to)
   return (
     <NavLink
-      to={entry.to}
+      to={`${entry.to}${lastSearch}`}
       end={entry.to === '/'}
       className={({ isActive }) =>
         clsx(

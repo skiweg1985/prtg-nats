@@ -657,7 +657,12 @@ describe('a single run', () => {
     // The raw code stays beside the words, for searching and the sensor docs.
     expect(screen.getByText('dhcp-timeout')).toBeInTheDocument()
     expect(screen.getByText('Through DHCP')).toBeInTheDocument()
-    expect(await screen.findByRole('link', { name: 'Berlin office' })).toBeInTheDocument()
+    // In the breadcrumb and in the details, the latter leading to the sensor
+    // on that probe.
+    const probeLinks = await screen.findAllByRole('link', { name: 'Berlin office' })
+    expect(probeLinks.map((link) => link.getAttribute('href'))).toContain(
+      '/probes/P1/sensors/wlan-auth',
+    )
     expect(screen.getByText('wpa_supplicant output')).toBeInTheDocument()
     expect(screen.queryByText('DHCP client output')).not.toBeInTheDocument()
     expect(screen.queryByText('Stage timings')).not.toBeInTheDocument()

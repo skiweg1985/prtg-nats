@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Trash2, Upload } from 'lucide-react'
@@ -17,10 +17,11 @@ import {
 } from '@/api/hooks'
 import type { SensorJob, SensorLogSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { useUrlDetails } from '@/components/ui/UrlDetails'
 import {
   ActionMenu,
-  BackLink,
   Badge,
   Button,
   Card,
@@ -38,6 +39,7 @@ import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
 import { useCodeLabel } from '@/features/sensorLogs/RunList'
 import { sensorLogHref } from '@/features/sensorLogs/links'
 import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
+import { useUrlChoice } from '@/utils/urlState'
 
 /**
  * One sensor on one probe: how it is deployed and how its runs went.
@@ -75,7 +77,12 @@ export function ProbeSensorPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to={`/probes/${probeId}?tab=sensors`}>{probe}</BackLink>
+          <Breadcrumb
+            trail={[
+              { to: '/probes', label: t('probes.title') },
+              { to: `/probes/${probeId}?tab=sensors`, label: probe },
+            ]}
+          />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{sensorName}</h1>
             {sensor && <SensorStatusBadge status={sensor.status} />}
@@ -197,17 +204,9 @@ const WINDOWS = Object.keys(TIMELINE_WINDOWS) as TimelineWindow[]
 
 function RunsCard({ probe, sensor }: { probe: string; sensor: string }) {
   const { t } = useTranslation()
-  const [params, setParams] = useSearchParams()
   // In the address, so a link opens the same window.
-  const window: TimelineWindow = params.get('window') === '7d' ? '7d' : '24h'
+  const [window, choose] = useUrlChoice<TimelineWindow>('window', WINDOWS, '24h')
   const { data, isLoading, error } = useSensorLogTimeline(probe, sensor, window)
-
-  function choose(next: TimelineWindow) {
-    const changed = new URLSearchParams(params)
-    if (next === '24h') changed.delete('window')
-    else changed.set('window', next)
-    setParams(changed, { replace: true })
-  }
 
   return (
     <Card
@@ -296,7 +295,7 @@ function FailureList({
   window: TimelineWindow
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useUrlDetails('failures')
   const range = TIMELINE_WINDOWS[window].range
   const { data } = useSensorLogs({ probe, sensor, result: 'error', range }, FAILURE_LIMIT)
   if (!data || data.total === 0) return null
@@ -306,7 +305,7 @@ function FailureList({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setOpen(!open)}
         className="text-ink flex items-center gap-1.5 text-sm font-medium"
       >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
