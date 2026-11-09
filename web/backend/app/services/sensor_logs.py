@@ -21,8 +21,9 @@ import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.core.config import Settings
 from app.core.logging import get_logger
@@ -37,7 +38,14 @@ SENSOR_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 RECORD_RESULTS = ("ok", "error", "gap")
 
+TimelineState = Literal["none", "ok", "outlier", "failing"]
+
 DAY_FILE_SUFFIX = ".jsonl"
+
+# How far past a stream's usual interval an empty timeline bucket still
+# counts as covered by the run before it. Half an interval of slack keeps a
+# run that came a little late from leaving a grey sliver.
+COVERAGE_FACTOR = 1.5
 
 # Serialises appends. Held across the duplicate check and the write, which is
 # what makes resubmitting a batch idempotent rather than usually idempotent.
@@ -87,6 +95,40 @@ class SensorLogStream:
     segments: list[SensorLogSegment]
     # Older segments past the ones returned; reachable in the full log.
     more_segments: int
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineBucket:
+    """The runs of one stream in one slice of the timeline.
+
+    ``state`` is what the slice looks like at a glance: ``none`` without a
+    run, ``ok`` when every run passed, ``outlier`` when its only failures
+    were single runs between passing ones, ``failing`` when a failure lasted
+    more than one run. ``code`` is the most frequent error code in it.
+    """
+
+    start: datetime
+    ok: int
+    error: int
+    state: TimelineState
+    code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineStream:
+    """One sensor's runs for one network over a window, sliced into buckets."""
+
+    sensor: str
+    ssid: str | None
+    ok: int
+    error: int
+    # Passed runs over every judged run; None without a judged run at all.
+    success_rate: float | None
+    # Runs per hour over the buckets the runs cover, so a probe that was
+    # offline half the day does not read as measuring half as often.
+    runs_per_hour: float | None
+    last_failure: dict[str, Any] | None
+    buckets: list[TimelineBucket]
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +328,153 @@ class SensorLogStore:
             )
         out.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
         return out
+
+    def timeline(
+        self, filters: SensorLogFilter, *, bucket: timedelta
+    ) -> tuple[datetime, list[TimelineStream]]:
+        """Runs per sensor and network, sliced into buckets of equal size.
+
+        Narrowed to one sensor by the filter for a sensor's page; without one,
+        every sensor of the probe for the overview on the probe page.
+
+        Buckets are aligned to multiples of their size, not to ``since``, so
+        a page that refreshes a minute later gets the same slices and the bar
+        does not shift under the pointer. Returns the start of the first
+        bucket with the streams.
+
+        A failed run counts as an outlier when the runs on both sides of it
+        passed: a single "no reply" between a hundred good sign-ins is worth
+        seeing, not worth a red block. A failure at the newest end has no
+        later run to clear it and counts as failing - it is the state now.
+        """
+        size = bucket.total_seconds()
+        first = datetime.fromtimestamp(
+            (filters.since.timestamp() // size) * size, tz=UTC
+        )
+        count = max(int(-(-(filters.until - first).total_seconds() // size)), 1)
+
+        page = self.query(filters, limit=sys.maxsize)
+        grouped: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
+        for item in page.items:
+            if item.get("result") not in ("ok", "error"):
+                continue
+            key = (str(item.get("sensor")), item.get("ssid"))
+            grouped.setdefault(key, []).append(item)
+
+        out: list[TimelineStream] = []
+        for (sensor, ssid), newest_first in grouped.items():
+            runs = list(reversed(newest_first))
+            oks = [0] * count
+            errors = [0] * count
+            failing = [False] * count
+            # What the newest run in each bucket leaves behind for the empty
+            # buckets after it: a lasting failure, or nothing to worry about.
+            tail: list[TimelineState | None] = [None] * count
+            codes: list[dict[str, int]] = [{} for _ in range(count)]
+            for index, item in enumerate(runs):
+                when = parse_time(item.get("time"))
+                if when is None:
+                    continue
+                slot = int((when - first).total_seconds() // size)
+                if not 0 <= slot < count:
+                    continue
+                if item.get("result") == "ok":
+                    oks[slot] += 1
+                    tail[slot] = "ok"
+                    continue
+                errors[slot] += 1
+                code = str(item.get("code") or "")
+                codes[slot][code] = codes[slot].get(code, 0) + 1
+                before = runs[index - 1] if index > 0 else None
+                after = runs[index + 1] if index + 1 < len(runs) else None
+                isolated = (
+                    after is not None
+                    and after.get("result") == "ok"
+                    and (before is None or before.get("result") == "ok")
+                )
+                if not isolated:
+                    failing[slot] = True
+                tail[slot] = "ok" if isolated else "failing"
+
+            # A sensor that runs every half hour leaves most 15-minute buckets
+            # without a run of their own. Those are not silence: a bucket
+            # still within the stream's usual interval of the run before it
+            # carries that run's state, and only a longer pause shows as none.
+            times = [t for item in runs if (t := parse_time(item.get("time")))]
+            gaps = sorted(
+                (later - earlier).total_seconds() for earlier, later in pairwise(times)
+            )
+            reach = gaps[len(gaps) // 2] * COVERAGE_FACTOR if gaps else 0.0
+            newest: list[datetime | None] = [None] * count
+            for when in times:
+                slot = int((when - first).total_seconds() // size)
+                if 0 <= slot < count:
+                    newest[slot] = when
+
+            buckets: list[TimelineBucket] = []
+            last_run: datetime | None = None
+            last_state: TimelineState = "none"
+            for slot in range(count):
+                start = first + bucket * slot
+                state: TimelineState
+                if oks[slot] + errors[slot] == 0:
+                    covered = (
+                        last_run is not None
+                        and (start - last_run).total_seconds() < reach
+                    )
+                    state = last_state if covered else "none"
+                elif failing[slot]:
+                    state = "failing"
+                elif errors[slot]:
+                    state = "outlier"
+                else:
+                    state = "ok"
+                common = (
+                    max(codes[slot].items(), key=lambda pair: pair[1])[0]
+                    if codes[slot]
+                    else ""
+                )
+                if newest[slot] is not None:
+                    last_run = newest[slot]
+                    last_state = tail[slot] or "ok"
+                buckets.append(
+                    TimelineBucket(
+                        start=start,
+                        ok=oks[slot],
+                        error=errors[slot],
+                        state=state,
+                        code=common or None,
+                    )
+                )
+
+            ok, error = sum(oks), sum(errors)
+            active = sum(1 for b in buckets if b.state != "none")
+            last_failure = next(
+                (item for item in newest_first if item.get("result") == "error"),
+                None,
+            )
+            out.append(
+                TimelineStream(
+                    sensor=sensor,
+                    ssid=ssid,
+                    ok=ok,
+                    error=error,
+                    success_rate=ok / (ok + error) if ok + error else None,
+                    runs_per_hour=(ok + error) / (active * size / 3600)
+                    if active
+                    else None,
+                    last_failure=last_failure,
+                    buckets=buckets,
+                )
+            )
+        out.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
+        return first, out
+
+    def retained_since(self, today: date | None = None) -> datetime:
+        """The oldest moment the retention still keeps records for."""
+        today = today or datetime.now(UTC).date()
+        oldest = today - timedelta(days=self._retention_days - 1)
+        return datetime(oldest.year, oldest.month, oldest.day, tzinfo=UTC)
 
     def get(self, record_id: str) -> dict[str, Any] | None:
         """One record by ID, wherever it is.

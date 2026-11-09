@@ -172,8 +172,8 @@ export const activity = {
           'The sensor log goes back 14 days and shows 100 runs per page; {ui:sensorLogs.previous} and {ui:sensorLogs.next} turn the pages. The filters and the page are part of the page address, so you can pass on a filtered view as a link too.',
         ),
         L(
-          'Die Läufe einer einzelnen Probe stehen auf ihrer Seite im Reiter {ui:probes.tabs.sensors} unter {ui:sensorLogs.probeCard}. Dort sind Läufe in Folge mit demselben Ergebnis zu einer Zeile zusammengefasst, etwa „seit 16:04, 74 Läufe“; ein Fehler dazwischen steht in einer eigenen Zeile. Alle Läufe öffnest du von dort im Sensor-Log.',
-          'The runs of a single probe are on its page in the {ui:probes.tabs.sensors} tab under {ui:sensorLogs.probeCard}. There, runs in a row with the same result share one line, such as “since 16:04, 74 runs”; a failure in between gets a line of its own. Every run opens from there in the sensor log.',
+          'Die Läufe eines Sensors auf einer Probe zeigt seine eigene Seite: Im Reiter {ui:probes.tabs.sensors} der Probe öffnet ein Klick auf die Zeile des Sensors eine Zeitleiste je Netz mit Erfolgsquote, Läufen pro Stunde und letztem Fehler, umschaltbar zwischen {ui:probeSensor.window.24h} und {ui:probeSensor.window.7d}. Ein einzelner Fehler zwischen erfolgreichen Läufen ist dort nur leise markiert, ein anhaltender rot. Ein Klick auf einen Abschnitt öffnet genau diese Läufe im Sensor-Log.',
+          'The runs of a sensor on a probe are on that sensor’s own page: in the probe’s {ui:probes.tabs.sensors} tab, clicking the sensor’s row opens a timeline per network with success rate, runs per hour and the last failure, switchable between {ui:probeSensor.window.24h} and {ui:probeSensor.window.7d}. A single failure between passing runs is only marked quietly there, a lasting one in red. Clicking a slice opens exactly those runs in the sensor log.',
         ),
         L(
           'Passwörter entfernt die Probe, bevor sie einen Lauf meldet. Identität, SSID und Adressen bleiben stehen, damit du einen Lauf etwa mit dem RADIUS-Server abgleichen kannst.',

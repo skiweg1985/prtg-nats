@@ -1617,7 +1617,6 @@
     "noBody": "This run carries no output",
     "output": "Output",
     "all": "Show all in the sensor log",
-    "probeCard": "Runs of the last 24 hours",
     "columns": {
       "time": "Time",
       "probe": "Probe",
@@ -1637,7 +1636,9 @@
       "1h": "Last hour",
       "24h": "Last 24 hours",
       "7d": "Last 7 days",
-      "14d": "Last 14 days"
+      "14d": "Last 14 days",
+      "custom": "{{from}} – {{to}}",
+      "now": "now"
     },
     "filters": {
       "search": "Search output",
@@ -1726,19 +1727,56 @@
       "dhcp": "DHCP client output",
       "events": "Helper events"
     },
-    "streams": {
-      "runs_one": "1 run",
-      "runs_other": "{{count}} runs",
-      "failed_one": "1 failed",
-      "failed_other": "{{count}} failed",
-      "since": "since {{time}}",
-      "span": "{{from}} to {{to}}",
-      "all_one": "Show in the sensor log",
-      "all_other": "Show all {{count}} in the sensor log"
-    },
     "pagination": "Pages",
     "previous": "Previous",
     "next": "Next",
     "page": "Page {{page}} of {{pages}}"
+  },
+  "probeSensor": {
+    "onProbe": "on {{probe}}",
+    "deployment": "Deployment",
+    "version": "Version",
+    "versions": "{{installed}} installed · {{desired}} expected",
+    "notOnProbe": "This sensor is not deployed on this probe",
+    "timelineTitle": "Last 24 hours",
+    "successRate": "Success rate",
+    "runsPerHour": "Runs per hour",
+    "signInsPerHour": "Sign-ins per hour",
+    "perHourRuns_one": "{{count}} run/h",
+    "perHourRuns_other": "{{count}} runs/h",
+    "perHourSignIns_one": "{{count}} sign-in/h",
+    "perHourSignIns_other": "{{count}} sign-ins/h",
+    "lastFailure": "Last failure",
+    "lastFailureAt": "last failure {{time}} · {{code}}",
+    "noFailure": "no failure",
+    "rowLabel": "{{network}}: {{ok}} OK, {{error}} failed",
+    "legend": {
+      "ok": "OK",
+      "outlier": "Single failure",
+      "failing": "Failure",
+      "none": "No run",
+      "expired": "Outside retention"
+    },
+    "timelineTitle7d": "Last 7 days",
+    "window": {
+      "24h": "24 h",
+      "7d": "7 days"
+    },
+    "coveredSlice": "No run of its own, within the interval of the run before",
+    "sliceRuns_one": "{{count}} run",
+    "sliceRuns_other": "{{count}} runs",
+    "sliceSignIns_one": "{{count}} sign-in",
+    "sliceSignIns_other": "{{count}} sign-ins",
+    "sliceFailed_one": "{{count}} failed",
+    "sliceFailed_other": "{{count}} failed",
+    "retention": "Runs before {{date}} are no longer kept.",
+    "failures_one": "1 failure",
+    "failures_other": "{{count}} failures",
+    "failureCount": "{{count}}×",
+    "failuresMore_one": "1 more failure in the sensor log",
+    "failuresMore_other": "{{count}} more failures in the sensor log",
+    "last24h": "Last 24 h",
+    "networks_one": "1 network",
+    "networks_other": "{{count}} networks"
   }
 }

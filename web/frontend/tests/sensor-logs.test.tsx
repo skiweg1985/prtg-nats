@@ -285,6 +285,20 @@ describe('the sensor log page', () => {
     expect(screen.getByLabelText('Period')).toHaveValue('7d')
   })
 
+  it('takes an exact window from the address and drops it for a chosen range', async () => {
+    wrap('/sensor-logs?since=2026-11-08T08:00:00.000Z&until=2026-11-08T08:15:00.000Z')
+    await screen.findByText('No runs match these filters')
+
+    expect(lastRequest().get('since')).toBe('2026-11-08T08:00:00.000Z')
+    expect(lastRequest().get('until')).toBe('2026-11-08T08:15:00.000Z')
+    const period = screen.getByLabelText('Period')
+    expect(period).toHaveValue('custom')
+
+    await userEvent.selectOptions(period, '7d')
+    await waitFor(() => expect(lastRequest().get('until')).toBeNull())
+    expect(screen.getByLabelText('Period')).toHaveValue('7d')
+  })
+
   it('opens a run onto its raw output', async () => {
     const user = userEvent.setup()
     listItems = [record()]
@@ -407,88 +421,98 @@ describe('the sensor tab of a probe', () => {
     )
   }
 
-  function segment(
-    result: 'ok' | 'error' | 'gap',
-    count: number,
-    first: string,
-    last: string,
-    overrides: Record<string, unknown> = {},
-  ) {
+  function bucket(state: string, index: number) {
     return {
-      result,
-      code: result === 'ok' ? null : 'dhcp_timeout',
-      count,
-      first: record({ id: `${first}-first`, time: first, result, ...overrides }),
-      last: record({ id: `${last}-last`, time: last, result, ...overrides }),
+      start: new Date(Date.UTC(2026, 10, 8, 0, index * 15)).toISOString(),
+      ok: state === 'none' ? 0 : 4,
+      error: state === 'failing' ? 1 : 0,
+      state,
+      code: state === 'failing' ? 'dhcp_timeout' : null,
     }
   }
 
-  it('folds runs in a row into one line and keeps a failure as its own', async () => {
-    // wlan-auth every minute: 85 runs on one network would have been 85
-    // rows. Three lines say the same, and the failure stays visible.
-    let streamRequests = 0
+  it('shows the last day of each sensor as a small bar and links its page', async () => {
+    // Every sensor's runs in one request; the networks of wlan-auth fold
+    // into one bar, and the runs themselves are on the sensor's own page.
+    let timelineRequests = 0
+    const detail = probeDetail()
+    detail.sensors = [
+      {
+        name: 'wlan-auth',
+        status: 'current',
+        desired_version: '17',
+        installed_version: '17',
+        installed_sha256: null,
+        expected_sha256: null,
+        installed_helper_sha256: null,
+        expected_helper_sha256: null,
+        tool_name: null,
+        installed_tool_version: null,
+        expected_tool_version: null,
+        tool_platform: null,
+        tool_source: null,
+        tool_path: null,
+        installed_tool_sha256: null,
+        expected_tool_sha256: null,
+        tool_compatible: null,
+        interfaces: ['wlan0'],
+        helper_state: 'listening',
+      },
+    ] as never[]
     server.use(
-      http.get('/api/v1/probes/P1', () => HttpResponse.json(probeDetail())),
+      http.get('/api/v1/probes/P1', () => HttpResponse.json(detail)),
       http.get('/api/v1/probes/P1/wireless-interfaces', () => HttpResponse.json([])),
-      http.get('/api/v1/sensor-logs/streams', ({ request }) => {
-        streamRequests += 1
-        expect(new URL(request.url).searchParams.get('probe')).toBe('mpp-berlin-01')
-        return HttpResponse.json([
-          {
-            sensor: 'wlan-auth',
-            ssid: 'corp-wifi',
-            total: 85,
-            results: { ok: 84, error: 1 },
-            segments: [
-              segment('ok', 74, '2026-11-08T08:04:00Z', '2026-11-08T09:17:00Z', {
-                summary: 'corp signed in',
-              }),
-              segment('error', 1, '2026-11-08T08:03:00Z', '2026-11-08T08:03:00Z', {
-                summary: 'corp failed',
-              }),
-              segment('ok', 10, '2026-11-08T07:53:00Z', '2026-11-08T08:02:00Z'),
-            ],
-            more_segments: 0,
-          },
-          {
-            sensor: 'wlan-auth',
-            ssid: 'guest',
-            total: 1,
-            results: { ok: 1 },
-            segments: [
-              segment('ok', 1, '2026-11-08T09:00:00Z', '2026-11-08T09:00:00Z', {
-                ssid: 'guest',
-              }),
-            ],
-            more_segments: 0,
-          },
-        ])
+      http.get('/api/v1/sensor-logs/timeline', ({ request }) => {
+        timelineRequests += 1
+        const params = new URL(request.url).searchParams
+        expect(params.get('probe')).toBe('mpp-berlin-01')
+        expect(params.get('sensor')).toBeNull()
+        return HttpResponse.json({
+          probe: 'mpp-berlin-01',
+          sensor: null,
+          start: '2026-11-08T00:00:00Z',
+          until: '2026-11-08T01:00:00Z',
+          bucket_seconds: 900,
+          retained_since: '2026-10-27T00:00:00Z',
+          streams: [
+            {
+              sensor: 'wlan-auth',
+              ssid: 'corp-wifi',
+              ok: 98,
+              error: 2,
+              success_rate: 0.98,
+              runs_per_hour: 50,
+              last_failure: null,
+              buckets: ['ok', 'failing', 'ok', 'ok'].map(bucket),
+            },
+            {
+              sensor: 'wlan-auth',
+              ssid: 'guest',
+              ok: 40,
+              error: 0,
+              success_rate: 1,
+              runs_per_hour: 50,
+              last_failure: null,
+              buckets: ['ok', 'ok', 'ok', 'none'].map(bucket),
+            },
+          ],
+        })
       }),
     )
     wrapProbe()
 
-    const corp = (await screen.findByRole('heading', { name: 'wlan-auth · corp-wifi' }))
-      .closest('section') as HTMLElement
-    expect(within(corp).getAllByRole('listitem')).toHaveLength(3)
-    expect(within(corp).getByText('74 runs')).toBeInTheDocument()
-    expect(within(corp).getByText(/^since /)).toBeInTheDocument()
-    expect(within(corp).getByText('corp failed')).toBeInTheDocument()
-    expect(within(corp).getByText('85 runs · 1 failed')).toBeInTheDocument()
+    expect(await screen.findByText('98.6%')).toBeInTheDocument()
+    expect(screen.getByText('2 networks')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Last 24 h' })).toBeInTheDocument()
     expect(
-      within(corp).getByRole('link', { name: 'Show all 85 in the sensor log' }),
-    ).toHaveAttribute('href', '/sensor-logs?probe=mpp-berlin-01&sensor=wlan-auth&ssid=corp-wifi')
-
-    const guest = screen
-      .getByRole('heading', { name: 'wlan-auth · guest' })
-      .closest('section') as HTMLElement
-    expect(within(guest).queryByText('corp failed')).toBeNull()
-    // The full list is not fetched for the probe page.
+      screen.getAllByRole('link').some(
+        (link) => link.getAttribute('href') === '/probes/P1/sensors/wlan-auth',
+      ),
+    ).toBe(true)
+    // The runs card below the table is gone, and the full list is not fetched.
+    expect(screen.queryByText('Runs of the last 24 hours')).toBeNull()
     expect(listRequests).toHaveLength(0)
-
-    // A new run asks for the folded view again.
-    const before = streamRequests
-    FakeEventSource.instances.at(-1)?.emit('sensor_log.record', record({ id: 'new' }))
-    await waitFor(() => expect(streamRequests).toBeGreaterThan(before))
+    expect(timelineRequests).toBe(1)
   })
 })
 

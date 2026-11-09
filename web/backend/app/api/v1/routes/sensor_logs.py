@@ -19,11 +19,14 @@ from app.api.deps.common import (
 )
 from app.api.schemas.sensor_logs import (
     RecordResult,
+    SensorLogBucketOut,
     SensorLogPageOut,
     SensorLogRecordOut,
     SensorLogSegmentOut,
     SensorLogStreamOut,
     SensorLogSummaryOut,
+    SensorLogTimelineOut,
+    SensorLogTimelineStreamOut,
 )
 from app.api.sse import KEEPALIVE, event_stream, follow, sse
 from app.core.errors import NotFoundError
@@ -120,6 +123,72 @@ async def sensor_log_streams(
         )
         for stream in streams
     ]
+
+
+# Bucket sizes the timeline accepts: from five minutes to a day, and never
+# more slices than a bar can draw.
+MIN_BUCKET_SECONDS = 300
+MAX_BUCKET_SECONDS = 86400
+MAX_BUCKETS = 1000
+
+
+@router.get("/timeline", response_model=SensorLogTimelineOut)
+async def sensor_log_timeline(
+    store: SensorLogStoreDep,
+    _: ReadGuard,
+    probe: Annotated[str, Query(min_length=1)],
+    sensor: Annotated[str | None, Query(min_length=1)] = None,
+    since: Annotated[datetime | None, Query()] = None,
+    until: Annotated[datetime | None, Query()] = None,
+    bucket: Annotated[int, Query(ge=MIN_BUCKET_SECONDS, le=MAX_BUCKET_SECONDS)] = 900,
+) -> SensorLogTimelineOut:
+    """A probe's runs per sensor and network, sliced into buckets.
+
+    What the sensor page on a probe draws its timeline from, narrowed by
+    ``sensor``; without it every sensor, for the probe page's overview.
+    Without ``since`` the last 24 hours, in buckets of ``bucket`` seconds.
+    """
+    end = _aware(until) if until else datetime.now(UTC)
+    start = _aware(since) if since else end - DEFAULT_WINDOW
+    if (end - start).total_seconds() / bucket > MAX_BUCKETS:
+        start = end - timedelta(seconds=bucket * MAX_BUCKETS)
+    first, streams = await asyncio.to_thread(
+        store.timeline,
+        SensorLogFilter(since=start, until=end, probe=probe, sensor=sensor),
+        bucket=timedelta(seconds=bucket),
+    )
+    return SensorLogTimelineOut(
+        probe=probe,
+        sensor=sensor,
+        start=first,
+        until=end,
+        bucket_seconds=bucket,
+        retained_since=store.retained_since(),
+        streams=[
+            SensorLogTimelineStreamOut(
+                sensor=stream.sensor,
+                ssid=stream.ssid,
+                ok=stream.ok,
+                error=stream.error,
+                success_rate=stream.success_rate,
+                runs_per_hour=stream.runs_per_hour,
+                last_failure=SensorLogSummaryOut.model_validate(stream.last_failure)
+                if stream.last_failure
+                else None,
+                buckets=[
+                    SensorLogBucketOut(
+                        start=b.start,
+                        ok=b.ok,
+                        error=b.error,
+                        state=b.state,
+                        code=b.code,
+                    )
+                    for b in stream.buckets
+                ],
+            )
+            for stream in streams
+        ],
+    )
 
 
 @router.get("/events")

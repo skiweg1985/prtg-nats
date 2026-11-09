@@ -904,24 +904,38 @@ export interface SensorLogPage {
   offset: number
 }
 
-/** Runs in a row of one stream that ended the same way; `first` is the oldest. */
-export interface SensorLogSegment {
-  result: SensorLogResult
+/** What a slice of the sensor timeline looks like at a glance. */
+export type SensorTimelineState = 'none' | 'ok' | 'outlier' | 'failing'
+
+export interface SensorTimelineBucket {
+  start: string
+  ok: number
+  error: number
+  state: SensorTimelineState
   code: string | null
-  count: number
-  first: SensorLogSummary
-  last: SensorLogSummary
 }
 
-/** One sensor's runs for one network, folded into segments, newest first. */
-export interface SensorLogStream {
+/** One network of a sensor over the window. */
+export interface SensorTimelineStream {
   sensor: string
   ssid: string | null
-  total: number
-  results: Partial<Record<SensorLogResult, number>>
-  segments: SensorLogSegment[]
-  /** Older segments the answer left out; the full log has them. */
-  more_segments: number
+  ok: number
+  error: number
+  success_rate: number | null
+  runs_per_hour: number | null
+  last_failure: SensorLogSummary | null
+  buckets: SensorTimelineBucket[]
+}
+
+export interface SensorTimeline {
+  probe: string
+  /** The sensor asked for; null when the answer covers every sensor. */
+  sensor: string | null
+  start: string
+  until: string
+  bucket_seconds: number
+  retained_since: string
+  streams: SensorTimelineStream[]
 }
 
 /** The time windows the log offers; the API defaults to the last day. */
@@ -933,5 +947,8 @@ export interface SensorLogFilters {
   ssid?: string
   result?: SensorLogResult
   range: SensorLogRange
+  /** An exact window, ISO times, as a timeline links it; replaces `range`. */
+  since?: string
+  until?: string
   q?: string
 }

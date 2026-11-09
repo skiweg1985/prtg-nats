@@ -49,7 +49,7 @@ import type {
   SensorLogPage,
   SensorLogRange,
   SensorLogRecord,
-  SensorLogStream,
+  SensorTimeline,
   SensorLogSummary,
   SensorProfile,
   SensorProfileDetail,
@@ -99,7 +99,8 @@ export const keys = {
   sensorLogList: (filters: SensorLogFilters, limit: number, offset: number) =>
     ['sensor-logs', 'list', filters, limit, offset] as const,
   sensorLog: (id: string) => ['sensor-logs', 'record', id] as const,
-  sensorLogStreams: (probe: string) => ['sensor-logs', 'streams', probe] as const,
+  sensorLogTimeline: (probe: string, sensor: string, window: string) =>
+    ['sensor-logs', 'timeline', probe, sensor, window] as const,
 }
 
 // Jobs move; a dashboard that only updates on reload is a dashboard nobody
@@ -1202,7 +1203,8 @@ export function useSensorLogs(filters: SensorLogFilters, limit = 100, offset = 0
         ssid: filters.ssid,
         result: filters.result,
         q: filters.q,
-        since: rangeStart(filters.range).toISOString(),
+        since: filters.since ?? rangeStart(filters.range).toISOString(),
+        until: filters.until,
         limit,
         offset,
       }),
@@ -1210,18 +1212,37 @@ export function useSensorLogs(filters: SensorLogFilters, limit = 100, offset = 0
   })
 }
 
+/** The windows a sensor timeline offers, with the bucket each is drawn in. */
+export const TIMELINE_WINDOWS = {
+  '24h': { range: '24h', bucket: 900 },
+  '7d': { range: '7d', bucket: 3600 },
+} as const satisfies Record<string, { range: SensorLogRange; bucket: number }>
+
+export type TimelineWindow = keyof typeof TIMELINE_WINDOWS
+
 /**
- * One probe's runs of the last day, per sensor and network, with runs in a
- * row that ended the same way folded into one segment.
+ * A probe's runs per sensor and network over a window, in buckets - one
+ * sensor's for its page, every sensor's for the probe page. Refetched every
+ * minute rather than on each new run: a bucket is a quarter of an hour at
+ * least, and a run a minute would refold the whole window each time.
  */
-export function useSensorLogStreams(probe: string) {
+export function useSensorLogTimeline(
+  probe: string | undefined,
+  sensor: string | undefined,
+  window: TimelineWindow = '24h',
+) {
+  const { range, bucket } = TIMELINE_WINDOWS[window]
   return useQuery({
-    queryKey: keys.sensorLogStreams(probe),
+    queryKey: keys.sensorLogTimeline(probe ?? '', sensor ?? '', window),
     queryFn: () =>
-      api.get<SensorLogStream[]>('/sensor-logs/streams', {
+      api.get<SensorTimeline>('/sensor-logs/timeline', {
         probe,
-        since: rangeStart('24h').toISOString(),
+        sensor,
+        since: rangeStart(range).toISOString(),
+        bucket,
       }),
+    enabled: Boolean(probe),
+    refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
 }
@@ -1232,7 +1253,10 @@ function matchesFilters(record: SensorLogSummary, filters: SensorLogFilters): bo
   if (filters.sensor && record.sensor !== filters.sensor) return false
   if (filters.ssid && record.ssid !== filters.ssid) return false
   if (filters.result && record.result !== filters.result) return false
-  return Date.parse(record.time) >= rangeStart(filters.range).getTime()
+  const time = Date.parse(record.time)
+  if (filters.until && time > Date.parse(filters.until)) return false
+  const since = filters.since ? Date.parse(filters.since) : rangeStart(filters.range).getTime()
+  return time >= since
 }
 
 /**
@@ -1258,7 +1282,6 @@ export function useSensorLogStream(scope: { probe?: string } = {}) {
     source.onopen = () => {
       if (dropped) {
         void client.invalidateQueries({ queryKey: keys.sensorLogs })
-        void client.invalidateQueries({ queryKey: ['sensor-logs', 'streams'] })
       }
       dropped = false
     }
@@ -1269,9 +1292,6 @@ export function useSensorLogStream(scope: { probe?: string } = {}) {
       const record = JSON.parse(
         (message as MessageEvent<string>).data,
       ) as SensorLogSummary
-      // Folding happens on the server, so a folded view asks again rather
-      // than trying to fold the new run in itself.
-      void client.invalidateQueries({ queryKey: keys.sensorLogStreams(record.probe) })
       for (const query of client.getQueryCache().findAll({ queryKey: keys.sensorLogs })) {
         const filters = query.queryKey[2] as SensorLogFilters | undefined
         if (!filters || !matchesFilters(record, filters)) continue

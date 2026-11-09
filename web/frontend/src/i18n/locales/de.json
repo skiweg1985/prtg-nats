@@ -1617,7 +1617,6 @@
     "noBody": "Dieser Lauf hat keine Ausgabe",
     "output": "Ausgabe",
     "all": "Alle im Sensor-Log anzeigen",
-    "probeCard": "Läufe der letzten 24 Stunden",
     "columns": {
       "time": "Zeit",
       "probe": "Probe",
@@ -1637,7 +1636,9 @@
       "1h": "Letzte Stunde",
       "24h": "Letzte 24 Stunden",
       "7d": "Letzte 7 Tage",
-      "14d": "Letzte 14 Tage"
+      "14d": "Letzte 14 Tage",
+      "custom": "{{from}} – {{to}}",
+      "now": "jetzt"
     },
     "filters": {
       "search": "Ausgabe durchsuchen",
@@ -1726,19 +1727,56 @@
       "dhcp": "Ausgabe des DHCP-Clients",
       "events": "Ereignisse des Helpers"
     },
-    "streams": {
-      "runs_one": "1 Lauf",
-      "runs_other": "{{count}} Läufe",
-      "failed_one": "1 fehlgeschlagen",
-      "failed_other": "{{count}} fehlgeschlagen",
-      "since": "seit {{time}}",
-      "span": "{{from}} bis {{to}}",
-      "all_one": "Im Sensor-Log anzeigen",
-      "all_other": "Alle {{count}} im Sensor-Log anzeigen"
-    },
     "pagination": "Seiten",
     "previous": "Zurück",
     "next": "Weiter",
     "page": "Seite {{page}} von {{pages}}"
+  },
+  "probeSensor": {
+    "onProbe": "auf {{probe}}",
+    "deployment": "Installation",
+    "version": "Version",
+    "versions": "{{installed}} installiert · {{desired}} erwartet",
+    "notOnProbe": "Dieser Sensor ist auf dieser Probe nicht installiert",
+    "timelineTitle": "Letzte 24 Stunden",
+    "successRate": "Erfolgsquote",
+    "runsPerHour": "Läufe pro Stunde",
+    "signInsPerHour": "Anmeldungen pro Stunde",
+    "perHourRuns_one": "{{count}} Lauf/h",
+    "perHourRuns_other": "{{count}} Läufe/h",
+    "perHourSignIns_one": "{{count}} Anmeldung/h",
+    "perHourSignIns_other": "{{count}} Anmeldungen/h",
+    "lastFailure": "Letzter Fehler",
+    "lastFailureAt": "letzter Fehler {{time}} · {{code}}",
+    "noFailure": "kein Fehler",
+    "rowLabel": "{{network}}: {{ok}} OK, {{error}} fehlgeschlagen",
+    "legend": {
+      "ok": "OK",
+      "outlier": "Einzelner Fehler",
+      "failing": "Ausfall",
+      "none": "Keine Messung",
+      "expired": "Nicht mehr gespeichert"
+    },
+    "timelineTitle7d": "Letzte 7 Tage",
+    "window": {
+      "24h": "24 h",
+      "7d": "7 Tage"
+    },
+    "coveredSlice": "Kein eigener Lauf, im Takt des Laufs davor",
+    "sliceRuns_one": "{{count}} Lauf",
+    "sliceRuns_other": "{{count}} Läufe",
+    "sliceSignIns_one": "{{count}} Anmeldung",
+    "sliceSignIns_other": "{{count}} Anmeldungen",
+    "sliceFailed_one": "{{count}} fehlgeschlagen",
+    "sliceFailed_other": "{{count}} fehlgeschlagen",
+    "retention": "Läufe vor {{date}} sind nicht mehr gespeichert.",
+    "failures_one": "1 Fehler",
+    "failures_other": "{{count}} Fehler",
+    "failureCount": "{{count}}×",
+    "failuresMore_one": "1 weiterer Fehler im Sensor-Log",
+    "failuresMore_other": "{{count}} weitere Fehler im Sensor-Log",
+    "last24h": "Letzte 24 h",
+    "networks_one": "1 Netz",
+    "networks_other": "{{count}} Netze"
   }
 }

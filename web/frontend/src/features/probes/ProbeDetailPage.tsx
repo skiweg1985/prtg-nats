@@ -20,6 +20,7 @@ import {
   useRemoveSensorFromProbe,
   useReserveInterface,
   useRevealAccessKey,
+  useSensorLogTimeline,
   useSensorProfiles,
   useSensors,
   useUpdateProbe,
@@ -69,7 +70,7 @@ import { PrtgNameRow } from '@/features/probes/PrtgName'
 import { PackageUpdateBadge } from '@/features/probes/PackageUpdateBadge'
 import { probeName } from '@/features/probes/probeName'
 import { ReturnChannelRow } from '@/features/probes/ReturnChannelRow'
-import { ProbeRunsCard } from '@/features/sensorLogs/RunList'
+import { MiniTimeline } from '@/features/sensorLogs/SensorTimeline'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -1143,6 +1144,12 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
   const removeSensor = useRemoveSensorFromProbe()
   // Which sensor the dialog opens preselected on - null closed, '' free pick.
   const [deploying, setDeploying] = useState<string | null>(null)
+  // Every sensor's last day in one request; a row shows its own part. The
+  // details per network are on the sensor's page a click away.
+  const { data: timeline } = useSensorLogTimeline(
+    can('sensor_log.read') ? detail.summary.nats_username : undefined,
+    undefined,
+  )
 
   const columns: Column<SensorState>[] = [
     {
@@ -1157,6 +1164,16 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       header: t('probes.columns.status'),
       sortValue: (row) => row.status,
       cell: (row) => <SensorStatusBadge status={row.status} />,
+    },
+    {
+      key: 'runs',
+      header: t('probeSensor.last24h'),
+      cell: (row) =>
+        timeline ? (
+          <MiniTimeline timeline={timeline} sensor={row.name} />
+        ) : (
+          <span className="text-ink-3">—</span>
+        ),
     },
     {
       key: 'installed',
@@ -1299,6 +1316,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         rows={sensors}
         columns={columns}
         rowKey={(row) => row.name}
+        rowHref={(row) => `/probes/${probeId}/sensors/${encodeURIComponent(row.name)}`}
         emptyTitle={t('probes.sensorsEmpty')}
         emptyAction={
           <PermissionGate permission="deployment.create">
@@ -1308,9 +1326,6 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
           </PermissionGate>
         }
       />
-      <PermissionGate permission="sensor_log.read">
-        <ProbeRunsCard probe={detail.summary.nats_username} />
-      </PermissionGate>
       <VariantsCard detail={detail} />
       <EndpointsCard detail={detail} />
       <InterfacesCard probeId={probeId} sensors={sensors} />

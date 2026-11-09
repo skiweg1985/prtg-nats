@@ -481,3 +481,179 @@ async def test_the_streams_fold_runs_that_ended_the_same_way(
     )
     assert [s["count"] for s in capped.json()[0]["segments"]] == [19, 1]
     assert capped.json()[0]["more_segments"] == 1
+
+
+async def test_the_timeline_slices_a_sensor_into_buckets_per_network(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # One run a minute from 10:00. A single failure at 10:05 between passing
+    # runs, two failures in a row at 10:20 and 10:21, nothing after 10:29,
+    # and a second network with one run.
+    def run(n: int, result: str, ssid: str = "Example-Corp") -> dict[str, Any]:
+        return record(
+            f"66666666-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T10:{n:02d}:00Z",
+            result=result,
+            ssid=ssid,
+        )
+
+    batch = [run(n, "error" if n in (5, 20, 21) else "ok") for n in range(30)]
+    batch.append(run(40, "ok", ssid="Example-Guest"))
+    batch.append(record("66666666-0000-4000-8000-999999999999", sensor="aruba-uplink"))
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={
+            "probe": PROBE,
+            "sensor": "wlan-auth",
+            "since": "2025-03-08T10:00:00Z",
+            "until": "2025-03-08T11:00:00Z",
+            "bucket": 600,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["bucket_seconds"] == 600
+    assert body["start"].startswith("2025-03-08T10:00")
+    assert [s["ssid"] for s in body["streams"]] == ["Example-Corp", "Example-Guest"]
+
+    corp = body["streams"][0]
+    assert [b["state"] for b in corp["buckets"]] == [
+        "outlier",
+        "ok",
+        "failing",
+        # 10:30 is still within a minute and a half of the run at 10:29.
+        "ok",
+        "none",
+        "none",
+    ]
+    assert corp["buckets"][2]["error"] == 2
+    assert corp["buckets"][2]["code"] == "eap_failure"
+    assert (corp["ok"], corp["error"]) == (27, 3)
+    assert corp["success_rate"] == pytest.approx(0.9)
+    # 30 runs over the four buckets they cover: 45 an hour, the last bucket
+    # held only the tail of the run at 10:29.
+    assert corp["runs_per_hour"] == pytest.approx(45)
+    assert corp["last_failure"]["time"].startswith("2025-03-08T10:21")
+
+
+async def test_a_failure_at_the_newest_end_counts_as_failing(
+    client: AsyncClient, as_probe: None
+) -> None:
+    batch = [
+        record(
+            f"77777777-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T10:{n:02d}:00Z",
+            result="error" if n == 9 else "ok",
+        )
+        for n in range(10)
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={
+            "probe": PROBE,
+            "sensor": "wlan-auth",
+            "since": "2025-03-08T10:00:00Z",
+            "until": "2025-03-08T10:10:00Z",
+            "bucket": 300,
+        },
+    )
+    states = [b["state"] for b in response.json()["streams"][0]["buckets"]]
+    assert states == ["ok", "failing"]
+
+
+async def test_the_timeline_caps_the_number_of_buckets(
+    client: AsyncClient, as_probe: None
+) -> None:
+    await sign_in(client)
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={
+            "probe": PROBE,
+            "sensor": "wlan-auth",
+            "since": "2024-01-01T00:00:00Z",
+            "until": "2025-03-08T00:00:00Z",
+            "bucket": 300,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["streams"] == []
+    start = datetime.fromisoformat(response.json()["start"])
+    assert datetime(2025, 3, 8, tzinfo=UTC) - start <= timedelta(seconds=300 * 1000)
+
+
+async def test_a_sensor_that_runs_rarely_covers_the_buckets_in_between(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # Every half hour from 08:00 to 10:00, then nothing until 12:00. The
+    # 15-minute buckets between two runs belong to the run before them; the
+    # two hours of silence do not.
+    times = ["08:00", "08:30", "09:00", "09:30", "10:00", "12:00"]
+    batch = [
+        record(
+            f"88888888-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T{moment}:00Z",
+            result="error" if moment in ("09:00", "09:30") else "ok",
+        )
+        for n, moment in enumerate(times)
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={
+            "probe": PROBE,
+            "sensor": "wlan-auth",
+            "since": "2025-03-08T08:00:00Z",
+            "until": "2025-03-08T12:15:00Z",
+            "bucket": 900,
+        },
+    )
+    corp = response.json()["streams"][0]
+    states = [b["state"] for b in corp["buckets"]]
+    assert states[:8] == [
+        "ok",  # 08:00
+        "ok",
+        "ok",  # 08:30
+        "ok",
+        "failing",  # 09:00
+        "failing",
+        "failing",  # 09:30
+        "failing",
+    ]
+    assert states[8:11] == ["ok", "ok", "ok"]  # 10:00 and its interval
+    assert set(states[11:16]) == {"none"}
+    assert states[16] == "ok"  # 12:00
+    # Six runs over the three hours they cover: twice an hour.
+    assert corp["runs_per_hour"] == pytest.approx(2)
+
+
+async def test_without_a_sensor_the_timeline_covers_every_sensor_of_the_probe(
+    client: AsyncClient, as_probe: None
+) -> None:
+    batch = [
+        record("99999999-0000-4000-8000-000000000001", result="ok"),
+        record(
+            "99999999-0000-4000-8000-000000000002",
+            sensor="aruba-uplink",
+            ssid="",
+            result="ok",
+        ),
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={**DAY, "probe": PROBE, "bucket": 3600},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["sensor"] is None
+    assert [s["sensor"] for s in body["streams"]] == ["aruba-uplink", "wlan-auth"]
+    assert len(body["streams"][0]["buckets"]) == 24
