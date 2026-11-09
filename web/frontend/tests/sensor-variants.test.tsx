@@ -143,6 +143,11 @@ const GROUPED_SCHEMA: ParameterSchema = {
   settings: [
     ...SCHEMA.settings,
     { name: 'IDENTITY', type: 'string', groups: ['peap', 'eap-tls'], required: true },
+    {
+      name: 'NO_VERIFY_SERVER',
+      type: 'boolean',
+      groups: ['peap', 'eap-tls'],
+    },
   ],
   credentials: [
     {
@@ -161,7 +166,15 @@ const GROUPED_SCHEMA: ParameterSchema = {
     },
   ],
   files: [
-    { name: 'CA_CERT', kind: 'certificate', max_bytes: 65536, extension: '.pem' },
+    {
+      name: 'CA_CERT',
+      kind: 'certificate',
+      max_bytes: 65536,
+      extension: '.pem',
+      required: true,
+      groups: ['peap', 'eap-tls'],
+      required_unless: 'NO_VERIFY_SERVER',
+    },
     {
       name: 'CLIENT_CERT',
       kind: 'certificate',
@@ -267,12 +280,34 @@ describe('SensorVariants', () => {
     expect(screen.getByLabelText(/^PSK/)).toBeInTheDocument()
     expect(screen.queryByLabelText(/^PASSWORD/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/^CLIENT_CERT/)).not.toBeInTheDocument()
-    // The ungrouped CA certificate applies to every kind.
-    expect(screen.getByLabelText(/^CA_CERT/)).toBeInTheDocument()
+    // The CA certificate verifies the RADIUS server, so a PSK variant has
+    // no use for it either.
+    expect(screen.queryByLabelText(/^CA_CERT/)).not.toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
     expect(screen.queryByLabelText(/^PSK/)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^PASSWORD/)).toBeInTheDocument()
+  })
+
+  it('stops asking for the CA once the variant waives the check', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
+
+    // The CA certificate is what verifies the RADIUS server. Asking for it
+    // while the variant has just said not to verify leaves a form that
+    // cannot be submitted and a file that the run would ignore.
+    const ca = screen.getByLabelText(/^CA_CERT/) as HTMLInputElement
+    expect(ca.labels?.[0]).toHaveTextContent('CA_CERT *')
+
+    await user.click(screen.getByLabelText(/^NO_VERIFY_SERVER/))
+    expect(ca.labels?.[0]).toHaveTextContent(/^CA_CERT$/)
+    // Still offered, because a variant may verify and name no authority
+    // only by saying so - the field just stops being demanded.
+    expect(ca).toBeInTheDocument()
   })
 
   it('names the chosen file in the upload box', async () => {

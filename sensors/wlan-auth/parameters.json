@@ -169,6 +169,13 @@
       "description": "Required suffix of the RADIUS server certificate."
     },
     {
+      "name": "NO_VERIFY_SERVER",
+      "type": "boolean",
+      "maps_to": "--no-verify-server",
+      "groups": ["peap", "eap-tls"],
+      "description": "Sign in without checking the RADIUS server certificate. For a first test, or where the authority is not at hand. CA_CERT may then stay empty."
+    },
+    {
       "name": "BSSID",
       "type": "string",
       "maps_to": "--bssid",
@@ -206,11 +213,12 @@
     {
       "name": "CA_CERT",
       "required": true,
+      "required_unless": "NO_VERIFY_SERVER",
       "kind": "certificate",
       "extension": ".pem",
       "maps_to": "--ca-cert",
       "groups": ["peap", "eap-tls"],
-      "description": "The authority that signed the RADIUS server certificate. Without it the test is refused, unless --no-verify-server is given in PRTG."
+      "description": "The authority that signed the RADIUS server certificate. Several in one PEM file are allowed, so an intermediate and its root travel together."
     },
     {
       "name": "CLIENT_CERT",

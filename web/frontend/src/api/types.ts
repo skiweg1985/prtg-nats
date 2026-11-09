@@ -362,6 +362,8 @@ export interface ParameterField extends FieldBase {
 export interface ProfileField extends FieldBase {
   /** The selector groups this key belongs to; empty means it always applies. */
   groups?: string[]
+  /** A key whose being switched on lifts "required" from this one. */
+  required_unless?: string
   type: FieldType
   default?: unknown
   choices?: string[]
@@ -375,6 +377,8 @@ export interface ProfileField extends FieldBase {
 export interface FileField extends FieldBase {
   /** The selector groups this file belongs to; empty means it always applies. */
   groups?: string[]
+  /** A key whose being switched on lifts "required" from this one. */
+  required_unless?: string
   kind?: string
   secret?: boolean
   max_bytes: number

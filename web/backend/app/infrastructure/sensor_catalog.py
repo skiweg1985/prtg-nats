@@ -120,6 +120,10 @@ class ProfileField:
     # needs IDENTITY for PEAP and for EAP-TLS alike, and a single group would
     # hide it from one of them.
     groups: tuple[str, ...] = ()
+    # The key whose being switched on lifts "required" from this one. A
+    # variant may hold a decision that makes another field pointless, and
+    # demanding it anyway leaves a form nobody can submit.
+    required_unless: str | None = None
     # Never read back, never logged, never echoed into a shared view.
     sensitive: bool = False
     # The parameter this key stands in for, so the reference can say what may
@@ -146,6 +150,7 @@ class FileField:
     label_key: str | None = None
     description_key: str | None = None
     groups: tuple[str, ...] = ()
+    required_unless: str | None = None
     maps_to: str | None = None
 
 
@@ -206,6 +211,22 @@ class SensorSchema:
             selector.default or ""
         )
         return active in field.groups
+
+    def field_required(
+        self, field: ProfileField | FileField, values: dict[str, str]
+    ) -> bool:
+        """Whether the variant has to carry this field, given what it holds.
+
+        Beyond the group: a variant may hold a decision that makes another
+        field pointless. wlan-auth's CA certificate verifies the RADIUS
+        server, and NO_VERIFY_SERVER is the decision not to verify it - a
+        form that demands it anyway cannot be submitted at all.
+        """
+        if not field.required or not self.field_applies(field, values):
+            return False
+        return not (
+            field.required_unless and is_switched_on(values.get(field.required_unless))
+        )
 
     def profile_field(self, name: str) -> ProfileField | None:
         fields = self.profile_fields
@@ -503,6 +524,7 @@ def _parse_profile_field(entry: Any, *, sensitive: bool) -> ProfileField:
         label_key=_optional_string(values, "label_key"),
         description_key=_optional_string(values, "description_key"),
         groups=_groups(values, name),
+        required_unless=_optional_string(values, "required_unless"),
         sensitive=sensitive,
         maps_to=_optional_string(values, "maps_to"),
     )
@@ -531,8 +553,19 @@ def _parse_file_field(entry: Any) -> FileField:
         label_key=_optional_string(values, "label_key"),
         description_key=_optional_string(values, "description_key"),
         groups=_groups(values, name),
+        required_unless=_optional_string(values, "required_unless"),
         maps_to=_optional_string(values, "maps_to"),
     )
+
+
+def is_switched_on(value: str | None) -> bool:
+    """Whether a profile value reads as a switch that is on.
+
+    A profile file is lines of text, so a boolean arrives as one. Only the
+    spellings a person would write are accepted; anything else is off, which
+    is the safe side for a switch that turns a check off.
+    """
+    return (value or "").strip().lower() in ("true", "1", "yes", "on")
 
 
 def _groups(values: dict[str, Any], name: str) -> tuple[str, ...]:

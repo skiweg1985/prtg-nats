@@ -211,6 +211,13 @@ STRING_FIELDS = (
     "mac",
 )
 
+# Profile keys that are a switch rather than a value. A profile file is
+# lines of text, so they arrive as one; only the spellings a person would
+# write count as on, because off is the safe side for a switch that turns a
+# check off.
+BOOL_FIELDS = ("no_verify_server",)
+BOOL_ON = ("true", "1", "yes", "on")
+
 AUTH_METHODS = ("psk", "peap", "eap-tls")
 
 # Events wpa_supplicant reports on stdout, with the cause they mean for
@@ -323,6 +330,8 @@ def read_profile(name):
             key = key.strip().lower()
             if key in STRING_FIELDS:
                 values[key] = value.strip()
+            elif key in BOOL_FIELDS:
+                values[key] = value.strip().lower() in BOOL_ON
     return values
 
 
@@ -1093,6 +1102,12 @@ def merge_profile(job):
     if not job.get("profile"):
         return job
     profile = read_profile(job["profile"])
+    # The switch is read before the loop, because it does not share a name
+    # with the field it decides. There is no --verify-server, so a sensor can
+    # only ever turn the check off - a profile that turns it off is therefore
+    # not overruled by a parameter line that stays silent.
+    if profile.pop("no_verify_server", False):
+        job["verify_server"] = False
     for key, value in profile.items():
         if not job.get(key):
             job[key] = value

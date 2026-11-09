@@ -556,6 +556,14 @@ with `bad-request` on the probe rather than in the browser. That was the
 shape of the EAP-TLS variant that could not be built at all until the user
 name was declared for both methods.
 
+A field may also name `required_unless`, the key whose being switched on
+lifts the requirement from it. `wlan-auth` uses it for the CA certificate:
+it verifies the RADIUS server, and `NO_VERIFY_SERVER` is the decision not
+to verify. Without that pair the form demanded a file for a check the
+variant had just turned off. A key of type `boolean` is such a switch; it
+reaches the probe as a line of text and counts as on for `true`, `1`, `yes`
+and `on`.
+
 **From the command line**, unchanged:
 
 ```bash

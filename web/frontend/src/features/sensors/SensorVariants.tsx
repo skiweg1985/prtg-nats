@@ -19,6 +19,7 @@ import {
   Badge,
   Button,
   Card,
+  CheckboxField,
   Dialog,
   EmptyState,
   Field,
@@ -297,19 +298,31 @@ function VariantDialog({
 
   // Required means "required while its group applies" - and a credential the
   // server already holds, or a file already uploaded, counts as filled in.
+  /**
+   * Required, unless the variant holds the decision that makes the field
+   * pointless: the CA certificate verifies the RADIUS server, and
+   * NO_VERIFY_SERVER is the decision not to verify it.
+   */
+  function required(field: { required?: boolean; required_unless?: string }) {
+    if (!field.required) return false
+    if (field.required_unless && isSwitchedOn(values[field.required_unless]))
+      return false
+    return true
+  }
+
   const missing = [
     ...visibleSettings.filter(
-      (field) => field.required && !values[field.name]?.trim(),
+      (field) => required(field) && !values[field.name]?.trim(),
     ),
     ...visibleCredentials.filter(
       (field) =>
-        field.required &&
+        required(field) &&
         !values[field.name]?.trim() &&
         !stored?.secrets_set.includes(field.name),
     ),
     ...visibleFiles.filter(
       (field) =>
-        field.required &&
+        required(field) &&
         !files[field.name] &&
         !stored?.files.some((entry) => entry.key === field.name),
     ),
@@ -393,6 +406,7 @@ function VariantDialog({
                   key={field.name}
                   field={field}
                   value={values[field.name] ?? ''}
+                  required={required(field)}
                   onChange={(value) => update(field.name, value)}
                 />
               ))}
@@ -404,7 +418,7 @@ function VariantDialog({
               {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
-                  label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+                  label={fieldLabel(t, field) + (required(field) ? ' *' : '')}
                   hint={
                     stored?.secrets_set.includes(field.name)
                       ? t('sensors.variants.secretStored')
@@ -436,7 +450,7 @@ function VariantDialog({
                 return (
                   <FilePicker
                     key={field.name}
-                    label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+                    label={fieldLabel(t, field) + (required(field) ? ' *' : '')}
                     fileName={files[field.name]?.name}
                     prompt={t('sensors.variants.fileChoose')}
                     hint={
@@ -526,19 +540,42 @@ function FieldGroup({ title, children }: { title: string; children: React.ReactN
   )
 }
 
+/** Whether a stored profile value reads as a switch that is on.
+
+    A variant is lines of text on the probe, so a boolean travels as one.
+    The helper on the probe reads the same spellings. */
+function isSwitchedOn(value: string | undefined): boolean {
+  return ['true', '1', 'yes', 'on'].includes((value ?? '').trim().toLowerCase())
+}
+
 function ProfileInput({
   field,
   value,
+  required,
   onChange,
 }: {
   field: ProfileField
   value: string
+  /** Decided by the form, because it can depend on the other values. */
+  required: boolean
   onChange: (value: string) => void
 }) {
   const { t } = useTranslation()
+  // A switch carries its own label, so it does not go through Field: a
+  // checkbox under a heading of its own reads as a second, nameless control.
+  if (field.type === 'boolean') {
+    return (
+      <CheckboxField
+        label={fieldLabel(t, field)}
+        hint={hintOf(t, field)}
+        checked={isSwitchedOn(value)}
+        onChange={(checked) => onChange(checked ? 'true' : '')}
+      />
+    )
+  }
   return (
     <Field
-      label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+      label={fieldLabel(t, field) + (required ? ' *' : '')}
       hint={hintOf(t, field)}
     >
       {field.type === 'choice' ? (

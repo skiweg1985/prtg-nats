@@ -19,6 +19,7 @@ from app.core.errors import NotFoundError, RuntimeStateError
 from app.infrastructure.probe_helper.protocol import probe_profile_file_path
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import (
+    FileField,
     ParameterField,
     ProfileField,
     SensorSchema,
@@ -249,3 +250,37 @@ def test_a_key_of_several_methods_applies_to_each_of_them() -> None:
     # back to its default rather than hiding everything.
     assert schema.field_applies(ssid, {})
     assert schema.field_applies(psk, {})
+
+
+def test_a_decision_in_the_variant_lifts_a_requirement() -> None:
+    """A field may stop being required because of what the variant chose.
+
+    wlan-auth's CA certificate verifies the RADIUS server, and
+    NO_VERIFY_SERVER is the decision not to verify it. Required either way,
+    the form asked for a file the run was about to ignore, and a variant
+    that wanted no verification could not be saved at all.
+    """
+    auth = ProfileField(
+        name="AUTH",
+        type="choice",
+        choices=("psk", "peap", "eap-tls"),
+        default="psk",
+    )
+    switch = ProfileField(
+        name="NO_VERIFY_SERVER", type="boolean", groups=("peap", "eap-tls")
+    )
+    ca = FileField(
+        name="CA_CERT",
+        required=True,
+        groups=("peap", "eap-tls"),
+        required_unless="NO_VERIFY_SERVER",
+    )
+    schema = SensorSchema(settings=(auth, switch), files=(ca,))
+
+    assert schema.field_required(ca, {"AUTH": "peap"})
+    assert not schema.field_required(ca, {"AUTH": "peap", "NO_VERIFY_SERVER": "true"})
+    # Off in every other spelling, because the switch takes a check away.
+    for off in ("false", "no", "0", "", "wahr"):
+        assert schema.field_required(ca, {"AUTH": "peap", "NO_VERIFY_SERVER": off}), off
+    # The group still decides first: a PSK variant needs no CA either way.
+    assert not schema.field_required(ca, {"AUTH": "psk"})

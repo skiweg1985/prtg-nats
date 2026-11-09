@@ -1788,6 +1788,70 @@ def check_wlan_auth_sensor_log():
     shutil.rmtree(lock_directory, ignore_errors=True)
 
 
+def check_wlan_auth_profile_switch():
+    """A variant can decide not to verify the RADIUS server.
+
+    Until it could, the only way to run without a CA was --no-verify-server
+    in the PRTG parameter line, so a variant that wanted it could not be
+    built at all: the form asked for a file the run was about to ignore.
+    """
+    print("\n== wlan-auth: the no-verify switch in a variant ==")
+    module = wlan_auth_helper()
+
+    directory = tempfile.mkdtemp()
+    try:
+        module.PROFILE_DIR = directory
+
+        def profile(text, name="site"):
+            path = os.path.join(directory, name + ".env")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.chmod(path, 0o600)
+            return name
+
+        def merged(text, **job):
+            job.setdefault("profile", profile(text))
+            job.setdefault("verify_server", True)
+            return module.merge_profile(job)
+
+        check("the switch reaches the job",
+              merged("SSID=A\nNO_VERIFY_SERVER=true\n")["verify_server"],
+              False)
+        check("and does not stay behind as a string field",
+              "no_verify_server" in merged("SSID=A\nNO_VERIFY_SERVER=true\n"),
+              False)
+        for spelling in ("1", "yes", "on", "True", "ON"):
+            check("%r counts as on" % spelling,
+                  merged("NO_VERIFY_SERVER=%s\n" % spelling)["verify_server"],
+                  False)
+        # Anything else is off: a switch that turns a check off may not be
+        # turned on by a typo in a file nobody reads again.
+        for spelling in ("false", "no", "0", "", "ja", "wahr"):
+            check("%r counts as off" % spelling,
+                  merged("NO_VERIFY_SERVER=%s\n" % spelling)["verify_server"],
+                  True)
+        check("a variant without the key leaves verification alone",
+              merged("SSID=A\n")["verify_server"], True)
+        # There is no --verify-server, so a parameter line can only ever turn
+        # the check off. A silent one must not undo the variant's decision.
+        check("the switch survives a parameter line that says nothing",
+              merged("NO_VERIFY_SERVER=true\n", ssid="B")["verify_server"],
+              False)
+
+        # The pair the variant form now offers: no CA, and the decision that
+        # makes it unnecessary. Without the switch this is still refused.
+        block = module.build_network_block({
+            "ssid": "A", "auth": "peap", "identity": "u", "password": "p",
+            "verify_server": False,
+        })
+        check("a run without a CA builds a configuration",
+              any(line.strip().startswith("eap=PEAP") for line in block), True)
+        check("and names no CA certificate in it",
+              any("ca_cert=" in line for line in block), False)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def check_wlan_auth_configuration():
     """The wpa_supplicant configuration must not be subvertible."""
     print("\n== wlan-auth: configuration from foreign strings ==")
@@ -4290,6 +4354,7 @@ if __name__ == "__main__":
     check_privilege_path()
     check_wlan_auth_output()
     check_wlan_auth_configuration()
+    check_wlan_auth_profile_switch()
     check_wlan_auth_scheduler()
     check_wlan_auth_sensor_log()
     check_internet_speed_output()
