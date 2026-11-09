@@ -608,6 +608,7 @@ UDHCPC_LEASE = re.compile(
 
 # "rtt min/avg/max/mdev = 1.234/..." - the average is the reading.
 PING_TIME = re.compile(r"= [\d.]+/([\d.]+)/")
+PING_SENT = re.compile(r"(\d+) packets transmitted")
 
 def dhcp_command(interface, seconds):
     """The DHCP client to run, and how to ask it for one lease.
@@ -749,6 +750,10 @@ def reach_gateway(interface, address, target, budget):
         raise Blocked("ping-missing",
                       "This probe has no ping, so the gateway cannot be "
                       "tested; use --gateway none")
+    # One echo request every half second until the first reply, for ten
+    # seconds at most. A gateway that needs a moment after the lease is
+    # caught by a later request, and a healthy one ends the check after a
+    # single round trip instead of waiting out a fixed count.
     seconds = max(2, min(10, int(budget)))
     added_address = added_route = False
     started = time.monotonic()
@@ -765,8 +770,9 @@ def reach_gateway(interface, address, target, budget):
                           "Could not put the leased address on %s"
                           % interface)
         done = subprocess.run(
-            ["ping", "-c", "2", "-W", str(seconds), "-I", address, target],
-            capture_output=True, timeout=seconds * 2 + 5, check=False,
+            ["ping", "-c", "1", "-i", "0.5", "-W", "1", "-w", str(seconds),
+             "-I", address, target],
+            capture_output=True, timeout=seconds + 5, check=False,
             text=True)
     except subprocess.TimeoutExpired:
         raise Failed("gateway-unreachable", "gateway %s no reply" % target)
@@ -781,10 +787,12 @@ def reach_gateway(interface, address, target, budget):
                            capture_output=True, timeout=10, check=False)
     if done.returncode != 0:
         raise Failed("gateway-unreachable", "gateway %s no reply" % target)
+    sent = PING_SENT.search(done.stdout)
+    attempts = int(sent.group(1)) if sent else 1
     found = PING_TIME.search(done.stdout)
     if found:
-        return int(float(found.group(1)))
-    return int((time.monotonic() - started) * 1000)
+        return int(float(found.group(1))), attempts
+    return int((time.monotonic() - started) * 1000), attempts
 
 
 def dhcp_failure(command, returncode, output):
@@ -1077,11 +1085,13 @@ def perform_test(job, log=None):
                 result["details"]["gateway"] = target
                 result["details"]["gateway_kind"] = kind
                 log.event("pinging %s %s" % (kind, target))
-                result["timings"]["gateway_ms"] = reach_gateway(
+                took, attempts = reach_gateway(
                     interface, lease["new_ip_address"], target,
                     deadline - time.monotonic())
-                log.event("%s answered in %d ms" % (
-                    target, result["timings"]["gateway_ms"]))
+                result["timings"]["gateway_ms"] = took
+                log.event("%s answered in %d ms after %d %s" % (
+                    target, took, attempts,
+                    "ping" if attempts == 1 else "pings"))
 
         result["message"] = "OK"
     except Failed as failure:

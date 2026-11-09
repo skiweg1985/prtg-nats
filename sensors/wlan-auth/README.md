@@ -228,6 +228,12 @@ leased address is put on the interface as a `/32` with a host route for
 the duration of the ping and removed afterwards, so nothing of it
 outlives the run.
 
+The sensor sends one echo request every 500 ms and stops at the first
+reply, waiting at most one second for each. A gateway that needs a moment
+after the lease is caught by a later request; one that answers nothing
+within ten seconds, or the remaining time of the run if that is shorter,
+counts as unreachable. The job log notes how many requests it took.
+
 > **A network that drops ICMP needs `--gateway none`.** The check runs by
 > default, so a sensor that was green before this change and sits in such
 > a network reports failure code 14 from the next scan on. `none` takes
