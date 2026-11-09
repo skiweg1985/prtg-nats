@@ -54,9 +54,14 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Body type is 14px (DESIGN.md), set here rather than left at the
+   * browser's 16px: headings are sized against what the page actually reads
+   * at, and text without a size class should land on body, not above it. */
   body {
     margin: 0;
     min-height: 100vh;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
   }
 
   h1,
@@ -116,13 +121,18 @@
 }
 
 @layer components {
-  /* The uppercase mono label used for column headers and metadata keys. */
+  /* The uppercase mono label of table column heads - and nothing else. Set
+   * on headings and keys elsewhere it shouted over the data it named. */
   .label-mono {
     font-family: var(--font-mono);
     font-size: 0.6875rem;
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
     color: var(--color-ink-3);
+  }
+
+  details[open] > summary > .disclosure-chevron {
+    transform: rotate(90deg);
   }
 
   .surface-card {

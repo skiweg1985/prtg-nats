@@ -30,6 +30,7 @@ import {
   PageHeader,
   Skeleton,
   Tabs,
+  Summary,
 } from '@/components/ui/primitives'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import { RolloutsView } from '@/features/deployments/RolloutsView'
@@ -594,9 +595,9 @@ function JobResult({ job }: { job: JobDetail }) {
 
   return (
     <details className="mt-3">
-      <summary className="text-ink-3 cursor-pointer text-xs">
+      <Summary className="text-ink-3 text-xs">
         {t('jobs.rawResult')}
-      </summary>
+      </Summary>
       <pre className="bg-surface-2 rounded-inset text-ink-2 mt-2 max-h-64 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
         {JSON.stringify(job.result, null, 2)}
       </pre>

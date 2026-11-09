@@ -15,6 +15,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.api.probe.deps import get_probe_identity
+from app.services.sensor_logs import stream_name
 from tests.conftest import SETUP_CODE, write_probe_inventory
 
 PASSWORD = "correct-horse-battery"
@@ -30,6 +31,7 @@ def run(
     sensor: str = "wlan-auth",
     minute: int | None = None,
     job: str = "a1b2c3d4e5f6",
+    variant: str | None = None,
 ) -> dict[str, Any]:
     """Run ``number`` of a stream, ``minute`` minutes after 09:00."""
     at = number if minute is None else minute
@@ -41,8 +43,13 @@ def run(
         "result": result,
         "code": "auth-failed-eap" if result == "error" else "ok",
         "summary": "",
-        "body": {"ssid": ssid},
+        "body": {"ssid": ssid, **({"profile": variant} if variant else {})},
     }
+
+
+def row(ssid: str, variant: str | None = None) -> str:
+    """The key the timeline hands out for a row, opaque to the interface."""
+    return stream_name(("wlan-auth", ssid, variant))
 
 
 def rid(number: int) -> str:
@@ -126,6 +133,17 @@ async def test_neighbours_stay_inside_the_stream(
     assert await neighbours(client, 2) == (None, None)
 
 
+async def test_neighbours_stay_inside_the_variant(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # Two configurations of one SSID are two rows, and so two histories.
+    await submit(client, run(1), run(2, variant="tls"), run(3), run(4, variant="tls"))
+    await sign_in(client)
+
+    assert await neighbours(client, 1) == (None, rid(3))
+    assert await neighbours(client, 2) == (None, rid(4))
+
+
 async def test_failures_only_skips_the_runs_that_passed(
     client: AsyncClient, as_probe: None
 ) -> None:
@@ -173,7 +191,7 @@ async def run_at(client: AsyncClient, since: str, until: str) -> Any:
         params={
             "probe": PROBE,
             "sensor": "wlan-auth",
-            "stream": "Example-Corp",
+            "stream": row("Example-Corp"),
             "since": since,
             "until": until,
         },
@@ -251,13 +269,13 @@ async def test_a_hidden_row_leaves_the_timeline_and_is_audited(
 ) -> None:
     await submit(client, run(1), run(2, ssid="Example-Guest"))
     probe_id = await enrolled(client, project_dir)
-    assert await timeline_rows(client) == ["Example-Corp", "Example-Guest"]
+    assert await timeline_rows(client) == [row("Example-Corp"), row("Example-Guest")]
 
-    response = await hide(client, "Example-Guest")
+    response = await hide(client, row("Example-Guest"))
     assert response.status_code == 200, response.text
-    assert response.json()["stream"] == "Example-Guest"
+    assert response.json()["stream"] == row("Example-Guest")
 
-    assert await timeline_rows(client) == ["Example-Corp"]
+    assert await timeline_rows(client) == [row("Example-Corp")]
     # The records stay in the sensor log.
     listed = await client.get(
         "/api/v1/sensor-logs", params={**DAY, "ssid": "Example-Guest"}
@@ -270,7 +288,7 @@ async def test_a_hidden_row_leaves_the_timeline_and_is_audited(
     )
     recorded = events.json()
     assert len(recorded) == 1
-    assert recorded[0]["after_state"]["stream"] == "Example-Guest"
+    assert recorded[0]["after_state"]["stream"] == row("Example-Guest")
 
 
 async def test_a_hidden_row_returns_with_its_next_run(
@@ -278,7 +296,7 @@ async def test_a_hidden_row_returns_with_its_next_run(
 ) -> None:
     await submit(client, run(1, ssid="Example-Guest"))
     await enrolled(client, project_dir)
-    assert (await hide(client, "Example-Guest")).status_code == 200
+    assert (await hide(client, row("Example-Guest"))).status_code == 200
     assert await timeline_rows(client) == []
 
     # A run that is older than the hide - a buffered probe catching up - does
@@ -294,7 +312,7 @@ async def test_a_hidden_row_returns_with_its_next_run(
         "/api/v1/sensor-logs/timeline", params={"probe": PROBE, "sensor": "wlan-auth"}
     )
     assert [stream["stream"] for stream in current.json()["streams"]] == [
-        "Example-Guest"
+        row("Example-Guest")
     ]
 
 
@@ -308,15 +326,29 @@ async def test_hiding_is_scoped_to_one_sensor_and_stream(
         run(3, sensor="aruba-uplink", ssid="Example-Guest"),
     )
     await enrolled(client, project_dir)
-    assert (await hide(client, "Example-Guest")).status_code == 200
+    assert (await hide(client, row("Example-Guest"))).status_code == 200
 
-    assert await timeline_rows(client) == ["Example-Corp"]
+    assert await timeline_rows(client) == [row("Example-Corp")]
     overview = await client.get(
         "/api/v1/sensor-logs/timeline", params={"probe": PROBE, **DAY}
     )
     assert [
         (stream["sensor"], stream["stream"]) for stream in overview.json()["streams"]
-    ] == [("aruba-uplink", "Example-Guest"), ("wlan-auth", "Example-Corp")]
+    ] == [("aruba-uplink", row("Example-Guest")), ("wlan-auth", row("Example-Corp"))]
+
+
+async def test_hiding_one_variant_leaves_the_other_of_the_same_network(
+    client: AsyncClient, as_probe: None, project_dir: Path
+) -> None:
+    await submit(client, run(1), run(2, variant="tls"))
+    await enrolled(client, project_dir)
+    assert await timeline_rows(client) == [
+        row("Example-Corp"),
+        row("Example-Corp", "tls"),
+    ]
+
+    assert (await hide(client, row("Example-Corp", "tls"))).status_code == 200
+    assert await timeline_rows(client) == [row("Example-Corp")]
 
 
 async def test_the_timeline_names_the_configuration_behind_the_newest_run(
@@ -333,5 +365,5 @@ async def test_the_timeline_names_the_configuration_behind_the_newest_run(
 
 async def test_hiding_on_an_unknown_probe_is_not_found(client: AsyncClient) -> None:
     await sign_in(client)
-    response = await hide(client, "Example-Guest")
+    response = await hide(client, row("Example-Guest"))
     assert response.status_code == 404

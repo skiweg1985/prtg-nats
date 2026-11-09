@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -192,7 +193,7 @@ describe('IperfEndpointPage', () => {
     )
     expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/^New password/), 'provider-replacement')
+    await user.type(screen.getByLabelText(/^New password/, FIELD), 'provider-replacement')
     await user.click(screen.getByRole('button', { name: 'Update and deploy' }))
 
     await waitFor(() =>

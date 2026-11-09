@@ -31,7 +31,7 @@ const components: Components = {
     <h1
       {...props}
       id={headingId(children)}
-      className="text-ink mt-6 mb-3 text-base font-semibold"
+      className="text-ink mt-6 mb-3 text-lg font-semibold"
     >
       {children}
     </h1>
@@ -40,7 +40,7 @@ const components: Components = {
     <h2
       {...props}
       id={headingId(children)}
-      className="border-rule text-ink mt-6 mb-3 border-b pb-1.5 text-sm font-semibold"
+      className="border-rule text-ink mt-6 mb-3 border-b pb-1.5 text-base font-semibold"
     >
       {children}
     </h2>

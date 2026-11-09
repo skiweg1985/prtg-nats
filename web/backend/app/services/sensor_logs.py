@@ -66,6 +66,9 @@ class SensorLogFilter:
     probe: str | None = None
     sensor: str | None = None
     ssid: str | None = None
+    # The configuration of a network the sensor names with --profile. Only
+    # records of that variant; None leaves the variant out of the filter.
+    variant: str | None = None
     result: str | None = None
     text: str | None = None
 
@@ -123,10 +126,10 @@ class TimelineBucket:
 
 @dataclass(frozen=True, slots=True)
 class TimelineStream:
-    """One sensor's runs for one network over a window, sliced into buckets."""
+    """One sensor's runs for one network and variant, sliced into buckets."""
 
     sensor: str
-    # What tells this stream apart from the sensor's others, see stream_key.
+    # What tells this stream apart from the sensor's others, see stream_name.
     key: str
     ssid: str | None
     ok: int
@@ -142,6 +145,10 @@ class TimelineStream:
     # No run for three of its usual intervals while another network of the
     # same sensor kept running: a configuration PRTG no longer asks for.
     ended: bool = False
+    # Two configurations of one SSID - PEAP and an EAP-TLS variant, say -
+    # are rows of their own, or their success rates would mix. None for the
+    # runs that named no variant.
+    variant: str | None = None
     # The helper's label of the configuration behind the newest run, so a
     # page can tell whether that configuration is still on the probe.
     last_job: str | None = None
@@ -208,28 +215,53 @@ def parse_time(value: object) -> datetime | None:
 
 
 def summary_of(entry: dict[str, Any]) -> dict[str, Any]:
-    """A record without its body, plus the network it was about.
+    """A record without its body, plus the network and variant it was about.
 
     What a list shows. The raw lines can run to kilobytes per record, and a
     page lists many; the detail route hands out the body of the one opened.
     """
-    body = entry.get("body")
-    ssid = body.get("ssid") if isinstance(body, dict) else None
     summary = {key: value for key, value in entry.items() if key != "body"}
-    summary["ssid"] = ssid if isinstance(ssid, str) else None
+    summary["ssid"] = _body_text(entry, "ssid")
+    summary["variant"] = variant_of(entry)
     return summary
 
 
-def stream_key(summary: Mapping[str, Any]) -> str:
-    """What tells one stream of a sensor on a probe from its others.
+def variant_of(entry: dict[str, Any]) -> str | None:
+    """The variant a record was measured with, or None.
 
-    Today the network a run was for, empty for a sensor that tests none. The
-    one place that decides it: the timeline groups by it, a hidden row is
-    stored under it, and stepping from run to run stays inside it. Opaque to
-    everything else, so splitting streams further changes only this.
+    wlan-auth writes the name it was given with --profile into the body as
+    ``profile``; older records and runs without one have none.
     """
-    ssid = summary.get("ssid")
-    return ssid if isinstance(ssid, str) else ""
+    return _body_text(entry, "profile")
+
+
+def _body_text(entry: dict[str, Any], key: str) -> str | None:
+    body = entry.get("body")
+    value = body.get(key) if isinstance(body, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+# What a timeline row is: one sensor, one network, one variant.
+StreamKey = tuple[str, str | None, str | None]
+
+
+def stream_key(item: dict[str, Any]) -> StreamKey:
+    """The timeline row a summary belongs to.
+
+    Runs without a variant stay in the network's plain row, which is where
+    every run went before the variant was recorded.
+    """
+    return (str(item.get("sensor")), item.get("ssid"), item.get("variant"))
+
+
+def stream_name(key: StreamKey) -> str:
+    """A timeline row's key as the API hands it out, without the sensor.
+
+    Opaque to the interface: it comes back as is to hide the row, and a
+    hidden row is stored under it. Spelled as JSON so a network or variant
+    name holding any character still makes exactly one key.
+    """
+    return json.dumps([key[1], key[2]], ensure_ascii=False, separators=(",", ":"))
 
 
 def _run_order(item: Mapping[str, Any]) -> tuple[datetime, str]:
@@ -311,6 +343,8 @@ class SensorLogStore:
                 if filters.ssid and not (
                     isinstance(body, dict) and body.get("ssid") == filters.ssid
                 ):
+                    continue
+                if filters.variant and variant_of(entry) != filters.variant:
                     continue
                 if needle and needle not in _searchable(entry):
                     continue
@@ -398,17 +432,15 @@ class SensorLogStore:
         count = max(int(-(-(filters.until - first).total_seconds() // size)), 1)
 
         page = self.query(filters, limit=sys.maxsize)
-        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        grouped: dict[StreamKey, list[dict[str, Any]]] = {}
         for item in page.items:
             if item.get("result") not in ("ok", "error"):
                 continue
-            group = (str(item.get("sensor")), stream_key(item))
-            grouped.setdefault(group, []).append(item)
+            grouped.setdefault(stream_key(item), []).append(item)
 
         out: list[TimelineStream] = []
-        usual: dict[tuple[str, str], float] = {}
-        for (sensor, key), newest_first in grouped.items():
-            ssid = newest_first[0].get("ssid")
+        usual: dict[StreamKey, float] = {}
+        for (sensor, ssid, variant), newest_first in grouped.items():
             runs = list(reversed(newest_first))
             oks = [0] * count
             errors = [0] * count
@@ -503,7 +535,7 @@ class SensorLogStore:
             out.append(
                 TimelineStream(
                     sensor=sensor,
-                    key=key,
+                    key=stream_name((sensor, ssid, variant)),
                     ssid=ssid,
                     ok=ok,
                     error=error,
@@ -514,10 +546,11 @@ class SensorLogStore:
                     last_failure=last_failure,
                     buckets=buckets,
                     last_run=times[-1] if times else None,
+                    variant=variant,
                     last_job=job if isinstance(job, str) and job else None,
                 )
             )
-            usual[(sensor, key)] = gaps[len(gaps) // 2] if gaps else 0.0
+            usual[(sensor, ssid, variant)] = gaps[len(gaps) // 2] if gaps else 0.0
 
         # Ended is judged against the sensor's other networks, not the
         # clock: a probe that went offline stops every network at once, and
@@ -530,14 +563,19 @@ class SensorLogStore:
                 latest[stream.sensor] = stream.last_run
         judged = []
         for stream in out:
-            gap = max(usual[(stream.sensor, stream.key)], ENDED_MINIMUM_GAP)
+            gap = max(
+                usual[(stream.sensor, stream.ssid, stream.variant)],
+                ENDED_MINIMUM_GAP,
+            )
             ended = bool(
                 stream.last_run
                 and (latest[stream.sensor] - stream.last_run).total_seconds()
                 > ENDED_INTERVALS * gap
             )
             judged.append(replace(stream, ended=ended))
-        judged.sort(key=lambda stream: (stream.sensor, stream.key))
+        judged.sort(
+            key=lambda stream: (stream.sensor, stream.ssid or "", stream.variant or "")
+        )
         return first, judged
 
     def stream_runs(
@@ -571,7 +609,7 @@ class SensorLogStore:
                 if parse_time(entry.get("time")) is None:
                     continue
                 summary = summary_of(entry)
-                if stream_key(summary) == key:
+                if stream_name(stream_key(summary)) == key:
                     runs.append(summary)
         runs.sort(key=_run_order)
         return runs
@@ -593,7 +631,7 @@ class SensorLogStore:
         anchor = _run_order(record)
         wanted = [
             run
-            for run in self.stream_runs(probe, sensor, stream_key(record))
+            for run in self.stream_runs(probe, sensor, stream_name(stream_key(record)))
             if not failures_only or run.get("result") == "error"
         ]
         older = [run for run in wanted if _run_order(run) < anchor]

@@ -123,9 +123,7 @@ function RunDialog({
 
   const network = record ? networkOf(record) : null
   const title = record
-    ? network
-      ? `${record.sensor} · ${network}`
-      : record.sensor
+    ? [record.sensor, network, record.variant].filter(Boolean).join(' · ')
     : t('runViewer.title')
   const ends = failuresOnly
     ? { older: t('runViewer.noOlderFailure'), newer: t('runViewer.noNewerFailure') }

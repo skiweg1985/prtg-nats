@@ -94,6 +94,7 @@ import {
   Tabs,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
+import { usePopover } from '@/components/ui/Popover'
 import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
 
@@ -1135,6 +1136,86 @@ function InterfacesCard({
   )
 }
 
+/**
+ * The tool a sensor drives, on one line: name, version and a dot for whether
+ * it fits. The rest - where it comes from, platform, path, installed against
+ * expected, the hash comparison - is in a hover card that opens for mouse,
+ * keyboard and tap alike. Stacked in the cell, those six facts made every
+ * row of the table five lines tall to answer a question asked rarely.
+ */
+function ToolCell({ row }: { row: SensorState }) {
+  const { t } = useTranslation()
+  const tone: 'ok' | 'danger' | 'warn' =
+    row.tool_compatible === true ? 'ok' : row.tool_compatible === false ? 'danger' : 'warn'
+  const verdict =
+    row.tool_compatible === true
+      ? t('probes.sensorTool.compatible')
+      : row.tool_compatible === false
+        ? t('probes.sensorTool.incompatible')
+        : t('probes.sensorTool.notVerified')
+  const system = row.tool_source === 'system'
+  const popover = usePopover({
+    wide: true,
+    inlineWhenNarrow: false,
+    content: (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Mono className="text-ink">{row.tool_name}</Mono>
+          <Badge tone={row.tool_source === 'managed' ? 'accent' : 'neutral'}>
+            {row.tool_source === null
+              ? t('probes.sensorTool.sourceUnknown')
+              : t(`probes.sensorTool.source.${row.tool_source}`)}
+          </Badge>
+          <Badge tone={tone}>{verdict}</Badge>
+        </div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-ink-3">{t('probes.sensorTool.platform')}</dt>
+          <dd>
+            <Mono>{row.tool_platform ?? '—'}</Mono>
+          </dd>
+          <dt className="text-ink-3">{t('probes.sensorTool.path')}</dt>
+          <dd>
+            <Mono className="break-all">{row.tool_path ?? '—'}</Mono>
+          </dd>
+          <dt className="text-ink-3">{t('probes.sensorTool.version')}</dt>
+          <dd>
+            {t(system ? 'probes.sensorTool.systemVersions' : 'probes.sensorTool.managedVersions', {
+              installed: row.installed_tool_version ?? '—',
+              expected: row.expected_tool_version ?? '—',
+            })}
+          </dd>
+          <dt className="text-ink-3">SHA-256</dt>
+          <dd>
+            <Mono>
+              {system
+                ? shortFingerprint(row.installed_tool_sha256)
+                : `${shortFingerprint(row.installed_tool_sha256)} → ${shortFingerprint(row.expected_tool_sha256)}`}
+            </Mono>
+          </dd>
+        </dl>
+      </div>
+    ),
+  })
+  return (
+    <>
+      <button
+        {...popover.triggerProps}
+        aria-label={t('probes.sensorTool.details', {
+          tool: row.tool_name,
+          state: verdict,
+        })}
+        className="hover:bg-surface-2 rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
+      >
+        <Dot tone={tone} />
+        <span className="text-ink text-xs font-medium">{row.tool_name}</span>
+        <Mono className="text-ink-3">{row.installed_tool_version ?? '—'}</Mono>
+      </button>
+      {popover.floating}
+      {popover.inline}
+    </>
+  )
+}
+
 function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail }) {
   const { can } = useAuth()
   const [removing, setRemoving] = useState<string | null>(null)
@@ -1157,7 +1238,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       header: t('sensors.columns.name'),
       sortValue: (row) => row.name,
       searchValue: (row) => row.name,
-      cell: (row) => <span className="text-ink font-medium">{row.name}</span>,
+      cell: (row) => <span className="text-ink font-medium whitespace-nowrap">{row.name}</span>,
     },
     {
       key: 'status',
@@ -1192,55 +1273,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         [row.tool_name, row.tool_platform, row.tool_source, row.tool_path]
           .filter(Boolean)
           .join(' '),
-      cell: (row) =>
-        row.tool_name === null ? (
-          '—'
-        ) : (
-          <div className="space-y-0.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-ink text-xs font-medium">{row.tool_name}</span>
-              <Badge tone={row.tool_source === 'managed' ? 'accent' : 'neutral'}>
-                {row.tool_source === null
-                  ? t('probes.sensorTool.sourceUnknown')
-                  : t(`probes.sensorTool.source.${row.tool_source}`)}
-              </Badge>
-              {row.tool_compatible === true && (
-                <Badge tone="ok">{t('probes.sensorTool.compatible')}</Badge>
-              )}
-              {row.tool_compatible === false && (
-                <Badge tone="danger">{t('probes.sensorTool.incompatible')}</Badge>
-              )}
-              {row.tool_compatible === null && (
-                <Badge tone="warn">{t('probes.sensorTool.notVerified')}</Badge>
-              )}
-              <Mono className="text-ink-3">{row.tool_platform ?? '—'}</Mono>
-            </div>
-            <Mono className="text-ink-3 block break-all">
-              {row.tool_path ?? '—'}
-            </Mono>
-            <div className="text-ink-3 text-xs">
-              {t(
-                row.tool_source === 'system'
-                  ? 'probes.sensorTool.systemVersions'
-                  : 'probes.sensorTool.managedVersions',
-                {
-                  installed: row.installed_tool_version ?? '—',
-                  expected: row.expected_tool_version ?? '—',
-                },
-              )}
-            </div>
-            <Mono className="text-ink-3 block">
-              {row.tool_source === 'system'
-                ? t('probes.sensorTool.systemSha256', {
-                    installed: shortFingerprint(row.installed_tool_sha256),
-                  })
-                : t('probes.sensorTool.managedSha256', {
-                    installed: shortFingerprint(row.installed_tool_sha256),
-                    expected: shortFingerprint(row.expected_tool_sha256),
-                  })}
-            </Mono>
-          </div>
-        ),
+      cell: (row) => (row.tool_name === null ? '—' : <ToolCell row={row} />),
     },
     {
       key: 'interfaces',

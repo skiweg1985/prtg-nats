@@ -288,7 +288,7 @@ export function LiveLog({
                 </td>
                 <td className="w-28 px-2 py-1 align-top">
                   {event.step && (
-                    <span className="label-mono">
+                    <span className="text-ink-3 text-xs">
                       {t(`jobs.steps.${event.step}`, event.step)}
                     </span>
                   )}

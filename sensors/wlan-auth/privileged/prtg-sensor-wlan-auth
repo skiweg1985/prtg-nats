@@ -967,6 +967,23 @@ def read_flag(path):
         return False
 
 
+def run_details(job):
+    """Who signed in, and with which variant, for every result of a job.
+
+    With --profile both live only here on the probe. The sensor script names
+    the identity in the message, and the platform tells two configurations
+    of one SSID apart by the variant. The identity is no secret - it is what
+    RADIUS logs a sign-in under. The anonymous identity is left out: it says
+    nothing about the run. A pre-shared key has no identity at all.
+    """
+    details = {}
+    if job.get("profile"):
+        details["profile"] = job["profile"]
+    if job.get("auth") in ("peap", "eap-tls") and job.get("identity"):
+        details["identity"] = job["identity"]
+    return details
+
+
 def perform_test(job, log=None):
     log = log if log is not None else RunLog()
     interface = job["interface"]
@@ -988,6 +1005,7 @@ def perform_test(job, log=None):
         "timings": {},
         "details": {},
     }
+    result["details"].update(run_details(job))
 
     try:
         config_path = os.path.join(workdir, "wpa.conf")
@@ -1811,6 +1829,11 @@ class Scheduler:
                     "job": job_label(entry["job"]),
                     "interface": entry["job"]["interface"],
                     "ssid": entry["job"].get("ssid") or "",
+                    # What tells two configurations of one SSID apart: a
+                    # PEAP and an EAP-TLS variant, or one pinned to an AP.
+                    "auth": entry["job"]["auth"],
+                    "profile": entry["job"].get("profile") or "",
+                    "bssid": entry["job"].get("bssid") or "",
                     "stage": entry["job"]["stage"],
                     "timeout": entry["job"]["timeout"],
                     "max_age": entry.get("max_age"),

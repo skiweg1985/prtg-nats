@@ -430,13 +430,13 @@ export function RecordBody({
       {scalars.length > 0 && <Values entries={scalars} field={field} />}
       {groups.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{label(key)}</h3>
+          <h3 className="text-sm font-semibold">{label(key)}</h3>
           <Values entries={Object.entries(value)} field={field} />
         </section>
       ))}
       {raw.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{label(key)}</h3>
+          <h3 className="text-sm font-semibold">{label(key)}</h3>
           <pre className="bg-surface border-rule rounded-control max-h-96 overflow-auto border p-3 font-mono text-xs whitespace-pre-wrap">
             {isLines(value)
               ? value.join('\n')

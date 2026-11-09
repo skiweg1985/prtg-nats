@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -128,10 +129,10 @@ describe('deploying to the probes that are behind', () => {
     wrap('outdated')
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/mpp-behind/)).toBeChecked()
+      expect(screen.getByLabelText(/mpp-behind/, FIELD)).toBeChecked()
     })
-    expect(screen.getByLabelText(/mpp-current/)).not.toBeChecked()
-    expect(screen.getByLabelText(/mpp-fresh/)).not.toBeChecked()
+    expect(screen.getByLabelText(/mpp-current/, FIELD)).not.toBeChecked()
+    expect(screen.getByLabelText(/mpp-fresh/, FIELD)).not.toBeChecked()
   })
 
   it('warns when a chosen probe cannot take the rollout yet', async () => {
@@ -143,7 +144,7 @@ describe('deploying to the probes that are behind', () => {
       screen.queryByText(/management helper is outdated/),
     ).not.toBeInTheDocument()
 
-    await user.click(await screen.findByLabelText(/mpp-fresh/))
+    await user.click(await screen.findByLabelText(/mpp-fresh/, FIELD))
 
     expect(
       await screen.findByText(/management helper is outdated/),

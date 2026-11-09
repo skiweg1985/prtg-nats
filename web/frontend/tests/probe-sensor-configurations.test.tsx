@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
@@ -17,6 +17,7 @@ import { changeLanguage } from '@/i18n'
  */
 
 const removed: string[] = []
+let jobs: object[] = []
 
 function probeDetail() {
   return {
@@ -48,6 +49,9 @@ function job(label: string, idle: boolean) {
     label,
     interface: 'wlan0',
     ssid: 'Example-Guest',
+    auth: idle ? 'peap' : 'eap-tls',
+    profile: idle ? null : 'corp-certauth',
+    bssid: null,
     stage: 'dhcp',
     result: idle ? 'failed' : 'ok',
     code: idle ? 'auth-failed-eap' : 'ok',
@@ -92,9 +96,7 @@ const server = setupServer(
       streams: [],
     }),
   ),
-  http.get('/api/v1/probes/P1/sensors/wlan-auth/jobs', () =>
-    HttpResponse.json([job('a1b2c3d4e5f6', false), job('0f0e0d0c0b0a', true)]),
-  ),
+  http.get('/api/v1/probes/P1/sensors/wlan-auth/jobs', () => HttpResponse.json(jobs)),
   http.delete('/api/v1/probes/P1/sensors/wlan-auth/jobs/:label', ({ params }) => {
     removed.push(String(params.label))
     return new HttpResponse(null, { status: 204 })
@@ -105,6 +107,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
 beforeEach(async () => {
   await changeLanguage('en')
   removed.length = 0
+  jobs = [job('a1b2c3d4e5f6', false), job('0f0e0d0c0b0a', true)]
 })
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
@@ -129,7 +132,70 @@ describe('configurations on the probe', () => {
     expect(await screen.findByText('Measured')).toBeInTheDocument()
     expect(screen.getByText('Paused, not asked')).toBeInTheDocument()
     expect(screen.getByText(/sensor 2041/)).toBeInTheDocument()
-    expect(screen.getByText(/last auth-failed-eap/)).toBeInTheDocument()
+  })
+
+  it('shows each configuration in labelled columns', async () => {
+    show()
+    await screen.findByText('Measured')
+    const [current, leftover] = screen.getAllByRole('listitem')
+    const value = (row: HTMLElement, label: string) =>
+      within(row).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+    // Two configurations of one SSID, told apart by variant and method.
+    expect(value(current, 'Variant')).toBe('corp-certauth')
+    expect(value(current, 'Method')).toBe('EAP-TLS')
+    expect(value(current, 'Polling interval')).toBe('1m 0s')
+    expect(value(current, 'Last asked')).toBe('10s ago')
+    expect(value(current, 'Last measurement')).toBe('OK30s ago')
+    expect(value(leftover, 'Method')).toBe('PEAP')
+    // A failed run is a state with its reason, not words in a sentence.
+    expect(value(leftover, 'Last measurement')).toBe(
+      'Failed6m 40s agoThe RADIUS server rejected the credentials',
+    )
+    // The header names every column once.
+    for (const label of ['SSID', 'Variant', 'Method', 'Polling interval', 'Last asked']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(2)
+    }
+  })
+
+  it('keeps the shape of a row whose values are missing', async () => {
+    // A configuration registered a moment ago, from a helper that does not
+    // name method and variant yet: every column is still there.
+    jobs = [
+      {
+        label: '0a0b0c0d0e0f',
+        interface: 'wlan0',
+        ssid: 'Example-Guest',
+        stage: 'dhcp',
+        result: 'pending',
+        code: 'not-measured',
+        age: null,
+        asked_every: null,
+        asked_ago: 2,
+        interval: 300,
+        idle: false,
+        expires_in: 3600,
+        sensor_id: null,
+      },
+    ]
+    show()
+    await screen.findByText('Measured')
+    const [row] = screen.getAllByRole('listitem')
+    const labels = Array.from(row.querySelectorAll('dt')).map((dt) => dt.textContent)
+    expect(labels).toEqual([
+      'SSID',
+      'Variant',
+      'Method',
+      'Polling interval',
+      'Last asked',
+      'Last measurement',
+      'Actions',
+    ])
+    const value = (label: string) =>
+      within(row).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+    expect(value('Variant')).toBe('–')
+    expect(value('Method')).toBe('–')
+    expect(value('Polling interval')).toBe('–')
+    expect(value('Last measurement')).toBe('–')
   })
 
   it('removes a leftover after asking', async () => {

@@ -148,7 +148,10 @@ export function CredentialsPage() {
       <PermissionGate permission="credential.rotate">
         <Card title={t('credentials.createTitle')}>
           <form onSubmit={submitCreate} className="flex flex-wrap items-end gap-3">
-            <Field label={t('credentials.columns.account')}>
+            <Field
+              label={t('credentials.columns.account')}
+              hint={t('credentials.createHint')}
+            >
               <Input
                 value={newUsername}
                 onChange={(event) => setNewUsername(event.target.value)}
@@ -162,7 +165,6 @@ export function CredentialsPage() {
               {t('credentials.create')}
             </Button>
           </form>
-          <p className="text-ink-3 mt-2 text-xs">{t('credentials.createHint')}</p>
           {create.error && <ErrorDetails error={create.error} />}
         </Card>
       </PermissionGate>

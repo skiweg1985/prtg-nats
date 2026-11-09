@@ -1232,6 +1232,7 @@ export function useSensorLogs(filters: SensorLogFilters, limit = 100, offset = 0
         probe: filters.probe,
         sensor: filters.sensor,
         ssid: filters.ssid,
+        variant: filters.variant,
         result: filters.result,
         q: filters.q,
         since: filters.since ?? rangeStart(filters.range).toISOString(),
@@ -1283,6 +1284,7 @@ function matchesFilters(record: SensorLogSummary, filters: SensorLogFilters): bo
   if (filters.probe && record.probe !== filters.probe) return false
   if (filters.sensor && record.sensor !== filters.sensor) return false
   if (filters.ssid && record.ssid !== filters.ssid) return false
+  if (filters.variant && record.variant !== filters.variant) return false
   if (filters.result && record.result !== filters.result) return false
   const time = Date.parse(record.time)
   if (filters.until && time > Date.parse(filters.until)) return false
