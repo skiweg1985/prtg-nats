@@ -20,6 +20,7 @@ from app.infrastructure.probe_helper.protocol import probe_profile_file_path
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import (
     ParameterField,
+    ProfileField,
     SensorSchema,
     profile_parameter_line,
 )
@@ -216,3 +217,35 @@ def test_the_profile_option_comes_from_the_declaration() -> None:
     # And one with no declaration at all - iperf-throughput carries only
     # parameters, so its schema is the same shape a caller may not have.
     assert profile_parameter_line(None, "berlin") == "--profile berlin"
+
+
+def test_a_key_of_several_methods_applies_to_each_of_them() -> None:
+    """A key may serve more than one choice of the selector.
+
+    wlan-auth is the case: the RADIUS server is asked about a user name under
+    PEAP and under EAP-TLS alike. Declared for one of them only, the form hid
+    the field from the other, and the variant it produced was refused on the
+    probe with "requires an identity" - a failure with no trace of the field
+    that was missing.
+    """
+    auth = ProfileField(
+        name="AUTH",
+        type="choice",
+        choices=("psk", "peap", "eap-tls"),
+        default="psk",
+    )
+    identity = ProfileField(name="IDENTITY", type="string", groups=("peap", "eap-tls"))
+    psk = ProfileField(name="PSK", type="string", groups=("psk",))
+    ssid = ProfileField(name="SSID", type="string")
+    schema = SensorSchema(settings=(auth, identity, ssid), credentials=(psk,))
+
+    assert schema.group_selector() is auth
+    for method in ("peap", "eap-tls"):
+        assert schema.field_applies(identity, {"AUTH": method}), method
+        assert not schema.field_applies(psk, {"AUTH": method}), method
+    assert not schema.field_applies(identity, {"AUTH": "psk"})
+    assert schema.field_applies(psk, {"AUTH": "psk"})
+    # Ungrouped keys stand outside the choice, and an unset selector falls
+    # back to its default rather than hiding everything.
+    assert schema.field_applies(ssid, {})
+    assert schema.field_applies(psk, {})

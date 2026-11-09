@@ -140,13 +140,23 @@ function wrap() {
 /** The wlan-auth shape: an AUTH switch and fields that belong to one kind. */
 const GROUPED_SCHEMA: ParameterSchema = {
   ...SCHEMA,
+  settings: [
+    ...SCHEMA.settings,
+    { name: 'IDENTITY', type: 'string', groups: ['peap', 'eap-tls'], required: true },
+  ],
   credentials: [
-    { name: 'PSK', type: 'string', sensitive: true, group: 'psk', required: true },
+    {
+      name: 'PSK',
+      type: 'string',
+      sensitive: true,
+      groups: ['psk'],
+      required: true,
+    },
     {
       name: 'PASSWORD',
       type: 'string',
       sensitive: true,
-      group: 'peap',
+      groups: ['peap'],
       required: true,
     },
   ],
@@ -157,7 +167,7 @@ const GROUPED_SCHEMA: ParameterSchema = {
       kind: 'certificate',
       max_bytes: 65536,
       extension: '.pem',
-      group: 'eap-tls',
+      groups: ['eap-tls'],
       required: true,
     },
   ],
@@ -263,6 +273,51 @@ describe('SensorVariants', () => {
     await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
     expect(screen.queryByLabelText(/^PSK/)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^PASSWORD/)).toBeInTheDocument()
+  })
+
+  it('names the chosen file in the upload box', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'eap-tls')
+
+    // The box is the whole control: the native input draws a grey button and
+    // "no file chosen", which was read as text rather than as something to
+    // click. It prompts while empty and carries the file name once there is
+    // one - and the field name stays its accessible name either way.
+    const picker = screen.getByLabelText(/^CLIENT_CERT/) as HTMLInputElement
+    const box = picker.labels?.[1]
+    expect(box).toHaveTextContent(/datei w\u00e4hlen|choose file/i)
+
+    await user.upload(
+      picker,
+      new File(['-----BEGIN CERTIFICATE-----'], 'probe.pem', {
+        type: 'application/x-pem-file',
+      }),
+    )
+    await waitFor(() => expect(box).toHaveTextContent('probe.pem'))
+  })
+
+  it('shows a field that names several kinds under each of them', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+
+    // The user name reaches the RADIUS server under PEAP and under EAP-TLS
+    // alike. Declared for one kind only, the form hid it from the other, and
+    // the variant then failed on the probe with "requires an identity".
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
+    expect(screen.getByLabelText(/^IDENTITY/)).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'eap-tls')
+    expect(screen.getByLabelText(/^IDENTITY/)).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
+    expect(screen.queryByLabelText(/^IDENTITY/)).not.toBeInTheDocument()
   })
 
   it('treats a grouped credential as required only while its group applies', async () => {

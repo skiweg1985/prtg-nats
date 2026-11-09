@@ -205,6 +205,16 @@ FAILURE_EVENTS = (
      "PSK rejected"),
     ("CTRL-EVENT-EAP-TLS-CERT-ERROR", None, "server-cert-rejected",
      "RADIUS certificate rejected"),
+    # A RADIUS server that refuses the sign-in inside the tunnel answers with
+    # a TLS alert, and Windows NPS sends that alert with record version 0x0301
+    # although the session is TLS 1.2. OpenSSL 3 drops the record over the
+    # version instead of reading the alert, so the only trace left is this
+    # error - and the line that follows is a plain EAP-FAILURE, which reads
+    # like a wrong password. Measured against NPS with an EAP-TLS client
+    # certificate that carried no UPN: the server said access_denied, the
+    # sensor said "credentials rejected", and the search went the wrong way.
+    ("SSL_connect error", "wrong version number", "auth-failed-eap",
+     "RADIUS broke off the TLS handshake"),
     ("CTRL-EVENT-EAP-FAILURE", None, "auth-failed-eap",
      "credentials rejected by RADIUS"),
     ("CTRL-EVENT-AUTH-REJECT", None, "auth-rejected",

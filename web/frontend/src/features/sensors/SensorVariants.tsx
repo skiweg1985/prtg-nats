@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Children, useState } from 'react'
+import clsx from 'clsx'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
@@ -21,6 +22,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  FilePicker,
   Input,
   Mono,
   Select,
@@ -268,9 +270,9 @@ function VariantDialog({
    * three certificate fields only invites filling in the wrong half.
    */
   const groups = new Set(
-    [...schema.settings, ...schema.credentials, ...schema.files]
-      .map((field) => field.group)
-      .filter((group): group is string => Boolean(group)),
+    [...schema.settings, ...schema.credentials, ...schema.files].flatMap(
+      (field) => field.groups ?? [],
+    ),
   )
   const groupSelector =
     groups.size > 0
@@ -284,9 +286,9 @@ function VariantDialog({
     ? values[groupSelector.name]?.trim() || String(groupSelector.default ?? '')
     : null
 
-  function applies(field: { group?: string }): boolean {
-    if (!field.group || !groupSelector) return true
-    return field.group === activeGroup
+  function applies(field: { groups?: string[] }): boolean {
+    if (!field.groups?.length || !groupSelector) return true
+    return activeGroup !== null && field.groups.includes(activeGroup)
   }
 
   const visibleSettings = schema.settings.filter(applies)
@@ -402,7 +404,7 @@ function VariantDialog({
               {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
-                  label={fieldLabel(t, field)}
+                  label={fieldLabel(t, field) + (field.required ? ' *' : '')}
                   hint={
                     stored?.secrets_set.includes(field.name)
                       ? t('sensors.variants.secretStored')
@@ -432,28 +434,22 @@ function VariantDialog({
                   (entry) => entry.key === field.name,
                 )
                 return (
-                  <Field
+                  <FilePicker
                     key={field.name}
-                    label={fieldLabel(t, field)}
+                    label={fieldLabel(t, field) + (field.required ? ' *' : '')}
+                    fileName={files[field.name]?.name}
+                    prompt={t('sensors.variants.fileChoose')}
                     hint={
                       files[field.name]
-                        ? files[field.name].name
+                        ? undefined
                         : uploaded
                           ? t('sensors.variants.fileStored', {
                               fingerprint: shortFingerprint(uploaded.sha256),
                             })
                           : hintOf(t, field)
                     }
-                  >
-                    <input
-                      type="file"
-                      className="text-ink-2 text-sm"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (file) readFile(field, file)
-                      }}
-                    />
-                  </Field>
+                    onSelect={(file) => readFile(field, file)}
+                  />
                 )
               })}
             </FieldGroup>
@@ -507,12 +503,25 @@ function VariantDialog({
 }
 
 function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  // Which fields apply depends on the chosen method, so a section lands on an
+  // odd number often enough: EAP-TLS leaves BSSID alone in its row and the key
+  // passphrase alone in the next. The empty half then reads as a field that
+  // failed to render. Letting the last one take the whole row makes every row
+  // a full one.
+  const odd = Children.count(children) % 2 === 1
   return (
     <section className="space-y-2">
       <h3 className="text-ink-2 text-xs font-semibold tracking-wide uppercase">
         {title}
       </h3>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
+      <div
+        className={clsx(
+          'grid gap-3 sm:grid-cols-2',
+          odd && 'sm:[&>*:last-child]:col-span-2',
+        )}
+      >
+        {children}
+      </div>
     </section>
   )
 }

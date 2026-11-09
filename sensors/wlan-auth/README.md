@@ -138,6 +138,17 @@ Allowed are `AUTH`, `SSID`, `PSK`, `IDENTITY`, `PASSWORD`,
 `ANONYMOUS_IDENTITY`, `CA_CERT`, `DOMAIN_SUFFIX_MATCH`, `CLIENT_CERT`,
 `PRIVATE_KEY`, `PRIVATE_KEY_PASSWD` and `BSSID`.
 
+**What each method needs.** `psk` takes `PSK`. Both enterprise methods take
+`IDENTITY` and `CA_CERT`: the user name because the RADIUS server is asked
+about a user either way, the authority because the sensor refuses to run
+against an unverified server unless `--no-verify-server` is given in PRTG.
+`peap` adds `PASSWORD`, `eap-tls` adds `CLIENT_CERT` and `PRIVATE_KEY`,
+plus `PRIVATE_KEY_PASSWD` where the key file is encrypted.
+
+`PRIVATE_KEY_PASSWD` is the passphrase of the key file, not a user
+password - EAP-TLS proves the identity with the certificate alone. A key
+exported without a passphrase leaves the field empty.
+
 ```bash
 cp sensors/wlan-auth/profiles/example.env.template office.env
 # enter the values
@@ -278,7 +289,7 @@ was rejected.
 | `ok` | 0 | sign-in succeeded |
 | `assoc-timeout` | 1 | no association within the time budget |
 | `auth-failed-psk` | 2 | passphrase rejected |
-| `auth-failed-eap` | 3 | the RADIUS server rejected the credentials |
+| `auth-failed-eap` | 3 | the RADIUS server rejected the sign-in |
 | `server-cert-rejected` | 4 | server certificate not accepted |
 | `auth-rejected` | 5 | the access point rejected the sign-in |
 | `assoc-rejected` | 6 | the access point rejected the association |
@@ -325,6 +336,43 @@ If the test could not take place at all — missing interface, missing
 privileges, invalid parameters — the sensor reports a sensor error instead,
 with the cause in the message text. That separation is deliberate: such a
 state says nothing about the Wi-Fi.
+
+### EAP-TLS against a Windows NPS
+
+Two messages under code 3 mean different things, and the difference is
+where to look.
+
+*credentials rejected by RADIUS* is the plain case: the EAP exchange ran
+and ended in a rejection.
+
+*RADIUS broke off the TLS handshake* means the server answered the client
+certificate with a TLS alert that `wpa_supplicant` could not read. NPS
+sends such an alert with record version `0x0301` although the session is
+TLS 1.2, and OpenSSL 3 drops the record over the version — the raw lines
+then end on `SSL_connect error … wrong version number` and the alert
+itself is lost. Measured against NPS the alert was `access_denied`.
+
+What it is in practice: the certificate is cryptographically fine and the
+server refuses the authorisation. NPS maps an EAP-TLS client certificate
+to an account through the UPN in its `subjectAltName`, and since
+[KB5014754](https://support.microsoft.com/kb/5014754) it wants either the
+SID extension `1.3.6.1.4.1.311.25.2` in the certificate or a strong
+`altSecurityIdentities` mapping on the account. A certificate carrying
+only a `CN` has neither, and NPS logs event 6273 with reason code 16,
+*user credentials mismatch* — which reads like a wrong password and is
+not one.
+
+So before suspecting the probe: check what the certificate carries.
+
+```bash
+openssl x509 -in client.pem -noout -subject \
+  -ext subjectAltName,extendedKeyUsage
+```
+
+A certificate for this is issued from a template that writes the account's
+UPN into the `subjectAltName` and needs the extended key usage *TLS Web
+Client Authentication*. A template set to *supply in the request* produces
+exactly the unusable certificate above when nothing is supplied.
 
 ## Create the sensor in PRTG
 
