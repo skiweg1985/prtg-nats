@@ -507,6 +507,7 @@
       "settings": "Einstellungen",
       "credentials": "Zugangsdaten",
       "files": "Dateien",
+      "fileChoose": "Datei wählen",
       "probes": "Probes",
       "probesHint": "Auf diese Probes wird die Variante ausgerollt. Ohne Auswahl wird sie nur auf dem Server hinterlegt.",
       "secretStored": "Hinterlegt. Leer lassen heißt unverändert.",

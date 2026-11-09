@@ -78,7 +78,12 @@ async def write_variant(
     client: AsyncClient, name: str = "standort-nord", **overrides: object
 ) -> None:
     body: dict[str, object] = {
-        "values": {"SSID": "Corporate", "AUTH": "peap", "PASSWORD": SECRET},
+        "values": {
+            "SSID": "Corporate",
+            "AUTH": "peap",
+            "IDENTITY": "svc-wlan-monitor",
+            "PASSWORD": SECRET,
+        },
         "probes": [],
     }
     body.update(overrides)
@@ -115,7 +120,11 @@ async def test_the_credential_is_never_in_the_answer(
     assert SECRET not in detail.text
     # The settings do come back - a form that cannot show the SSID is not an
     # edit form. What the credential contributes is its name.
-    assert payload["values"] == {"SSID": "Corporate", "AUTH": "peap"}
+    assert payload["values"] == {
+        "SSID": "Corporate",
+        "AUTH": "peap",
+        "IDENTITY": "svc-wlan-monitor",
+    }
     assert payload["secrets_set"] == ["PASSWORD"]
 
 
@@ -164,7 +173,13 @@ async def test_an_empty_credential_keeps_the_stored_one(
     await sign_in(client)
     await write_variant(client)
     await write_variant(
-        client, values={"SSID": "Corporate-New", "AUTH": "peap", "PASSWORD": ""}
+        client,
+        values={
+            "SSID": "Corporate-New",
+            "AUTH": "peap",
+            "IDENTITY": "svc-wlan-monitor",
+            "PASSWORD": "",
+        },
     )
 
     stored = (

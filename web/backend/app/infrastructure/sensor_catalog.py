@@ -115,7 +115,11 @@ class ProfileField:
     description: str = ""
     label_key: str | None = None
     description_key: str | None = None
-    group: str | None = None
+    # The groups of the selector this key belongs to, empty for one that always
+    # applies. Several, because a key can serve more than one method: wlan-auth
+    # needs IDENTITY for PEAP and for EAP-TLS alike, and a single group would
+    # hide it from one of them.
+    groups: tuple[str, ...] = ()
     # Never read back, never logged, never echoed into a shared view.
     sensitive: bool = False
     # The parameter this key stands in for, so the reference can say what may
@@ -141,7 +145,7 @@ class FileField:
     description: str = ""
     label_key: str | None = None
     description_key: str | None = None
-    group: str | None = None
+    groups: tuple[str, ...] = ()
     maps_to: str | None = None
 
 
@@ -172,11 +176,11 @@ class SensorSchema:
         """The choice setting whose options are the group names other fields use.
 
         wlan-auth's AUTH (psk/peap/eap-tls) is the shape this describes: a
-        grouped field applies only while the selector holds its group's name,
-        and "required" then means "required within that group".
+        grouped field applies only while the selector holds one of its group
+        names, and "required" then means "required within those groups".
         """
-        groups = {field.group for field in self.profile_fields if field.group} | {
-            field.group for field in self.files if field.group
+        groups = {group for field in self.profile_fields for group in field.groups} | {
+            group for field in self.files for group in field.groups
         }
         if not groups:
             return None
@@ -193,7 +197,7 @@ class SensorSchema:
         self, field: ProfileField | FileField, values: dict[str, str]
     ) -> bool:
         """Whether the field belongs to the variant these values describe."""
-        if not field.group:
+        if not field.groups:
             return True
         selector = self.group_selector()
         if selector is None:
@@ -201,7 +205,7 @@ class SensorSchema:
         active = (values.get(selector.name) or "").strip() or str(
             selector.default or ""
         )
-        return field.group == active
+        return active in field.groups
 
     def profile_field(self, name: str) -> ProfileField | None:
         fields = self.profile_fields
@@ -498,7 +502,7 @@ def _parse_profile_field(entry: Any, *, sensitive: bool) -> ProfileField:
         description=str(values.get("description", "")),
         label_key=_optional_string(values, "label_key"),
         description_key=_optional_string(values, "description_key"),
-        group=_optional_string(values, "group"),
+        groups=_groups(values, name),
         sensitive=sensitive,
         maps_to=_optional_string(values, "maps_to"),
     )
@@ -526,9 +530,29 @@ def _parse_file_field(entry: Any) -> FileField:
         description=str(values.get("description", "")),
         label_key=_optional_string(values, "label_key"),
         description_key=_optional_string(values, "description_key"),
-        group=_optional_string(values, "group"),
+        groups=_groups(values, name),
         maps_to=_optional_string(values, "maps_to"),
     )
+
+
+def _groups(values: dict[str, Any], name: str) -> tuple[str, ...]:
+    """The selector groups of a profile key or file.
+
+    ``group`` stays allowed for the common case of a single one, so a sensor
+    that names one group does not have to write a list of one.
+    """
+    if "groups" in values and "group" in values:
+        raise SchemaError(f"{name!r} names both group and groups")
+    if "groups" in values:
+        entries = values["groups"]
+        if not isinstance(entries, list) or not entries:
+            raise SchemaError(f"{name!r} has groups that are not a non-empty list")
+        names = tuple(str(entry) for entry in entries)
+        if len(set(names)) != len(names):
+            raise SchemaError(f"{name!r} names a group twice")
+        return names
+    single = _optional_string(values, "group")
+    return (single,) if single else ()
 
 
 def _as_object(entry: Any, label: str) -> dict[str, Any]:
