@@ -59,7 +59,9 @@
     "moreActions": "More actions",
     "selectAll": "Select all",
     "clearSelection": "Clear selection",
-    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden"
+    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden",
+    "optional": "optional",
+    "helpFor": "Help for {{label}}"
   },
   "auth": {
     "signIn": "Sign in",
@@ -486,7 +488,7 @@
     "parametersMissing": "Required parameters are still missing: {{fields}}",
     "reference": {
       "recommendedLine": "Recommended start of the parameter line",
-      "fromVariant": "From variant: {{key}}",
+      "fromVariant": "A variant carries this value; it may then be left out here.",
       "movedSection": "Moved parameters (rejected by the sensor)",
       "fromPrtgSection": "Parameters PRTG fills in itself"
     },
@@ -1793,6 +1795,292 @@
       "remove": "Remove",
       "removeTitle": "Remove the configuration for {{ssid}}?",
       "removeBody": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, it is set up again on its next scan."
+    }
+  },
+  "sensorFields": {
+    "aruba-uplink": {
+      "host": {
+        "label": "Gateway address",
+        "hint": "The address of this site's Aruba gateway."
+      },
+      "user": {
+        "label": "User name",
+        "hint": "A read-only account on the gateway."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "The password of that account."
+      },
+      "primary": {
+        "label": "Primary uplink",
+        "hint": "Which uplink is the main path.",
+        "choices": {
+          "wired": "Wired",
+          "cellular": "Cellular"
+        }
+      },
+      "backup": {
+        "label": "Backup uplink",
+        "hint": "The alternative path. Left out, there is none.",
+        "choices": {
+          "none": "None",
+          "cellular": "Cellular",
+          "wired": "Wired"
+        }
+      },
+      "backup_share": {
+        "label": "Backup threshold (%)",
+        "hint": "From this share of traffic on the backup, the traffic counts as moved over."
+      },
+      "billing_day": {
+        "label": "Billing day",
+        "hint": "The day of the month the data volume starts over. 0 for a counter that never resets."
+      },
+      "timeout_ms": {
+        "label": "Answer timeout (ms)",
+        "hint": "How long to wait for a single answer."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "internet-speed": {
+      "mode": {
+        "label": "Mode",
+        "hint": "Measures the peak. The check for a minimum rate has moved to the iperf-throughput sensor.",
+        "choices": {
+          "maximum": "Peak",
+          "minimum": "Minimum rate (moved)"
+        }
+      },
+      "min_download_mbit": {
+        "label": "Minimum download (Mbit/s)",
+        "hint": "Moved to the iperf-throughput sensor."
+      },
+      "min_upload_mbit": {
+        "label": "Minimum upload (Mbit/s)",
+        "hint": "Moved to the iperf-throughput sensor."
+      },
+      "measure_every_minutes": {
+        "label": "Measurement interval (minutes)",
+        "hint": "Minimum time between two real measurements."
+      },
+      "timeout_seconds": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "server": {
+        "label": "Speedtest server",
+        "hint": "Pins the test to one speedtest.net server ID."
+      },
+      "source": {
+        "label": "Source address",
+        "hint": "The local address the measurement binds to."
+      },
+      "no_secure": {
+        "label": "HTTP instead of HTTPS",
+        "hint": "Talks to speedtest.net over HTTP instead of HTTPS."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "iperf-throughput": {
+      "server": {
+        "label": "Endpoint",
+        "hint": "Host name or address of the endpoint. Left out, the one from the deployed credentials applies."
+      },
+      "port": {
+        "label": "Port",
+        "hint": "The port of the endpoint. Left out, the one from the credentials applies, else 5201."
+      },
+      "download_mbit": {
+        "label": "Download target (Mbit/s)",
+        "hint": "The expected rate in the download direction."
+      },
+      "upload_mbit": {
+        "label": "Upload target (Mbit/s)",
+        "hint": "The expected rate in the upload direction."
+      },
+      "udp": {
+        "label": "Measure over UDP",
+        "hint": "Reports packet loss and jitter instead of retransmits and latency."
+      },
+      "username": {
+        "label": "User name",
+        "hint": "For the endpoint's authentication. Left out, the one from the credentials applies; without that, the sensor measures unauthenticated."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "Only for probes where no credentials file can be placed. Left out, the sensor reads the deployed password."
+      },
+      "public_key": {
+        "label": "Public key",
+        "hint": "Path to the endpoint's public key, if the credentials do not carry it."
+      },
+      "profile": {
+        "label": "Credential profile",
+        "hint": "Name of the deployed credentials. One per endpoint when their passwords differ."
+      },
+      "seconds": {
+        "label": "Duration (seconds)",
+        "hint": "Transfer time per direction. The default of 5 was measured; longer runs read lower on a line that shapes after a burst."
+      },
+      "measure_every_minutes": {
+        "label": "Measurement interval (minutes)",
+        "hint": "Minimum time between two real measurements."
+      },
+      "timeout_seconds": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "link-quality": {
+      "target": {
+        "label": "Internet target",
+        "hint": "A target on the internet. Repeatable."
+      },
+      "internal_target": {
+        "label": "Internal target",
+        "hint": "A target inside the own network, for example behind a tunnel. Repeatable."
+      },
+      "packets": {
+        "label": "Packets per target",
+        "hint": "Echo requests per target and run."
+      },
+      "interval_ms": {
+        "label": "Packet interval (ms)",
+        "hint": "The time between two packets."
+      },
+      "timeout_ms": {
+        "label": "Answer timeout (ms)",
+        "hint": "How long to wait for a single answer."
+      },
+      "payload_bytes": {
+        "label": "Payload (bytes)",
+        "hint": "The payload size of an echo request."
+      },
+      "source": {
+        "label": "Source address",
+        "hint": "The local address the measurement binds to."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "wlan-auth": {
+      "interface": {
+        "label": "Wireless interface",
+        "hint": "The wireless interface reserved for the test."
+      },
+      "ssid": {
+        "label": "Network name",
+        "hint": "The SSID the probe signs in to."
+      },
+      "auth": {
+        "label": "Sign-in method",
+        "hint": "Decides which of the other fields are needed.",
+        "choices": {
+          "psk": "PSK",
+          "peap": "PEAP/MSCHAPv2",
+          "eap-tls": "EAP-TLS"
+        }
+      },
+      "profile": {
+        "label": "Variant",
+        "hint": "In PRTG, the --profile parameter carries the name of the variant."
+      },
+      "psk": {
+        "label": "WPA2 passphrase",
+        "hint": "The network's pre-shared key."
+      },
+      "identity": {
+        "label": "Identity",
+        "hint": "The user name the RADIUS server is asked about. EAP-TLS needs it alongside the certificate."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "The password for PEAP."
+      },
+      "anonymous_identity": {
+        "label": "Outer identity",
+        "hint": "The identity outside the tunnel, if the RADIUS server expects one."
+      },
+      "ca_cert": {
+        "label": "CA certificate",
+        "hint": "The authority that signed the RADIUS server certificate. An intermediate and its root may share one PEM file."
+      },
+      "domain_suffix_match": {
+        "label": "Server domain",
+        "hint": "The suffix the name in the RADIUS server certificate must end in."
+      },
+      "no_verify_server": {
+        "label": "Skip server check",
+        "hint": "Signs in without checking the RADIUS server certificate. For a first test; the CA certificate may then stay empty."
+      },
+      "client_cert": {
+        "label": "Client certificate",
+        "hint": "The probe's own certificate for EAP-TLS."
+      },
+      "private_key": {
+        "label": "Private key",
+        "hint": "The private key belonging to the client certificate."
+      },
+      "private_key_passwd": {
+        "label": "Key passphrase",
+        "hint": "Only needed if the private key has one."
+      },
+      "bssid": {
+        "label": "BSSID",
+        "hint": "Restricts the test to one access point."
+      },
+      "hidden": {
+        "label": "Hidden network",
+        "hint": "The SSID is not broadcast."
+      },
+      "stage": {
+        "label": "Test scope",
+        "hint": "Stop after signing in or only after DHCP.",
+        "choices": {
+          "assoc": "Up to sign-in",
+          "dhcp": "Up to and including DHCP"
+        }
+      },
+      "gateway": {
+        "label": "Ping target after DHCP",
+        "hint": "The address pinged after DHCP, or none to skip the check."
+      },
+      "mac": {
+        "label": "Client MAC",
+        "hint": "auto for one address per network, permanent for the radio's own, or a fixed address."
+      },
+      "timeout": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "sensor_id": {
+        "label": "Sensor id in PRTG",
+        "hint": "Enter as %sensorid. A changed configuration then replaces the old one at once."
+      },
+      "max_age": {
+        "label": "Maximum age (seconds)",
+        "hint": "Upper bound for the age of the measurement. Left out, the probe plans by itself."
+      },
+      "measure_now": {
+        "label": "Measure now",
+        "hint": "Measures on the spot instead of collecting the scheduled result."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the privileged helper is reachable."
+      }
     }
   }
 }

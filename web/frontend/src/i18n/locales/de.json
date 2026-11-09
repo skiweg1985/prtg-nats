@@ -59,7 +59,9 @@
     "moreActions": "Weitere Aktionen",
     "selectAll": "Alle auswählen",
     "clearSelection": "Auswahl aufheben",
-    "selectedHidden": "{{count}} ausgewählt, {{hidden}} davon ausgeblendet"
+    "selectedHidden": "{{count}} ausgewählt, {{hidden}} davon ausgeblendet",
+    "optional": "optional",
+    "helpFor": "Hilfe zu {{label}}"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -486,7 +488,7 @@
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
     "reference": {
       "recommendedLine": "Empfohlener Anfang der Parameterzeile",
-      "fromVariant": "Aus Variante: {{key}}",
+      "fromVariant": "Eine Variante bringt diesen Wert mit; dann kann er hier fehlen.",
       "movedSection": "Verschobene Parameter (werden abgelehnt)",
       "fromPrtgSection": "Von PRTG belegte Parameter"
     },
@@ -1793,6 +1795,292 @@
       "remove": "Entfernen",
       "removeTitle": "Konfiguration für {{ssid}} entfernen?",
       "removeBody": "Die Probe hört sofort auf, sie zu messen. Fragt ein Sensor in PRTG sie noch ab, wird sie bei seinem nächsten Scan neu angelegt."
+    }
+  },
+  "sensorFields": {
+    "aruba-uplink": {
+      "host": {
+        "label": "Gateway-Adresse",
+        "hint": "Die Adresse des Aruba-Gateways an diesem Standort."
+      },
+      "user": {
+        "label": "Benutzername",
+        "hint": "Ein Konto mit Lesezugriff auf dem Gateway."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Das Passwort dieses Kontos."
+      },
+      "primary": {
+        "label": "Hauptleitung",
+        "hint": "Welcher Uplink der Hauptweg ist.",
+        "choices": {
+          "wired": "Kabel",
+          "cellular": "Mobilfunk"
+        }
+      },
+      "backup": {
+        "label": "Ersatzleitung",
+        "hint": "Der alternative Weg. Ohne Angabe gibt es keinen.",
+        "choices": {
+          "none": "Keine",
+          "cellular": "Mobilfunk",
+          "wired": "Kabel"
+        }
+      },
+      "backup_share": {
+        "label": "Schwelle Ersatzleitung (%)",
+        "hint": "Ab diesem Anteil des Verkehrs auf der Ersatzleitung gilt er als umgeschwenkt."
+      },
+      "billing_day": {
+        "label": "Abrechnungstag",
+        "hint": "Der Tag im Monat, an dem das Datenvolumen neu beginnt. 0 für einen Zähler, der nie zurückgesetzt wird."
+      },
+      "timeout_ms": {
+        "label": "Antwort-Timeout (ms)",
+        "hint": "Wie lange auf eine einzelne Antwort gewartet wird."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "internet-speed": {
+      "mode": {
+        "label": "Messart",
+        "hint": "Misst den Spitzenwert. Die Prüfung auf eine Mindestrate ist in den Sensor iperf-throughput umgezogen.",
+        "choices": {
+          "maximum": "Spitzenwert",
+          "minimum": "Mindestrate (umgezogen)"
+        }
+      },
+      "min_download_mbit": {
+        "label": "Mindest-Download (Mbit/s)",
+        "hint": "In den Sensor iperf-throughput umgezogen."
+      },
+      "min_upload_mbit": {
+        "label": "Mindest-Upload (Mbit/s)",
+        "hint": "In den Sensor iperf-throughput umgezogen."
+      },
+      "measure_every_minutes": {
+        "label": "Messabstand (Minuten)",
+        "hint": "Mindestabstand zwischen zwei echten Messungen."
+      },
+      "timeout_seconds": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "server": {
+        "label": "Speedtest-Server",
+        "hint": "Legt den Test auf eine Server-ID von speedtest.net fest."
+      },
+      "source": {
+        "label": "Quelladresse",
+        "hint": "Die lokale Adresse, von der aus gemessen wird."
+      },
+      "no_secure": {
+        "label": "HTTP statt HTTPS",
+        "hint": "Spricht speedtest.net über HTTP statt HTTPS an."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "iperf-throughput": {
+      "server": {
+        "label": "Messpunkt",
+        "hint": "Host oder Adresse des Messpunkts. Ohne Angabe gilt die aus den ausgerollten Zugangsdaten."
+      },
+      "port": {
+        "label": "Port",
+        "hint": "Der Port des Messpunkts. Ohne Angabe gilt der aus den Zugangsdaten, sonst 5201."
+      },
+      "download_mbit": {
+        "label": "Download-Ziel (Mbit/s)",
+        "hint": "Die erwartete Rate in Empfangsrichtung."
+      },
+      "upload_mbit": {
+        "label": "Upload-Ziel (Mbit/s)",
+        "hint": "Die erwartete Rate in Senderichtung."
+      },
+      "udp": {
+        "label": "Über UDP messen",
+        "hint": "Meldet Paketverlust und Jitter statt Retransmits und Latenz."
+      },
+      "username": {
+        "label": "Benutzername",
+        "hint": "Für die Authentifizierung am Messpunkt. Ohne Angabe gilt der aus den Zugangsdaten; fehlt auch der, misst der Sensor ohne Authentifizierung."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Nur für Probes, auf denen keine Zugangsdaten-Datei liegen kann. Ohne Angabe liest der Sensor das ausgerollte Passwort."
+      },
+      "public_key": {
+        "label": "Öffentlicher Schlüssel",
+        "hint": "Pfad zum öffentlichen Schlüssel des Messpunkts, falls die Zugangsdaten ihn nicht mitbringen."
+      },
+      "profile": {
+        "label": "Zugangsdaten-Profil",
+        "hint": "Name der ausgerollten Zugangsdaten. Eines je Messpunkt, wenn die Passwörter verschieden sind."
+      },
+      "seconds": {
+        "label": "Messdauer (Sekunden)",
+        "hint": "Übertragungszeit je Richtung. Die Vorgabe von 5 ist gemessen; auf einer Leitung, die nach einem Burst drosselt, zeigen längere Läufe weniger."
+      },
+      "measure_every_minutes": {
+        "label": "Messabstand (Minuten)",
+        "hint": "Mindestabstand zwischen zwei echten Messungen."
+      },
+      "timeout_seconds": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "link-quality": {
+      "target": {
+        "label": "Ziel im Internet",
+        "hint": "Ein Ziel im Internet. Mehrfach möglich."
+      },
+      "internal_target": {
+        "label": "Internes Ziel",
+        "hint": "Ein Ziel im eigenen Netz, etwa hinter einem Tunnel. Mehrfach möglich."
+      },
+      "packets": {
+        "label": "Pakete je Ziel",
+        "hint": "Echo-Anfragen je Ziel und Lauf."
+      },
+      "interval_ms": {
+        "label": "Paketabstand (ms)",
+        "hint": "Die Zeit zwischen zwei Paketen."
+      },
+      "timeout_ms": {
+        "label": "Antwort-Timeout (ms)",
+        "hint": "Wie lange auf eine einzelne Antwort gewartet wird."
+      },
+      "payload_bytes": {
+        "label": "Nutzlast (Bytes)",
+        "hint": "Die Größe der Nutzdaten einer Echo-Anfrage."
+      },
+      "source": {
+        "label": "Quelladresse",
+        "hint": "Die lokale Adresse, von der aus gemessen wird."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "wlan-auth": {
+      "interface": {
+        "label": "WLAN-Schnittstelle",
+        "hint": "Die für den Test reservierte WLAN-Schnittstelle."
+      },
+      "ssid": {
+        "label": "Netzwerkname",
+        "hint": "Die SSID, an der die Probe sich anmeldet."
+      },
+      "auth": {
+        "label": "Anmeldeverfahren",
+        "hint": "Entscheidet, welche der übrigen Felder gebraucht werden.",
+        "choices": {
+          "psk": "PSK",
+          "peap": "PEAP/MSCHAPv2",
+          "eap-tls": "EAP-TLS"
+        }
+      },
+      "profile": {
+        "label": "Variante",
+        "hint": "In PRTG trägt der Parameter --profile den Namen der Variante."
+      },
+      "psk": {
+        "label": "WPA2-Passphrase",
+        "hint": "Der Pre-Shared Key des Netzes."
+      },
+      "identity": {
+        "label": "Identität",
+        "hint": "Der Benutzername, nach dem der RADIUS-Server gefragt wird. EAP-TLS braucht ihn neben dem Zertifikat."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Das Passwort für PEAP."
+      },
+      "anonymous_identity": {
+        "label": "Äußere Identität",
+        "hint": "Die Identität außerhalb des Tunnels, falls der RADIUS-Server eine erwartet."
+      },
+      "ca_cert": {
+        "label": "CA-Zertifikat",
+        "hint": "Die CA, die das Zertifikat des RADIUS-Servers signiert hat. Zwischen- und Root-Zertifikat dürfen zusammen in einer PEM-Datei stehen."
+      },
+      "domain_suffix_match": {
+        "label": "Server-Domain",
+        "hint": "Auf diese Endung muss der Name im Zertifikat des RADIUS-Servers lauten."
+      },
+      "no_verify_server": {
+        "label": "Server nicht prüfen",
+        "hint": "Meldet sich an, ohne das Zertifikat des RADIUS-Servers zu prüfen. Für einen ersten Test; das CA-Zertifikat darf dann fehlen."
+      },
+      "client_cert": {
+        "label": "Client-Zertifikat",
+        "hint": "Das eigene Zertifikat der Probe für EAP-TLS."
+      },
+      "private_key": {
+        "label": "Privater Schlüssel",
+        "hint": "Der private Schlüssel zum Client-Zertifikat."
+      },
+      "private_key_passwd": {
+        "label": "Passphrase des Schlüssels",
+        "hint": "Nur nötig, wenn der private Schlüssel eine hat."
+      },
+      "bssid": {
+        "label": "BSSID",
+        "hint": "Beschränkt den Test auf einen Access Point."
+      },
+      "hidden": {
+        "label": "Verstecktes Netz",
+        "hint": "Die SSID wird nicht ausgestrahlt."
+      },
+      "stage": {
+        "label": "Testumfang",
+        "hint": "Nach der Anmeldung aufhören oder erst nach DHCP.",
+        "choices": {
+          "assoc": "Bis zur Anmeldung",
+          "dhcp": "Bis einschließlich DHCP"
+        }
+      },
+      "gateway": {
+        "label": "Ping-Ziel nach DHCP",
+        "hint": "Die Adresse, die nach DHCP angepingt wird, oder none, um die Prüfung auszulassen."
+      },
+      "mac": {
+        "label": "Client-MAC",
+        "hint": "auto für eine eigene Adresse je Netz, permanent für die des Funkmoduls, oder eine feste Adresse."
+      },
+      "timeout": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "sensor_id": {
+        "label": "Sensor-Id in PRTG",
+        "hint": "Als %sensorid eintragen. Dann ersetzt eine geänderte Konfiguration die alte sofort."
+      },
+      "max_age": {
+        "label": "Höchstalter (Sekunden)",
+        "hint": "Obergrenze für das Alter der Messung. Ohne Angabe plant die Probe selbst."
+      },
+      "measure_now": {
+        "label": "Sofort messen",
+        "hint": "Misst auf der Stelle, statt das geplante Ergebnis abzuholen."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der privilegierte Helper erreichbar ist."
+      }
     }
   }
 }

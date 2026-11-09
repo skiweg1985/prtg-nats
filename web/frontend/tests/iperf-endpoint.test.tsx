@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -178,8 +179,8 @@ describe('IperfPage', () => {
     // The form starts with what identifies the host, and nothing that
     // authenticates: an administrator password typed now would travel to an
     // address nobody has verified.
-    expect(screen.queryByLabelText(/^password$/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/administrator/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^password$/i, FIELD)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/administrator/i, FIELD)).not.toBeInTheDocument()
     // Announced, though. Which step asks for the sign-in used to be something
     // you found out by pressing the button.
     expect(screen.getByText('2. Sign in once and set it up')).toBeInTheDocument()
@@ -192,7 +193,7 @@ describe('IperfPage', () => {
     await waitFor(() => expect(scanned).toBe(1))
     // Only now, and with the fingerprint on screen next to them.
     expect(await screen.findByText(/SHA256:2f1c9d3b/)).toBeInTheDocument()
-    expect(screen.getByLabelText(/administrator/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/administrator/i, FIELD)).toBeInTheDocument()
   })
 
   it('sends the accepted keys along with the sign-in', async () => {
@@ -206,8 +207,8 @@ describe('IperfPage', () => {
     await user.click(screen.getByRole('button', { name: /read host keys/i }))
     await screen.findByText(/SHA256:2f1c9d3b/)
 
-    await user.type(screen.getByLabelText(/^password$/i), 'hunter2')
-    await user.type(screen.getByLabelText(/source network/i), '203.0.113.7/32')
+    await user.type(screen.getByLabelText(/^password$/i, FIELD), 'hunter2')
+    await user.type(screen.getByLabelText(/source network/i, FIELD), '203.0.113.7/32')
     await user.click(screen.getByRole('button', { name: /^set up$/i }))
 
     await waitFor(() => expect(provisioned).not.toBeNull())
@@ -302,9 +303,9 @@ describe('IperfPage', () => {
     await user.click(await screen.findByRole('button', { name: /add an external endpoint/i }))
     // The credential fields follow the user name: an endpoint measuring
     // unauthenticated needs neither.
-    await user.type(screen.getByLabelText(/measurement user/i), 'prtg-probe')
+    await user.type(screen.getByLabelText(/measurement user/i, FIELD), 'prtg-probe')
 
-    const field = screen.getByLabelText(/public key/i)
+    const field = screen.getByLabelText(/public key/i, FIELD)
     // The END line is the half that goes missing when somebody copies a key
     // out of a terminal, and the field used to show only the BEGIN one.
     expect(field).toHaveAttribute(

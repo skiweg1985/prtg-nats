@@ -140,7 +140,7 @@ function SetupScreen() {
             required
           />
         </Field>
-        <Field label={t('auth.displayName')}>
+        <Field label={t('auth.displayName')} optional>
           <Input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}

@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -81,8 +82,8 @@ describe('a session that still owes a password change', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(await screen.findByLabelText('Current password'), 'initial-password')
-    await user.type(screen.getByLabelText(/New password/), 'a-much-better-passphrase')
+    await user.type(await screen.findByLabelText('Current password', FIELD), 'initial-password')
+    await user.type(screen.getByLabelText(/New password/, FIELD), 'a-much-better-passphrase')
     await user.click(screen.getByRole('button', { name: 'Change password' }))
 
     expect(await screen.findByText('application')).toBeInTheDocument()

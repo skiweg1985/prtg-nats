@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { ArrowLeft, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -10,6 +11,8 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
+
+import { InfoButton, usePopover } from './Popover'
 
 /**
  * The small set of primitives everything else is built from.
@@ -570,27 +573,174 @@ export function Card({
   )
 }
 
+/**
+ * What a control inside a Field reads to wire itself to its label, its help
+ * and its message, so no caller has to thread ids through by hand.
+ */
+interface FieldWiring {
+  id: string
+  describedBy: string | undefined
+  invalid: boolean
+}
+
+const FieldContext = createContext<FieldWiring | null>(null)
+
+/** The id and descriptions of the surrounding Field, merged under what the
+    control was given itself. */
+function useFieldWiring(props: {
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: InputHTMLAttributes<HTMLInputElement>['aria-invalid']
+}) {
+  const field = useContext(FieldContext)
+  return {
+    id: props.id ?? field?.id,
+    'aria-describedby': props['aria-describedby'] ?? field?.describedBy,
+    'aria-invalid': props['aria-invalid'] ?? (field?.invalid ? true : undefined),
+  }
+}
+
+function joinIds(...ids: (string | false | undefined)[]) {
+  return ids.filter(Boolean).join(' ') || undefined
+}
+
+/**
+ * The help of a field: the (i) button, its popover, and a hidden copy of the
+ * text the control points at with aria-describedby. A screen reader hears the
+ * help with the field itself and never has to find the button.
+ */
+function useFieldHelp(label: string, hint: ReactNode | undefined) {
+  const { t } = useTranslation()
+  const popover = usePopover({ content: hint })
+  const hintId = useId()
+  if (!hint) return { hintId: undefined, button: null, inline: null, hidden: null }
+  return {
+    hintId,
+    button: <InfoButton label={t('common.helpFor', { label })} popover={popover} />,
+    inline: popover.inline,
+    hidden: (
+      <span id={hintId} className="sr-only">
+        {hint}
+      </span>
+    ),
+  }
+}
+
+/** Label, the parameter name behind it, "optional", and the (i). */
+function FieldHead({
+  htmlFor,
+  label,
+  technicalName,
+  optional,
+  help,
+}: {
+  htmlFor: string
+  label: string
+  technicalName?: string
+  optional?: boolean
+  help: ReactNode
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <label htmlFor={htmlFor} className="text-ink text-sm font-medium">
+        {label}
+      </label>
+      {technicalName && (
+        <span className="text-ink-3 font-mono text-xs">{technicalName}</span>
+      )}
+      {optional && <span className="text-ink-3 text-xs">{t('common.optional')}</span>}
+      {help}
+    </div>
+  )
+}
+
+/** The line under a control: an error first, else a fact about the value. */
+function FieldMessage({
+  id,
+  error,
+  note,
+}: {
+  id: string
+  error?: ReactNode
+  note?: ReactNode
+}) {
+  if (error) {
+    return (
+      <span id={id} className="text-danger text-xs">
+        {error}
+      </span>
+    )
+  }
+  if (note) {
+    return (
+      <span id={id} className="text-ink-3 text-xs">
+        {note}
+      </span>
+    )
+  }
+  return null
+}
+
+/**
+ * A labelled control.
+ *
+ * The explanation of a field sits behind the (i) next to its label, not in a
+ * paragraph underneath: 33 of 53 fields carried one, which doubled the height
+ * of every dialog on a phone and made two-column grids jump wherever two
+ * hints differed in length. What stays below the control is only about the
+ * value - an error, or the state of what is stored.
+ *
+ * Required is the norm and carries no mark; the exception says "optional".
+ */
 export function Field({
   label,
   hint,
+  note,
   error,
+  optional,
+  technicalName,
   children,
 }: {
   label: string
-  hint?: string
+  /** What the field is for, behind the (i). */
+  hint?: ReactNode
+  /** A fact about the current value - "stored, leave empty to keep it" - in
+      the line below the control. An error takes its place. */
+  note?: ReactNode
   error?: string
+  /** Marks the field "optional" beside its label. */
+  optional?: boolean
+  /** The name the machine knows it by, set small and muted after the label. */
+  technicalName?: string
   children: ReactNode
 }) {
+  const id = useId()
+  const messageId = useId()
+  const help = useFieldHelp(label, hint)
+  const hasMessage = Boolean(error || note)
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-ink text-sm font-medium">{label}</span>
-      {children}
-      {error ? (
-        <span className="text-danger text-xs">{error}</span>
-      ) : hint ? (
-        <span className="text-ink-3 text-xs">{hint}</span>
-      ) : null}
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <FieldHead
+        htmlFor={id}
+        label={label}
+        technicalName={technicalName}
+        optional={optional}
+        help={help.button}
+      />
+      {help.inline}
+      <FieldContext.Provider
+        value={{
+          id,
+          describedBy: joinIds(help.hintId, hasMessage && messageId),
+          invalid: Boolean(error),
+        }}
+      >
+        {children}
+      </FieldContext.Provider>
+      <FieldMessage id={messageId} error={error} note={note} />
+      {help.hidden}
+    </div>
   )
 }
 
@@ -605,14 +755,22 @@ export function Field({
 export function FilePicker({
   label,
   hint,
+  note,
   error,
+  optional,
+  technicalName,
   fileName,
   prompt,
   onSelect,
 }: {
   label: string
-  hint?: string
+  /** What the file is for, behind the (i). */
+  hint?: ReactNode
+  /** A fact about what is stored - its fingerprint - below the box. */
+  note?: ReactNode
   error?: string
+  optional?: boolean
+  technicalName?: string
   /** The file chosen in this form, shown in place of the prompt. */
   fileName?: string
   /** What the empty box says - "Choose file", in the caller's wording. */
@@ -623,15 +781,24 @@ export function FilePicker({
   // the box is what the pointer aims at. The input itself comes before the
   // box so its focus ring can be drawn on the box through "peer".
   const id = useId()
+  const messageId = useId()
+  const help = useFieldHelp(label, hint)
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-ink text-sm font-medium">
-        {label}
-      </label>
+      <FieldHead
+        htmlFor={id}
+        label={label}
+        technicalName={technicalName}
+        optional={optional}
+        help={help.button}
+      />
+      {help.inline}
       <input
         id={id}
         type="file"
         className="peer sr-only"
+        aria-describedby={joinIds(help.hintId, Boolean(error || note) && messageId)}
+        aria-invalid={error ? true : undefined}
         onChange={(event) => {
           const file = event.target.files?.[0]
           if (file) onSelect(file)
@@ -639,6 +806,10 @@ export function FilePicker({
       />
       <label
         htmlFor={id}
+        // The field name above is the accessible name; this box only repeats
+        // the prompt or the file name, which a screen reader gets from the
+        // input's value.
+        aria-hidden
         className={clsx(
           'rounded-control border-rule-2 bg-surface text-ink flex cursor-pointer items-center gap-2 border px-2.5 py-1.5 text-sm',
           'transition-colors duration-(--dur-instant) ease-(--ease-out)',
@@ -655,11 +826,8 @@ export function FilePicker({
           {fileName ?? prompt}
         </span>
       </label>
-      {error ? (
-        <span className="text-danger text-xs">{error}</span>
-      ) : hint ? (
-        <span className="text-ink-3 text-xs">{hint}</span>
-      ) : null}
+      <FieldMessage id={messageId} error={error} note={note} />
+      {help.hidden}
     </div>
   )
 }
@@ -672,14 +840,16 @@ export function Select({
   className,
   ...rest
 }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <select
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm',
         'disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }
@@ -688,49 +858,67 @@ export function Textarea({
   className,
   ...rest
 }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <textarea
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 font-mono text-xs',
         'placeholder:text-ink-3 disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }
 
-/** A labelled checkbox with an optional hint underneath the label.
+/** A labelled checkbox, its help behind the (i) beside the label.
 
     The raw pattern existed seven times with two different top margins on the
-    box; the alignment is decided here once. */
+    box; the alignment is decided here once. The (i) sits outside the label:
+    a button inside a label would tick the box on every press of the help. */
 export function CheckboxField({
   label,
   hint,
   checked,
   onChange,
   disabled,
+  technicalName,
 }: {
   label: ReactNode
   hint?: ReactNode
   checked: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
+  technicalName?: string
 }) {
+  const id = useId()
+  const help = useFieldHelp(typeof label === 'string' ? label : '', hint)
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>
-        <span className="text-ink">{label}</span>
-        {hint && <span className="text-ink-3 block text-xs">{hint}</span>}
-      </span>
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-start gap-2 text-sm">
+        <input
+          id={id}
+          type="checkbox"
+          className="mt-0.5"
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={help.hintId}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <label htmlFor={id} className="text-ink">
+            {label}
+          </label>
+          {technicalName && (
+            <span className="text-ink-3 font-mono text-xs">{technicalName}</span>
+          )}
+          {help.button}
+        </div>
+      </div>
+      {help.inline}
+      {help.hidden}
+    </div>
   )
 }
 
@@ -738,14 +926,16 @@ export function Input({
   className,
   ...rest
 }: InputHTMLAttributes<HTMLInputElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <input
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm',
         'placeholder:text-ink-3 disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }

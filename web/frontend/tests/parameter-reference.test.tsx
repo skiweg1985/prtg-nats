@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -59,10 +60,15 @@ describe('ParameterCard', () => {
   // surface that replaced it.
   it('lists every fillable parameter with its meaning', () => {
     wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
-    expect(screen.getByText('--target')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Which uplink kind is the main path/),
-    ).toBeInTheDocument()
+    // A human label, the parameter name muted beside it, and the help behind
+    // the (i) - still in the document for a screen reader.
+    expect(screen.getByLabelText('Primary uplink', FIELD)).toBeInTheDocument()
+    expect(screen.getByText('--primary')).toBeInTheDocument()
+    expect(screen.getByText('Which uplink is the main path.')).toBeInTheDocument()
+    // A field the locale files do not know keeps its own name and the
+    // schema's description.
+    expect(screen.getByLabelText('--target', FIELD)).toBeInTheDocument()
+    expect(screen.getByText('A target on the internet. Repeatable.')).toBeInTheDocument()
   })
 
   it('keeps the PRTG-substituted parameters, folded away', () => {
@@ -71,21 +77,23 @@ describe('ParameterCard', () => {
     // meaning stay reachable: in the folded section and the recommended line.
     expect(screen.getByText('--host')).toBeInTheDocument()
     expect(screen.getAllByText(/%host/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Gateway address')).toBeInTheDocument()
     expect(
-      screen.getByText(/Address of the Aruba gateway of this site\./),
+      screen.getByText("The address of this site's Aruba gateway."),
     ).toBeInTheDocument()
   })
 
   it('offers the choices instead of a bare text field', () => {
     wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
-    expect(screen.getByRole('option', { name: 'wired' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'cellular' })).toBeInTheDocument()
+    // Named for a person, valued for the script.
+    expect(screen.getByRole('option', { name: 'Wired' })).toHaveValue('wired')
+    expect(screen.getByRole('option', { name: 'Cellular' })).toHaveValue('cellular')
   })
 
   it('marks what a variant can supply, so PRTG may leave it out', () => {
     wrap(<ParameterCard sensorName="aruba-uplink" schema={schema} />)
-    // The hint names the profile key behind the parameter, in either language.
-    expect(screen.getByText(/(variant|Variante).*SSID/i)).toBeInTheDocument()
+    // Said in the help of the parameter, in either language.
+    expect(screen.getByText(/left out here|kann er hier fehlen/i)).toBeInTheDocument()
   })
 
   // The recommended line is what most setups copy; the twenty fields behind

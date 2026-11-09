@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -127,7 +128,7 @@ describe('deploying a sensor that measures against an endpoint', () => {
     await changeLanguage('en')
     wrap('iperf-throughput')
 
-    await userEvent.click(await screen.findByLabelText(/Installed/))
+    await userEvent.click(await screen.findByLabelText(/Installed/, FIELD))
     expect(
       await screen.findByText(/already have the sensor but hold no endpoint/),
     ).toHaveTextContent('installed')
@@ -137,7 +138,7 @@ describe('deploying a sensor that measures against an endpoint', () => {
     await changeLanguage('en')
     wrap('iperf-throughput')
 
-    await userEvent.click(await screen.findByLabelText(/Fresh/))
+    await userEvent.click(await screen.findByLabelText(/Fresh/, FIELD))
     expect(
       screen.queryByText(/already have the sensor but hold no endpoint/),
     ).not.toBeInTheDocument()
@@ -157,7 +158,7 @@ describe('deploying a sensor that measures against an endpoint', () => {
     await changeLanguage('en')
     wrap('uptime')
 
-    await screen.findByLabelText(/Fresh/)
+    await screen.findByLabelText(/Fresh/, FIELD)
     expect(endpointsAsked).toBe(0)
   })
 })

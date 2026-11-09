@@ -395,6 +395,7 @@ function InvitationForm({
             <Field
               label={t('probes.enroll.fields.probeName')}
               hint={t('probes.enroll.fields.probeNameHint')}
+              optional
               error={probeNameOk ? undefined : t('probes.enroll.errors.probeNameShape')}
             >
               <Input

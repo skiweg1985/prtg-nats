@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, FileCode, Upload } from 'lucide-react'
 
-import { fieldDescription, fieldLabel } from './parameterFields'
+import { choiceLabel, fieldDescription, fieldLabel } from './parameterFields'
 
 import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorDetail, SensorSummary } from '@/api/types'
@@ -16,6 +16,7 @@ import {
   Badge,
   Button,
   Card,
+  CheckboxField,
   DetailRow,
   EmptyState,
   Field,
@@ -378,11 +379,11 @@ export function ParameterCard({
   )
   // Which parameters a variant can supply instead, so the row can say "you
   // may leave this out once a variant carries it".
-  const suppliedBy = new Map<string, string>()
+  const suppliedBy = new Set<string>()
   for (const entry of schema
     ? [...schema.settings, ...schema.credentials, ...schema.files]
     : []) {
-    if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
+    if (entry.maps_to) suppliedBy.add(entry.maps_to)
   }
   const fromPrtg = (schema?.parameters ?? []).filter(
     (field) => field.source === 'prtg',
@@ -437,60 +438,69 @@ export function ParameterCard({
           {t('sensors.parametersBuild', { count: fields.length })}
         </summary>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          {fields.map((field) => (
-            <Field
-              key={field.name}
-              label={fieldLabel(t, field) + (field.required ? ' *' : '')}
-              hint={
-                [
-                  fieldDescription(t, field),
-                  suppliedBy.has(field.name)
-                    ? t('sensors.reference.fromVariant', {
-                        key: suppliedBy.get(field.name),
-                      })
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || undefined
-              }
-            >
-              {field.type === 'boolean' ? (
-                <input
-                  type="checkbox"
+          {fields.map((field) => {
+            const description = fieldDescription(t, field, sensorName)
+            const hint =
+              description || suppliedBy.has(field.name) ? (
+                <>
+                  {description && <p>{description}</p>}
+                  {suppliedBy.has(field.name) && (
+                    <p className={description ? 'mt-1.5' : undefined}>
+                      {t('sensors.reference.fromVariant')}
+                    </p>
+                  )}
+                </>
+              ) : undefined
+            const label = fieldLabel(t, field, sensorName)
+            if (field.type === 'boolean') {
+              return (
+                <CheckboxField
+                  key={field.name}
+                  label={label}
+                  technicalName={field.name}
+                  hint={hint}
                   checked={Boolean(values[field.name])}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.checked })
-                  }
+                  onChange={(checked) => setValues({ ...values, [field.name]: checked })}
                 />
-              ) : field.type === 'choice' ? (
-                <Select
-                  value={String(values[field.name] ?? '')}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.value })
-                  }
-                  className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
-                >
-                  <option value="">—</option>
-                  {field.choices?.map((choice) => (
-                    <option key={choice} value={choice}>
-                      {choice}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  type={field.type === 'integer' ? 'number' : 'text'}
-                  value={String(values[field.name] ?? '')}
-                  min={field.minimum}
-                  max={field.maximum}
-                  placeholder={field.placeholder ?? String(field.default ?? '')}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.value })
-                  }
-                />
-              )}
-            </Field>
-          ))}
+              )
+            }
+            return (
+              <Field
+                key={field.name}
+                label={label}
+                technicalName={field.name}
+                optional={!field.required}
+                hint={hint}
+              >
+                {field.type === 'choice' ? (
+                  <Select
+                    value={String(values[field.name] ?? '')}
+                    onChange={(event) =>
+                      setValues({ ...values, [field.name]: event.target.value })
+                    }
+                  >
+                    <option value="">—</option>
+                    {field.choices?.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choiceLabel(t, field, choice, sensorName)}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    type={field.type === 'integer' ? 'number' : 'text'}
+                    value={String(values[field.name] ?? '')}
+                    min={field.minimum}
+                    max={field.maximum}
+                    placeholder={field.placeholder ?? String(field.default ?? '')}
+                    onChange={(event) =>
+                      setValues({ ...values, [field.name]: event.target.value })
+                    }
+                  />
+                )}
+              </Field>
+            )
+          })}
         </div>
 
         <div className="mt-4 flex items-center gap-2">
@@ -501,7 +511,9 @@ export function ParameterCard({
           {missing.length > 0 && (
             <span className="text-ink-3 text-xs">
               {t('sensors.parametersMissing', {
-                fields: missing.map((field) => field.name).join(', '),
+                fields: missing
+                  .map((field) => fieldLabel(t, field, sensorName))
+                  .join(', '),
               })}
             </span>
           )}
@@ -526,9 +538,12 @@ export function ParameterCard({
           <ul className="text-ink-2 mt-2 space-y-1.5 text-xs">
             {fromPrtg.map((field) => (
               <li key={field.name} className="flex flex-wrap items-baseline gap-2">
-                <Mono>{fieldLabel(t, field)}</Mono>
+                <span className="text-ink font-medium">
+                  {fieldLabel(t, field, sensorName)}
+                </span>
+                <Mono className="text-ink-3">{field.name}</Mono>
                 {field.prtg_placeholder && <Mono>{field.prtg_placeholder}</Mono>}
-                <span>{fieldDescription(t, field)}</span>
+                <span>{fieldDescription(t, field, sensorName)}</span>
               </li>
             ))}
           </ul>
@@ -543,7 +558,7 @@ export function ParameterCard({
           <ul className="text-ink-3 mt-2 space-y-1 text-xs">
             {moved.map((field) => (
               <li key={field.name}>
-                <Mono>{field.name}</Mono> · {fieldDescription(t, field)}
+                <Mono>{field.name}</Mono> · {fieldDescription(t, field, sensorName)}
               </li>
             ))}
           </ul>

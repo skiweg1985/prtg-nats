@@ -473,6 +473,7 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
               <Field
                 label={t('infrastructure.iperf.privateKey')}
                 hint={t('infrastructure.iperf.privateKeyHint')}
+                optional
               >
                 <Textarea
                   value={privateKey}
@@ -487,6 +488,7 @@ function ProvisionDialog({ onClose }: { onClose: () => void }) {
               <Field
                 label={t('infrastructure.iperf.sourceCidr')}
                 hint={t('infrastructure.iperf.sourceCidrHint')}
+                optional
               >
                 <Input
                   value={sourceCidr}
@@ -703,6 +705,7 @@ function RegisterDialog({ onClose }: { onClose: () => void }) {
           <Field
             label={t('infrastructure.iperf.columns.user')}
             hint={t('infrastructure.iperf.foreignUserHint')}
+            optional
           >
             <Input
               value={username}
