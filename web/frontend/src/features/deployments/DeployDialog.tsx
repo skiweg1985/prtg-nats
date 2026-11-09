@@ -193,7 +193,7 @@ export function DeployDialog({
             {matching.map((probe) => (
               <label
                 key={probe.id}
-                className="border-rule hover:bg-surface-2 flex items-center gap-2 border-b px-3 py-1.5 text-sm last:border-0"
+                className="border-rule hover:bg-hover flex items-center gap-2 border-b px-3 py-1.5 text-sm last:border-0"
               >
                 <input
                   type="checkbox"

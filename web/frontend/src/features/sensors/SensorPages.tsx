@@ -242,7 +242,7 @@ export function SensorDetailPage() {
           comparing a probe against the catalog looks up, not what somebody
           rolling the sensor out reads on the way to the button. */}
       <UrlDetails param="files" className="surface-card group overflow-hidden">
-        <summary className="hover:bg-surface-2 flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+        <summary className="hover:bg-hover flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
             size={16}

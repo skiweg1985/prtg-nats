@@ -1191,7 +1191,7 @@ function ToolCell({ row }: { row: SensorState }) {
           tool: row.tool_name,
           state: verdict,
         })}
-        className="hover:bg-surface-2 rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
+        className="hover:bg-hover rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
       >
         <Dot tone={tone} />
         <span className="text-ink text-xs font-medium">{row.tool_name}</span>

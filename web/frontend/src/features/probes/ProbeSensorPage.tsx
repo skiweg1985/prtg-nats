@@ -456,7 +456,7 @@ function FailureList({
                   since: group.first,
                   until: group.last,
                 })}
-                className="hover:bg-surface-2 -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded px-2 py-1 text-xs"
+                className="hover:bg-hover -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded px-2 py-1 text-xs"
               >
                 <span className="text-danger font-medium tabular-nums">
                   {t('probeSensor.failureCount', { count: group.count })}

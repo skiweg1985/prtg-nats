@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ChevronRight, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
+import { ArrowRight, ChevronRight, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -12,6 +12,8 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
+
+import { formatDateTime, formatRelative } from '@/utils/format'
 
 import { InfoButton, usePopover } from './Popover'
 
@@ -111,7 +113,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   secondary:
     'bg-surface text-ink border-rule-2 hover:bg-surface-2 active:bg-surface-2/70',
   ghost:
-    'bg-transparent text-ink-2 border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-2/70',
+    'bg-transparent text-ink-2 border-transparent hover:bg-hover hover:text-ink active:bg-surface-2',
   danger: 'bg-danger text-accent-ink border-transparent hover:bg-danger/90 active:bg-danger/80',
 }
 
@@ -133,7 +135,28 @@ function buttonClasses(variant: ButtonVariant, size: ButtonSize, className?: str
   )
 }
 
-function ButtonIcon({ icon: Icon, size }: { icon?: LucideIcon; size: ButtonSize }) {
+function ButtonIcon({
+  icon: Icon,
+  size,
+  loading,
+}: {
+  icon?: LucideIcon
+  size: ButtonSize
+  loading?: boolean
+}) {
+  // The spinner takes the icon's place, so the label does not move when the
+  // request starts and the button keeps its width.
+  if (loading) {
+    return (
+      <span
+        aria-hidden
+        className={clsx(
+          'inline-block shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent',
+          size === 'sm' ? 'size-3' : 'size-3.5',
+        )}
+      />
+    )
+  }
   if (!Icon) return null
   return <Icon aria-hidden size={ICON_SIZE[size]} strokeWidth={1.75} className="shrink-0" />
 }
@@ -142,6 +165,8 @@ export function Button({
   variant = 'secondary',
   size = 'md',
   icon,
+  loading,
+  disabled,
   className,
   children,
   ...rest
@@ -150,13 +175,46 @@ export function Button({
   size?: ButtonSize
   /** A Lucide icon, drawn before the label at the size's icon size. */
   icon?: LucideIcon
+  /** The request behind the button is running: a spinner in the icon's
+      place, and no second click. */
+  loading?: boolean
 }) {
   return (
     // No default type: buttons inside forms rely on the browser's submit.
-    <button className={buttonClasses(variant, size, className)} {...rest}>
-      <ButtonIcon icon={icon} size={size} />
+    <button
+      className={buttonClasses(variant, size, className)}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      <ButtonIcon icon={icon} size={size} loading={loading} />
       {children}
     </button>
+  )
+}
+
+/**
+ * The way from a summary to the full list behind it, such as "Show all" in a
+ * card header. Quiet text with a trailing arrow: it navigates, it does not
+ * act, so it carries neither a fill nor the signal colour at rest.
+ */
+export function MoreLink({ to, children }: { to: LinkProps['to']; children: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      className={clsx(
+        'group text-ink-3 hover:text-ink rounded-inset inline-flex shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap',
+        'transition-colors duration-(--dur-instant) ease-(--ease-out)',
+      )}
+    >
+      {children}
+      <ArrowRight
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className="shrink-0 transition-transform duration-(--dur-instant) ease-(--ease-out) group-hover:translate-x-0.5"
+      />
+    </Link>
   )
 }
 
@@ -185,7 +243,7 @@ export function FilterChip({
         'transition-colors duration-(--dur-instant) ease-(--ease-out)',
         pressed
           ? 'border-rule-2 bg-surface-2 text-ink'
-          : 'text-ink-2 hover:text-ink hover:bg-surface-2 border-transparent bg-transparent',
+          : 'text-ink-2 hover:text-ink hover:bg-hover border-transparent bg-transparent',
       )}
     >
       {children}
@@ -391,7 +449,7 @@ export function ActionMenu({
                 }}
                 className={clsx(
                   'flex h-8 w-full items-center gap-2 px-3 text-left text-sm whitespace-nowrap',
-                  'hover:bg-surface-2 focus-visible:bg-surface-2 disabled:pointer-events-none disabled:opacity-45',
+                  'hover:bg-hover focus-visible:bg-hover disabled:pointer-events-none disabled:opacity-45',
                   action.tone === 'danger' ? 'text-danger' : 'text-ink',
                 )}
               >
@@ -564,12 +622,16 @@ export function Spinner({ className }: { className?: string }) {
 
 export function Card({
   title,
+  icon: Icon,
   action,
   children,
   className,
   dense,
 }: {
   title?: ReactNode
+  /** What the card is about, as a Lucide icon before the title. Functional,
+      never a coloured tile: it sits in the title's muted tone. */
+  icon?: LucideIcon
   action?: ReactNode
   children: ReactNode
   className?: string
@@ -578,8 +640,13 @@ export function Card({
   return (
     <section className={clsx('surface-card overflow-hidden', className)}>
       {(title || action) && (
-        <header className="border-rule flex items-center justify-between gap-3 border-b px-4 py-2.5">
-          <h2 className="text-base font-semibold">{title}</h2>
+        <header className="border-rule flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2">
+          <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold">
+            {Icon && (
+              <Icon aria-hidden size={16} strokeWidth={1.75} className="text-ink-3 shrink-0" />
+            )}
+            {title}
+          </h2>
           {action}
         </header>
       )}
@@ -986,6 +1053,72 @@ export function Mono({
     >
       {children}
     </span>
+  )
+}
+
+/** A point in time as people say it ("3 minutes ago"), with the exact
+    moment in the tooltip and for the machine. */
+export function RelativeTime({ value, className }: { value: string; className?: string }) {
+  return (
+    <time
+      dateTime={value}
+      title={formatDateTime(value)}
+      className={clsx('text-ink-3 text-xs whitespace-nowrap tabular-nums', className)}
+    >
+      {formatRelative(value)}
+    </time>
+  )
+}
+
+/**
+ * A short column of figures in a card: name on the left, value on the right,
+ * so the values line up and read as one column. A tone puts a status dot
+ * before the name; a link makes the whole row the way to the rows behind the
+ * number.
+ */
+export function MetricList({ children, className }: { children: ReactNode; className?: string }) {
+  return <ul className={clsx('space-y-px', className)}>{children}</ul>
+}
+
+export function MetricRow({
+  label,
+  value,
+  tone,
+  to,
+}: {
+  label: ReactNode
+  value: ReactNode
+  tone?: Tone
+  /** Where the rows behind the number are. Leave it out when there is
+      nothing to look at: a link onto an empty list is worse than a nought. */
+  to?: LinkProps['to']
+}) {
+  const body = (
+    <>
+      <span className="text-ink-2 flex min-w-0 items-center gap-2 text-sm">
+        {tone && <Dot tone={tone} />}
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="text-ink text-sm font-medium tabular-nums">{value}</span>
+    </>
+  )
+  const row = 'flex h-8 items-center justify-between gap-3'
+  return (
+    <li>
+      {to ? (
+        <Link
+          to={to}
+          className={clsx(
+            row,
+            'rounded-control hover:bg-hover -mx-2 px-2 transition-colors duration-(--dur-instant)',
+          )}
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className={row}>{body}</div>
+      )}
+    </li>
   )
 }
 

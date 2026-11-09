@@ -19,7 +19,8 @@ colors:
   night-ink: "oklch(98.5% 0.004 251)"
   night-body: "oklch(77.5% 0.012 254)"
   night-meta: "oklch(64.5% 0.015 255)"
-  night-hairline: "oklch(34.5% 0.016 258)"
+  night-hairline: "oklch(29.5% 0.016 258)"
+  night-hover: "oklch(29.5% 0.016 258)"
   healthy-green: "oklch(48% 0.112 156)"
   caution-amber: "oklch(53% 0.125 72)"
   fault-red: "oklch(50.5% 0.190 27)"
@@ -172,12 +173,17 @@ where it means something.
 
 - **Cool Paper** / **Night Paper**: the page ground behind cards.
 - **Card White** / **Night Surface**: cards, tables, dialogs, menus, inputs.
-- **Inset Mist** / **Night Inset**: hover fill for quiet controls, table
-  heads, skeletons.
+- **Inset Mist** / **Night Inset**: table heads, skeletons, the pressed step
+  of a quiet control.
+- **Hover** (Inset Mist / **Night Hover**): the fill of a quiet control, a
+  navigation entry or a list row under the pointer. At night it sits halfway
+  between surface and inset, so a hover is felt rather than lit.
 - **Graphite Ink** / **Night Ink**: headings and values.
 - **Slate Body** / **Night Body**: running text and quiet controls at rest.
 - **Slate Meta** / **Night Meta**: row labels, timestamps, hints.
-- **Hairline** / **Night Hairline**: card borders and row dividers.
+- **Hairline** / **Night Hairline**: card borders and row dividers. At night
+  a step below Night Inset: a divider must not be as loud as a control's
+  edge.
 - **Control Edge**: the outline of inputs and secondary buttons.
 
 ### Status
@@ -243,8 +249,9 @@ does not shift by a pixel per row.
 
 ## Layout
 
-A fixed left rail (224px from the medium breakpoint, a menu button below it),
-a thin top bar for identity and preferences, and a content column with 16px
+A fixed left rail (224px from the medium breakpoint, 56px folded to its icons,
+a menu button below the breakpoint), a 48px top bar level with the rail's
+head, for identity and preferences, and a content column with 16px
 between blocks. Detail pages stack cards; from 1280px two cards sit side by
 side, and only there, because a half-width card must still hold a row's value
 and actions on one line.
@@ -291,7 +298,7 @@ Restrained and precise: a button reads as a control, never as decoration.
   toolbar promotes "update helper" to primary only when the probe needs it.
 - **Secondary:** card surface, Control Edge outline, ink text; hover fills
   with Inset Mist. The everyday action.
-- **Ghost:** no fill, no border, slate text; hover fills with Inset Mist and
+- **Ghost:** no fill, no border, slate text; hover fills with Hover and
   darkens the text. Row actions and the quietest toolbar action.
 - **Danger:** Fault Red fill. Only the confirm button of a destructive dialog.
 - **Icons:** Lucide, 1.75 stroke, 14px on small and 16px on medium buttons,
@@ -299,7 +306,9 @@ Restrained and precise: a button reads as a control, never as decoration.
   and accessible name.
 - **States:** colour change over 100ms on hover, a darker step on press,
   45% opacity and no pointer events when disabled, the global 2px Signal Blue
-  focus outline with a 2px offset.
+  focus outline with a 2px offset. Loading puts a spinner in the icon's place
+  and disables the button, so the label does not move and there is no second
+  click.
 
 ### Action Menu
 
@@ -322,6 +331,12 @@ as a row of next steps.
 
 The way from a detail page to its list: meta-size slate text with a 14px
 Lucide arrow, ink on hover. No typed arrow glyphs.
+
+### More Link
+
+The way from a summary to the full list, "Show all" in a card header: meta
+text in Slate Meta with a trailing 14px arrow that moves 2px on hover, ink on
+hover. It navigates, so it carries neither a fill nor the signal colour.
 
 ### Badges
 
@@ -378,12 +393,40 @@ open, never the browser's own triangle.
 
 ### Navigation
 
-The left rail lists object types in body type; the active entry carries the
-Signal Blue wash and text. Section labels are Meta in sentence case, medium
-weight.
-Below the medium breakpoint the rail becomes a menu button in the top bar.
+The left rail lists object types in body type, each with its Lucide icon at
+16px in Slate Meta; the same icon stands for the same kind of object
+wherever it appears (`src/app/icons.ts`). Entries are 32px tall and fill with
+Hover under the pointer. The active entry carries the Signal Blue wash, ink
+text in medium weight and a Signal Blue icon - a place, not a button. Section
+labels are Meta in sentence case, medium weight.
+The rail folds to its icons; folded, a section label becomes a hairline, the
+label stays in the link for screen readers and floats beside the icon on
+hover and keyboard focus. The choice is remembered per browser.
+Below the medium breakpoint the rail becomes a menu button in the top bar,
+with 40px entries for a thumb.
 Tabs are a row of text buttons over a hairline; the active one is ink with a
 2px Signal Blue underline, and the row scrolls sideways on a phone.
+
+### Card Figures
+
+The figures of a dashboard card are rows, not tiles: the name on the left in
+Slate Body, the value on the right in ink, medium weight, tabular, 32px per
+row, so the values form one column. A status dot before the name says what
+the figure means; where a row has a dot, every row in that list has one,
+neutral at nought, so the names line up. A row whose figure has rows behind
+it links to them and fills with Hover; a nought links nowhere.
+A share of a whole - the fleet by state - is one 6px bar above the rows, in
+the status colours, hidden from screen readers because the rows carry the
+same numbers. No donuts, no sparklines without a history to draw.
+
+### Compact Lists
+
+A card's recent items are 40px rows on hairlines: a 16px icon, what happened
+in ink and what it happened to in Slate Meta on the same line (under it on a
+phone), and the time at the right edge in a fixed column. A job's state is
+its icon in the status colour, named for screen readers and in the tooltip;
+an audit event's icon is its object's, in Fault Red when it failed, with a
+badge for the result only then.
 
 ### Detail Row (signature)
 

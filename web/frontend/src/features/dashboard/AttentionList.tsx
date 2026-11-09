@@ -1,9 +1,9 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import type { Alert, Dashboard } from '@/api/types'
-import { Card, Dot } from '@/components/ui/primitives'
+import { Badge, Card, Dot } from '@/components/ui/primitives'
 import { useProbeNames } from '@/features/probes/probeName'
 
 /** More names than this and the row stops being readable at a glance. */
@@ -183,16 +183,34 @@ export function useAttentionItems(dashboard: Dashboard | undefined): AttentionIt
     })
   }
 
-  return items
+  // Faults before warnings. The rows above are pushed in that order already;
+  // the sort catches the warnings of unknown kinds, which arrive last with
+  // either severity. Stable, so the order within a severity stays.
+  return items.sort((a, b) => Number(a.tone === 'warn') - Number(b.tone === 'warn'))
 }
 
 export function AttentionList({ items }: { items: AttentionItem[] }) {
   const { t } = useTranslation()
+  const tone = items.some((item) => item.tone === 'danger') ? 'danger' : 'warn'
   return (
-    <Card title={t('dashboard.attention.title')} dense>
-      <ul>
+    <Card
+      title={
+        <>
+          <TriangleAlert
+            aria-hidden
+            size={16}
+            strokeWidth={1.75}
+            className={tone === 'danger' ? 'text-danger shrink-0' : 'text-warn shrink-0'}
+          />
+          {t('dashboard.attention.title')}
+          <Badge tone={tone}>{items.length}</Badge>
+        </>
+      }
+      dense
+    >
+      <ul className="divide-rule divide-y">
         {items.map((item) => (
-          <li key={item.key} className="border-rule border-b last:border-0">
+          <li key={item.key}>
             <AttentionRow item={item} />
           </li>
         ))}
@@ -208,23 +226,36 @@ function AttentionRow({ item }: { item: AttentionItem }) {
   const body = (
     <>
       <Dot tone={item.tone} />
-      <span className="min-w-0 flex-1">
-        <span className="text-ink block text-sm">{item.text}</span>
+      {/* The names beside the sentence, not under it: one line per row
+          keeps the list as short as the problems are few. */}
+      <span className="min-w-0 flex-1 text-sm sm:flex sm:items-baseline sm:gap-2">
+        <span className="text-ink shrink-0">{item.text}</span>
         {shown.length > 0 && (
-          <span className="text-ink-3 block truncate text-xs">
+          <span className="text-ink-3 block min-w-0 truncate text-xs sm:text-sm">
             {shown.join(', ')}
             {hidden > 0 && ` ${t('dashboard.attention.more', { count: hidden })}`}
           </span>
         )}
       </span>
-      {item.to && <ChevronRight aria-hidden className="text-ink-3 size-4 shrink-0" />}
+      {item.to && (
+        <ChevronRight
+          aria-hidden
+          size={16}
+          strokeWidth={1.75}
+          className="text-ink-3 group-hover:text-ink-2 shrink-0"
+        />
+      )}
     </>
   )
+  const row = 'flex min-h-10 items-center gap-3 px-4 py-2'
   return item.to ? (
-    <Link to={item.to} className="hover:bg-surface-2 flex items-center gap-3 px-4 py-2.5">
+    <Link
+      to={item.to}
+      className={`group ${row} hover:bg-hover transition-colors duration-(--dur-instant)`}
+    >
       {body}
     </Link>
   ) : (
-    <div className="flex items-center gap-3 px-4 py-2.5">{body}</div>
+    <div className={row}>{body}</div>
   )
 }

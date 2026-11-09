@@ -84,7 +84,7 @@ export function RunTable({
                   // The mouse gets the whole row, as in every other list; the
                   // links and the toggle inside keep their own click.
                   onClick={() => navigate(runHref(run.id))}
-                  className="border-rule hover:bg-surface-2 cursor-pointer border-t align-top"
+                  className="border-rule hover:bg-hover cursor-pointer border-t align-top"
                 >
                   <td className="p-0" onClick={(event) => event.stopPropagation()}>
                     {/* A whole 44px square, not a 12px glyph: it is the

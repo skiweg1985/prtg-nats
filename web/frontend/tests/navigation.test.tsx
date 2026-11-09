@@ -141,6 +141,30 @@ describe('the narrow-screen menu', () => {
   })
 })
 
+describe('the folded rail', () => {
+  afterEach(() => window.localStorage.removeItem('prtg-nats.sidebar-collapsed'))
+
+  it('keeps every entry reachable by name, and stays folded after a reload', async () => {
+    await changeLanguage('en')
+    const user = userEvent.setup()
+    const { unmount } = wrapLayout()
+
+    await user.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
+    const rail = within(screen.getByRole('navigation', { name: 'Main navigation' }))
+    // The label is hidden from the eye, not from the accessibility tree.
+    const probes = rail.getByRole('link', { name: 'Probes' })
+    expect(probes).toHaveAttribute('href', '/probes')
+    expect(probes.querySelector('.sr-only')).toHaveTextContent('Probes')
+
+    unmount()
+    wrapLayout()
+    expect(await screen.findByRole('button', { name: 'Expand sidebar' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+  })
+})
+
 describe('the job list filters', () => {
   function wrapJobs(path: string) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

@@ -20,7 +20,10 @@
     "system": "Wartung",
     "overlay": "Overlay",
     "sensorLogs": "Sensor-Log",
-    "guide": "Anleitung"
+    "guide": "Anleitung",
+    "collapse": "Seitenleiste einklappen",
+    "expand": "Seitenleiste ausklappen",
+    "label": "Hauptnavigation"
   },
   "breadcrumb": {
     "run": "Lauf",
@@ -136,7 +139,8 @@
       "prtgMissing_other": "{{count}} Probes sind in PRTG noch nicht eingetragen",
       "more_one": "und eine weitere",
       "more_other": "und {{count}} weitere"
-    }
+    },
+    "pending": "Einbindung offen"
   },
   "probes": {
     "title": "Probes",

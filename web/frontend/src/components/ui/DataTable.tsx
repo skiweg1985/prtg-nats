@@ -484,7 +484,7 @@ export function DataTable<T>({
                       onClick={href ? () => navigate(href) : undefined}
                       className={clsx(
                         'border-rule border-t',
-                        href && 'hover:bg-surface-2 cursor-pointer',
+                        href && 'hover:bg-hover cursor-pointer',
                       )}
                     >
                       {selection && (
