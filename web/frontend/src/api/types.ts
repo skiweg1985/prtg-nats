@@ -339,11 +339,12 @@ interface FieldBase {
   description?: string
   label_key?: string
   description_key?: string
-  group?: string
 }
 
 /** One option of the sensor, as the PRTG parameter line takes it. */
 export interface ParameterField extends FieldBase {
+  /** 'internal' and 'moved' - deployment plumbing, not a line to offer. */
+  group?: string
   type: FieldType
   default?: unknown
   choices?: string[]
@@ -359,6 +360,8 @@ export interface ParameterField extends FieldBase {
 
 /** One KEY=VALUE line of a variant - a setting or a credential. */
 export interface ProfileField extends FieldBase {
+  /** The selector groups this key belongs to; empty means it always applies. */
+  groups?: string[]
   type: FieldType
   default?: unknown
   choices?: string[]
@@ -370,6 +373,8 @@ export interface ProfileField extends FieldBase {
 
 /** A certificate or key that travels with a variant. */
 export interface FileField extends FieldBase {
+  /** The selector groups this file belongs to; empty means it always applies. */
+  groups?: string[]
   kind?: string
   secret?: boolean
   max_bytes: number

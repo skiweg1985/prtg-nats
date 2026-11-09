@@ -148,10 +148,11 @@
     },
     {
       "name": "IDENTITY",
+      "required": true,
       "type": "string",
       "maps_to": "--identity",
-      "group": "peap",
-      "description": "The enterprise user name, for PEAP."
+      "groups": ["peap", "eap-tls"],
+      "description": "The user name the RADIUS server is asked about. EAP-TLS needs it too, alongside the certificate."
     },
     {
       "name": "ANONYMOUS_IDENTITY",
@@ -164,6 +165,7 @@
       "name": "DOMAIN_SUFFIX_MATCH",
       "type": "string",
       "maps_to": "--domain-suffix-match",
+      "groups": ["peap", "eap-tls"],
       "description": "Required suffix of the RADIUS server certificate."
     },
     {
@@ -203,10 +205,12 @@
   "files": [
     {
       "name": "CA_CERT",
+      "required": true,
       "kind": "certificate",
       "extension": ".pem",
       "maps_to": "--ca-cert",
-      "description": "The authority that signed the RADIUS server certificate. Without it the server is not verified."
+      "groups": ["peap", "eap-tls"],
+      "description": "The authority that signed the RADIUS server certificate. Without it the test is refused, unless --no-verify-server is given in PRTG."
     },
     {
       "name": "CLIENT_CERT",

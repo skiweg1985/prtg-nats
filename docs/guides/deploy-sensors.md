@@ -540,6 +540,22 @@ Uploading files needs a probe helper of version 4 or newer; settings and
 credentials work with every version. An older probe answers `Unsupported
 management request` and needs `probe helper-update` first.
 
+**Fields that only apply sometimes.** A setting, credential or file may name
+`groups`, and a choice setting whose options are those names is the switch
+that decides which of them the form shows. `wlan-auth` works that way: its
+`AUTH` chooses between `psk`, `peap` and `eap-tls`, and the certificate
+fields appear only for `eap-tls`. A field may name several groups, because
+one key can serve more than one method - the user name goes to the RADIUS
+server under PEAP and under EAP-TLS alike. `required` then means "required
+while one of its groups is chosen". A single group may be written as
+`group` instead of a list of one.
+
+A key that belongs to several methods and names only one of them is a form
+that hides a field the sensor insists on, and the sensor refuses the run
+with `bad-request` on the probe rather than in the browser. That was the
+shape of the EAP-TLS variant that could not be built at all until the user
+name was declared for both methods.
+
 **From the command line**, unchanged:
 
 ```bash

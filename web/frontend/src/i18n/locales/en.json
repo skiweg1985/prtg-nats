@@ -507,6 +507,7 @@
       "settings": "Settings",
       "credentials": "Credentials",
       "files": "Files",
+      "fileChoose": "Choose file",
       "probes": "Probes",
       "probesHint": "The variant is deployed to these probes. With none selected it is only stored on the server.",
       "secretStored": "Stored. Leave empty to keep it.",

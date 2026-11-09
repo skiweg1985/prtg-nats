@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ArrowLeft, MoreHorizontal, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type {
@@ -591,6 +591,76 @@ export function Field({
         <span className="text-ink-3 text-xs">{hint}</span>
       ) : null}
     </label>
+  )
+}
+
+/** A file to upload, dressed as a control rather than as a browser default.
+
+    The native file input draws a small grey button and the words "no file
+    chosen" beside it. In a form of bordered inputs that reads as a disabled
+    row, and it was missed: the certificate fields of a variant looked like
+    text that happened to be there. The input itself stays, hidden inside the
+    label, so the picker opens on a click anywhere in the box and the keyboard
+    still reaches it. */
+export function FilePicker({
+  label,
+  hint,
+  error,
+  fileName,
+  prompt,
+  onSelect,
+}: {
+  label: string
+  hint?: string
+  error?: string
+  /** The file chosen in this form, shown in place of the prompt. */
+  fileName?: string
+  /** What the empty box says - "Choose file", in the caller's wording. */
+  prompt: string
+  onSelect: (file: File) => void
+}) {
+  // Two labels for one control: the field name carries the accessible name,
+  // the box is what the pointer aims at. The input itself comes before the
+  // box so its focus ring can be drawn on the box through "peer".
+  const id = useId()
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-ink text-sm font-medium">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="file"
+        className="peer sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) onSelect(file)
+        }}
+      />
+      <label
+        htmlFor={id}
+        className={clsx(
+          'rounded-control border-rule-2 bg-surface text-ink flex cursor-pointer items-center gap-2 border px-2.5 py-1.5 text-sm',
+          'transition-colors duration-(--dur-instant) ease-(--ease-out)',
+          'hover:bg-surface-2 peer-focus-visible:border-accent',
+        )}
+      >
+        <Upload
+          aria-hidden
+          size={16}
+          strokeWidth={1.75}
+          className="text-ink-2 shrink-0"
+        />
+        <span className={clsx('truncate', !fileName && 'text-ink-2')}>
+          {fileName ?? prompt}
+        </span>
+      </label>
+      {error ? (
+        <span className="text-danger text-xs">{error}</span>
+      ) : hint ? (
+        <span className="text-ink-3 text-xs">{hint}</span>
+      ) : null}
+    </div>
   )
 }
 
