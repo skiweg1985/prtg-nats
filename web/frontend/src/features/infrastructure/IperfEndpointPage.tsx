@@ -6,11 +6,11 @@ import { KeyRound, Network, Trash2 } from 'lucide-react'
 import { useIperfEndpoint, useProbes, useSensor, useSensors } from '@/api/hooks'
 import type { IperfEndpoint, IperfHolder } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
   ActionMenu,
-  BackLink,
   Badge,
   Banner,
   Button,
@@ -58,7 +58,9 @@ export function IperfEndpointPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to="/infrastructure/iperf">{t('infrastructure.iperfTitle')}</BackLink>
+          <Breadcrumb
+            trail={[{ to: '/infrastructure/iperf', label: t('infrastructure.iperfTitle') }]}
+          />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{data.name}</h1>
             {!data.managed && (

@@ -22,6 +22,11 @@
     "sensorLogs": "Sensor log",
     "guide": "Guide"
   },
+  "breadcrumb": {
+    "run": "Run",
+    "runAt": "Run {{time}}",
+    "job": "Job"
+  },
   "common": {
     "cancel": "Cancel",
     "clearFilters": "Clear filters",
@@ -59,7 +64,8 @@
     "moreActions": "More actions",
     "selectAll": "Select all",
     "clearSelection": "Clear selection",
-    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden"
+    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden",
+    "breadcrumb": "Breadcrumb"
   },
   "auth": {
     "signIn": "Sign in",

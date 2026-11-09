@@ -23,10 +23,10 @@ import type {
 } from '@/api/types'
 import { useAuth } from '@/app/providers'
 import { CopyBlock, useCountdown } from '@/components/ui/CopyBlock'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
-  BackLink,
   Badge,
   Banner,
   Button,
@@ -111,7 +111,7 @@ export function EnrollWizard() {
       <header>
         {/* The only page under /probes without one. From step two on, the
             browser's own button was the way out. */}
-        <BackLink to="/probes">{t('probes.title')}</BackLink>
+        <Breadcrumb trail={[{ to: '/probes', label: t('probes.title') }]} />
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-lg">{t('probes.enroll.title')}</h1>
           <p className="text-ink-3 text-sm">{t('probes.enroll.subtitle')}</p>

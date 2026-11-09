@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { CircleStop, RotateCw } from 'lucide-react'
 
@@ -15,10 +15,11 @@ import {
 import type { JobDetail, JobSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { UrlDetails } from '@/components/ui/UrlDetails'
 import { JobSteps, LiveLog, ProgressBar } from '@/components/ui/JobProgress'
 import {
-  BackLink,
   Badge,
   Banner,
   Button,
@@ -35,6 +36,7 @@ import { ProbeLink } from '@/components/ui/ProbeLink'
 import { RolloutsView } from '@/features/deployments/RolloutsView'
 import { JobStatusBadge } from '@/components/ui/status'
 import { formatDateTime, formatDuration, formatRelative } from '@/utils/format'
+import { useUrlState } from '@/utils/urlState'
 
 /**
  * The job states worth a button of their own.
@@ -48,6 +50,7 @@ type JobFilter = (typeof JOB_FILTERS)[number]
 
 /** The two views of the job history, drawn as the same tabs as a probe's page. */
 const JOB_VIEWS = ['all', 'rollouts'] as const
+const JOB_FILTER_KEYS = ['status'] as const
 type JobView = (typeof JOB_VIEWS)[number]
 
 function asJobFilter(value: string | null): JobFilter | null {
@@ -56,7 +59,7 @@ function asJobFilter(value: string | null): JobFilter | null {
 
 export function JobListPage() {
   const { t } = useTranslation()
-  const [params, setParams] = useSearchParams()
+  const { params, update, replaceAll } = useUrlState()
   const status = asJobFilter(params.get('status'))
   // The rollout history is a view on this page, not a page of its own: it is
   // the same job history, plus the per-target outcome the plain list lacks.
@@ -69,11 +72,12 @@ export function JobListPage() {
   )
 
   function setStatus(next: JobFilter | null) {
-    setParams(next ? { status: next } : {}, { replace: true })
+    update({ status: next })
   }
 
+  // A different list: the search and sort of the other one mean nothing here.
   function setView(view: JobView) {
-    setParams(view === 'rollouts' ? { view: 'rollouts' } : {}, { replace: true })
+    replaceAll(new URLSearchParams(view === 'rollouts' ? { view: 'rollouts' } : {}))
   }
 
   // A view is a different list, a filter narrows the one on screen: the
@@ -182,6 +186,7 @@ export function JobListPage() {
           ) : undefined
         }
         rowHref={(row) => `/jobs/${row.id}`}
+        filterKeys={JOB_FILTER_KEYS}
         filters={
           <div className="flex flex-wrap items-center gap-2">
             {JOB_FILTERS.map((entry) => (
@@ -245,7 +250,7 @@ export function JobDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to="/jobs">{t('jobs.title')}</BackLink>
+          <Breadcrumb trail={[{ to: '/jobs', label: t('jobs.title') }]} />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {/* The human name first; the raw type code stays beside it because
                 it is what the audit trail and the API speak. */}
@@ -593,14 +598,14 @@ function JobResult({ job }: { job: JobDetail }) {
   }
 
   return (
-    <details className="mt-3">
+    <UrlDetails param="raw" className="mt-3">
       <summary className="text-ink-3 cursor-pointer text-xs">
         {t('jobs.rawResult')}
       </summary>
       <pre className="bg-surface-2 rounded-inset text-ink-2 mt-2 max-h-64 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
         {JSON.stringify(job.result, null, 2)}
       </pre>
-    </details>
+    </UrlDetails>
   )
 }
 

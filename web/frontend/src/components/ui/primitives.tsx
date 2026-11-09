@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ArrowLeft, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
+import { MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type {
@@ -408,20 +408,6 @@ export function RowActions({ children }: { children: ReactNode }) {
   return <div className="-mr-1 flex shrink-0 items-center gap-1">{children}</div>
 }
 
-/** The way back to the list a detail page belongs to. A drawn arrow, not a
-    "←" glyph, and one shape for the six pages that had each typed their own. */
-export function BackLink({ to, children }: { to: string; children: ReactNode }) {
-  return (
-    <Link
-      to={to}
-      className="text-ink-3 hover:text-ink inline-flex items-center gap-1 text-xs transition-colors duration-(--dur-instant)"
-    >
-      <ArrowLeft aria-hidden size={14} strokeWidth={1.75} />
-      {children}
-    </Link>
-  )
-}
-
 /** Every page's first line: title, subtitle, actions - one shape.
 
     Four different header idioms had grown across the pages, and one page had
@@ -431,19 +417,18 @@ export function PageHeader({
   title,
   subtitle,
   action,
-  backTo,
-  backLabel,
+  breadcrumb,
 }: {
   title: ReactNode
   subtitle?: ReactNode
   action?: ReactNode
-  backTo?: string
-  backLabel?: ReactNode
+  /** The way back, for a detail page: a Breadcrumb. */
+  breadcrumb?: ReactNode
 }) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
       <div className="min-w-0">
-        {backTo && <BackLink to={backTo}>{backLabel}</BackLink>}
+        {breadcrumb}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-lg">{title}</h1>
           {subtitle && <p className="text-ink-3 text-sm">{subtitle}</p>}
