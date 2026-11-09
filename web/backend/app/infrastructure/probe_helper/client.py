@@ -365,6 +365,22 @@ class ProbeHelperClient:
             connection, HelperCommand.WIRELESS_INTERFACES, timeout=30
         )
 
+    async def sensor_jobs(
+        self, connection: ProbeConnection, sensor: str
+    ) -> HelperResponse:
+        """The jobs a sensor's privileged helper is measuring right now."""
+        return await self._call(
+            connection, HelperCommand.SENSOR_JOBS, sensor, timeout=30
+        )
+
+    async def sensor_forget_job(
+        self, connection: ProbeConnection, sensor: str, label: str
+    ) -> HelperResponse:
+        """Drop one job from a sensor's privileged helper by its label."""
+        return await self._call(
+            connection, HelperCommand.SENSOR_FORGET_JOB, sensor, label, timeout=30
+        )
+
     async def is_reachable(self, connection: ProbeConnection) -> bool:
         try:
             await self.probe_info(connection)

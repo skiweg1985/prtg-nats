@@ -100,6 +100,22 @@ REFRESH_FLOOR_SECONDS = 60.0
 # of every round, since the radio spends it whatever the run did.
 RADIO_PAUSE_SECONDS = 10.0
 
+# How many of its own intervals a job may go unasked before it is no
+# longer measured. Changing a parameter of a sensor in PRTG makes it a
+# different job, and the old one used to be measured on for an hour until
+# it expired - an hour of a configuration nobody asks for any more, failing
+# and taking airtime from the others. Three intervals stop it within
+# minutes and still ride out a scan that came late. The job itself stays
+# until it expires, so a sensor that asks again is measured at once.
+IDLE_INTERVALS = 3
+
+# How long the first request of a new job waits for its first measurement.
+# A job is measured as soon as it is registered, and a good sign-in takes 8
+# to 15 seconds; waiting for it gives a new or changed sensor real values
+# on its first scan instead of "not measured yet". Short enough to stay
+# well inside the script's own patience and the sensor's timeout in PRTG.
+FIRST_RESULT_WAIT = 20.0
+
 # The interval a job is planned with before its sensor has asked twice.
 # The first request is measured at once anyway; by the time this matters
 # the second request has usually arrived and set the real pace.
@@ -1120,6 +1136,15 @@ def validate_job(job):
         raise Blocked("bad-request", "Invalid timeout")
     if not 5 <= job["timeout"] <= 300:
         raise Blocked("bad-request", "The timeout must be 5 to 300 seconds")
+    # Which sensor in PRTG asks. Not part of the job's identity: it is how a
+    # changed configuration replaces the job of the same sensor at once,
+    # instead of both being measured until the old one goes idle.
+    sensor_id = job.get("sensor_id")
+    if sensor_id in (None, ""):
+        job["sensor_id"] = None
+    elif not isinstance(sensor_id, str) or not re.fullmatch(r"[0-9]{1,12}",
+                                                            sensor_id):
+        raise Blocked("bad-request", "Invalid sensor id")
     # Unset is the normal case: the helper plans by itself. A value is an
     # upper bound a sensor may still set, and older sensors do.
     if job.get("max_age") in (None, "", 0, "auto"):
@@ -1361,6 +1386,24 @@ def ask_ttl(entry):
     """How long this job survives unasked, from how often it was asked."""
     return job_ttl(asked_interval(entry) or entry.get("max_age")
                    or DEFAULT_INTERVAL_SECONDS)
+
+
+def idle_after(entry):
+    """How long this job may go unasked before it is no longer measured."""
+    every = (asked_interval(entry) or entry.get("max_age")
+             or DEFAULT_INTERVAL_SECONDS)
+    return IDLE_INTERVALS * max(every, REFRESH_FLOOR_SECONDS)
+
+
+def is_idle(entry, now):
+    """Whether PRTG has stopped asking for this job, for now at least."""
+    return now - entry["asked"] > idle_after(entry)
+
+
+def active_jobs(jobs, now):
+    """The jobs still asked for - the ones that share the radio."""
+    return {identity: entry for identity, entry in jobs.items()
+            if not is_idle(entry, now)}
 
 
 class RunLog:
@@ -1624,7 +1667,7 @@ class Scheduler:
         self._jobs = {}
         self._wake = threading.Event()
 
-    def collect(self, job, max_age):
+    def collect(self, job, max_age, wait=FIRST_RESULT_WAIT):
         """Register or renew a job, and answer with what is known now.
 
         Every request is remembered: their gaps are how often PRTG asks,
@@ -1633,6 +1676,13 @@ class Scheduler:
         identity = job_identity(job)
         now = time.monotonic()
         with self._guard:
+            if job.get("sensor_id"):
+                # The same sensor with another configuration: the old one
+                # is what it no longer wants measured.
+                for other, previous in list(self._jobs.items()):
+                    if (other != identity and previous["job"].get("sensor_id")
+                            == job["sensor_id"]):
+                        del self._jobs[other]
             entry = self._jobs.get(identity)
             if entry is None:
                 if len(self._jobs) >= MAX_JOBS:
@@ -1641,6 +1691,7 @@ class Scheduler:
                         "This helper already measures %d networks on this "
                         "probe" % len(self._jobs))
                 entry = {"job": job, "result": None, "measured": None,
+                         "first_result": threading.Event(),
                          "asks": collections.deque(maxlen=ASK_HISTORY),
                          "durations": collections.deque(
                              maxlen=DURATION_HISTORY)}
@@ -1649,8 +1700,17 @@ class Scheduler:
             entry["asked"] = now
             entry["asks"].append(now)
             answer = self._answer(entry, now)
+            waiting = entry["result"] is None
         # A job nobody has measured yet should not wait out the idle sleep.
         self._wake.set()
+        if waiting and wait > 0:
+            # Its measurement starts now; with the radio free it is done
+            # before this wait is. Busy with another run, the answer stays
+            # "not measured yet" and the next scan has the result.
+            first = entry.get("first_result")
+            if first is not None and first.wait(wait):
+                with self._guard:
+                    answer = self._answer(entry, time.monotonic())
         return answer
 
     def _answer(self, entry, now):
@@ -1658,11 +1718,13 @@ class Scheduler:
         # sensors sharing the interface, so it learns here how long a
         # round is, how many jobs share it, when its result counts as
         # stale, and what an explicit --max-age would have to be.
-        shared = {"round_time": round(round_time(self._jobs), 1),
-                  "stale_after": round(stale_after(entry, self._jobs), 1),
-                  "min_max_age": round(min_max_age(self._jobs), 1),
-                  "interval": round(planned_interval(entry, self._jobs), 1),
-                  "job_count": len(self._jobs)}
+        # Idle jobs take no airtime, so they are no part of the round.
+        jobs = active_jobs(self._jobs, now)
+        shared = {"round_time": round(round_time(jobs), 1),
+                  "stale_after": round(stale_after(entry, jobs), 1),
+                  "min_max_age": round(min_max_age(jobs), 1),
+                  "interval": round(planned_interval(entry, jobs), 1),
+                  "job_count": len(jobs)}
         if entry["result"] is None:
             answer = {"result": "pending", "code": "not-measured",
                       "message": "Registered on this probe, waiting for the "
@@ -1692,10 +1754,11 @@ class Scheduler:
                     # Nobody has asked for a long time: the sensor behind
                     # this job was deleted or paused in PRTG.
                     del self._jobs[identity]
-                    continue
+            active = active_jobs(self._jobs, now)
+            for entry in active.values():
                 if entry["measured"] is None:
                     return entry
-                interval = planned_interval(entry, self._jobs)
+                interval = planned_interval(entry, active)
                 ratio = (now - entry["measured"]) / interval
                 if ratio > best_ratio:
                     best = entry
@@ -1714,7 +1777,8 @@ class Scheduler:
         now = time.monotonic()
         jobs = []
         with self._guard:
-            budget = round_time(self._jobs)
+            active = active_jobs(self._jobs, now)
+            budget = round_time(active)
             for _identity, entry in sorted(self._jobs.items()):
                 result = entry["result"] or {}
                 age = entry["measured"]
@@ -1729,11 +1793,16 @@ class Scheduler:
                     "asked_every": None if asked_interval(entry) is None
                     else round(asked_interval(entry), 1),
                     "interval": round(
-                        planned_interval(entry, self._jobs), 1),
+                        planned_interval(entry, active), 1),
                     "expected": round(expected_duration(entry), 1),
                     "stale_after": round(
-                        stale_after(entry, self._jobs), 1),
+                        stale_after(entry, active), 1),
                     "asked_ago": round(now - entry["asked"], 1),
+                    # Not asked for a while: no longer measured, kept
+                    # until it expires in case its sensor asks again.
+                    "idle": is_idle(entry, now),
+                    "idle_after": round(idle_after(entry), 1),
+                    "sensor_id": entry["job"].get("sensor_id") or "",
                     "expires_in": round(
                         ask_ttl(entry) - (now - entry["asked"]), 1),
                     "result": result.get("result", ""),
@@ -1752,9 +1821,27 @@ class Scheduler:
                     "mac": (result.get("details") or {}).get("mac", ""),
                 })
         return {"result": "ok", "code": "ok",
-                "message": "%d job(s), round %d s" % (len(jobs), budget),
+                "message": "%d job(s), %d idle, round %d s"
+                % (len(jobs), len(jobs) - len(active), budget),
                 "round_time": round(budget, 1), "jobs": jobs,
                 "timings": {}, "details": {}}
+
+    def forget(self, label):
+        """Drop the jobs behind a label, as somebody cleaning up asked.
+
+        By label, the name a snapshot shows, because that is all the
+        platform ever sees of a job. Jobs that differ only in their
+        credentials share a label and go together - both are a leftover
+        of the same configuration.
+        """
+        with self._guard:
+            gone = [identity for identity, entry in self._jobs.items()
+                    if job_label(entry["job"]) == label]
+            for identity in gone:
+                del self._jobs[identity]
+        return {"result": "ok", "code": "ok" if gone else "unknown-job",
+                "message": "%d job(s) removed" % len(gone),
+                "removed": len(gone), "timings": {}, "details": {}}
 
     def _measure(self, job, log):
         """One measurement, behind the interface lock.
@@ -1802,6 +1889,8 @@ class Scheduler:
         with self._guard:
             entry["result"] = result
             entry["measured"] = time.monotonic()
+            if entry.get("first_result") is not None:
+                entry["first_result"].set()
             # What the run really took is what the next round is planned
             # with, failed runs included.
             entry.setdefault("durations", collections.deque(
@@ -1846,8 +1935,12 @@ def ping_answer():
             "timings": {}, "details": {}}
 
 
-def handle_request(payload):
-    """One request, one answer. This never raises."""
+def handle_request(payload, peer_uid=None):
+    """One request, one answer. This never raises.
+
+    peer_uid is who is on the other end of the socket; None for the filter
+    on stdin, where the caller is whoever started this program.
+    """
     try:
         job = json.loads(payload or "{}")
         if not isinstance(job, dict):
@@ -1864,6 +1957,18 @@ def handle_request(payload):
         if action == "status":
             # Read-only, and the only window into a running schedule.
             return SCHEDULER.snapshot()
+        if action == "forget":
+            # Only root takes jobs away: the platform through the probe
+            # helper. A sensor runs as the probe's own user and may
+            # register jobs, not end those of the other sensors.
+            caller = os.geteuid() if peer_uid is None else peer_uid
+            if caller != 0:
+                raise Blocked("forbidden", "Only root may remove jobs")
+            label = job.get("job")
+            if not isinstance(label, str) or not re.fullmatch(r"[0-9a-f]{12}",
+                                                              label):
+                raise Blocked("bad-request", "Invalid job label")
+            return SCHEDULER.forget(label)
         job = validate_job(merge_profile(job))
         if action == "collect":
             return SCHEDULER.collect(job, job["max_age"])
@@ -1914,6 +2019,16 @@ def listen_socket():
                          type=socket.SOCK_STREAM)
 
 
+def peer_uid(connection):
+    """The user on the other end of a Unix socket, or -1 if unknown."""
+    try:
+        creds = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                      struct.calcsize("3i"))
+    except (AttributeError, OSError):
+        return -1
+    return struct.unpack("3i", creds)[1]
+
+
 def serve_connection(connection, slots):
     try:
         connection.settimeout(CONNECTION_TIMEOUT)
@@ -1923,7 +2038,8 @@ def serve_connection(connection, slots):
             if not chunk:
                 break
             payload.extend(chunk)
-        answer = handle_request(payload.decode("utf-8", "replace"))
+        answer = handle_request(payload.decode("utf-8", "replace"),
+                                peer_uid(connection))
         connection.sendall((json.dumps(answer) + "\n").encode("utf-8"))
     except OSError:
         # A client that hung up mid-answer is not this service's problem.

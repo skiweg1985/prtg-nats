@@ -657,3 +657,54 @@ async def test_without_a_sensor_the_timeline_covers_every_sensor_of_the_probe(
     assert body["sensor"] is None
     assert [s["sensor"] for s in body["streams"]] == ["aruba-uplink", "wlan-auth"]
     assert len(body["streams"][0]["buckets"]) == 24
+
+
+async def test_a_network_that_stopped_while_the_others_went_on_has_ended(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # A changed configuration: "Old-SSID" ran every minute until 10:09, the
+    # new one from 10:10 on. Three minutes without a run while the sensor
+    # kept measuring the other means PRTG no longer asks for it.
+    def run(n: int, ssid: str) -> dict[str, Any]:
+        return record(
+            f"aaaaaaaa-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T10:{n:02d}:00Z",
+            result="ok",
+            ssid=ssid,
+        )
+
+    batch = [run(n, "Old-SSID") for n in range(10)]
+    batch += [run(n, "New-SSID") for n in range(10, 30)]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={**DAY, "probe": PROBE, "sensor": "wlan-auth", "bucket": 900},
+    )
+    streams = {s["ssid"]: s for s in response.json()["streams"]}
+    assert streams["Old-SSID"]["ended"] is True
+    assert streams["Old-SSID"]["last_run"].startswith("2025-03-08T10:09")
+    assert streams["New-SSID"]["ended"] is False
+
+
+async def test_a_probe_that_went_quiet_has_not_ended_its_networks(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # Both networks stop at the same time: the probe went offline, which is
+    # not a configuration nobody asks for.
+    batch = [
+        record(
+            f"bbbbbbbb-0000-4000-8000-{n:012d}",
+            time=f"2025-03-08T10:{n % 10:02d}:00Z",
+            result="ok",
+            ssid="Corp" if n < 10 else "Guest",
+        )
+        for n in range(20)
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={**DAY, "probe": PROBE, "sensor": "wlan-auth", "bucket": 900},
+    )
+    assert [s["ended"] for s in response.json()["streams"]] == [False, False]

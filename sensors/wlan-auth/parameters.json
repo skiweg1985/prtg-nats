@@ -107,6 +107,11 @@
       "description": "The time budget for the whole test in seconds."
     },
     {
+      "name": "--sensor-id",
+      "type": "string",
+      "description": "The PRTG sensor ID, as %sensorid; lets a changed configuration replace the old one at once."
+    },
+    {
       "name": "--max-age",
       "type": "integer",
       "description": "Optional upper bound for the measurement age in seconds; unset, the probe plans by itself."

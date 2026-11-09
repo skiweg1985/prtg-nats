@@ -49,6 +49,7 @@ import type {
   SensorLogPage,
   SensorLogRange,
   SensorLogRecord,
+  SensorJob,
   SensorTimeline,
   SensorLogSummary,
   SensorProfile,
@@ -71,6 +72,7 @@ export const keys = {
   probe: (id: string) => ['probes', id] as const,
   probePlan: (id: string) => ['probes', id, 'plan'] as const,
   probeInterfaces: (id: string) => ['probes', id, 'wireless-interfaces'] as const,
+  sensorJobs: (id: string, sensor: string) => ['probes', id, 'sensor-jobs', sensor] as const,
   sensors: ['sensors'] as const,
   sensor: (name: string) => ['sensors', name] as const,
   sensorProfiles: (name: string) => ['sensors', name, 'profiles'] as const,
@@ -1024,6 +1026,31 @@ export function useWirelessInterfaces(id: string | undefined, enabled = true) {
     // decides which interface somebody hands over, and a stale one would offer
     // an interface that has since been given a connection.
     staleTime: 0,
+  })
+}
+
+/**
+ * What a sensor's own helper on the probe measures - every configuration a
+ * sensor in PRTG asked for. Asked live: it is read to clean up, and a cached
+ * list would offer to remove a job that is already gone.
+ */
+export function useSensorJobs(id: string | undefined, sensor: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.sensorJobs(id ?? '', sensor),
+    queryFn: () => api.get<SensorJob[]>(`/probes/${id}/sensors/${sensor}/jobs`),
+    enabled: Boolean(id) && enabled,
+    staleTime: 0,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useForgetSensorJob() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, sensor, label }: { id: string; sensor: string; label: string }) =>
+      api.delete<void>(`/probes/${id}/sensors/${sensor}/jobs/${label}`),
+    onSuccess: (_, { id, sensor }) =>
+      void client.invalidateQueries({ queryKey: keys.sensorJobs(id, sensor) }),
   })
 }
 

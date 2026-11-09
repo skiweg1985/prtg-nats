@@ -162,6 +162,24 @@ class WirelessInterfaceOut(ApiModel):
     connection: str | None = None
 
 
+class SensorJobOut(ApiModel):
+    """One job a sensor's helper measures on a probe."""
+
+    label: str
+    interface: str | None = None
+    ssid: str | None = None
+    stage: str | None = None
+    result: str | None = None
+    code: str | None = None
+    age: float | None = None
+    asked_every: float | None = None
+    asked_ago: float | None = None
+    interval: float | None = None
+    idle: bool = False
+    expires_in: float | None = None
+    sensor_id: str | None = None
+
+
 class SensorFileOut(ApiModel):
     slot: str
     relative_path: str

@@ -9,6 +9,7 @@ import type {
   SensorTimelineState,
   SensorTimelineStream,
 } from '@/api/types'
+import { Badge } from '@/components/ui/primitives'
 import { formatDateTime, formatSpanEnd } from '@/utils/format'
 
 import { sensorLogHref } from './links'
@@ -130,10 +131,19 @@ function TimelineRow({
 
   const shown = active !== null ? stream.buckets[active] : undefined
   return (
-    <div className="space-y-1">
+    <div className={clsx('space-y-1', stream.ended && 'opacity-60')}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
-        <span className="text-ink truncate font-mono text-xs font-medium" title={label}>
-          {label}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="text-ink truncate font-mono text-xs font-medium" title={label}>
+            {label}
+          </span>
+          {/* A configuration PRTG no longer asks for: kept for its history,
+              out of the way of the ones that run. */}
+          {stream.ended && (
+            <Badge tone="neutral">
+              {t('probeSensor.ended', { time: formatSpanEnd(new Date().toISOString(), stream.last_run ?? '') })}
+            </Badge>
+          )}
         </span>
         <Figures stream={stream} signIns={signIns} />
       </div>
@@ -351,8 +361,12 @@ const STATE_RANK: Record<SensorTimelineState, number> = {
  * shows per row; the networks one by one are on the sensor's page.
  */
 export function summariseSensor(timeline: SensorTimeline, sensor: string) {
-  const streams = timeline.streams.filter((stream) => stream.sensor === sensor)
-  if (streams.length === 0) return null
+  const all = timeline.streams.filter((stream) => stream.sensor === sensor)
+  if (all.length === 0) return null
+  // Ended configurations are history, not the sensor's state now - unless
+  // nothing else is left to show.
+  const running = all.filter((stream) => !stream.ended)
+  const streams = running.length > 0 ? running : all
   const states = streams[0].buckets.map((_, index) =>
     streams.reduce<SensorTimelineState>((worst, stream) => {
       const state = stream.buckets[index]?.state ?? 'none'

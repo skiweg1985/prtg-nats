@@ -66,6 +66,29 @@ class WirelessInterface:
 
 
 @dataclass(frozen=True, slots=True)
+class SensorJob:
+    """One job a sensor's privileged helper measures, as ``sensor-jobs`` says.
+
+    ``label`` is the helper's name for the configuration without its
+    credentials - the same value a sensor log record carries as ``job``.
+    """
+
+    label: str
+    interface: str | None = None
+    ssid: str | None = None
+    stage: str | None = None
+    result: str | None = None
+    code: str | None = None
+    age: float | None = None
+    asked_every: float | None = None
+    asked_ago: float | None = None
+    interval: float | None = None
+    idle: bool = False
+    expires_in: float | None = None
+    sensor_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ObservedProbeState:
     """What a probe reported, and when.
 
@@ -390,6 +413,44 @@ def parse_wireless_interfaces(
             )
         )
     return tuple(interfaces)
+
+
+def parse_sensor_jobs(response: HelperResponse) -> tuple[SensorJob, ...]:
+    def number(value: str | None) -> float | None:
+        try:
+            return float(value) if value not in (None, "", "-") else None
+        except ValueError:
+            return None
+
+    def text(value: str | None) -> str | None:
+        return None if value in (None, "", "-") else value
+
+    jobs = []
+    for record in response.records:
+        try:
+            ssid = bytes.fromhex(record.get("ssid_hex") or "").decode(
+                "utf-8", "replace"
+            )
+        except ValueError:
+            ssid = ""
+        jobs.append(
+            SensorJob(
+                label=record["name"],
+                interface=text(record.get("interface")),
+                ssid=ssid or None,
+                stage=text(record.get("stage")),
+                result=text(record.get("result")),
+                code=text(record.get("code")),
+                age=number(record.get("age")),
+                asked_every=number(record.get("asked_every")),
+                asked_ago=number(record.get("asked_ago")),
+                interval=number(record.get("interval")),
+                idle=record.get("idle") == "yes",
+                expires_in=number(record.get("expires_in")),
+                sensor_id=text(record.get("sensor_id")),
+            )
+        )
+    return tuple(jobs)
 
 
 def _service_state(value: str | None) -> ServiceState:

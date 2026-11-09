@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { SensorTimeline, SensorTimelineState } from '@/api/types'
 import { AppProviders } from '@/app/providers'
-import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
+import { SensorTimelineRows, summariseSensor } from '@/features/sensorLogs/SensorTimeline'
 import { foldFailures } from '@/features/probes/ProbeSensorPage'
 import { changeLanguage } from '@/i18n'
 
@@ -52,6 +52,8 @@ const TIMELINE: SensorTimeline = {
         ssid: 'Example-Corp',
       },
       buckets: buckets(['ok', 'outlier', 'failing', 'none']),
+      last_run: '2025-03-08T00:50:00Z',
+      ended: false,
     },
     {
       sensor: 'wlan-auth',
@@ -62,6 +64,8 @@ const TIMELINE: SensorTimeline = {
       runs_per_hour: 50,
       last_failure: null,
       buckets: buckets(['ok', 'ok', 'ok', 'ok']),
+      last_run: '2025-03-08T00:55:00Z',
+      ended: false,
     },
   ],
 }
@@ -209,3 +213,37 @@ describe('failure list', () => {
     expect(groups[0].last).toBe('2025-03-08T06:32:00Z')
   })
 })
+
+describe('ended configurations', () => {
+  beforeEach(async () => {
+    await changeLanguage('en')
+  })
+
+  const withEnded: SensorTimeline = {
+    ...TIMELINE,
+    streams: [
+      { ...TIMELINE.streams[0], ended: true, success_rate: 0.5, ok: 1, error: 1 },
+      TIMELINE.streams[1],
+    ],
+  }
+
+  it('marks a configuration nobody asks for any more', () => {
+    show(withEnded)
+    expect(screen.getByText(/not asked since/)).toBeInTheDocument()
+  })
+
+  it('leaves it out of the sensor summary while another one runs', () => {
+    const summary = summariseSensor(withEnded, 'wlan-auth')
+    expect(summary?.rate).toBe(1)
+    expect(summary?.networks).toBe(1)
+  })
+
+  it('still shows it when nothing else is left', () => {
+    const summary = summariseSensor(
+      { ...withEnded, streams: [withEnded.streams[0]] },
+      'wlan-auth',
+    )
+    expect(summary?.rate).toBe(0.5)
+  })
+})
+

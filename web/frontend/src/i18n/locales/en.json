@@ -964,7 +964,8 @@
         },
         "release_interface": "Interface released",
         "remove": "Sensor removed",
-        "reserve_interface": "Interface reserved"
+        "reserve_interface": "Interface reserved",
+        "forget_job": "Probe configuration removed"
       },
       "system": {
         "backup": "Backup created",
@@ -1777,6 +1778,20 @@
     "failuresMore_other": "{{count}} more failures in the sensor log",
     "last24h": "Last 24 h",
     "networks_one": "1 network",
-    "networks_other": "{{count}} networks"
+    "networks_other": "{{count}} networks",
+    "ended": "not asked since {{time}}",
+    "configurations": {
+      "title": "Configurations on the probe",
+      "empty": "The probe measures no configuration of this sensor",
+      "active": "Measured",
+      "idle": "Paused, not asked",
+      "askedEvery": "asked every {{every}}",
+      "askedAgo": "last asked {{ago}} ago",
+      "last": "last {{result}}, {{age}} ago",
+      "sensorId": "sensor {{id}}",
+      "remove": "Remove",
+      "removeTitle": "Remove the configuration for {{ssid}}?",
+      "removeBody": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, it is set up again on its next scan."
+    }
   }
 }

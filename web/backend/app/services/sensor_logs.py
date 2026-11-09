@@ -19,7 +19,7 @@ import re
 import sys
 import threading
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
@@ -46,6 +46,13 @@ DAY_FILE_SUFFIX = ".jsonl"
 # counts as covered by the run before it. Half an interval of slack keeps a
 # run that came a little late from leaving a grey sliver.
 COVERAGE_FACTOR = 1.5
+
+# When a network's runs count as ended: no run for this many of its usual
+# intervals while the sensor's other networks went on. Matches the probe,
+# which stops measuring a job after three intervals unasked. The minimum
+# gap is the probe's own floor of one measurement a minute.
+ENDED_INTERVALS = 3
+ENDED_MINIMUM_GAP = 60.0
 
 # Serialises appends. Held across the duplicate check and the write, which is
 # what makes resubmitting a batch idempotent rather than usually idempotent.
@@ -129,6 +136,10 @@ class TimelineStream:
     runs_per_hour: float | None
     last_failure: dict[str, Any] | None
     buckets: list[TimelineBucket]
+    last_run: datetime | None = None
+    # No run for three of its usual intervals while another network of the
+    # same sensor kept running: a configuration PRTG no longer asks for.
+    ended: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +373,7 @@ class SensorLogStore:
             grouped.setdefault(key, []).append(item)
 
         out: list[TimelineStream] = []
+        usual: dict[tuple[str, str | None], float] = {}
         for (sensor, ssid), newest_first in grouped.items():
             runs = list(reversed(newest_first))
             oks = [0] * count
@@ -465,10 +477,31 @@ class SensorLogStore:
                     else None,
                     last_failure=last_failure,
                     buckets=buckets,
+                    last_run=times[-1] if times else None,
                 )
             )
-        out.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
-        return first, out
+            usual[(sensor, ssid)] = gaps[len(gaps) // 2] if gaps else 0.0
+
+        # Ended is judged against the sensor's other networks, not the
+        # clock: a probe that went offline stops every network at once, and
+        # that is not a configuration nobody asks for.
+        latest: dict[str, datetime] = {}
+        for stream in out:
+            if stream.last_run and (
+                stream.sensor not in latest or stream.last_run > latest[stream.sensor]
+            ):
+                latest[stream.sensor] = stream.last_run
+        judged = []
+        for stream in out:
+            gap = max(usual[(stream.sensor, stream.ssid)], ENDED_MINIMUM_GAP)
+            ended = bool(
+                stream.last_run
+                and (latest[stream.sensor] - stream.last_run).total_seconds()
+                > ENDED_INTERVALS * gap
+            )
+            judged.append(replace(stream, ended=ended))
+        judged.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
+        return first, judged
 
     def retained_since(self, today: date | None = None) -> datetime:
         """The oldest moment the retention still keeps records for."""

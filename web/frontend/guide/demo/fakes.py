@@ -398,6 +398,54 @@ class FakeWorld:
             )
         return "\n".join(lines) + "\n"
 
+    # What the wlan-auth helper holds per probe: the networks the seeded
+    # sensor log runs on, plus on Kiel one leftover from a changed
+    # configuration that has gone idle.
+    _DEMO_WLAN_JOBS = {
+        "probe-berlin-01": ("Corporate", "Lager-WLAN"),
+        "probe-kiel-01": ("Corporate", "Lager-WLAN", "Gast"),
+        "probe-hamburg-01": ("Corporate",),
+    }
+
+    def _demo_wlan_jobs(self, username, probe):  # type: ignore[no-untyped-def]
+        if "wlan_jobs" not in probe:
+            jobs = []
+            for index, ssid in enumerate(self._DEMO_WLAN_JOBS.get(username, ())):
+                jobs.append(
+                    {"label": f"{index + 1:x}" * 12, "ssid": ssid, "idle": False,
+                     "result": "ok", "code": "ok", "age": 640.0,
+                     "asked_every": 1800.0, "asked_ago": 600.0,
+                     "sensor_id": str(2040 + index)}
+                )
+            if username == "probe-kiel-01":
+                jobs.append(
+                    {"label": "0f0e0d0c0b0a", "ssid": "Gast", "idle": True,
+                     "result": "failed", "code": "auth-failed-psk", "age": 5400.0,
+                     "asked_every": 1800.0, "asked_ago": 5400.0, "sensor_id": "-"}
+                )
+            probe["wlan_jobs"] = jobs
+        return probe["wlan_jobs"]
+
+    def _p_sensor_jobs(self, username, spec, probe, args, payload):  # type: ignore[no-untyped-def]
+        lines = ["OK sensor-jobs"]
+        for job in self._demo_wlan_jobs(username, probe):
+            lines.append(
+                f"{job['label']}\tinterface=wlan0\tssid_hex={job['ssid'].encode().hex()}"
+                f"\tstage=dhcp\tresult={job['result']}\tcode={job['code']}"
+                f"\tage={job['age']}\tasked_every={job['asked_every']}"
+                f"\tasked_ago={job['asked_ago']}\tinterval={job['asked_every']}"
+                f"\tidle={'yes' if job['idle'] else 'no'}\texpires_in=1800.0"
+                f"\tsensor_id={job['sensor_id']}"
+            )
+        return "\n".join(lines) + "\n"
+
+    def _p_sensor_forget_job(self, username, spec, probe, args, payload):  # type: ignore[no-untyped-def]
+        _sensor, label = args
+        jobs = self._demo_wlan_jobs(username, probe)
+        kept = [job for job in jobs if job["label"] != label]
+        probe["wlan_jobs"] = kept
+        return f"OK sensor-job-forgotten removed={len(jobs) - len(kept)}\n"
+
     def _p_sensor_reserve_interface(self, username, spec, probe, args, payload):  # type: ignore[no-untyped-def]
         sensor, interface = args
         probe["reserved"][interface] = sensor

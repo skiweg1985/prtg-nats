@@ -119,6 +119,8 @@ class SensorLogTimelineStreamOut(ApiModel):
     runs_per_hour: float | None = None
     last_failure: SensorLogSummaryOut | None = None
     buckets: list[SensorLogBucketOut]
+    last_run: datetime | None = None
+    ended: bool = False
 
 
 class SensorLogTimelineOut(ApiModel):
