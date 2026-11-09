@@ -323,15 +323,14 @@ export function Slice({
     <span
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={clsx(
-        'relative block',
-        LOOK_CLASS[look],
-        active && 'brightness-90 dark:brightness-125',
-        className,
-      )}
+      className={clsx('relative block', LOOK_CLASS[look], className)}
     >
       {look === 'outlier' && <span className="bg-danger absolute inset-x-0 bottom-0 h-1/3" />}
-      {active && <span className="bg-ink absolute inset-x-0 -top-px h-0.5" />}
+      {/* A frame drawn inside the slice and over its marks: the bar clips
+          anything outside it, and a slice is only a few pixels wide. */}
+      {active && (
+        <span className="ring-ink absolute inset-0 rounded-[2px] ring-2 ring-inset" />
+      )}
     </span>
   )
 }
