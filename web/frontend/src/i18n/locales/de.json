@@ -22,6 +22,11 @@
     "sensorLogs": "Sensor-Log",
     "guide": "Anleitung"
   },
+  "breadcrumb": {
+    "run": "Lauf",
+    "runAt": "Lauf {{time}}",
+    "job": "Job"
+  },
   "common": {
     "cancel": "Abbrechen",
     "clearFilters": "Filter zurücksetzen",
@@ -60,6 +65,7 @@
     "selectAll": "Alle auswählen",
     "clearSelection": "Auswahl aufheben",
     "selectedHidden": "{{count}} ausgewählt, {{hidden}} davon ausgeblendet",
+    "breadcrumb": "Navigationspfad",
     "optional": "optional",
     "helpFor": "Hilfe zu {{label}}"
   },

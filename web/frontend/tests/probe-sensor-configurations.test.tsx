@@ -125,6 +125,13 @@ function show() {
   )
 }
 
+/** The rows of the configurations card, not the breadcrumb's items. */
+function configurationRows(): HTMLElement[] {
+  const card = screen.getByText('Configurations on the probe').closest('section')
+  if (!card) throw new Error('no configurations card')
+  return within(card).getAllByRole('listitem')
+}
+
 describe('configurations on the probe', () => {
   it('lists what the probe measures and which configuration is paused', async () => {
     show()
@@ -137,7 +144,7 @@ describe('configurations on the probe', () => {
   it('shows each configuration in labelled columns', async () => {
     show()
     await screen.findByText('Measured')
-    const [current, leftover] = screen.getAllByRole('listitem')
+    const [current, leftover] = configurationRows()
     const value = (row: HTMLElement, label: string) =>
       within(row).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
     // Two configurations of one SSID, told apart by variant and method.
@@ -179,7 +186,7 @@ describe('configurations on the probe', () => {
     ]
     show()
     await screen.findByText('Measured')
-    const [row] = screen.getAllByRole('listitem')
+    const [row] = configurationRows()
     const labels = Array.from(row.querySelectorAll('dt')).map((dt) => dt.textContent)
     expect(labels).toEqual([
       'SSID',

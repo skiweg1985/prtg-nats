@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Trash2, Upload } from 'lucide-react'
@@ -24,10 +24,11 @@ import type {
   SensorTimelineStream,
 } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { useUrlDetails } from '@/components/ui/UrlDetails'
 import {
   ActionMenu,
-  BackLink,
   Badge,
   Button,
   Card,
@@ -47,6 +48,7 @@ import { SensorTimelineRows, streamLabel } from '@/features/sensorLogs/SensorTim
 import { useCodeLabel } from '@/features/sensorLogs/RunList'
 import { sensorLogHref } from '@/features/sensorLogs/links'
 import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
+import { useUrlChoice, useUrlState } from '@/utils/urlState'
 
 /**
  * One sensor on one probe: how it is deployed and how its runs went.
@@ -84,7 +86,12 @@ export function ProbeSensorPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to={`/probes/${probeId}?tab=sensors`}>{probe}</BackLink>
+          <Breadcrumb
+            trail={[
+              { to: '/probes', label: t('probes.title') },
+              { to: `/probes/${probeId}?tab=sensors`, label: probe },
+            ]}
+          />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{sensorName}</h1>
             {sensor && <SensorStatusBadge status={sensor.status} />}
@@ -208,9 +215,9 @@ function RunsCard({ probeId, probe, sensor }: { probeId: string; probe: string; 
   const { t } = useTranslation()
   const { can } = useAuth()
   const navigate = useNavigate()
-  const [params, setParams] = useSearchParams()
+  const { update } = useUrlState()
   // In the address, so a link opens the same window.
-  const window: TimelineWindow = params.get('window') === '7d' ? '7d' : '24h'
+  const [window, choose] = useUrlChoice<TimelineWindow>('window', WINDOWS, '24h')
   const { data, isLoading, error } = useSensorLogTimeline(probe, sensor, window)
   const [hiding, setHiding] = useState<SensorTimelineStream | null>(null)
 
@@ -220,9 +227,8 @@ function RunsCard({ probeId, probe, sensor }: { probeId: string; probe: string; 
     const until = new Date(start + (data?.bucket_seconds ?? 900) * 1000).toISOString()
     try {
       const run = await fetchRunAt({ probe, sensor: stream.sensor, stream: stream.stream, since, until })
-      const next = new URLSearchParams(params)
-      next.set(RUN_PARAM, run.id)
-      setParams(next)
+      // Pushed, unlike the steps inside the viewer: Back closes it again.
+      update({ [RUN_PARAM]: run.id }, { push: true })
     } catch {
       // Nothing to open in the viewer: the log still shows the slice.
       navigate(
@@ -236,13 +242,6 @@ function RunsCard({ probeId, probe, sensor }: { probeId: string; probe: string; 
         }),
       )
     }
-  }
-
-  function choose(next: TimelineWindow) {
-    const changed = new URLSearchParams(params)
-    if (next === '24h') changed.delete('window')
-    else changed.set('window', next)
-    setParams(changed, { replace: true })
   }
 
   return (
@@ -424,7 +423,7 @@ function FailureList({
   rows: string[]
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useUrlDetails('failures')
   const range = TIMELINE_WINDOWS[window].range
   const { data } = useSensorLogs({ probe, sensor, result: 'error', range }, FAILURE_LIMIT)
   if (!data) return null
@@ -437,7 +436,7 @@ function FailureList({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setOpen(!open)}
         className="text-ink flex items-center gap-1.5 text-sm font-medium"
       >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}

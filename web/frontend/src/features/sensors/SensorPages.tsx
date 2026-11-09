@@ -9,10 +9,11 @@ import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorDetail, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { UrlDetails, useUrlDetails } from '@/components/ui/UrlDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
-  BackLink,
   Badge,
   Button,
   Card,
@@ -170,7 +171,7 @@ export function SensorDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to="/sensors">{t('sensors.title')}</BackLink>
+          <Breadcrumb trail={[{ to: '/sensors', label: t('sensors.title') }]} />
           <div className="mt-1 flex items-center gap-2">
             <h1 className="text-lg">{data.name}</h1>
             <Badge tone="accent">v{data.version}</Badge>
@@ -218,7 +219,7 @@ export function SensorDetailPage() {
             <ul className="space-y-1">
               {data.installations.map((entry) => (
                 <li key={entry.probe} className="flex items-center gap-2">
-                  <ProbeLink username={entry.probe} />
+                  <ProbeLink username={entry.probe} sensor={data.name} />
                   <Mono className="text-ink-3 text-xs">v{entry.version}</Mono>
                   {!entry.current && (
                     <Badge tone="warn">{t('sensors.outdatedBadge')}</Badge>
@@ -240,7 +241,7 @@ export function SensorDetailPage() {
       {/* Reference, last and folded: paths and checksums are what somebody
           comparing a probe against the catalog looks up, not what somebody
           rolling the sensor out reads on the way to the button. */}
-      <details className="surface-card group overflow-hidden">
+      <UrlDetails param="files" className="surface-card group overflow-hidden">
         <summary className="hover:bg-surface-2 flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
@@ -261,7 +262,7 @@ export function SensorDetailPage() {
             </DetailRow>
           ))}
         </dl>
-      </details>
+      </UrlDetails>
 
       {deploying && (
         <DeployDialog
@@ -284,7 +285,7 @@ export function SensorDetailPage() {
  */
 export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
   const { t } = useTranslation()
-  const [readmeOpen, setReadmeOpen] = useState(false)
+  const [readmeOpen, setReadmeOpen] = useUrlDetails('readme')
 
   const script = sensor.files.find((file) => file.slot === 'script')
   const basename = script?.relative_path.split('/').pop() ?? null
@@ -303,7 +304,12 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         )}
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
         {sensor.readme && (
-          <details onToggle={(event) => setReadmeOpen(event.currentTarget.open)}>
+          <details
+            open={readmeOpen}
+            onToggle={(event) => {
+              if (event.currentTarget.open !== readmeOpen) setReadmeOpen(event.currentTarget.open)
+            }}
+          >
             <Summary className="text-ink-3 text-xs">
               {t('sensors.prtg.readme')}
             </Summary>
@@ -365,7 +371,8 @@ export function ParameterCard({
     schema &&
       schema.settings.length + schema.credentials.length + schema.files.length > 0,
   )
-  const [formOpen, setFormOpen] = useState(
+  const [formOpen, setFormOpen] = useUrlDetails(
+    'form',
     !schema?.default_parameter_line && !hasVariants,
   )
 
@@ -426,7 +433,9 @@ export function ParameterCard({
 
       <details
         open={formOpen}
-        onToggle={(event) => setFormOpen(event.currentTarget.open)}
+        onToggle={(event) => {
+          if (event.currentTarget.open !== formOpen) setFormOpen(event.currentTarget.open)
+        }}
         className="group"
       >
         <summary className="text-ink-2 hover:text-ink -mx-1 flex min-h-11 cursor-pointer list-none items-center gap-2 px-1 text-sm [&::-webkit-details-marker]:hidden">

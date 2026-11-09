@@ -152,8 +152,8 @@ export const activity = {
         {
           title: L('Einen Lauf öffnen', 'Opening a run'),
           text: L(
-            '<p>Der Pfeil am Zeilenanfang klappt die Ausgabe direkt in der Liste auf. Ein Klick auf die Zeit öffnet den Lauf auf einer eigenen Seite: mit dem Fehlercode in Worten, den gemessenen Werten und der rohen Ausgabe, etwa der Anmeldung am WLAN. Die Adresse dieser Seite kannst du weitergeben.</p>',
-            '<p>The arrow at the start of a row unfolds the output right in the list. Clicking the time opens the run on a page of its own: with the error code in words, the measured values and the raw output, such as the Wi-Fi sign-in. You can pass on the address of that page.</p>',
+            '<p>Der Pfeil am Zeilenanfang klappt die Ausgabe direkt in der Liste auf. Ein Klick auf die Zeile öffnet den Lauf auf einer eigenen Seite: mit dem Fehlercode in Worten, den gemessenen Werten und der rohen Ausgabe, etwa der Anmeldung am WLAN. Die Adresse dieser Seite kannst du weitergeben. Probe und Sensor in der Zeile führen direkt zur Probe und zum Sensor auf dieser Probe.</p><p>Über dem Titel zeigt der Navigationspfad, woher du gekommen bist: Aus dem gefilterten Sensor-Log geöffnet, führt er mit denselben Filtern dorthin zurück; von der Seite des Sensors geöffnet, über Probe und Sensor. Ohne bekannte Herkunft, etwa bei einem weitergegebenen Link, zeigt er Probe und Sensor.</p>',
+            '<p>The arrow at the start of a row unfolds the output right in the list. Clicking the row opens the run on a page of its own: with the error code in words, the measured values and the raw output, such as the Wi-Fi sign-in. You can pass on the address of that page. Probe and sensor in the row lead straight to the probe and to the sensor on that probe.</p><p>Above the title, the breadcrumb shows where you came from: opened from the filtered sensor log, it leads back there with the same filters; opened from the sensor’s page, through probe and sensor. Without a known origin, such as a link someone passed on, it shows probe and sensor.</p>',
           ),
           image: 'activity-sensor-log-run',
           alt: L(

@@ -1,5 +1,5 @@
-import { Fragment, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Fragment, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -7,9 +7,10 @@ import { useSensorLog } from '@/api/hooks'
 import type { SensorLogResult, SensorLogSummary } from '@/api/types'
 import { useIsPhone } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
-import { ProbeLink } from '@/components/ui/ProbeLink'
+import { ProbeLink, ProbeSensorLink } from '@/components/ui/ProbeLink'
 import { Badge, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
 import { formatDateTime, formatNumber } from '@/utils/format'
+import { useUrlSet } from '@/utils/urlState'
 
 const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
   ok: 'ok',
@@ -46,14 +47,10 @@ export function RunTable({
 }) {
   const { t } = useTranslation()
   const isPhone = useIsPhone()
-  const [open, setOpen] = useState<Set<string>>(new Set())
-
-  function toggle(id: string) {
-    const next = new Set(open)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    setOpen(next)
-  }
+  // In the address, so a reload or a link keeps the transcripts that were
+  // open in front of the reader.
+  const [open, , toggle] = useUrlSet('run')
+  const navigate = useNavigate()
 
   if (runs.length === 0) return <EmptyState title={emptyTitle} action={emptyAction} />
 
@@ -83,8 +80,13 @@ export function RunTable({
             const isOpen = open.has(run.id)
             return (
               <Fragment key={run.id}>
-                <tr className="border-rule border-t align-top">
-                  <td className="p-0">
+                <tr
+                  // The mouse gets the whole row, as in every other list; the
+                  // links and the toggle inside keep their own click.
+                  onClick={() => navigate(runHref(run.id))}
+                  className="border-rule hover:bg-surface-2 cursor-pointer border-t align-top"
+                >
+                  <td className="p-0" onClick={(event) => event.stopPropagation()}>
                     {/* A whole 44px square, not a 12px glyph: it is the
                         control used most on this page. */}
                     <button
@@ -102,19 +104,26 @@ export function RunTable({
                     </button>
                   </td>
                   <td className="px-3 py-3 text-sm whitespace-nowrap">
-                    <Link to={runHref(run.id)} className="text-accent hover:underline">
+                    <Link
+                      to={runHref(run.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="text-accent hover:underline"
+                    >
                       {formatDateTime(run.time)}
                     </Link>
                   </td>
                   {showProbe && (
-                    <td className="px-3 py-3 text-sm">
+                    <td className="px-3 py-3 text-sm" onClick={(event) => event.stopPropagation()}>
                       <ProbeLink username={run.probe} />
                     </td>
                   )}
                   {/* A name is one token: wrapped at its hyphen, "wlan-auth"
                       reads as two words. */}
-                  <td className="px-3 py-3 text-sm whitespace-nowrap">
-                    <Mono>{run.sensor}</Mono>
+                  <td
+                    className="px-3 py-3 text-sm whitespace-nowrap"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <ProbeSensorLink username={run.probe} sensor={run.sensor} />
                   </td>
                   <td className="px-3 py-3 text-sm whitespace-nowrap">
                     <Mono>{run.ssid ?? '—'}</Mono>
@@ -188,7 +197,7 @@ function RunCards({ runs, showProbe }: { runs: SensorLogSummary[]; showProbe: bo
           <div className="text-ink-2 flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2 text-xs">
             {showProbe && <ProbeLink username={run.probe} />}
             {run.ssid && <Mono>{run.ssid}</Mono>}
-            {showProbe && <Mono className="text-ink-3">{run.sensor}</Mono>}
+            {showProbe && <ProbeSensorLink username={run.probe} sensor={run.sensor} />}
           </div>
         </li>
       ))}

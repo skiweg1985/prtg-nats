@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import {
@@ -16,6 +16,7 @@ import type { SensorLogRecord } from '@/api/types'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Button, CheckboxField, Dialog, Mono, Skeleton } from '@/components/ui/primitives'
 import { formatDateTime, formatNumber } from '@/utils/format'
+import { useUrlState } from '@/utils/urlState'
 
 import { PHASE_FIELDS, hasPhases, phasesOf, type Phase } from './phases'
 import { RecordBody, ResultBadge, networkOf, runHref, useCodeLabel, useFields } from './RunList'
@@ -35,7 +36,7 @@ export const RUN_PARAM = 'run'
 export const FAILURES_PARAM = 'failures'
 
 export function RunViewer() {
-  const [params, setParams] = useSearchParams()
+  const { params, replaceAll } = useUrlState()
   // The router renders a new address a moment later. A key pressed in
   // between would otherwise build on the old one and drop what was just
   // set, such as failures only.
@@ -51,7 +52,7 @@ export function RunViewer() {
     pending.current = next
     // Stepping is reading, not navigating: Back leaves the viewer instead
     // of walking back through every run it showed.
-    setParams(next, { replace: true })
+    replaceAll(next)
   }
 
   return (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
@@ -10,6 +10,7 @@ import {
   useSensors,
 } from '@/api/hooks'
 import type { SensorLogFilters, SensorLogRange, SensorLogResult } from '@/api/types'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   Button,
@@ -22,8 +23,10 @@ import {
   Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { probeSensorHref } from '@/features/probes/links'
 import { useProbeNames } from '@/features/probes/probeName'
 import { formatDateTime, formatNumber, formatSpanEnd } from '@/utils/format'
+import { pageNumber, useDebouncedUrlParam, useUrlState, type ParamPatch } from '@/utils/urlState'
 
 import { RecordBody, ResultBadge, RunTable, networkOf, useCodeLabel } from './RunList'
 
@@ -74,10 +77,10 @@ const CUSTOM_RANGE = 'custom'
  */
 export function SensorLogPage() {
   const { t } = useTranslation()
-  const [params, setParams] = useSearchParams()
+  const { params, update, replaceAll } = useUrlState()
   const filters = filtersFrom(params)
   // In the address with the filters, so a page can be reloaded and sent on.
-  const page = Math.max(1, Number.parseInt(params.get('page') ?? '1', 10) || 1)
+  const page = pageNumber(params.get('page'))
   const offset = (page - 1) * PAGE_SIZE
   const listTop = useRef<HTMLDivElement>(null)
   const { data, isLoading, error, refetch } = useSensorLogs(filters, PAGE_SIZE, offset)
@@ -85,39 +88,30 @@ export function SensorLogPage() {
   const { data: sensors } = useSensors()
   useSensorLogStream()
 
-  const [term, setTerm] = useState(filters.q ?? '')
+  // Other filters, other runs: page 3 of the old list means nothing here.
+  const [term, setTerm] = useDebouncedUrlParam(
+    'q',
+    SEARCH_DELAY_MS,
+    (patch: ParamPatch) => ({ ...patch, page: null }),
+  )
 
   function setFilter(key: keyof SensorLogFilters, value: string) {
-    const next = new URLSearchParams(params)
-    // The default range is no filter, so it stays out of the address.
-    if (key === 'range') {
-      // A chosen range ends the exact window a timeline link brought along.
-      next.delete('since')
-      next.delete('until')
+    const patch: ParamPatch = {
+      // The default range is no filter, so it stays out of the address.
+      [key]: key === 'range' && value === DEFAULT_RANGE ? null : value,
+      page: null,
     }
-    if (value && !(key === 'range' && value === DEFAULT_RANGE)) next.set(key, value)
-    else next.delete(key)
-    // Other filters, other runs: page 3 of the old list means nothing here.
-    next.delete('page')
-    setParams(next, { replace: true })
+    // A chosen range ends the exact window a timeline link brought along.
+    if (key === 'range') Object.assign(patch, { since: null, until: null })
+    update(patch)
   }
 
   function goTo(target: number) {
-    const next = new URLSearchParams(params)
-    if (target > 1) next.set('page', String(target))
-    else next.delete('page')
-    setParams(next)
+    // Pushed, unlike a filter: Back from page 3 goes to page 2.
+    update({ page: target > 1 ? String(target) : null }, { push: true })
     // The buttons sit under the list; the next page starts at its top.
     listTop.current?.scrollIntoView?.({ block: 'start' })
   }
-
-  useEffect(() => {
-    if (term === (filters.q ?? '')) return
-    const timer = window.setTimeout(() => setFilter('q', term.trim()), SEARCH_DELAY_MS)
-    return () => window.clearTimeout(timer)
-    // setFilter is rebuilt every render; the term is what this waits on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [term])
 
   const filtered = Boolean(
     filters.probe ||
@@ -132,7 +126,7 @@ export function SensorLogPage() {
 
   function clearFilters() {
     setTerm('')
-    setParams(new URLSearchParams(), { replace: true })
+    replaceAll(new URLSearchParams())
   }
 
   const items = data?.items ?? []
@@ -232,6 +226,11 @@ export function SensorLogPage() {
               {t('sensorLogs.filters.variant', { variant: filters.variant })}
               <X aria-hidden className="ml-1 size-3" />
             </FilterChip>
+          )}
+          {filtered && (
+            <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
+              {t('common.clearFilters')}
+            </Button>
           )}
           <span className="text-ink-3 ml-auto text-xs">
             {items.length === 0
@@ -356,8 +355,20 @@ export function SensorLogRecordPage() {
       <PageHeader
         title={network ? `${data.sensor} · ${network}` : data.sensor}
         subtitle={`${probeLabel} · ${formatDateTime(data.time)}`}
-        backTo="/sensor-logs"
-        backLabel={t('sensorLogs.title')}
+        breadcrumb={
+          <Breadcrumb
+            trail={
+              probe
+                ? [
+                    { to: '/probes', label: t('probes.title') },
+                    { to: `/probes/${probe.id}?tab=sensors`, label: probeLabel },
+                    { to: probeSensorHref(probe.id, data.sensor), label: data.sensor },
+                  ]
+                : [{ to: '/sensor-logs', label: t('sensorLogs.title') }]
+            }
+            current={t('breadcrumb.runAt', { time: formatDateTime(data.time) })}
+          />
+        }
       />
       <Card>
         <dl>
@@ -380,7 +391,7 @@ export function SensorLogRecordPage() {
           <DetailRow label={t('sensorLogs.columns.probe')}>
             {probe ? (
               <Link
-                to={`/probes/${probe.id}?tab=sensors`}
+                to={probeSensorHref(probe.id, data.sensor)}
                 className="text-accent hover:underline"
               >
                 {probeLabel}
@@ -390,7 +401,16 @@ export function SensorLogRecordPage() {
             )}
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.sensor')}>
-            <Mono>{data.sensor}</Mono>
+            {probe ? (
+              <Link
+                to={probeSensorHref(probe.id, data.sensor)}
+                className="text-accent hover:underline"
+              >
+                <Mono>{data.sensor}</Mono>
+              </Link>
+            ) : (
+              <Mono>{data.sensor}</Mono>
+            )}
           </DetailRow>
           <DetailRow label={t('sensorLogs.columns.network')}>
             <Mono>{network ?? '—'}</Mono>
