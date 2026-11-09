@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -237,7 +238,7 @@ describe('the search box of the fleet', () => {
     const user = userEvent.setup()
     wrap('/probes')
 
-    await user.type(await screen.findByLabelText('Search'), 'hamburg')
+    await user.type(await screen.findByLabelText('Search', FIELD), 'hamburg')
     expect(address()).toBe('/probes?q=hamburg')
 
     // One row left, and following it keeps the term for the way back.

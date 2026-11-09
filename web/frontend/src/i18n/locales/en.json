@@ -59,7 +59,9 @@
     "moreActions": "More actions",
     "selectAll": "Select all",
     "clearSelection": "Clear selection",
-    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden"
+    "selectedHidden": "{{count}} selected, {{hidden}} of them hidden",
+    "optional": "optional",
+    "helpFor": "Help for {{label}}"
   },
   "auth": {
     "signIn": "Sign in",
@@ -71,7 +73,7 @@
     "changePassword": "Change password",
     "signInTitle": "Sign in to {{name}}",
     "setupTitle": "Create the first administrator",
-    "setupIntro": "No account exists yet. The account you create here administers the platform.",
+    "setupIntro": "No account exists yet; the one you create here administers the platform.",
     "displayName": "Display name",
     "setupCode": "Setup code",
     "setupCodeHint": "Printed at the end of \"sudo ./prtg-nats setup\". \"sudo ./prtg-nats setup-code\" on the server issues a new one.",
@@ -239,13 +241,13 @@
       "subtitle": "The probe enrolls itself; you run one command on it.",
       "step1": {
         "title": "1. What this probe becomes",
-        "intro": "Nothing reaches the probe yet. This only decides the name it will carry and the NATS account it will connect with.",
+        "intro": "Nothing reaches the probe yet; this only decides its name and its NATS account.",
         "submit": "Create the command",
         "creating": "Creating…"
       },
       "step2": {
         "title": "2. Run this on the probe",
-        "intro": "Copy the command and run it on the host, as a user who can sudo. It fetches the CA, compares it against the fingerprint below, installs the restricted management access, and reports back.",
+        "intro": "Run the command on the host as a user who can sudo; it installs the management access and reports back.",
         "copy": "Copy",
         "account": "NATS account",
         "caFingerprint": "CA fingerprint",
@@ -277,7 +279,7 @@
       },
       "step3": {
         "title": "3. The platform takes over",
-        "intro": "The host reported in. From here the platform pins its host key, creates the account, writes the inventory and configures the probe.",
+        "intro": "The host reported in; the platform now sets the probe up.",
         "doneTitle": "The probe is enrolled",
         "doneBody": "It connects to NATS on its own from now on. Sensors can be deployed to it like any other probe.",
         "donePrtg": "Two steps are still missing in PRTG: add the access key to the PRTG core's access-key list, then approve the probe. The key is on the probe's page under \"PRTG access key\".",
@@ -367,8 +369,10 @@
       "notVerified": "Not verified",
       "managedVersions": "Installed {{installed}} · expected {{expected}}",
       "systemVersions": "Installed {{installed}} · minimum {{expected}}",
-      "managedSha256": "SHA-256 {{installed}} → {{expected}}",
-      "systemSha256": "SHA-256 {{installed}}"
+      "platform": "Platform",
+      "path": "Path",
+      "version": "Version",
+      "details": "{{tool}}, {{state}}: show details"
     },
     "variants": {
       "title": "Variants held",
@@ -421,7 +425,7 @@
       "unlinkTitle": "Remove the link to PRTG?",
       "listMissing": "Names in PRTG are missing: {{reason}}",
       "dialogTitle": "Link to the probe in PRTG",
-      "dialogIntro": "Pick this probe as PRTG lists it. Probes already linked to another probe here are not listed. Nothing is changed in PRTG.",
+      "dialogIntro": "Pick the probe as PRTG lists it; nothing is changed in PRTG.",
       "suggested": "Same name as at enrollment",
       "noCandidates": "PRTG lists no probe that is still free.",
       "manual": "Object id",
@@ -480,13 +484,13 @@
     "deployTo": "Deploy to probes",
     "parameters": "Parameters",
     "parametersIntro": "Build the parameter line, then paste it into the PRTG sensor settings.",
-    "parametersIntroVariants": "With a variant above, PRTG needs only its name. Build the line yourself only without one.",
+    "parametersIntroVariants": "With a variant above, PRTG needs only its name; build the line yourself only without one.",
     "parametersResult": "Parameter line for PRTG",
     "parametersBuild": "Build the parameter line yourself ({{count}} parameters)",
     "parametersMissing": "Required parameters are still missing: {{fields}}",
     "reference": {
       "recommendedLine": "Recommended start of the parameter line",
-      "fromVariant": "From variant: {{key}}",
+      "fromVariant": "A variant carries this value; it may then be left out here.",
       "movedSection": "Moved parameters (rejected by the sensor)",
       "fromPrtgSection": "Parameters PRTG fills in itself"
     },
@@ -496,7 +500,7 @@
     "remove": "Remove",
     "variants": {
       "title": "Variants",
-      "intro": "A variant holds the settings, credentials and files for one purpose - one SSID, one site. In PRTG it becomes a sensor of its own carrying a single parameter.",
+      "intro": "In PRTG each variant becomes a sensor of its own with a single parameter.",
       "empty": "No variant has been created yet.",
       "add": "Add variant",
       "addTitle": "New variant",
@@ -526,7 +530,7 @@
     "requirements": "Requirements",
     "prtg": {
       "title": "In PRTG",
-      "intro": "The sensor object is created in PRTG as a Script v2 sensor on the probe’s device. This is the name in the script dropdown:",
+      "intro": "In PRTG, add a Script v2 sensor on the probe's device and pick this name:",
       "parametersHint": "The builder below produces the parameter line; for variants it stands next to each variant.",
       "readme": "The sensor’s own manual (README)"
     },
@@ -1030,7 +1034,7 @@
         "deployedTo": "On probes"
       },
       "host": "Address",
-      "addIntro": "The host is checked first, then the platform signs in once over SSH and sets the endpoint up itself. It keeps only a narrow access of its own; the credentials from here are not stored.",
+      "addIntro": "The platform checks the host, then sets the endpoint up itself over SSH, once.",
       "addTitle": "Set up a measurement endpoint",
       "adminHint": "An account that may become root on that host. Used for this one connection.",
       "adminUser": "Administrator",
@@ -1053,10 +1057,10 @@
       "publicKey": "Public key",
       "publicKeyHint": "The endpoint's public.pem, pasted whole with its BEGIN and END lines. Without it the probes cannot authenticate; an OpenSSH key (ssh-rsa AAAAB3…) is a different format and does not work.",
       "register": "Add an external endpoint",
-      "registerIntro": "For a host somebody else operates: nothing is installed and nothing is reached. Only the record here, so the probes can use it.",
+      "registerIntro": "For a host somebody else operates: only the record here is created, nothing is installed.",
       "registerTitle": "Add an external endpoint",
       "setupHelp": "How the operator sets this endpoint up",
-      "setupHelpIntro": "This host is not touched from here. Whoever is root there runs the following once - or setup-iperf3-endpoint.sh from the repository, which does the same and checks itself.",
+      "setupHelpIntro": "Whoever is root on the host runs the following once - or setup-iperf3-endpoint.sh from the repository, which does the same.",
       "setupHelpService": "iperf3 stores no password, only the SHA-256 of \"{user}password\", and decrypts what the probes send with the private key. The drop-in replaces the packaged ExecStart - without it the endpoint answers everyone.",
       "setupHelpCheck": "Then the counter-check, on the endpoint itself: the first command has to fail and the second one has to succeed. An endpoint that still answers without credentials looks exactly like a working one.",
       "setupHelpBackTitle": "What has to come back from there",
@@ -1124,13 +1128,13 @@
       "addStep2Preview": "After this, the dialog asks for an account that may become root on the host - with a password or a private key. It is good for this one connection.",
       "invite": "By invitation",
       "inviteTitle": "Set up an endpoint by invitation",
-      "inviteIntro": "For a host this platform cannot reach over SSH - behind NAT or a firewall. It gets a command, sets itself up and reports back; the only thing it has to reach is this platform.",
+      "inviteIntro": "For a host behind NAT or a firewall: it sets itself up from a command and only has to reach this platform.",
       "inviteHostHint": "The address the probes measure against. Leave empty if the host brings it along when it reports back.",
       "inviteTtl": "Valid for",
       "inviteTtlHint": "How long the command can be run on the host.",
       "inviteCreate": "Create the invitation",
       "inviteCreating": "Creating…",
-      "inviteCommandIntro": "Run this command on the endpoint host, as a user with sudo. It sets up iperf3, installs the access for this platform and reports back.",
+      "inviteCommandIntro": "Run this command on the endpoint host as a user with sudo; it sets up iperf3 and reports back.",
       "inviteSecretBody": "The command carries a single-use invitation. Whoever can read it can enroll a host as this endpoint until it is spent or expires.",
       "inviteWaiting": "Waiting for the host",
       "inviteDeadTitle": "This invitation can no longer be used",
@@ -1216,7 +1220,7 @@
       "enable": {
         "action": "Turn the overlay on",
         "title": "Turn the overlay on",
-        "body": "This starts the hub on this host and generates its key. Probes stay where they are until you add them.",
+        "body": "Starts the hub on this host; probes stay where they are until you add them.",
         "endpointHint": "The address probes dial. It has to be reachable when the ordinary path is not, so on a site whose NATS address is internal, this is the public one. It cannot be the NATS address itself.",
         "confirm": "Turn on"
       },
@@ -1265,7 +1269,7 @@
     "initialPasswordHint": "The user has to change it at first sign-in.",
     "prtg": {
       "title": "PRTG core",
-      "intro": "With an API token the platform reads the name each probe has in PRTG today. Nothing is changed in PRTG.",
+      "intro": "With an API token the platform reads the probes' names from PRTG without changing anything there.",
       "coreUrl": "PRTG core URL",
       "coreUrlHint": "The address of the PRTG API v2, usually port 1616.",
       "token": "API token",
@@ -1809,6 +1813,292 @@
       "ok": "OK",
       "failed": "Failed",
       "bssid": "AP {{bssid}}"
+    }
+  },
+  "sensorFields": {
+    "aruba-uplink": {
+      "host": {
+        "label": "Gateway address",
+        "hint": "The address of this site's Aruba gateway."
+      },
+      "user": {
+        "label": "User name",
+        "hint": "A read-only account on the gateway."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "The password of that account."
+      },
+      "primary": {
+        "label": "Primary uplink",
+        "hint": "Which uplink is the main path.",
+        "choices": {
+          "wired": "Wired",
+          "cellular": "Cellular"
+        }
+      },
+      "backup": {
+        "label": "Backup uplink",
+        "hint": "The alternative path. Left out, there is none.",
+        "choices": {
+          "none": "None",
+          "cellular": "Cellular",
+          "wired": "Wired"
+        }
+      },
+      "backup_share": {
+        "label": "Backup threshold (%)",
+        "hint": "From this share of traffic on the backup, the traffic counts as moved over."
+      },
+      "billing_day": {
+        "label": "Billing day",
+        "hint": "The day of the month the data volume starts over. 0 for a counter that never resets."
+      },
+      "timeout_ms": {
+        "label": "Answer timeout (ms)",
+        "hint": "How long to wait for a single answer."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "internet-speed": {
+      "mode": {
+        "label": "Mode",
+        "hint": "Measures the peak. The check for a minimum rate has moved to the iperf-throughput sensor.",
+        "choices": {
+          "maximum": "Peak",
+          "minimum": "Minimum rate (moved)"
+        }
+      },
+      "min_download_mbit": {
+        "label": "Minimum download (Mbit/s)",
+        "hint": "Moved to the iperf-throughput sensor."
+      },
+      "min_upload_mbit": {
+        "label": "Minimum upload (Mbit/s)",
+        "hint": "Moved to the iperf-throughput sensor."
+      },
+      "measure_every_minutes": {
+        "label": "Measurement interval (minutes)",
+        "hint": "Minimum time between two real measurements."
+      },
+      "timeout_seconds": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "server": {
+        "label": "Speedtest server",
+        "hint": "Pins the test to one speedtest.net server ID."
+      },
+      "source": {
+        "label": "Source address",
+        "hint": "The local address the measurement binds to."
+      },
+      "no_secure": {
+        "label": "HTTP instead of HTTPS",
+        "hint": "Talks to speedtest.net over HTTP instead of HTTPS."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "iperf-throughput": {
+      "server": {
+        "label": "Endpoint",
+        "hint": "Host name or address of the endpoint. Left out, the one from the deployed credentials applies."
+      },
+      "port": {
+        "label": "Port",
+        "hint": "The port of the endpoint. Left out, the one from the credentials applies, else 5201."
+      },
+      "download_mbit": {
+        "label": "Download target (Mbit/s)",
+        "hint": "The expected rate in the download direction."
+      },
+      "upload_mbit": {
+        "label": "Upload target (Mbit/s)",
+        "hint": "The expected rate in the upload direction."
+      },
+      "udp": {
+        "label": "Measure over UDP",
+        "hint": "Reports packet loss and jitter instead of retransmits and latency."
+      },
+      "username": {
+        "label": "User name",
+        "hint": "For the endpoint's authentication. Left out, the one from the credentials applies; without that, the sensor measures unauthenticated."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "Only for probes where no credentials file can be placed. Left out, the sensor reads the deployed password."
+      },
+      "public_key": {
+        "label": "Public key",
+        "hint": "Path to the endpoint's public key, if the credentials do not carry it."
+      },
+      "profile": {
+        "label": "Credential profile",
+        "hint": "Name of the deployed credentials. One per endpoint when their passwords differ."
+      },
+      "seconds": {
+        "label": "Duration (seconds)",
+        "hint": "Transfer time per direction. The default of 5 was measured; longer runs read lower on a line that shapes after a burst."
+      },
+      "measure_every_minutes": {
+        "label": "Measurement interval (minutes)",
+        "hint": "Minimum time between two real measurements."
+      },
+      "timeout_seconds": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "link-quality": {
+      "target": {
+        "label": "Internet target",
+        "hint": "A target on the internet. Repeatable."
+      },
+      "internal_target": {
+        "label": "Internal target",
+        "hint": "A target inside the own network, for example behind a tunnel. Repeatable."
+      },
+      "packets": {
+        "label": "Packets per target",
+        "hint": "Echo requests per target and run."
+      },
+      "interval_ms": {
+        "label": "Packet interval (ms)",
+        "hint": "The time between two packets."
+      },
+      "timeout_ms": {
+        "label": "Answer timeout (ms)",
+        "hint": "How long to wait for a single answer."
+      },
+      "payload_bytes": {
+        "label": "Payload (bytes)",
+        "hint": "The payload size of an echo request."
+      },
+      "source": {
+        "label": "Source address",
+        "hint": "The local address the measurement binds to."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the sensor is able to run."
+      }
+    },
+    "wlan-auth": {
+      "interface": {
+        "label": "Wireless interface",
+        "hint": "The wireless interface reserved for the test."
+      },
+      "ssid": {
+        "label": "Network name",
+        "hint": "The SSID the probe signs in to."
+      },
+      "auth": {
+        "label": "Sign-in method",
+        "hint": "Decides which of the other fields are needed.",
+        "choices": {
+          "psk": "PSK",
+          "peap": "PEAP/MSCHAPv2",
+          "eap-tls": "EAP-TLS"
+        }
+      },
+      "profile": {
+        "label": "Variant",
+        "hint": "In PRTG, the --profile parameter carries the name of the variant."
+      },
+      "psk": {
+        "label": "WPA2 passphrase",
+        "hint": "The network's pre-shared key."
+      },
+      "identity": {
+        "label": "Identity",
+        "hint": "The user name the RADIUS server is asked about. EAP-TLS needs it alongside the certificate."
+      },
+      "password": {
+        "label": "Password",
+        "hint": "The password for PEAP."
+      },
+      "anonymous_identity": {
+        "label": "Outer identity",
+        "hint": "The identity outside the tunnel, if the RADIUS server expects one."
+      },
+      "ca_cert": {
+        "label": "CA certificate",
+        "hint": "The authority that signed the RADIUS server certificate. An intermediate and its root may share one PEM file."
+      },
+      "domain_suffix_match": {
+        "label": "Server domain",
+        "hint": "The suffix the name in the RADIUS server certificate must end in."
+      },
+      "no_verify_server": {
+        "label": "Skip server check",
+        "hint": "Signs in without checking the RADIUS server certificate. For a first test; the CA certificate may then stay empty."
+      },
+      "client_cert": {
+        "label": "Client certificate",
+        "hint": "The probe's own certificate for EAP-TLS."
+      },
+      "private_key": {
+        "label": "Private key",
+        "hint": "The private key belonging to the client certificate."
+      },
+      "private_key_passwd": {
+        "label": "Key passphrase",
+        "hint": "Only needed if the private key has one."
+      },
+      "bssid": {
+        "label": "BSSID",
+        "hint": "Restricts the test to one access point."
+      },
+      "hidden": {
+        "label": "Hidden network",
+        "hint": "The SSID is not broadcast."
+      },
+      "stage": {
+        "label": "Test scope",
+        "hint": "Stop after signing in or only after DHCP.",
+        "choices": {
+          "assoc": "Up to sign-in",
+          "dhcp": "Up to and including DHCP"
+        }
+      },
+      "gateway": {
+        "label": "Ping target after DHCP",
+        "hint": "The address pinged after DHCP, or none to skip the check."
+      },
+      "mac": {
+        "label": "Client MAC",
+        "hint": "auto for one address per network, permanent for the radio's own, or a fixed address."
+      },
+      "timeout": {
+        "label": "Time budget (seconds)",
+        "hint": "The time for the whole test."
+      },
+      "sensor_id": {
+        "label": "Sensor id in PRTG",
+        "hint": "Enter as %sensorid. A changed configuration then replaces the old one at once."
+      },
+      "max_age": {
+        "label": "Maximum age (seconds)",
+        "hint": "Upper bound for the age of the measurement. Left out, the probe plans by itself."
+      },
+      "measure_now": {
+        "label": "Measure now",
+        "hint": "Measures on the spot instead of collecting the scheduled result."
+      },
+      "self_check": {
+        "label": "Self-check",
+        "hint": "Only checks that the privileged helper is reachable."
+      }
     }
   }
 }

@@ -65,9 +65,8 @@ export function PrtgCard() {
         </Field>
         <Field
           label={t('settings.prtg.token')}
-          hint={
-            data?.token_configured ? t('settings.prtg.tokenStored') : t('settings.prtg.tokenHint')
-          }
+          hint={t('settings.prtg.tokenHint')}
+          note={data?.token_configured ? t('settings.prtg.tokenStored') : undefined}
         >
           <Input
             type="password"
@@ -79,11 +78,9 @@ export function PrtgCard() {
         </Field>
         <Field
           label={t('settings.prtg.caBundle')}
-          hint={
-            data?.ca_bundle_configured
-              ? t('settings.prtg.caBundleStored')
-              : t('settings.prtg.caBundleHint')
-          }
+          optional
+          hint={t('settings.prtg.caBundleHint')}
+          note={data?.ca_bundle_configured ? t('settings.prtg.caBundleStored') : undefined}
         >
           <Textarea
             rows={4}

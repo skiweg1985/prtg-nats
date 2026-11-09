@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -188,12 +189,22 @@ describe('the probe page and the wlan sensor', () => {
     expect(await screen.findByText('inactive')).toBeInTheDocument()
   })
 
+  /** Opens the tool's hover card the way a tap does and returns the card. */
+  async function openToolCard(name: RegExp) {
+    const trigger = await screen.findByRole('button', { name })
+    expect(trigger.closest('td')).not.toHaveTextContent('linux')
+    await userEvent.setup().click(trigger)
+    const card = document.getElementById(trigger.getAttribute('aria-controls') ?? '')
+    expect(card).not.toBeNull()
+    return card
+  }
+
   it('shows the managed tool source, path and compatibility', async () => {
     await changeLanguage('en')
     wrap()
 
-    const tool = await screen.findByText('iperf3')
-    const cell = tool.closest('td')
+    // One line in the table, the details in a card behind it.
+    const cell = await openToolCard(/^iperf3, Compatible/)
 
     expect(cell).toHaveTextContent('linux-arm64-glibc')
     expect(cell).toHaveTextContent('Managed')
@@ -224,15 +235,14 @@ describe('the probe page and the wlan sensor', () => {
     )
     wrap()
 
-    const tool = await screen.findByText('iperf3')
-    const cell = tool.closest('td')
+    const cell = await openToolCard(/^iperf3, Compatible/)
 
     expect(cell).toHaveTextContent('System')
     expect(cell).toHaveTextContent('Compatible')
     expect(cell).toHaveTextContent('linux-armhf-v6-glibc')
     expect(cell).toHaveTextContent('/usr/bin/iperf3')
     expect(cell).toHaveTextContent('Installed 3.18 · minimum 3.18')
-    expect(cell).toHaveTextContent('SHA-256 01234567…89abcdef')
+    expect(cell).toHaveTextContent(/SHA-256\s*01234567…89abcdef/)
     expect(cell).not.toHaveTextContent('fedcba98…76543210')
   })
 
@@ -257,7 +267,8 @@ describe('the probe page and the wlan sensor', () => {
     const row = tool.closest('tr')
 
     expect(row).toHaveTextContent('Modified')
-    expect(row).toHaveTextContent('Incompatible')
+    // The dot is red, and its meaning is in the name a screen reader hears.
+    expect(screen.getByRole('button', { name: /^iperf3, Incompatible/ })).toBeInTheDocument()
   })
 
   it('refuses to reserve the interface that carries the default route', async () => {

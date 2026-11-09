@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -244,7 +245,7 @@ describe('the overlay page', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByLabelText('mpp-berlin'))
+    await user.click(await screen.findByLabelText('mpp-berlin', FIELD))
     await user.click(screen.getByRole('button', { name: 'Change mode' }))
     await user.click(screen.getByRole('radio', { name: /Off/ }))
 

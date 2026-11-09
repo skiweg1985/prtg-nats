@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -121,7 +122,7 @@ describe('assigning an endpoint', () => {
       screen.queryByText(/Existing sensors on these probes stop measuring/),
     ).not.toBeInTheDocument()
 
-    await userEvent.click(await screen.findByLabelText('Alone'))
+    await userEvent.click(await screen.findByLabelText('Alone', FIELD))
 
     const title = await screen.findByText(
       'Existing sensors on these probes stop measuring',
@@ -137,7 +138,7 @@ describe('assigning an endpoint', () => {
     await changeLanguage('en')
     wrap()
 
-    await userEvent.click(await screen.findByLabelText(/Sharing/))
+    await userEvent.click(await screen.findByLabelText(/Sharing/, FIELD))
 
     expect(
       await screen.findByText(/get the "default" profile back/),
@@ -151,7 +152,7 @@ describe('assigning an endpoint', () => {
     await changeLanguage('en')
     wrap()
 
-    await userEvent.click(await screen.findByLabelText('Empty'))
+    await userEvent.click(await screen.findByLabelText('Empty', FIELD))
 
     expect(
       screen.queryByText(/Existing sensors on these probes stop measuring/),
