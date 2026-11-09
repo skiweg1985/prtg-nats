@@ -5,6 +5,8 @@ import { ChevronDown, ChevronRight, Trash2, Upload } from 'lucide-react'
 
 import {
   TIMELINE_WINDOWS,
+  fetchRunAt,
+  useHideSensorStream,
   useProbe,
   useProbePrtgName,
   useRemoveSensorFromProbe,
@@ -14,7 +16,12 @@ import {
   useSensorLogs,
   type TimelineWindow,
 } from '@/api/hooks'
-import type { SensorJob, SensorLogSummary } from '@/api/types'
+import type {
+  SensorJob,
+  SensorLogSummary,
+  SensorTimelineBucket,
+  SensorTimelineStream,
+} from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -23,6 +30,7 @@ import {
   Badge,
   Button,
   Card,
+  CheckboxField,
   ConfirmDialog,
   DetailRow,
   EmptyState,
@@ -33,6 +41,7 @@ import {
 import { SensorStatusBadge } from '@/components/ui/status'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { probeName } from '@/features/probes/probeName'
+import { RUN_PARAM, RunViewer } from '@/features/sensorLogs/RunViewer'
 import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
 import { sensorLogHref } from '@/features/sensorLogs/links'
 import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
@@ -151,7 +160,7 @@ export function ProbeSensorPage() {
       )}
 
       <PermissionGate permission="sensor_log.read">
-        <RunsCard probe={data.summary.nats_username} sensor={sensorName} />
+        <RunsCard probeId={probeId} probe={data.summary.nats_username} sensor={sensorName} />
       </PermissionGate>
 
       {present && SCHEDULING_SENSORS.includes(sensorName) && (
@@ -193,12 +202,30 @@ export function ProbeSensorPage() {
 
 const WINDOWS = Object.keys(TIMELINE_WINDOWS) as TimelineWindow[]
 
-function RunsCard({ probe, sensor }: { probe: string; sensor: string }) {
+function RunsCard({ probeId, probe, sensor }: { probeId: string; probe: string; sensor: string }) {
   const { t } = useTranslation()
+  const { can } = useAuth()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   // In the address, so a link opens the same window.
   const window: TimelineWindow = params.get('window') === '7d' ? '7d' : '24h'
   const { data, isLoading, error } = useSensorLogTimeline(probe, sensor, window)
+  const [hiding, setHiding] = useState<SensorTimelineStream | null>(null)
+
+  async function openRun(stream: SensorTimelineStream, bucket: SensorTimelineBucket) {
+    const start = Date.parse(bucket.start)
+    const since = new Date(start).toISOString()
+    const until = new Date(start + (data?.bucket_seconds ?? 900) * 1000).toISOString()
+    try {
+      const run = await fetchRunAt({ probe, sensor: stream.sensor, stream: stream.stream, since, until })
+      const next = new URLSearchParams(params)
+      next.set(RUN_PARAM, run.id)
+      setParams(next)
+    } catch {
+      // Nothing to open in the viewer: the log still shows the slice.
+      navigate(sensorLogHref({ probe, sensor: stream.sensor, ssid: stream.ssid ?? undefined, since, until }))
+    }
+  }
 
   function choose(next: TimelineWindow) {
     const changed = new URLSearchParams(params)
@@ -236,11 +263,95 @@ function RunsCard({ probe, sensor }: { probe: string; sensor: string }) {
         <EmptyState title={t('sensorLogs.empty')} />
       ) : (
         <div className="space-y-4">
-          <SensorTimelineRows timeline={data} />
-          <FailureList probe={probe} sensor={sensor} window={window} />
+          <SensorTimelineRows
+            timeline={data}
+            onOpen={(stream, bucket) => void openRun(stream, bucket)}
+            onHide={can('sensor.configure') ? setHiding : undefined}
+          />
+          <FailureList
+            probe={probe}
+            sensor={sensor}
+            window={window}
+            networks={data.streams.map((stream) => stream.ssid)}
+          />
         </div>
       )}
+      <RunViewer />
+      {hiding && (
+        <HideRowDialog
+          probeId={probeId}
+          probe={probe}
+          stream={hiding}
+          onClose={() => setHiding(null)}
+        />
+      )}
     </Card>
+  )
+}
+
+/**
+ * Takes a row off the timeline until its next run. Where the configuration
+ * behind it is still on the probe, removing it there is offered with it and
+ * preselected: a network configured by mistake is usually still measured.
+ */
+function HideRowDialog({
+  probeId,
+  probe,
+  stream,
+  onClose,
+}: {
+  probeId: string
+  probe: string
+  stream: SensorTimelineStream
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const scheduling = SCHEDULING_SENSORS.includes(stream.sensor)
+  const jobs = useSensorJobs(probeId, stream.sensor, scheduling && stream.last_job !== null)
+  const job = jobs.data?.find((entry) => entry.label === stream.last_job)
+  const [removeToo, setRemoveToo] = useState(true)
+  const hide = useHideSensorStream()
+  const forget = useForgetSensorJob()
+  const label = stream.ssid ?? stream.sensor
+  const failure = hide.error ?? forget.error
+
+  async function confirm() {
+    try {
+      await hide.mutateAsync({ probe, sensor: stream.sensor, stream: stream.stream })
+      if (job && removeToo) {
+        await forget.mutateAsync({ id: probeId, sensor: stream.sensor, label: job.label })
+      }
+      onClose()
+    } catch {
+      // Shown in the dialog from the mutation's error.
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      title={t('probeSensor.hide.title', { network: label })}
+      tone="primary"
+      body={
+        <div className="space-y-3">
+          <p className="text-ink-2 text-sm">{t('probeSensor.hide.body')}</p>
+          {jobs.isLoading && <Skeleton className="h-10" />}
+          {job && (
+            <CheckboxField
+              label={t('probeSensor.hide.removeConfiguration')}
+              hint={t('probeSensor.hide.removeConfigurationHint')}
+              checked={removeToo}
+              onChange={setRemoveToo}
+            />
+          )}
+        </div>
+      }
+      confirmLabel={t('probeSensor.hide.confirm')}
+      cancelLabel={t('common.cancel')}
+      pending={hide.isPending || forget.isPending}
+      error={failure ? <ErrorDetails error={failure} /> : undefined}
+      onConfirm={() => void confirm()}
+      onClose={onClose}
+    />
   )
 }
 
@@ -288,17 +399,23 @@ function FailureList({
   probe,
   sensor,
   window,
+  networks,
 }: {
   probe: string
   sensor: string
   window: TimelineWindow
+  /** The networks of the rows shown; a hidden row's failures go with it. */
+  networks: (string | null)[]
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const range = TIMELINE_WINDOWS[window].range
   const { data } = useSensorLogs({ probe, sensor, result: 'error', range }, FAILURE_LIMIT)
-  if (!data || data.total === 0) return null
-  const groups = foldFailures(data.items)
+  if (!data) return null
+  const items = data.items.filter((run) => networks.includes(run.ssid))
+  const total = data.total - (data.items.length - items.length)
+  if (total === 0) return null
+  const groups = foldFailures(items)
   return (
     <section className="border-rule border-t pt-3">
       <button
@@ -308,7 +425,7 @@ function FailureList({
         className="text-ink flex items-center gap-1.5 text-sm font-medium"
       >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        {t('probeSensor.failures', { count: data.total })}
+        {t('probeSensor.failures', { count: total })}
       </button>
       {open && (
         <ul className="mt-2 space-y-1">
@@ -339,9 +456,9 @@ function FailureList({
               </Link>
             </li>
           ))}
-          {data.total > data.items.length && (
+          {total > items.length && (
             <li className="text-ink-3 text-xs">
-              {t('probeSensor.failuresMore', { count: data.total - data.items.length })}
+              {t('probeSensor.failuresMore', { count: total - items.length })}
             </li>
           )}
         </ul>

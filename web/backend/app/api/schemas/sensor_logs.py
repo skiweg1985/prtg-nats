@@ -112,6 +112,9 @@ class SensorLogBucketOut(ApiModel):
 
 class SensorLogTimelineStreamOut(ApiModel):
     sensor: str
+    # Opaque: what tells this row apart from the sensor's others. Sent back
+    # as is to hide the row.
+    stream: str
     ssid: str | None = None
     ok: int
     error: int
@@ -121,6 +124,8 @@ class SensorLogTimelineStreamOut(ApiModel):
     buckets: list[SensorLogBucketOut]
     last_run: datetime | None = None
     ended: bool = False
+    # The helper's label of the configuration behind the newest run.
+    last_job: str | None = None
 
 
 class SensorLogTimelineOut(ApiModel):
@@ -136,3 +141,25 @@ class SensorLogTimelineOut(ApiModel):
     # bucket there says nothing about whether the probe measured.
     retained_since: datetime
     streams: list[SensorLogTimelineStreamOut]
+
+
+class SensorLogNeighboursOut(ApiModel):
+    """A run and the runs of its stream on either side; None at either end."""
+
+    record: SensorLogSummaryOut
+    previous: SensorLogSummaryOut | None = None
+    next: SensorLogSummaryOut | None = None
+
+
+class HideStreamIn(ApiModel):
+    probe: str = Field(min_length=1, max_length=64)
+    sensor: str = Field(pattern=SENSOR_NAME_PATTERN.pattern)
+    # Empty for a sensor that tests no network.
+    stream: str = Field(max_length=255)
+
+
+class HiddenStreamOut(ApiModel):
+    probe: str
+    sensor: str
+    stream: str
+    hidden_at: datetime

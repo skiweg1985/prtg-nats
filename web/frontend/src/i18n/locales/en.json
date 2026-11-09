@@ -1793,6 +1793,41 @@
       "remove": "Remove",
       "removeTitle": "Remove the configuration for {{ssid}}?",
       "removeBody": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, it is set up again on its next scan."
+    },
+    "hide": {
+      "action": "Hide {{network}}",
+      "title": "Hide {{network}}?",
+      "body": "The row leaves the timeline until a run for it comes in again. The runs stay in the sensor log.",
+      "removeConfiguration": "Also remove the configuration from the probe",
+      "removeConfigurationHint": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, its next scan creates it again.",
+      "confirm": "Hide"
+    }
+  },
+  "runViewer": {
+    "title": "Run",
+    "navigation": "Runs of this row",
+    "older": "Previous",
+    "newer": "Next",
+    "failuresOnly": "Failures only",
+    "noOlderRun": "No older run",
+    "noNewerRun": "No newer run",
+    "noOlderFailure": "No older failure",
+    "noNewerFailure": "No newer failure",
+    "openPage": "Open the run on its own page",
+    "total": "Total {{duration}}",
+    "raw": "Raw output",
+    "phases": "Stages of the run",
+    "phase": {
+      "prepare": "Preparation",
+      "assoc": "Association",
+      "auth": "Authentication ({{method}})",
+      "dhcp": "DHCP",
+      "gateway": "Gateway"
+    },
+    "state": {
+      "ok": "OK",
+      "failed": "Failed",
+      "skipped": "Not reached"
     }
   }
 }

@@ -276,6 +276,28 @@ class SavedView(Base, IdMixin, TimestampMixin):
     definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
 
+class HiddenSensorStream(Base, IdMixin, TimestampMixin):
+    """A row of a sensor's timeline somebody took off the page on purpose.
+
+    Interface state with no place in the runtime (ADR 0002): the records
+    behind the row stay where they are. Hidden from ``hidden_at`` on, so the
+    first run after it brings the row back - an accidental sign-in that
+    happens again has to be seen again.
+    """
+
+    __tablename__ = "hidden_sensor_stream"
+    __table_args__ = (UniqueConstraint("probe_id", "sensor", "stream"),)
+
+    probe_id: Mapped[str] = mapped_column(
+        ForeignKey("probe_record.id", ondelete="CASCADE"), nullable=False
+    )
+    sensor: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The stream key the timeline hands out; opaque here.
+    stream: Mapped[str] = mapped_column(String(255), nullable=False)
+    hidden_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    hidden_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class Setting(Base, TimestampMixin):
     """System settings as key/value, so adding one needs no migration."""
 

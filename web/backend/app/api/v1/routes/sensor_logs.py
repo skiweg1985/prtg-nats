@@ -10,16 +10,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from app.api.deps.common import (
+    AuditDep,
     BroadcasterDep,
     DbSession,
+    PrincipalDep,
     SensorLogStoreDep,
     require_permission,
 )
 from app.api.schemas.sensor_logs import (
+    HiddenStreamOut,
+    HideStreamIn,
     RecordResult,
     SensorLogBucketOut,
+    SensorLogNeighboursOut,
     SensorLogPageOut,
     SensorLogRecordOut,
     SensorLogSegmentOut,
@@ -31,6 +37,8 @@ from app.api.schemas.sensor_logs import (
 from app.api.sse import KEEPALIVE, event_stream, follow, sse
 from app.core.errors import NotFoundError
 from app.core.permissions import Permission
+from app.persistence.models import ProbeRecord
+from app.services import hidden_streams
 from app.services.events import StreamEvent, sensor_log_topic
 from app.services.sensor_logs import SensorLogFilter
 
@@ -135,6 +143,7 @@ MAX_BUCKETS = 1000
 @router.get("/timeline", response_model=SensorLogTimelineOut)
 async def sensor_log_timeline(
     store: SensorLogStoreDep,
+    db: DbSession,
     _: ReadGuard,
     probe: Annotated[str, Query(min_length=1)],
     sensor: Annotated[str | None, Query(min_length=1)] = None,
@@ -147,6 +156,8 @@ async def sensor_log_timeline(
     What the sensor page on a probe draws its timeline from, narrowed by
     ``sensor``; without it every sensor, for the probe page's overview.
     Without ``since`` the last 24 hours, in buckets of ``bucket`` seconds.
+    A row somebody hid stays out until a run newer than the moment it was
+    hidden arrives.
     """
     end = _aware(until) if until else datetime.now(UTC)
     start = _aware(since) if since else end - DEFAULT_WINDOW
@@ -156,6 +167,9 @@ async def sensor_log_timeline(
         store.timeline,
         SensorLogFilter(since=start, until=end, probe=probe, sensor=sensor),
         bucket=timedelta(seconds=bucket),
+    )
+    streams = hidden_streams.visible(
+        streams, await hidden_streams.hidden_since(db, probe, sensor)
     )
     return SensorLogTimelineOut(
         probe=probe,
@@ -167,6 +181,7 @@ async def sensor_log_timeline(
         streams=[
             SensorLogTimelineStreamOut(
                 sensor=stream.sensor,
+                stream=stream.key,
                 ssid=stream.ssid,
                 ok=stream.ok,
                 error=stream.error,
@@ -177,6 +192,7 @@ async def sensor_log_timeline(
                 else None,
                 last_run=stream.last_run,
                 ended=stream.ended,
+                last_job=stream.last_job,
                 buckets=[
                     SensorLogBucketOut(
                         start=b.start,
@@ -190,6 +206,79 @@ async def sensor_log_timeline(
             )
             for stream in streams
         ],
+    )
+
+
+@router.get("/timeline/run", response_model=SensorLogSummaryOut)
+async def sensor_log_run_at(
+    store: SensorLogStoreDep,
+    _: ReadGuard,
+    probe: Annotated[str, Query(min_length=1)],
+    sensor: Annotated[str, Query(min_length=1)],
+    since: Annotated[datetime, Query()],
+    until: Annotated[datetime, Query()],
+    stream: Annotated[str, Query(max_length=255)] = "",
+) -> SensorLogSummaryOut:
+    """The run a click on one slice of a timeline row opens.
+
+    ``stream`` is the row's key from ``GET /sensor-logs/timeline``. The first
+    failure in the slice if it has one, else its first run; a slice without
+    a run of its own opens the run before it, whose state it is drawn in.
+    """
+    found = await asyncio.to_thread(
+        store.run_at, probe, sensor, stream, _aware(since), _aware(until)
+    )
+    if found is None:
+        raise NotFoundError.of("sensor_log", f"{probe}/{sensor}/{stream}")
+    return SensorLogSummaryOut.model_validate(found)
+
+
+@router.post("/hidden-streams", response_model=HiddenStreamOut)
+async def hide_sensor_log_stream(
+    payload: HideStreamIn,
+    db: DbSession,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_CONFIGURE))
+    ],
+) -> HiddenStreamOut:
+    """Take a row off a sensor's timeline until its next run.
+
+    The records stay in the sensor log. Changes what every user sees on the
+    page, so it takes the same permission as changing the sensor's setup.
+    """
+    record = (
+        await db.execute(
+            select(ProbeRecord).where(ProbeRecord.nats_username == payload.probe)
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        raise NotFoundError.of("probe", payload.probe)
+    row, previous = await hidden_streams.hide(
+        db,
+        record,
+        payload.sensor,
+        payload.stream,
+        now=datetime.now(UTC),
+        by=principal.username,
+    )
+    audit.record(
+        action="sensor_log.hide_stream",
+        object_type="probe",
+        object_id=record.id,
+        object_label=record.nats_username,
+        before={"hidden_at": previous.isoformat()} if previous else None,
+        after={
+            "sensor": payload.sensor,
+            "stream": payload.stream,
+            "hidden_at": row.hidden_at.isoformat(),
+        },
+    )
+    return HiddenStreamOut(
+        probe=record.nats_username,
+        sensor=row.sensor,
+        stream=row.stream,
+        hidden_at=row.hidden_at,
     )
 
 
@@ -249,6 +338,33 @@ async def get_sensor_log(
     if entry is None:
         raise NotFoundError.of("sensor_log", record_id)
     return SensorLogRecordOut.model_validate(entry)
+
+
+@router.get("/{record_id}/neighbours", response_model=SensorLogNeighboursOut)
+async def get_sensor_log_neighbours(
+    record_id: str,
+    store: SensorLogStoreDep,
+    _: ReadGuard,
+    failures_only: Annotated[bool, Query()] = False,
+) -> SensorLogNeighboursOut:
+    """The previous and next run of the same stream as one record.
+
+    Same probe, sensor and stream as the timeline draws them, over the whole
+    retention. ``failures_only`` skips passed runs; either side is null at
+    the end of the history.
+    """
+    found = await asyncio.to_thread(
+        store.neighbours, record_id, failures_only=failures_only
+    )
+    if found is None:
+        raise NotFoundError.of("sensor_log", record_id)
+    return SensorLogNeighboursOut(
+        record=SensorLogSummaryOut.model_validate(found.record),
+        previous=SensorLogSummaryOut.model_validate(found.previous)
+        if found.previous
+        else None,
+        next=SensorLogSummaryOut.model_validate(found.next) if found.next else None,
+    )
 
 
 def _aware(value: datetime) -> datetime:

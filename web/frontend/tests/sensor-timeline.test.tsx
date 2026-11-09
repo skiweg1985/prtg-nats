@@ -35,6 +35,7 @@ const TIMELINE: SensorTimeline = {
   streams: [
     {
       sensor: 'wlan-auth',
+      stream: 'Example-Corp',
       ssid: 'Example-Corp',
       ok: 98,
       error: 2,
@@ -54,9 +55,11 @@ const TIMELINE: SensorTimeline = {
       buckets: buckets(['ok', 'outlier', 'failing', 'none']),
       last_run: '2025-03-08T00:50:00Z',
       ended: false,
+      last_job: 'a1b2c3d4e5f6',
     },
     {
       sensor: 'wlan-auth',
+      stream: 'Example-Guest',
       ssid: 'Example-Guest',
       ok: 40,
       error: 0,
@@ -66,6 +69,7 @@ const TIMELINE: SensorTimeline = {
       buckets: buckets(['ok', 'ok', 'ok', 'ok']),
       last_run: '2025-03-08T00:55:00Z',
       ended: false,
+      last_job: '0f0e0d0c0b0a',
     },
   ],
 }

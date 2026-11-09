@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
+import { EyeOff } from 'lucide-react'
 
 import type {
   SensorTimeline,
@@ -9,7 +10,7 @@ import type {
   SensorTimelineState,
   SensorTimelineStream,
 } from '@/api/types'
-import { Badge } from '@/components/ui/primitives'
+import { Badge, IconButton } from '@/components/ui/primitives'
 import { formatDateTime, formatSpanEnd } from '@/utils/format'
 
 import { sensorLogHref } from './links'
@@ -44,7 +45,19 @@ function lookOf(bucket: SensorTimelineBucket, timeline: SensorTimeline): SliceLo
   return expired(bucket, timeline) ? 'expired' : bucket.state
 }
 
-export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
+/** What a slice opens, and what a row offers, where the page wires it up. */
+export interface TimelineActions {
+  /** A click on a slice; without it the slice opens its runs in the log. */
+  onOpen?: (stream: SensorTimelineStream, bucket: SensorTimelineBucket) => void
+  /** Offered per row where the user may hide one. */
+  onHide?: (stream: SensorTimelineStream) => void
+}
+
+export function SensorTimelineRows({
+  timeline,
+  onOpen,
+  onHide,
+}: { timeline: SensorTimeline } & TimelineActions) {
   const { t } = useTranslation()
   const signIns = timeline.sensor === 'wlan-auth'
   const buckets = timeline.streams[0]?.buckets ?? []
@@ -57,11 +70,13 @@ export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
           whatever the figures above them need. */}
       {timeline.streams.map((stream) => (
         <TimelineRow
-          key={`${stream.sensor}|${stream.ssid ?? ''}`}
+          key={`${stream.sensor}|${stream.stream}`}
           timeline={timeline}
           stream={stream}
           label={stream.ssid ?? stream.sensor}
           signIns={signIns}
+          onOpen={onOpen}
+          onHide={onHide}
         />
       ))}
       <Axis buckets={buckets} bucketSeconds={timeline.bucket_seconds} />
@@ -87,12 +102,14 @@ function TimelineRow({
   stream,
   label,
   signIns,
+  onOpen,
+  onHide,
 }: {
   timeline: SensorTimeline
   stream: SensorTimelineStream
   label: string
   signIns: boolean
-}) {
+} & TimelineActions) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   // The slice under the pointer or the keyboard; one tab stop per bar, the
@@ -115,7 +132,9 @@ function TimelineRow({
 
   function open(index: number) {
     const href = hrefOf(index)
-    if (href) navigate(href)
+    if (!href) return
+    if (onOpen) onOpen(stream, stream.buckets[index])
+    else navigate(href)
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -145,7 +164,16 @@ function TimelineRow({
             </Badge>
           )}
         </span>
-        <Figures stream={stream} signIns={signIns} />
+        <span className="flex items-center gap-2">
+          <Figures stream={stream} signIns={signIns} />
+          {onHide && (
+            <IconButton
+              icon={EyeOff}
+              label={t('probeSensor.hide.action', { network: label })}
+              onClick={() => onHide(stream)}
+            />
+          )}
+        </span>
       </div>
       <div className="relative">
         <div
