@@ -36,13 +36,19 @@ export const FAILURES_PARAM = 'failures'
 
 export function RunViewer() {
   const [params, setParams] = useSearchParams()
+  // The router renders a new address a moment later. A key pressed in
+  // between would otherwise build on the old one and drop what was just
+  // set, such as failures only.
+  const pending = useRef<URLSearchParams | null>(null)
+  if (pending.current?.toString() === params.toString()) pending.current = null
   const id = params.get(RUN_PARAM)
   const failuresOnly = params.get(FAILURES_PARAM) === '1'
   if (!id) return null
 
   function update(change: (next: URLSearchParams) => void) {
-    const next = new URLSearchParams(params)
+    const next = new URLSearchParams(pending.current ?? params)
     change(next)
+    pending.current = next
     // Stepping is reading, not navigating: Back leaves the viewer instead
     // of walking back through every run it showed.
     setParams(next, { replace: true })
@@ -88,8 +94,11 @@ function RunDialog({
   if (data) last.current = data
   const record = data ?? last.current
 
-  const previous = neighbours.data?.record.id === id ? neighbours.data.previous : null
-  const next = neighbours.data?.record.id === id ? neighbours.data.next : null
+  // Neighbours of another run, or without the filter just switched, would
+  // step to the wrong run.
+  const settled = neighbours.data?.record.id === id && !neighbours.isPlaceholderData
+  const previous = settled ? (neighbours.data?.previous ?? null) : null
+  const next = settled ? (neighbours.data?.next ?? null) : null
 
   // Read through a ref so the listener is added once and always steps from
   // the run shown now.
@@ -118,7 +127,6 @@ function RunDialog({
       ? `${record.sensor} · ${network}`
       : record.sensor
     : t('runViewer.title')
-  const settled = neighbours.data?.record.id === id
   const ends = failuresOnly
     ? { older: t('runViewer.noOlderFailure'), newer: t('runViewer.noNewerFailure') }
     : { older: t('runViewer.noOlderRun'), newer: t('runViewer.noNewerRun') }
