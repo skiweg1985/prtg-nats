@@ -42,6 +42,7 @@ import {
   Select,
   Skeleton,
   Spinner,
+  Summary,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -388,9 +389,9 @@ function InvitationForm({
         ) : null}
 
         <details className="border-rule-2 rounded-card border p-3">
-          <summary className="text-ink cursor-pointer text-sm font-medium">
+          <Summary className="text-ink text-sm font-medium">
             {t('probes.enroll.moreOptions')}
-          </summary>
+          </Summary>
           <div className="mt-3 space-y-4">
             <Field
               label={t('probes.enroll.fields.probeName')}

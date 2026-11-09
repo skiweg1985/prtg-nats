@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ArrowUpRight } from 'lucide-react'
 
 import { ApiError } from '@/api/client'
 import { useChangePassword, useLogin, useLogout, useSetup } from '@/api/hooks'
@@ -48,9 +49,10 @@ function CenteredCard({ title, children }: { title: string; children: ReactNode 
             href={guideHomeHref(i18n.resolvedLanguage)}
             target="_blank"
             rel="noopener"
-            className="text-ink-3 hover:text-ink underline-offset-2 hover:underline"
+            className="text-ink-3 hover:text-ink inline-flex items-center gap-1 underline-offset-2 hover:underline"
           >
-            {t('nav.guide')} <span aria-hidden>↗</span>
+            {t('nav.guide')}
+            <ArrowUpRight aria-hidden size={14} strokeWidth={1.75} className="shrink-0" />
           </a>
         </p>
       </div>

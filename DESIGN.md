@@ -32,9 +32,9 @@ typography:
     letterSpacing: "-0.02em"
   title:
     fontFamily: "Space Grotesk Variable, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "0.875rem"
+    fontSize: "1rem"
     fontWeight: 600
-    lineHeight: 1.25rem
+    lineHeight: 1.5rem
     letterSpacing: "-0.02em"
   body:
     fontFamily: "Inter Variable, ui-sans-serif, system-ui, -apple-system, sans-serif"
@@ -215,17 +215,24 @@ trade roles.
 ### Hierarchy
 
 - **Headline** (600, 1.125rem, 1.75rem): the page title, one per screen.
-- **Title** (600, 0.875rem, 1.25rem): card headers.
+- **Title** (600, 1rem, 1.5rem): card headers. Section headings inside a
+  card or dialog (h3) are 600 at body size; no heading is set smaller than
+  the text it heads.
 - **Body** (400, 0.875rem, 1.25rem): values, running text, button labels on
   medium buttons.
 - **Meta** (400, 0.75rem, 1rem): hints under values, small-button labels,
   timestamps.
 - **Value Mono** (400, 0.75rem): ids, addresses, versions, checksums,
   commands.
-- **Label** (400, 0.6875rem, 0.06em, uppercase): column headers and metadata
-  keys in tables.
+- **Label** (400, 0.6875rem, 0.06em, uppercase): table column heads, and
+  nothing else. The name of a value outside a table, a group heading in a
+  form, the step name in a job log line and the title of a copy block are
+  sentence case in Meta.
 
 ### Named Rules
+
+**The Table Head Rule.** Tracked mono capitals mark a table column head and
+nothing else. Anywhere else they shout over the data they name.
 
 **The Machine Value Rule.** If a machine produced it - an id, an address, a
 hash, a version - it is set in mono. If a person reads it as language, it is
@@ -335,14 +342,45 @@ neutral, healthy, caution, fault and accent tone, one meaning each.
 
 - **Style:** card surface, Control Edge outline, 6px radius, 6px by 10px
   padding, body type; mono for command-like fields.
+- **Label row:** the label in ink, then - where the machine knows the field
+  by another name - that name in Value Mono, Slate Meta; then a muted
+  "optional" on the exception. Required is the norm and carries no mark.
+- **Help:** behind an info button (Lucide `Info`, 14px, a 44px hit area)
+  at the end of the label row, never as a paragraph under the control. The
+  control references the text through `aria-describedby`, so a screen reader
+  gets it without opening anything.
+- **Below the control:** only facts about the value - an error, or the state
+  of what is stored ("stored, leave empty to keep it", a fingerprint).
 - **Focus:** the global Signal Blue outline.
 - **Error / Disabled:** a Fault Red line of meta text under the field; 50%
   opacity when disabled.
 
+### Popover
+
+The panel behind an info button or a compact table cell: card surface,
+hairline border, 10px radius, the floating-layer shadow, body text at most
+20rem wide (24rem for a hover card). It opens on hover after 250ms with a
+mouse, on keyboard focus, and on a click or tap, which also pins it; Escape,
+a press outside, the focus moving on, or the mouse leaving an unpinned panel
+close it. Below 640px it does not float: it expands inline under the thing
+it explains, on Inset Mist, because a floating panel on a phone covers the
+field being filled in. A plain `title` tooltip is not a substitute - it never
+opens for the keyboard or a thumb.
+
+A table cell that would stack details shows one line - the name, a version,
+a status dot - and puts the rest in a popover on that line: the tool column
+of a probe's sensor table is the model.
+
+### Disclosure
+
+A `<details>` opens on a summary with a drawn chevron that turns 90° when
+open, never the browser's own triangle.
+
 ### Navigation
 
 The left rail lists object types in body type; the active entry carries the
-Signal Blue wash and text. Section labels use the uppercase Label style.
+Signal Blue wash and text. Section labels are Meta in sentence case, medium
+weight.
 Below the medium breakpoint the rail becomes a menu button in the top bar.
 Tabs are a row of text buttons over a hairline; the active one is ink with a
 2px Signal Blue underline, and the row scrolls sideways on a phone.

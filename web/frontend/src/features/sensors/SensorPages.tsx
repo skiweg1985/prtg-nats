@@ -25,6 +25,7 @@ import {
   PageHeader,
   Select,
   Skeleton,
+  Summary,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, shortFingerprint } from '@/utils/format'
@@ -51,7 +52,7 @@ export function SensorListPage() {
       searchValue: (row) => `${row.name} ${row.description}`,
       cell: (row) => (
         <div className="min-w-0">
-          <p className="text-ink font-medium">{row.name}</p>
+          <p className="text-ink font-medium whitespace-nowrap">{row.name}</p>
           <SensorTraits sensor={row} />
         </div>
       ),
@@ -303,9 +304,9 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
         {sensor.readme && (
           <details onToggle={(event) => setReadmeOpen(event.currentTarget.open)}>
-            <summary className="text-ink-3 cursor-pointer text-xs">
+            <Summary className="text-ink-3 text-xs">
               {t('sensors.prtg.readme')}
-            </summary>
+            </Summary>
             {readmeOpen && (
               <div className="border-rule bg-surface rounded-inset mt-2 max-h-96 overflow-auto border p-3">
                 <Suspense
@@ -532,9 +533,9 @@ export function ParameterCard({
 
       {fromPrtg.length > 0 && (
         <details className="mt-4">
-          <summary className="text-ink-3 cursor-pointer text-xs">
+          <Summary className="text-ink-3 text-xs">
             {t('sensors.reference.fromPrtgSection')}
-          </summary>
+          </Summary>
           <ul className="text-ink-2 mt-2 space-y-1.5 text-xs">
             {fromPrtg.map((field) => (
               <li key={field.name} className="flex flex-wrap items-baseline gap-2">
@@ -552,9 +553,9 @@ export function ParameterCard({
 
       {moved.length > 0 && (
         <details className="mt-3">
-          <summary className="text-ink-3 cursor-pointer text-xs">
+          <Summary className="text-ink-3 text-xs">
             {t('sensors.reference.movedSection')}
-          </summary>
+          </Summary>
           <ul className="text-ink-3 mt-2 space-y-1 text-xs">
             {moved.map((field) => (
               <li key={field.name}>

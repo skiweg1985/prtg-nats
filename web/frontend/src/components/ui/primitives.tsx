@@ -1,7 +1,8 @@
 import clsx from 'clsx'
-import { ArrowLeft, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChevronRight, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type {
   ButtonHTMLAttributes,
@@ -534,6 +535,35 @@ export function Tabs<T extends string>({
   )
 }
 
+/** The line that opens a <details>, with a drawn chevron in place of the
+    browser's own triangle - a typed glyph in a font nobody chose. The chevron
+    turns through CSS on the details it belongs to (index.css), so a summary
+    nested in another open one does not turn with it. */
+export function Summary({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <summary
+      className={clsx(
+        'flex w-fit cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden',
+        className,
+      )}
+    >
+      <ChevronRight
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className="disclosure-chevron text-ink-3 shrink-0 transition-transform duration-(--dur-instant) ease-(--ease-out)"
+      />
+      {children}
+    </summary>
+  )
+}
+
 /** One spinner. Two features had grown their own, in two sizes. */
 export function Spinner({ className }: { className?: string }) {
   return (
@@ -564,7 +594,7 @@ export function Card({
     <section className={clsx('surface-card overflow-hidden', className)}>
       {(title || action) && (
         <header className="border-rule flex items-center justify-between gap-3 border-b px-4 py-2.5">
-          <h2 className="text-sm font-semibold">{title}</h2>
+          <h2 className="text-base font-semibold">{title}</h2>
           {action}
         </header>
       )}
@@ -963,8 +993,10 @@ export function Mono({
   )
 }
 
+/** The name of a value outside a table: small, muted, sentence case. The
+    tracked mono capitals of .label-mono belong to table column heads only. */
 export function Label({ children }: { children: ReactNode }) {
-  return <span className="label-mono">{children}</span>
+  return <span className="text-ink-3 text-xs">{children}</span>
 }
 
 export function EmptyState({
@@ -1032,9 +1064,11 @@ export function Banner({
  * decoration - a dialog the keyboard can leave but not re-enter is one an
  * operator has to reach for the mouse to answer.
  *
- * Deliberately not a portal: the overlay is fixed to the viewport and carries
- * the dialog z-index, so where it sits in the tree changes nothing about where
- * it is drawn.
+ * Rendered into the body through a portal. Fixed positioning alone was not
+ * enough: a dialog opened from inside a card sat in that card's stacking
+ * context and in its accessibility subtree, so a screen reader announced it
+ * as part of the card it covered. React still bubbles its events through the
+ * component tree, so callers notice nothing.
  */
 
 // Everything the browser would stop at on the way through, which is what the
@@ -1106,7 +1140,7 @@ export function Dialog({
     }
   }, [])
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
       onClick={(event) => {
@@ -1128,7 +1162,8 @@ export function Dialog({
       >
         <Card title={title}>{children}</Card>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

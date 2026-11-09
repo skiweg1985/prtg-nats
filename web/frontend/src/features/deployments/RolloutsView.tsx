@@ -40,7 +40,8 @@ export function RolloutsView() {
       searchValue: (row) => row.sensor_name,
       cell: (row) => (
         <span className="text-ink font-medium">
-          {row.sensor_name} <Mono className="text-ink-3">v{row.sensor_version}</Mono>
+          <span className="whitespace-nowrap">{row.sensor_name}</span>{' '}
+          <Mono className="text-ink-3">v{row.sensor_version}</Mono>
         </span>
       ),
     },

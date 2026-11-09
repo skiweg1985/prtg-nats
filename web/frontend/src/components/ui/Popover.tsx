@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
   type FocusEvent as ReactFocusEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -64,7 +65,7 @@ export interface PopoverTriggerProps {
   onPointerDown: () => void
   onFocus: () => void
   onBlur: (event: ReactFocusEvent) => void
-  onClick: () => void
+  onClick: (event: ReactMouseEvent) => void
 }
 
 export interface Popover {
@@ -207,7 +208,9 @@ export function usePopover({
       pressing.current = false
     },
     onBlur: onBlurOut,
-    onClick: () => {
+    onClick: (event) => {
+      // A popover inside a clickable table row opens itself, not the row.
+      event.stopPropagation()
       pressing.current = false
       clear()
       if (open && pinned) {
@@ -229,6 +232,9 @@ export function usePopover({
             onPointerEnter={(event) => onPanelPointer(event, true)}
             onPointerLeave={(event) => onPanelPointer(event, false)}
             onBlur={onBlurOut}
+            // Portalled, but React bubbles through the component tree: a
+            // click on the card would otherwise reach a clickable row.
+            onClick={(event) => event.stopPropagation()}
             style={place ?? { visibility: 'hidden', top: 0, left: 0 }}
             className={clsx(
               'border-rule bg-surface rounded-card text-ink-2 fixed z-(--z-popover) max-w-xs border px-3 py-2.5 text-sm shadow-md',
@@ -249,6 +255,7 @@ export function usePopover({
         id={id}
         tabIndex={-1}
         onBlur={onBlurOut}
+        onClick={(event) => event.stopPropagation()}
         className="bg-surface-2 rounded-control text-ink-2 px-3 py-2 text-sm outline-none"
       >
         {content}

@@ -43,34 +43,34 @@ export function ErrorDetails({
     <div className="rounded-card border-danger/30 bg-danger-soft overflow-hidden border">
       <div className="space-y-3 p-4">
         <div>
-          <p className="label-mono text-danger">{t('errors.whatFailed')}</p>
+          <p className="text-danger text-xs font-medium">{t('errors.whatFailed')}</p>
           <p className="text-ink mt-0.5 text-sm font-medium">{t(messageKey, params)}</p>
         </div>
 
         {target && (
           <div>
-            <p className="label-mono">{t('errors.affected')}</p>
+            <p className="text-ink-3 text-xs font-medium">{t('errors.affected')}</p>
             <Mono>{target}</Mono>
           </div>
         )}
 
         {step && (
           <div>
-            <p className="label-mono">{t('errors.atStep')}</p>
+            <p className="text-ink-3 text-xs font-medium">{t('errors.atStep')}</p>
             <p className="text-ink-2 text-sm">{t(`jobs.steps.${step}`, step)}</p>
           </div>
         )}
 
         {hasCause && causeKey && (
           <div>
-            <p className="label-mono">{t('errors.likelyCause')}</p>
+            <p className="text-ink-3 text-xs font-medium">{t('errors.likelyCause')}</p>
             <p className="text-ink-2 text-sm">{t(causeKey, params)}</p>
           </div>
         )}
 
         {hasAction && actionKey && (
           <div>
-            <p className="label-mono">{t('errors.recommendedAction')}</p>
+            <p className="text-ink-3 text-xs font-medium">{t('errors.recommendedAction')}</p>
             <p className="text-ink-2 text-sm">{t(actionKey, params)}</p>
           </div>
         )}
