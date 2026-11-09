@@ -550,15 +550,18 @@ def _checked_file(
                 ),
             )
         content = variant_files.as_pem(certificate)
-    elif field.kind == "key" and not variant_files.is_encrypted_key(content):
-        if variant_files.load_private_key(content) is None:
-            raise ValidationFailedError(
-                params={"key": field.name, "found": variant_files.describe(content)},
-                details=(
-                    f"{field.name} takes a private key, "
-                    f"but this is {variant_files.describe(content)}"
-                ),
-            )
+    elif (
+        field.kind == "key"
+        and not variant_files.is_encrypted_key(content)
+        and variant_files.load_private_key(content) is None
+    ):
+        raise ValidationFailedError(
+            params={"key": field.name, "found": variant_files.describe(content)},
+            details=(
+                f"{field.name} takes a private key, "
+                f"but this is {variant_files.describe(content)}"
+            ),
+        )
 
     _check_pair(schema, runtime, sensor, profile, field, content)
     return content
