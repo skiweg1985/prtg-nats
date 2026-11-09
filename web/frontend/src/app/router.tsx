@@ -17,6 +17,7 @@ import {
 } from '@/features/misc/Pages'
 import { EnrollWizard } from '@/features/probes/EnrollWizard'
 import { ProbeDetailPage } from '@/features/probes/ProbeDetailPage'
+import { ProbeSensorPage } from '@/features/probes/ProbeSensorPage'
 import { ProbeListPage } from '@/features/probes/ProbeListPage'
 import { SensorLogPage, SensorLogRecordPage } from '@/features/sensorLogs/SensorLogPages'
 import { SensorDetailPage, SensorListPage } from '@/features/sensors/SensorPages'
@@ -39,6 +40,7 @@ export function AppRoutes() {
           {/* Before the :probeId route, or "new" would be read as an id. */}
           <Route path="probes/new" element={<EnrollWizard />} />
           <Route path="probes/:probeId" element={<ProbeDetailPage />} />
+          <Route path="probes/:probeId/sensors/:sensorName" element={<ProbeSensorPage />} />
 
           <Route path="sensors" element={<SensorListPage />} />
           <Route path="sensors/:name" element={<SensorDetailPage />} />

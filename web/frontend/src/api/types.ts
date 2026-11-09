@@ -924,6 +924,38 @@ export interface SensorLogStream {
   more_segments: number
 }
 
+/** What a slice of the sensor timeline looks like at a glance. */
+export type SensorTimelineState = 'none' | 'ok' | 'outlier' | 'failing'
+
+export interface SensorTimelineBucket {
+  start: string
+  ok: number
+  error: number
+  state: SensorTimelineState
+  code: string | null
+}
+
+/** One network of a sensor over the window. */
+export interface SensorTimelineStream {
+  ssid: string | null
+  ok: number
+  error: number
+  success_rate: number | null
+  runs_per_hour: number | null
+  last_failure: SensorLogSummary | null
+  buckets: SensorTimelineBucket[]
+}
+
+export interface SensorTimeline {
+  probe: string
+  sensor: string
+  start: string
+  until: string
+  bucket_seconds: number
+  retained_since: string
+  streams: SensorTimelineStream[]
+}
+
 /** The time windows the log offers; the API defaults to the last day. */
 export type SensorLogRange = '1h' | '24h' | '7d' | '14d'
 

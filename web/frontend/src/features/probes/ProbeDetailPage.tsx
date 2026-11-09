@@ -1299,6 +1299,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         rows={sensors}
         columns={columns}
         rowKey={(row) => row.name}
+        rowHref={(row) => `/probes/${probeId}/sensors/${encodeURIComponent(row.name)}`}
         emptyTitle={t('probes.sensorsEmpty')}
         emptyAction={
           <PermissionGate permission="deployment.create">

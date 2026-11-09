@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import ConfigDict, Field
 
 from app.api.schemas.common import ApiModel
-from app.services.sensor_logs import SENSOR_NAME_PATTERN
+from app.services.sensor_logs import SENSOR_NAME_PATTERN, TimelineState
 
 RecordResult = Literal["ok", "error", "gap"]
 
@@ -100,3 +100,35 @@ class SensorLogStreamOut(ApiModel):
     results: dict[str, int]
     segments: list[SensorLogSegmentOut]
     more_segments: int
+
+
+class SensorLogBucketOut(ApiModel):
+    start: datetime
+    ok: int
+    error: int
+    state: TimelineState
+    code: str | None = None
+
+
+class SensorLogTimelineStreamOut(ApiModel):
+    ssid: str | None = None
+    ok: int
+    error: int
+    success_rate: float | None = None
+    runs_per_hour: float | None = None
+    last_failure: SensorLogSummaryOut | None = None
+    buckets: list[SensorLogBucketOut]
+
+
+class SensorLogTimelineOut(ApiModel):
+    """One sensor on one probe over a window, per network, in buckets."""
+
+    probe: str
+    sensor: str
+    start: datetime
+    until: datetime
+    bucket_seconds: int
+    # Older than this the retention has removed the records, so an empty
+    # bucket there says nothing about whether the probe measured.
+    retained_since: datetime
+    streams: list[SensorLogTimelineStreamOut]

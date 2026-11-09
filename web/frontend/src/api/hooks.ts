@@ -50,6 +50,7 @@ import type {
   SensorLogRange,
   SensorLogRecord,
   SensorLogStream,
+  SensorTimeline,
   SensorLogSummary,
   SensorProfile,
   SensorProfileDetail,
@@ -100,6 +101,8 @@ export const keys = {
     ['sensor-logs', 'list', filters, limit, offset] as const,
   sensorLog: (id: string) => ['sensor-logs', 'record', id] as const,
   sensorLogStreams: (probe: string) => ['sensor-logs', 'streams', probe] as const,
+  sensorLogTimeline: (probe: string, sensor: string) =>
+    ['sensor-logs', 'timeline', probe, sensor] as const,
 }
 
 // Jobs move; a dashboard that only updates on reload is a dashboard nobody
@@ -1222,6 +1225,27 @@ export function useSensorLogStreams(probe: string) {
         probe,
         since: rangeStart('24h').toISOString(),
       }),
+    placeholderData: (previous) => previous,
+  })
+}
+
+/**
+ * One sensor on one probe over the last day, per network, in 15-minute
+ * buckets. Refetched every minute rather than on each new run: a bucket is a
+ * quarter of an hour, and a run a minute would refold the whole day each time.
+ */
+export function useSensorLogTimeline(probe: string | undefined, sensor: string | undefined) {
+  return useQuery({
+    queryKey: keys.sensorLogTimeline(probe ?? '', sensor ?? ''),
+    queryFn: () =>
+      api.get<SensorTimeline>('/sensor-logs/timeline', {
+        probe,
+        sensor,
+        since: rangeStart('24h').toISOString(),
+        bucket: 900,
+      }),
+    enabled: Boolean(probe && sensor),
+    refetchInterval: 60_000,
     placeholderData: (previous) => previous,
   })
 }

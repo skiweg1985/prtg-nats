@@ -1,7 +1,7 @@
 ---
 title: REST API
 role: developer
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # REST API
@@ -664,6 +664,7 @@ Every route needs `sensor_log.read`, which every role holds.
 | --- | --- |
 | `GET /sensor-logs` | records, newest first, without their body |
 | `GET /sensor-logs/streams` | one probe's runs per sensor and network, runs in a row folded into segments |
+| `GET /sensor-logs/timeline` | one sensor's runs on one probe per network, sliced into buckets of equal size |
 | `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
 | `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
 
@@ -728,6 +729,50 @@ shape of a list item. `since` and `until` work as on the list, `segments`
 caps how many are returned per stream (default 8, up to 50), and
 `more_segments` counts the older ones left out. The records themselves stay
 at `GET /sensor-logs`.
+
+`GET /sensor-logs/timeline?probe=&sensor=` is what the sensor page on a probe
+draws its timeline from. It slices the runs of one sensor into buckets of
+`bucket` seconds (default 900, from 300 to 86400), one row per network:
+
+```json
+{
+  "probe": "mpp-probe-01",
+  "sensor": "wlan-auth",
+  "start": "2026-11-08T09:15:00Z",
+  "until": "2026-11-09T09:12:41Z",
+  "bucket_seconds": 900,
+  "retained_since": "2026-10-27T00:00:00Z",
+  "streams": [
+    {
+      "ssid": "Example-Corp",
+      "ok": 1076,
+      "error": 22,
+      "success_rate": 0.98,
+      "runs_per_hour": 52.3,
+      "last_failure": {...},
+      "buckets": [
+        {"start": "2026-11-08T09:15:00Z", "ok": 13, "error": 0, "state": "ok", "code": null}
+      ]
+    }
+  ]
+}
+```
+
+Buckets are aligned to multiples of their size, so `start` can lie before
+`since`. A bucket's `state` is `none` without a run, `ok` when every run
+passed, `outlier` when its only failures were single runs between passing
+ones, and `failing` when a failure lasted more than one run - or is the
+newest run, since nothing has cleared it yet. `code` is the most frequent
+error code in the bucket. A bucket without a run of its own that is still
+within one and a half of the stream's usual intervals after the run before it
+carries that run's state, so a sensor that runs every half hour does not leave
+every other bucket empty; only a longer pause shows as `none`. `success_rate` counts passed runs over all runs and
+is `null` without one; `runs_per_hour` is taken over the buckets the runs
+cover, so a probe that was offline for part of the window does not read as
+measuring less often. `last_failure` has the shape of a list item. Older than
+`retained_since` the retention has removed the records, so an empty bucket
+there says nothing about the probe. A window of more than 1000 buckets is cut
+to the newest 1000.
 
 The event stream sends only what arrives while it is open - a page loads the
 list first and adds what the stream announces. `?probe=` and `?sensor=` narrow

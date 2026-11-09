@@ -1740,5 +1740,30 @@
     "previous": "Previous",
     "next": "Next",
     "page": "Page {{page}} of {{pages}}"
+  },
+  "probeSensor": {
+    "onProbe": "on {{probe}}",
+    "deployment": "Deployment",
+    "version": "Version",
+    "versions": "{{installed}} installed · {{desired}} expected",
+    "notOnProbe": "This sensor is not deployed on this probe",
+    "timelineTitle": "Last 24 hours",
+    "successRate": "Success rate",
+    "runsPerHour": "Runs per hour",
+    "signInsPerHour": "Sign-ins per hour",
+    "perHourRuns_one": "{{count}} run/h",
+    "perHourRuns_other": "{{count}} runs/h",
+    "perHourSignIns_one": "{{count}} sign-in/h",
+    "perHourSignIns_other": "{{count}} sign-ins/h",
+    "lastFailure": "Last failure",
+    "lastFailureAt": "last failure {{time}} · {{code}}",
+    "noFailure": "no failure",
+    "rowLabel": "{{network}}: {{ok}} OK, {{error}} failed",
+    "legend": {
+      "ok": "OK",
+      "outlier": "Single failure",
+      "failing": "Failure",
+      "none": "No run"
+    }
   }
 }
