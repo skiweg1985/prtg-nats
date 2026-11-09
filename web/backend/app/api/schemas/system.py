@@ -237,6 +237,7 @@ class ProfileFieldOut(ApiModel):
     label_key: str | None = None
     description_key: str | None = None
     groups: list[str] = Field(default_factory=list)
+    required_unless: str | None = None
     sensitive: bool = False
     maps_to: str | None = None
 
@@ -254,6 +255,7 @@ class FileFieldOut(ApiModel):
     label_key: str | None = None
     description_key: str | None = None
     groups: list[str] = Field(default_factory=list)
+    required_unless: str | None = None
     maps_to: str | None = None
 
 

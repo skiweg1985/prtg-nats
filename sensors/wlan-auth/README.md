@@ -142,9 +142,19 @@ Allowed are `AUTH`, `SSID`, `PSK`, `IDENTITY`, `PASSWORD`,
 **What each method needs.** `psk` takes `PSK`. Both enterprise methods take
 `IDENTITY` and `CA_CERT`: the user name because the RADIUS server is asked
 about a user either way, the authority because the sensor refuses to run
-against an unverified server unless `--no-verify-server` is given in PRTG.
-`peap` adds `PASSWORD`, `eap-tls` adds `CLIENT_CERT` and `PRIVATE_KEY`,
-plus `PRIVATE_KEY_PASSWD` where the key file is encrypted.
+against an unverified server. `NO_VERIFY_SERVER=true` is the decision not
+to verify it, and then `CA_CERT` may stay empty — for a first test, or
+where the authority is not at hand. `peap` adds `PASSWORD`, `eap-tls` adds
+`CLIENT_CERT` and `PRIVATE_KEY`, plus `PRIVATE_KEY_PASSWD` where the key
+file is encrypted.
+
+**`CA_CERT` takes a bundle.** Several certificates may share the file, so
+an intermediate and its root travel together — which is what a two-tier
+Windows PKI needs, and what works whether or not the RADIUS server sends
+its intermediate along. The authority alone accepts every certificate it
+ever signed, though: `DOMAIN_SUFFIX_MATCH` is what pins the server itself,
+and without it another host of the same PKI can stand in for the RADIUS
+server.
 
 `PRIVATE_KEY_PASSWD` is the passphrase of the key file, not a user
 password - EAP-TLS proves the identity with the certificate alone. A key
