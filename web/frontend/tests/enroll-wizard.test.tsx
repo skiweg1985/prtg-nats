@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -179,11 +180,11 @@ describe('EnrollWizard', () => {
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByText(/more options/i))
-    await user.type(screen.getByLabelText(/different name in prtg/i), 'Testprobe 191')
+    await user.type(screen.getByLabelText(/different name in prtg/i, FIELD), 'Testprobe 191')
 
     // The space is the whole point: on a real installation this reached the
     // job and failed after five successful steps.
-    expect(await screen.findByText(/no spaces/i)).toBeInTheDocument()
+    expect(await screen.findByText(/and no spaces/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /create the command/i })).toBeDisabled()
     expect(createdBodies).toHaveLength(0)
   })
@@ -290,7 +291,7 @@ describe('EnrollWizard', () => {
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByText(/more options/i))
-    await user.type(screen.getByLabelText(/different name in prtg/i), 'berlin-office')
+    await user.type(screen.getByLabelText(/different name in prtg/i, FIELD), 'berlin-office')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
     await screen.findByText(ISSUED.command)
 
@@ -499,7 +500,7 @@ describe('EnrollWizard', () => {
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(screen.getByText(/more options/i))
-    await user.selectOptions(screen.getByLabelText(/valid for/i), '240')
+    await user.selectOptions(screen.getByLabelText(/valid for/i, FIELD), '240')
     await user.click(screen.getByRole('button', { name: /create the command/i }))
 
     expect(await screen.findByText(ISSUED.command)).toBeInTheDocument()
@@ -556,7 +557,7 @@ describe('EnrollWizard', () => {
     // Nothing to enroll over, and the server would refuse the request - so the
     // question is not asked.
     expect(
-      screen.queryByLabelText(/cannot reach the platform directly/i),
+      screen.queryByLabelText(/cannot reach the platform directly/i, FIELD),
     ).not.toBeInTheDocument()
   })
 
@@ -568,7 +569,7 @@ describe('EnrollWizard', () => {
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(
-      await screen.findByLabelText(/cannot reach the platform directly/i),
+      await screen.findByLabelText(/cannot reach the platform directly/i, FIELD),
     )
 
     // The script carries the probe's private key in this case, which an
@@ -588,7 +589,7 @@ describe('EnrollWizard', () => {
 
     await user.type(await screen.findByPlaceholderText('mpp-berlin-01'), 'mpp-berlin')
     await user.click(
-      await screen.findByLabelText(/cannot reach the platform directly/i),
+      await screen.findByLabelText(/cannot reach the platform directly/i, FIELD),
     )
     await user.click(screen.getByRole('button', { name: /create the command/i }))
 

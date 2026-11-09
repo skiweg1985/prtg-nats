@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -228,15 +229,15 @@ describe('the sensor log page', () => {
     wrap('/sensor-logs')
     await screen.findByText('No runs in this period')
 
-    await user.selectOptions(screen.getByLabelText('Result'), 'error')
+    await user.selectOptions(screen.getByLabelText('Result', FIELD), 'error')
     await screen.findByText('No runs match these filters')
     expect(lastRequest().get('result')).toBe('error')
 
-    await user.selectOptions(screen.getByLabelText('Probe'), 'mpp-berlin-01')
-    await user.selectOptions(screen.getByLabelText('Sensor'), 'wlan-auth')
-    await user.type(screen.getByLabelText('Network (SSID)'), 'corp-wifi{Enter}')
-    await user.selectOptions(screen.getByLabelText('Period'), '1h')
-    await user.type(screen.getByLabelText('Search output'), 'EAP-TLS')
+    await user.selectOptions(screen.getByLabelText('Probe', FIELD), 'mpp-berlin-01')
+    await user.selectOptions(screen.getByLabelText('Sensor', FIELD), 'wlan-auth')
+    await user.type(screen.getByLabelText('Network (SSID)', FIELD), 'corp-wifi{Enter}')
+    await user.selectOptions(screen.getByLabelText('Period', FIELD), '1h')
+    await user.type(screen.getByLabelText('Search output', FIELD), 'EAP-TLS')
 
     await waitFor(() => expect(lastRequest().get('q')).toBe('EAP-TLS'))
     const last = lastRequest()
@@ -282,7 +283,7 @@ describe('the sensor log page', () => {
 
     expect(lastRequest().get('result')).toBe('gap')
     expect(lastRequest().get('ssid')).toBe('guest')
-    expect(screen.getByLabelText('Period')).toHaveValue('7d')
+    expect(screen.getByLabelText('Period', FIELD)).toHaveValue('7d')
   })
 
   it('takes an exact window from the address and drops it for a chosen range', async () => {
@@ -291,12 +292,12 @@ describe('the sensor log page', () => {
 
     expect(lastRequest().get('since')).toBe('2026-11-08T08:00:00.000Z')
     expect(lastRequest().get('until')).toBe('2026-11-08T08:15:00.000Z')
-    const period = screen.getByLabelText('Period')
+    const period = screen.getByLabelText('Period', FIELD)
     expect(period).toHaveValue('custom')
 
     await userEvent.selectOptions(period, '7d')
     await waitFor(() => expect(lastRequest().get('until')).toBeNull())
-    expect(screen.getByLabelText('Period')).toHaveValue('7d')
+    expect(screen.getByLabelText('Period', FIELD)).toHaveValue('7d')
   })
 
   it('opens a run onto its raw output', async () => {

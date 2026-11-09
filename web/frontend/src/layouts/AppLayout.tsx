@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { ArrowUpRight } from 'lucide-react'
 
 import { useLogout } from '@/api/hooks'
 import { useLastSearch, useNavigationTracking } from '@/app/navigation'
@@ -182,7 +183,7 @@ function NavSections() {
 
       {visible(INFRASTRUCTURE).length > 0 && (
         <>
-          <p className="label-mono mt-5 mb-1.5 px-2">{t('nav.infrastructure')}</p>
+          <p className="text-ink-3 mt-5 mb-1.5 px-2 text-xs font-medium">{t('nav.infrastructure')}</p>
           <NavGroup entries={visible(INFRASTRUCTURE)} />
         </>
       )}
@@ -208,9 +209,10 @@ function GuideLink() {
       href={guideHref(location.pathname, i18n.resolvedLanguage)}
       target="_blank"
       rel="noopener"
-      className="rounded-control text-ink-2 hover:bg-surface-2 hover:text-ink mt-0.5 block px-2.5 py-1.5 text-sm transition-colors duration-100"
+      className="rounded-control text-ink-2 hover:bg-surface-2 hover:text-ink mt-0.5 flex items-center gap-1 px-2.5 py-1.5 text-sm transition-colors duration-100"
     >
-      {t('nav.guide')} <span aria-hidden>↗</span>
+      {t('nav.guide')}
+            <ArrowUpRight aria-hidden size={14} strokeWidth={1.75} className="shrink-0" />
     </a>
   )
 }

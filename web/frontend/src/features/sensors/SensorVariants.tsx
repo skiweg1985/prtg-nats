@@ -1,4 +1,4 @@
-import { Children, useState } from 'react'
+import { Children, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -30,17 +30,25 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
+import { InfoButton, usePopover } from '@/components/ui/Popover'
 import { formatBytes, formatDateTime, shortFingerprint } from '@/utils/format'
 import { useProbeNames } from '@/features/probes/probeName'
 
-import { fieldDescription, fieldLabel } from './parameterFields'
+import { choiceLabel, fieldDescription, fieldLabel } from './parameterFields'
 
 /** fieldDescription returns '' where this dialog wants undefined. */
 function hintOf(
   t: Parameters<typeof fieldDescription>[0],
   field: Parameters<typeof fieldDescription>[1],
+  sensor: string,
 ) {
-  return fieldDescription(t, field) || undefined
+  return fieldDescription(t, field, sensor) || undefined
+}
+
+/** The profile key as the dialog shows it beside the label: small and muted,
+    and not in the capitals that used to be the label itself. */
+function keyName(field: { name: string }) {
+  return field.name.toLowerCase()
 }
 
 /** A variant name has to survive as a file name and as a PRTG parameter. */
@@ -326,7 +334,7 @@ function VariantDialog({
         !files[field.name] &&
         !stored?.files.some((entry) => entry.key === field.name),
     ),
-  ].map((field) => field.name)
+  ].map((field) => fieldLabel(t, field, sensorName))
 
   function update(key: string, value: string) {
     setTouched(true)
@@ -404,6 +412,7 @@ function VariantDialog({
               {visibleSettings.map((field) => (
                 <ProfileInput
                   key={field.name}
+                  sensorName={sensorName}
                   field={field}
                   value={values[field.name] ?? ''}
                   required={required(field)}
@@ -418,11 +427,14 @@ function VariantDialog({
               {visibleCredentials.map((field) => (
                 <Field
                   key={field.name}
-                  label={fieldLabel(t, field) + (required(field) ? ' *' : '')}
-                  hint={
+                  label={fieldLabel(t, field, sensorName)}
+                  technicalName={keyName(field)}
+                  optional={!required(field)}
+                  hint={hintOf(t, field, sensorName)}
+                  note={
                     stored?.secrets_set.includes(field.name)
                       ? t('sensors.variants.secretStored')
-                      : hintOf(t, field)
+                      : undefined
                   }
                 >
                   <Input
@@ -450,17 +462,18 @@ function VariantDialog({
                 return (
                   <FilePicker
                     key={field.name}
-                    label={fieldLabel(t, field) + (required(field) ? ' *' : '')}
+                    label={fieldLabel(t, field, sensorName)}
+                    technicalName={keyName(field)}
+                    optional={!required(field)}
                     fileName={files[field.name]?.name}
                     prompt={t('sensors.variants.fileChoose')}
-                    hint={
-                      files[field.name]
-                        ? undefined
-                        : uploaded
-                          ? t('sensors.variants.fileStored', {
-                              fingerprint: shortFingerprint(uploaded.sha256),
-                            })
-                          : hintOf(t, field)
+                    hint={hintOf(t, field, sensorName)}
+                    note={
+                      !files[field.name] && uploaded
+                        ? t('sensors.variants.fileStored', {
+                            fingerprint: shortFingerprint(uploaded.sha256),
+                          })
+                        : undefined
                     }
                     onSelect={(file) => readFile(field, file)}
                   />
@@ -469,8 +482,11 @@ function VariantDialog({
             </FieldGroup>
           )}
 
-          <FieldGroup title={t('sensors.variants.probes')}>
-            <p className="text-ink-3 text-xs">{t('sensors.variants.probesHint')}</p>
+          <FieldGroup
+            title={t('sensors.variants.probes')}
+            hint={t('sensors.variants.probesHint')}
+            stacked
+          >
             <div className="max-h-40 space-y-1 overflow-auto">
               {(probes ?? []).map((probe) => (
                 <label key={probe.id} className="flex items-center gap-2 text-sm">
@@ -516,7 +532,22 @@ function VariantDialog({
   )
 }
 
-function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function FieldGroup({
+  title,
+  hint,
+  stacked = false,
+  children,
+}: {
+  title: string
+  /** What the group decides, behind the (i) beside its heading. */
+  hint?: ReactNode
+  /** One column: for a list, which a two-column grid would set beside
+      whatever else the group holds. */
+  stacked?: boolean
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+  const popover = usePopover({ content: hint })
   // Which fields apply depends on the chosen method, so a section lands on an
   // odd number often enough: EAP-TLS leaves BSSID alone in its row and the key
   // passphrase alone in the next. The empty half then reads as a field that
@@ -525,13 +556,20 @@ function FieldGroup({ title, children }: { title: string; children: React.ReactN
   const odd = Children.count(children) % 2 === 1
   return (
     <section className="space-y-2">
-      <h3 className="text-ink-2 text-xs font-semibold tracking-wide uppercase">
-        {title}
-      </h3>
+      {/* A quiet heading in sentence case: tracked capitals are for table
+          heads only (DESIGN.md), and here they shouted over the fields. */}
+      <div className="flex items-center gap-1.5">
+        <h3 className="text-ink text-sm font-semibold">{title}</h3>
+        {hint && (
+          <InfoButton label={t('common.helpFor', { label: title })} popover={popover} />
+        )}
+      </div>
+      {popover.inline}
       <div
         className={clsx(
-          'grid gap-3 sm:grid-cols-2',
-          odd && 'sm:[&>*:last-child]:col-span-2',
+          'grid gap-3',
+          !stacked && 'sm:grid-cols-2',
+          !stacked && odd && 'sm:[&>*:last-child]:col-span-2',
         )}
       >
         {children}
@@ -549,11 +587,13 @@ function isSwitchedOn(value: string | undefined): boolean {
 }
 
 function ProfileInput({
+  sensorName,
   field,
   value,
   required,
   onChange,
 }: {
+  sensorName: string
   field: ProfileField
   value: string
   /** Decided by the form, because it can depend on the other values. */
@@ -566,8 +606,9 @@ function ProfileInput({
   if (field.type === 'boolean') {
     return (
       <CheckboxField
-        label={fieldLabel(t, field)}
-        hint={hintOf(t, field)}
+        label={fieldLabel(t, field, sensorName)}
+        technicalName={keyName(field)}
+        hint={hintOf(t, field, sensorName)}
         checked={isSwitchedOn(value)}
         onChange={(checked) => onChange(checked ? 'true' : '')}
       />
@@ -575,19 +616,17 @@ function ProfileInput({
   }
   return (
     <Field
-      label={fieldLabel(t, field) + (required ? ' *' : '')}
-      hint={hintOf(t, field)}
+      label={fieldLabel(t, field, sensorName)}
+      technicalName={keyName(field)}
+      optional={!required}
+      hint={hintOf(t, field, sensorName)}
     >
       {field.type === 'choice' ? (
-        <Select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
-        >
+        <Select value={value} onChange={(event) => onChange(event.target.value)}>
           <option value="">—</option>
           {field.choices?.map((choice) => (
             <option key={choice} value={choice}>
-              {choice}
+              {choiceLabel(t, field, choice, sensorName)}
             </option>
           ))}
         </Select>

@@ -21,6 +21,7 @@ import {
   Mono,
   Select,
   Skeleton,
+  CheckboxField,
 } from '@/components/ui/primitives'
 import { useProbeNames } from '@/features/probes/probeName'
 
@@ -258,19 +259,12 @@ export function DeployDialog({
           />
         )}
 
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={dryRun}
-            onChange={(event) => setDryRun(event.target.checked)}
-            className="mt-1"
-          />
-          <span>
-            <span className="text-ink font-medium">{t('deployments.dryRun')}</span>
-            <br />
-            <span className="text-ink-3 text-xs">{t('deployments.dryRunHint')}</span>
-          </span>
-        </label>
+        <CheckboxField
+          label={t('deployments.dryRun')}
+          hint={t('deployments.dryRunHint')}
+          checked={dryRun}
+          onChange={setDryRun}
+        />
 
         {create.error && <ErrorDetails error={create.error} />}
 

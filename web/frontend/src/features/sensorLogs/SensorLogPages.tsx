@@ -16,6 +16,7 @@ import {
   Button,
   Card,
   DetailRow,
+  FilterChip,
   Input,
   Mono,
   PageHeader,
@@ -51,6 +52,7 @@ function filtersFrom(params: URLSearchParams): SensorLogFilters {
     probe: params.get('probe') || undefined,
     sensor: params.get('sensor') || undefined,
     ssid: params.get('ssid') || undefined,
+    variant: params.get('variant') || undefined,
     result,
     since: validTime(params.get('since')),
     until: validTime(params.get('until')),
@@ -115,6 +117,7 @@ export function SensorLogPage() {
     filters.probe ||
       filters.sensor ||
       filters.ssid ||
+      filters.variant ||
       filters.result ||
       filters.q ||
       filters.since ||
@@ -216,6 +219,14 @@ export function SensorLogPage() {
             value={filters.ssid ?? ''}
             onCommit={(value) => setFilter('ssid', value)}
           />
+          {/* Only reachable from a timeline row of one variant, so it is
+              shown to be taken off rather than offered as a field. */}
+          {filters.variant && (
+            <FilterChip pressed onClick={() => setFilter('variant', '')}>
+              {t('sensorLogs.filters.variant', { variant: filters.variant })}
+              <X aria-hidden className="ml-1 size-3" />
+            </FilterChip>
+          )}
           {filtered && (
             <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
               {t('common.clearFilters')}

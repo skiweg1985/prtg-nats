@@ -42,6 +42,7 @@ import {
   Select,
   Skeleton,
   Spinner,
+  Summary,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -364,22 +365,12 @@ function InvitationForm({
         )}
 
         {overlayEnabled ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={overlayBootstrap}
-              onChange={(event) => setOverlayBootstrap(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">
-                {t('probes.enroll.fields.overlayBootstrap')}
-              </span>
-              <span className="text-ink-3 block text-xs">
-                {t('probes.enroll.fields.overlayBootstrapHint')}
-              </span>
-            </span>
-          </label>
+          <CheckboxField
+            label={t('probes.enroll.fields.overlayBootstrap')}
+            hint={t('probes.enroll.fields.overlayBootstrapHint')}
+            checked={overlayBootstrap}
+            onChange={setOverlayBootstrap}
+          />
         ) : null}
         {overlayEnabled && overlayBootstrap ? (
           <Banner tone="warn">
@@ -388,13 +379,14 @@ function InvitationForm({
         ) : null}
 
         <details className="border-rule-2 rounded-card border p-3">
-          <summary className="text-ink cursor-pointer text-sm font-medium">
+          <Summary className="text-ink text-sm font-medium">
             {t('probes.enroll.moreOptions')}
-          </summary>
+          </Summary>
           <div className="mt-3 space-y-4">
             <Field
               label={t('probes.enroll.fields.probeName')}
               hint={t('probes.enroll.fields.probeNameHint')}
+              optional
               error={probeNameOk ? undefined : t('probes.enroll.errors.probeNameShape')}
             >
               <Input

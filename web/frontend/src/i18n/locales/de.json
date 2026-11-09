@@ -65,7 +65,9 @@
     "selectAll": "Alle auswählen",
     "clearSelection": "Auswahl aufheben",
     "selectedHidden": "{{count}} ausgewählt, {{hidden}} davon ausgeblendet",
-    "breadcrumb": "Navigationspfad"
+    "breadcrumb": "Navigationspfad",
+    "optional": "optional",
+    "helpFor": "Hilfe zu {{label}}"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -77,7 +79,7 @@
     "changePassword": "Passwort ändern",
     "signInTitle": "Anmeldung bei {{name}}",
     "setupTitle": "Ersten Administrator anlegen",
-    "setupIntro": "Es existiert noch kein Konto. Das hier angelegte Konto verwaltet die Plattform.",
+    "setupIntro": "Noch gibt es kein Konto; das hier angelegte verwaltet die Plattform.",
     "displayName": "Anzeigename",
     "setupCode": "Einrichtungscode",
     "setupCodeHint": "Steht am Ende von „sudo ./prtg-nats setup“. Einen neuen gibt „sudo ./prtg-nats setup-code“ auf dem Server aus.",
@@ -245,13 +247,13 @@
       "subtitle": "Die Probe bindet sich selbst ein; du führst einen Befehl auf ihr aus.",
       "step1": {
         "title": "1. Was aus dieser Probe wird",
-        "intro": "Bis hierher passiert auf der Probe nichts. Es geht nur um den Namen, den sie tragen wird, und das NATS-Konto, mit dem sie sich verbindet.",
+        "intro": "Auf der Probe passiert hier noch nichts, es geht nur um ihren Namen und ihr NATS-Konto.",
         "submit": "Befehl erzeugen",
         "creating": "Wird erzeugt…"
       },
       "step2": {
         "title": "2. Diesen Befehl auf der Probe ausführen",
-        "intro": "Kopiere den Befehl und führe ihn auf dem Host aus, als Benutzer mit sudo-Recht. Er holt die CA, prüft den Fingerabdruck, installiert den Management-Zugang und meldet zurück.",
+        "intro": "Führe den Befehl als Benutzer mit sudo-Recht auf dem Host aus; er richtet den Management-Zugang ein und meldet sich zurück.",
         "copy": "Kopieren",
         "account": "NATS-Konto",
         "caFingerprint": "CA-Fingerabdruck",
@@ -283,7 +285,7 @@
       },
       "step3": {
         "title": "3. Die Plattform übernimmt",
-        "intro": "Der Host hat sich gemeldet. Ab hier hinterlegt die Plattform seinen Hostschlüssel, legt das Konto an, schreibt das Inventar und konfiguriert die Probe.",
+        "intro": "Der Host hat sich gemeldet, jetzt richtet die Plattform die Probe ein.",
         "doneTitle": "Die Probe ist eingebunden",
         "doneBody": "Sie verbindet sich ab jetzt selbst mit NATS. Sensoren lassen sich auf ihr ausrollen wie auf jeder anderen Probe.",
         "donePrtg": "In PRTG fehlen noch zwei Schritte: den Access Key in die Access-Key-Liste des PRTG-Core eintragen und die Probe genehmigen. Der Key steht auf der Probe-Seite unter „PRTG Access Key“.",
@@ -373,8 +375,10 @@
       "notVerified": "Nicht verifiziert",
       "managedVersions": "Installiert {{installed}} · Soll {{expected}}",
       "systemVersions": "Installiert {{installed}} · Minimum {{expected}}",
-      "managedSha256": "SHA-256 {{installed}} → {{expected}}",
-      "systemSha256": "SHA-256 {{installed}}"
+      "platform": "Plattform",
+      "path": "Pfad",
+      "version": "Version",
+      "details": "{{tool}}, {{state}}: Details anzeigen"
     },
     "variants": {
       "title": "Gehaltene Varianten",
@@ -427,7 +431,7 @@
       "unlinkTitle": "Verknüpfung mit PRTG lösen?",
       "listMissing": "Namen in PRTG fehlen: {{reason}}",
       "dialogTitle": "Mit der Probe in PRTG verknüpfen",
-      "dialogIntro": "Wähle diese Probe so, wie PRTG sie führt. Probes, die schon mit einer anderen Probe hier verknüpft sind, stehen nicht in der Liste. In PRTG wird nichts geändert.",
+      "dialogIntro": "Wähle die Probe so, wie PRTG sie führt; in PRTG wird nichts geändert.",
       "suggested": "Gleicher Name wie bei der Einbindung",
       "noCandidates": "PRTG führt keine Probe, die noch frei ist.",
       "manual": "Objekt-Id",
@@ -486,13 +490,13 @@
     "deployTo": "Auf Probes ausrollen",
     "parameters": "Parameter",
     "parametersIntro": "Parameterzeile zusammenstellen und anschließend in die PRTG-Sensoreinstellungen einfügen.",
-    "parametersIntroVariants": "Mit einer Variante oben reicht in PRTG ihr Name. Selbst zusammenstellen musst du die Zeile nur ohne Variante.",
+    "parametersIntroVariants": "Mit einer Variante oben braucht PRTG nur ihren Namen; die Zeile selbst zusammenstellen musst du nur ohne.",
     "parametersResult": "Parameterzeile für PRTG",
     "parametersBuild": "Parameterzeile selbst zusammenstellen ({{count}} Parameter)",
     "parametersMissing": "Es fehlen noch Pflichtangaben: {{fields}}",
     "reference": {
       "recommendedLine": "Empfohlener Anfang der Parameterzeile",
-      "fromVariant": "Aus Variante: {{key}}",
+      "fromVariant": "Eine Variante bringt diesen Wert mit; dann kann er hier fehlen.",
       "movedSection": "Verschobene Parameter (werden abgelehnt)",
       "fromPrtgSection": "Von PRTG belegte Parameter"
     },
@@ -502,7 +506,7 @@
     "remove": "Entfernen",
     "variants": {
       "title": "Varianten",
-      "intro": "Eine Variante hält Einstellungen, Zugangsdaten und Dateien für einen Zweck – etwa eine SSID oder einen Standort. In PRTG wird daraus ein eigener Sensor mit einem einzigen Parameter.",
+      "intro": "In PRTG wird jede Variante zu einem eigenen Sensor mit einem einzigen Parameter.",
       "empty": "Noch keine Variante angelegt.",
       "add": "Variante anlegen",
       "addTitle": "Neue Variante",
@@ -532,7 +536,7 @@
     "requirements": "Voraussetzungen",
     "prtg": {
       "title": "In PRTG",
-      "intro": "Das Sensorobjekt entsteht in PRTG als Script-v2-Sensor auf dem Gerät der Probe. Im Skript-Auswahlfeld steht dieser Name:",
+      "intro": "Lege in PRTG auf dem Gerät der Probe einen Script-v2-Sensor an und wähle diesen Namen:",
       "parametersHint": "Die Parameterzeile liefert der Baukasten unten; bei Varianten steht sie an der jeweiligen Variante.",
       "readme": "Anleitung des Sensors (README)"
     },
@@ -1036,7 +1040,7 @@
         "deployedTo": "Auf Probes"
       },
       "host": "Adresse",
-      "addIntro": "Erst wird der Host geprüft, dann richtet die Plattform den Messpunkt einmalig per SSH selbst ein. Sie behält nur einen eng begrenzten Zugang; die Zugangsdaten von hier werden nicht gespeichert.",
+      "addIntro": "Die Plattform prüft den Host und richtet den Messpunkt dann einmalig per SSH selbst ein.",
       "addTitle": "Messpunkt einrichten",
       "adminHint": "Ein Konto, das auf dem Host root werden darf. Wird nur für diese eine Verbindung benutzt.",
       "adminUser": "Administrator",
@@ -1059,10 +1063,10 @@
       "publicKey": "Öffentlicher Schlüssel",
       "publicKeyHint": "Die public.pem des Messpunkts, komplett mit BEGIN- und END-Zeile eingefügt. Ohne sie können die Probes sich nicht anmelden; ein OpenSSH-Schlüssel (ssh-rsa AAAAB3…) ist ein anderes Format und funktioniert nicht.",
       "register": "Externen Messpunkt eintragen",
-      "registerIntro": "Für einen Host, den jemand anderes betreibt: Es wird nichts installiert und nichts kontaktiert. Nur der Eintrag hier entsteht, damit die Probes ihn nutzen können.",
+      "registerIntro": "Für einen Host, den jemand anderes betreibt: Es entsteht nur der Eintrag hier, installiert wird nichts.",
       "registerTitle": "Externen Messpunkt eintragen",
       "setupHelp": "Wie der Betreiber diesen Messpunkt einrichtet",
-      "setupHelpIntro": "Dieser Host wird von hier aus nicht angefasst. Wer dort root ist, führt das Folgende aus - oder setup-iperf3-endpoint.sh aus dem Repository, das dasselbe tut und sich selbst prüft.",
+      "setupHelpIntro": "Wer auf dem Host root ist, führt das Folgende einmal aus - oder setup-iperf3-endpoint.sh aus dem Repository, das dasselbe tut.",
       "setupHelpService": "iperf3 speichert kein Passwort, nur den SHA-256 über „{user}passwort“, und entschlüsselt mit dem privaten Schlüssel, was die Probes schicken. Das Drop-in ersetzt das ExecStart aus dem Paket - ohne es antwortet der Messpunkt jedem.",
       "setupHelpCheck": "Danach die Gegenprobe auf dem Messpunkt selbst: der erste Befehl muss scheitern, der zweite muss durchgehen. Ein Messpunkt, der ohne Zugangsdaten weiter antwortet, sieht aus wie ein funktionierender.",
       "setupHelpBackTitle": "Was von dort zurückkommen muss",
@@ -1130,13 +1134,13 @@
       "addStep2Preview": "Danach fragt dieser Dialog nach einem Konto, das auf dem Host root werden darf - mit Passwort oder privatem Schlüssel. Es gilt für diese eine Verbindung.",
       "invite": "Per Einladung",
       "inviteTitle": "Messpunkt per Einladung einrichten",
-      "inviteIntro": "Für einen Host, den diese Plattform nicht per SSH erreicht - hinter NAT oder Firewall. Er bekommt einen Befehl, richtet sich selbst ein und meldet sich zurück; erreichen können muss er nur diese Plattform.",
+      "inviteIntro": "Für einen Host hinter NAT oder Firewall: Er richtet sich per Befehl selbst ein und muss nur diese Plattform erreichen.",
       "inviteHostHint": "Die Adresse, unter der die Probes messen. Leer lassen, wenn der Host sie beim Zurückmelden selbst mitbringt.",
       "inviteTtl": "Gültigkeit",
       "inviteTtlHint": "So lange kann der Befehl auf dem Host ausgeführt werden.",
       "inviteCreate": "Einladung erzeugen",
       "inviteCreating": "Wird erzeugt…",
-      "inviteCommandIntro": "Diesen Befehl auf dem Messpunkt-Host ausführen, als Benutzer mit sudo-Recht. Er richtet iperf3 ein, hinterlegt den Zugang für diese Plattform und meldet zurück.",
+      "inviteCommandIntro": "Führe diesen Befehl als Benutzer mit sudo-Recht auf dem Messpunkt-Host aus; er richtet iperf3 ein und meldet sich zurück.",
       "inviteSecretBody": "Der Befehl enthält eine einmalig verwendbare Einladung. Wer sie lesen kann, kann bis zu ihrem Verbrauch oder Ablauf einen Host als diesen Messpunkt anmelden.",
       "inviteWaiting": "Warten auf den Host",
       "inviteDeadTitle": "Diese Einladung ist nicht mehr verwendbar",
@@ -1222,7 +1226,7 @@
       "enable": {
         "action": "Overlay einschalten",
         "title": "Overlay einschalten",
-        "body": "Startet den Hub auf diesem Host und erzeugt seinen Schlüssel. Die Probes bleiben, wo sie sind, bis du sie hinzufügst.",
+        "body": "Startet den Hub auf diesem Host; die Probes bleiben, wo sie sind, bis du sie hinzufügst.",
         "endpointHint": "Die Adresse, die die Probes anwählen. Sie muss erreichbar sein, wenn der gewöhnliche Weg es nicht ist — auf einem Standort mit interner NATS-Adresse also die öffentliche. Die NATS-Adresse selbst ist nicht zulässig.",
         "confirm": "Einschalten"
       },
@@ -1271,7 +1275,7 @@
     "initialPasswordHint": "Der Benutzer muss es bei der ersten Anmeldung ändern.",
     "prtg": {
       "title": "PRTG-Core",
-      "intro": "Mit einem API-Token liest die Plattform, wie jede Probe in PRTG heute heißt. In PRTG wird nichts geändert.",
+      "intro": "Mit einem API-Token liest die Plattform die Namen der Probes aus PRTG, ohne dort etwas zu ändern.",
       "coreUrl": "Adresse des PRTG-Core",
       "coreUrlHint": "Die Adresse der PRTG-API v2, meist Port 1616.",
       "token": "API-Token",
@@ -1657,7 +1661,8 @@
       "anyProbe": "Alle Probes",
       "sensor": "Sensor",
       "anySensor": "Alle Sensoren",
-      "network": "Netz (SSID)"
+      "network": "Netz (SSID)",
+      "variant": "Variante {{variant}}"
     },
     "wlanAuth": {
       "codes": {
@@ -1792,13 +1797,314 @@
       "empty": "Die Probe misst keine Konfiguration dieses Sensors",
       "active": "Wird gemessen",
       "idle": "Ruht, nicht abgefragt",
-      "askedEvery": "abgefragt alle {{every}}",
-      "askedAgo": "zuletzt vor {{ago}} abgefragt",
-      "last": "zuletzt {{result}}, vor {{age}}",
       "sensorId": "Sensor {{id}}",
       "remove": "Entfernen",
       "removeTitle": "Konfiguration für {{ssid}} entfernen?",
-      "removeBody": "Die Probe hört sofort auf, sie zu messen. Fragt ein Sensor in PRTG sie noch ab, wird sie bei seinem nächsten Scan neu angelegt."
+      "removeBody": "Die Probe hört sofort auf, sie zu messen. Fragt ein Sensor in PRTG sie noch ab, wird sie bei seinem nächsten Scan neu angelegt.",
+      "columns": {
+        "ssid": "SSID",
+        "variant": "Variante",
+        "method": "Verfahren",
+        "interval": "Abfrageintervall",
+        "askedAgo": "Zuletzt abgefragt",
+        "lastMeasurement": "Letzte Messung",
+        "actions": "Aktionen"
+      },
+      "methods": {
+        "psk": "WPA2-PSK",
+        "peap": "PEAP",
+        "eapTls": "EAP-TLS"
+      },
+      "ago": "vor {{ago}}",
+      "ok": "OK",
+      "failed": "Fehlgeschlagen",
+      "bssid": "AP {{bssid}}"
+    }
+  },
+  "sensorFields": {
+    "aruba-uplink": {
+      "host": {
+        "label": "Gateway-Adresse",
+        "hint": "Die Adresse des Aruba-Gateways an diesem Standort."
+      },
+      "user": {
+        "label": "Benutzername",
+        "hint": "Ein Konto mit Lesezugriff auf dem Gateway."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Das Passwort dieses Kontos."
+      },
+      "primary": {
+        "label": "Hauptleitung",
+        "hint": "Welcher Uplink der Hauptweg ist.",
+        "choices": {
+          "wired": "Kabel",
+          "cellular": "Mobilfunk"
+        }
+      },
+      "backup": {
+        "label": "Ersatzleitung",
+        "hint": "Der alternative Weg. Ohne Angabe gibt es keinen.",
+        "choices": {
+          "none": "Keine",
+          "cellular": "Mobilfunk",
+          "wired": "Kabel"
+        }
+      },
+      "backup_share": {
+        "label": "Schwelle Ersatzleitung (%)",
+        "hint": "Ab diesem Anteil des Verkehrs auf der Ersatzleitung gilt er als umgeschwenkt."
+      },
+      "billing_day": {
+        "label": "Abrechnungstag",
+        "hint": "Der Tag im Monat, an dem das Datenvolumen neu beginnt. 0 für einen Zähler, der nie zurückgesetzt wird."
+      },
+      "timeout_ms": {
+        "label": "Antwort-Timeout (ms)",
+        "hint": "Wie lange auf eine einzelne Antwort gewartet wird."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "internet-speed": {
+      "mode": {
+        "label": "Messart",
+        "hint": "Misst den Spitzenwert. Die Prüfung auf eine Mindestrate ist in den Sensor iperf-throughput umgezogen.",
+        "choices": {
+          "maximum": "Spitzenwert",
+          "minimum": "Mindestrate (umgezogen)"
+        }
+      },
+      "min_download_mbit": {
+        "label": "Mindest-Download (Mbit/s)",
+        "hint": "In den Sensor iperf-throughput umgezogen."
+      },
+      "min_upload_mbit": {
+        "label": "Mindest-Upload (Mbit/s)",
+        "hint": "In den Sensor iperf-throughput umgezogen."
+      },
+      "measure_every_minutes": {
+        "label": "Messabstand (Minuten)",
+        "hint": "Mindestabstand zwischen zwei echten Messungen."
+      },
+      "timeout_seconds": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "server": {
+        "label": "Speedtest-Server",
+        "hint": "Legt den Test auf eine Server-ID von speedtest.net fest."
+      },
+      "source": {
+        "label": "Quelladresse",
+        "hint": "Die lokale Adresse, von der aus gemessen wird."
+      },
+      "no_secure": {
+        "label": "HTTP statt HTTPS",
+        "hint": "Spricht speedtest.net über HTTP statt HTTPS an."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "iperf-throughput": {
+      "server": {
+        "label": "Messpunkt",
+        "hint": "Host oder Adresse des Messpunkts. Ohne Angabe gilt die aus den ausgerollten Zugangsdaten."
+      },
+      "port": {
+        "label": "Port",
+        "hint": "Der Port des Messpunkts. Ohne Angabe gilt der aus den Zugangsdaten, sonst 5201."
+      },
+      "download_mbit": {
+        "label": "Download-Ziel (Mbit/s)",
+        "hint": "Die erwartete Rate in Empfangsrichtung."
+      },
+      "upload_mbit": {
+        "label": "Upload-Ziel (Mbit/s)",
+        "hint": "Die erwartete Rate in Senderichtung."
+      },
+      "udp": {
+        "label": "Über UDP messen",
+        "hint": "Meldet Paketverlust und Jitter statt Retransmits und Latenz."
+      },
+      "username": {
+        "label": "Benutzername",
+        "hint": "Für die Authentifizierung am Messpunkt. Ohne Angabe gilt der aus den Zugangsdaten; fehlt auch der, misst der Sensor ohne Authentifizierung."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Nur für Probes, auf denen keine Zugangsdaten-Datei liegen kann. Ohne Angabe liest der Sensor das ausgerollte Passwort."
+      },
+      "public_key": {
+        "label": "Öffentlicher Schlüssel",
+        "hint": "Pfad zum öffentlichen Schlüssel des Messpunkts, falls die Zugangsdaten ihn nicht mitbringen."
+      },
+      "profile": {
+        "label": "Zugangsdaten-Profil",
+        "hint": "Name der ausgerollten Zugangsdaten. Eines je Messpunkt, wenn die Passwörter verschieden sind."
+      },
+      "seconds": {
+        "label": "Messdauer (Sekunden)",
+        "hint": "Übertragungszeit je Richtung. Die Vorgabe von 5 ist gemessen; auf einer Leitung, die nach einem Burst drosselt, zeigen längere Läufe weniger."
+      },
+      "measure_every_minutes": {
+        "label": "Messabstand (Minuten)",
+        "hint": "Mindestabstand zwischen zwei echten Messungen."
+      },
+      "timeout_seconds": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "link-quality": {
+      "target": {
+        "label": "Ziel im Internet",
+        "hint": "Ein Ziel im Internet. Mehrfach möglich."
+      },
+      "internal_target": {
+        "label": "Internes Ziel",
+        "hint": "Ein Ziel im eigenen Netz, etwa hinter einem Tunnel. Mehrfach möglich."
+      },
+      "packets": {
+        "label": "Pakete je Ziel",
+        "hint": "Echo-Anfragen je Ziel und Lauf."
+      },
+      "interval_ms": {
+        "label": "Paketabstand (ms)",
+        "hint": "Die Zeit zwischen zwei Paketen."
+      },
+      "timeout_ms": {
+        "label": "Antwort-Timeout (ms)",
+        "hint": "Wie lange auf eine einzelne Antwort gewartet wird."
+      },
+      "payload_bytes": {
+        "label": "Nutzlast (Bytes)",
+        "hint": "Die Größe der Nutzdaten einer Echo-Anfrage."
+      },
+      "source": {
+        "label": "Quelladresse",
+        "hint": "Die lokale Adresse, von der aus gemessen wird."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der Sensor laufen kann."
+      }
+    },
+    "wlan-auth": {
+      "interface": {
+        "label": "WLAN-Schnittstelle",
+        "hint": "Die für den Test reservierte WLAN-Schnittstelle."
+      },
+      "ssid": {
+        "label": "Netzwerkname",
+        "hint": "Die SSID, an der die Probe sich anmeldet."
+      },
+      "auth": {
+        "label": "Anmeldeverfahren",
+        "hint": "Entscheidet, welche der übrigen Felder gebraucht werden.",
+        "choices": {
+          "psk": "PSK",
+          "peap": "PEAP/MSCHAPv2",
+          "eap-tls": "EAP-TLS"
+        }
+      },
+      "profile": {
+        "label": "Variante",
+        "hint": "In PRTG trägt der Parameter --profile den Namen der Variante."
+      },
+      "psk": {
+        "label": "WPA2-Passphrase",
+        "hint": "Der Pre-Shared Key des Netzes."
+      },
+      "identity": {
+        "label": "Identität",
+        "hint": "Der Benutzername, nach dem der RADIUS-Server gefragt wird. EAP-TLS braucht ihn neben dem Zertifikat."
+      },
+      "password": {
+        "label": "Passwort",
+        "hint": "Das Passwort für PEAP."
+      },
+      "anonymous_identity": {
+        "label": "Äußere Identität",
+        "hint": "Die Identität außerhalb des Tunnels, falls der RADIUS-Server eine erwartet."
+      },
+      "ca_cert": {
+        "label": "CA-Zertifikat",
+        "hint": "Die CA, die das Zertifikat des RADIUS-Servers signiert hat. Zwischen- und Root-Zertifikat dürfen zusammen in einer PEM-Datei stehen."
+      },
+      "domain_suffix_match": {
+        "label": "Server-Domain",
+        "hint": "Auf diese Endung muss der Name im Zertifikat des RADIUS-Servers lauten."
+      },
+      "no_verify_server": {
+        "label": "Server nicht prüfen",
+        "hint": "Meldet sich an, ohne das Zertifikat des RADIUS-Servers zu prüfen. Für einen ersten Test; das CA-Zertifikat darf dann fehlen."
+      },
+      "client_cert": {
+        "label": "Client-Zertifikat",
+        "hint": "Das eigene Zertifikat der Probe für EAP-TLS."
+      },
+      "private_key": {
+        "label": "Privater Schlüssel",
+        "hint": "Der private Schlüssel zum Client-Zertifikat."
+      },
+      "private_key_passwd": {
+        "label": "Passphrase des Schlüssels",
+        "hint": "Nur nötig, wenn der private Schlüssel eine hat."
+      },
+      "bssid": {
+        "label": "BSSID",
+        "hint": "Beschränkt den Test auf einen Access Point."
+      },
+      "hidden": {
+        "label": "Verstecktes Netz",
+        "hint": "Die SSID wird nicht ausgestrahlt."
+      },
+      "stage": {
+        "label": "Testumfang",
+        "hint": "Nach der Anmeldung aufhören oder erst nach DHCP.",
+        "choices": {
+          "assoc": "Bis zur Anmeldung",
+          "dhcp": "Bis einschließlich DHCP"
+        }
+      },
+      "gateway": {
+        "label": "Ping-Ziel nach DHCP",
+        "hint": "Die Adresse, die nach DHCP angepingt wird, oder none, um die Prüfung auszulassen."
+      },
+      "mac": {
+        "label": "Client-MAC",
+        "hint": "auto für eine eigene Adresse je Netz, permanent für die des Funkmoduls, oder eine feste Adresse."
+      },
+      "timeout": {
+        "label": "Zeitbudget (Sekunden)",
+        "hint": "Die Zeit für den ganzen Test."
+      },
+      "sensor_id": {
+        "label": "Sensor-Id in PRTG",
+        "hint": "Als %sensorid eintragen. Dann ersetzt eine geänderte Konfiguration die alte sofort."
+      },
+      "max_age": {
+        "label": "Höchstalter (Sekunden)",
+        "hint": "Obergrenze für das Alter der Messung. Ohne Angabe plant die Probe selbst."
+      },
+      "measure_now": {
+        "label": "Sofort messen",
+        "hint": "Misst auf der Stelle, statt das geplante Ergebnis abzuholen."
+      },
+      "self_check": {
+        "label": "Selbsttest",
+        "hint": "Prüft nur, ob der privilegierte Helper erreichbar ist."
+      }
     }
   }
 }

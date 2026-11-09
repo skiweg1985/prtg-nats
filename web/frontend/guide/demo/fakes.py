@@ -401,25 +401,41 @@ class FakeWorld:
     # What the wlan-auth helper holds per probe: the networks the seeded
     # sensor log runs on, plus on Kiel one leftover from a changed
     # configuration that has gone idle.
+    # SSID, method and variant per configuration, as the seeded sensor log
+    # has them; Berlin measures "Corporate" with PEAP and with EAP-TLS.
     _DEMO_WLAN_JOBS = {
-        "probe-berlin-01": ("Corporate", "Lager-WLAN"),
-        "probe-kiel-01": ("Corporate", "Lager-WLAN", "Gast"),
-        "probe-hamburg-01": ("Corporate",),
+        "probe-berlin-01": (
+            ("Corporate", "peap", "corporate"),
+            ("Corporate", "eap-tls", "corporate-certauth"),
+            ("Lager-WLAN", "psk", "lager"),
+        ),
+        "probe-kiel-01": (
+            ("Corporate", "peap", "corporate"),
+            ("Lager-WLAN", "psk", "lager"),
+            ("Gast", "psk", "gast"),
+        ),
+        "probe-hamburg-01": (("Corporate", "peap", "corporate"),),
     }
 
     def _demo_wlan_jobs(self, username, probe):  # type: ignore[no-untyped-def]
         if "wlan_jobs" not in probe:
             jobs = []
-            for index, ssid in enumerate(self._DEMO_WLAN_JOBS.get(username, ())):
+            for index, (ssid, auth, profile) in enumerate(
+                self._DEMO_WLAN_JOBS.get(username, ())
+            ):
+                failing = profile == "corporate-certauth"
                 jobs.append(
                     {"label": f"{index + 1:x}" * 12, "ssid": ssid, "idle": False,
-                     "result": "ok", "code": "ok", "age": 640.0,
+                     "auth": auth, "profile": profile, "bssid": "-",
+                     "result": "failed" if failing else "ok",
+                     "code": "auth-failed-eap" if failing else "ok", "age": 640.0,
                      "asked_every": 1800.0, "asked_ago": 600.0,
                      "sensor_id": str(2040 + index)}
                 )
             if username == "probe-kiel-01":
                 jobs.append(
                     {"label": "0f0e0d0c0b0a", "ssid": "Gast", "idle": True,
+                     "auth": "psk", "profile": "-", "bssid": "00:00:5e:00:53:c2",
                      "result": "failed", "code": "auth-failed-psk", "age": 5400.0,
                      "asked_every": 1800.0, "asked_ago": 5400.0, "sensor_id": "-"}
                 )
@@ -431,6 +447,7 @@ class FakeWorld:
         for job in self._demo_wlan_jobs(username, probe):
             lines.append(
                 f"{job['label']}\tinterface=wlan0\tssid_hex={job['ssid'].encode().hex()}"
+                f"\tauth={job['auth']}\tprofile={job['profile']}\tbssid={job['bssid']}"
                 f"\tstage=dhcp\tresult={job['result']}\tcode={job['code']}"
                 f"\tage={job['age']}\tasked_every={job['asked_every']}"
                 f"\tasked_ago={job['asked_ago']}\tinterval={job['asked_every']}"

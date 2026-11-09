@@ -25,12 +25,15 @@ PROBE = "mpp-berlin-01"
 PASSWORD = "correct-horse-battery"
 
 # Two jobs: the current configuration and an idle leftover. The SSID goes
-# out as hex because a network name may hold a tab or an equals sign.
+# out as hex because a network name may hold a tab or an equals sign. The
+# leftover is written as a helper below version 18 writes it, without the
+# method, the variant and the BSSID.
 JOBS = (
     "OK sensor-jobs\n"
     "a1b2c3d4e5f6\tinterface=wlan0\tssid_hex="
     + b"Simplicity Guest".hex()
-    + "\tstage=dhcp\tresult=ok\tcode=ok\tage=31.0\tasked_every=60.0"
+    + "\tauth=eap-tls\tprofile=corp-certauth\tbssid=00:00:5e:00:53:c2"
+    "\tstage=dhcp\tresult=ok\tcode=ok\tage=31.0\tasked_every=60.0"
     "\tasked_ago=12.0\tinterval=60.0\tidle=no\texpires_in=3588.0\tsensor_id=2041\n"
     "0f0e0d0c0b0a\tinterface=wlan0\tssid_hex="
     + b"Simplicity Guest".hex()
@@ -77,6 +80,14 @@ async def test_the_jobs_of_a_sensor_are_read_from_the_probe(
     assert current["idle"] is False
     assert current["sensor_id"] == "2041"
     assert current["asked_every"] == 60.0
+    assert current["auth"] == "eap-tls"
+    assert current["profile"] == "corp-certauth"
+    assert current["bssid"] == "00:00:5e:00:53:c2"
+    assert (leftover["auth"], leftover["profile"], leftover["bssid"]) == (
+        None,
+        None,
+        None,
+    )
     assert leftover["idle"] is True
     assert leftover["code"] == "auth-failed-eap"
     assert leftover["sensor_id"] is None

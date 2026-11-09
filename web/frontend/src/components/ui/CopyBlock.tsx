@@ -100,7 +100,7 @@ export function CopyBlock({
   return (
     <div className="border-rule-2 bg-surface-2 rounded-card border">
       <div className="border-rule flex items-center justify-between gap-2 border-b px-3 py-1">
-        <span className="label-mono text-ink-3 truncate">{title ?? ''}</span>
+        <span className="text-ink-3 truncate text-xs">{title ?? ''}</span>
         <CopyButton value={value} label={label} />
       </div>
       <pre className="text-ink overflow-x-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
