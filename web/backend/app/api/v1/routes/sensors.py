@@ -40,6 +40,7 @@ from app.api.schemas.system import (
 )
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.core.permissions import Permission
+from app.infrastructure import variant_files
 from app.infrastructure.probe_helper.protocol import probe_profile_file_path
 from app.infrastructure.runtime_files import (
     NAME_PATTERN,
@@ -47,6 +48,7 @@ from app.infrastructure.runtime_files import (
     SensorProfileRecord,
 )
 from app.infrastructure.sensor_catalog import (
+    FileField,
     SensorDefinition,
     SensorSchema,
     default_parameter_line,
@@ -418,7 +420,34 @@ def _merge_values(
             params={"sensor": sensor, "fields": ", ".join(missing)},
             details=f"required fields are missing: {', '.join(missing)}",
         )
+    # The interface writes the files first and the values after them, so a
+    # passphrase typed in the same form reaches the key only here. Checking
+    # again is what makes a wrong one a refusal rather than a sensor that
+    # reports a rejected sign-in a scan later.
+    _check_stored_pairs(schema, runtime, sensor, profile, values)
     return values
+
+
+def _check_stored_pairs(
+    schema: SensorSchema,
+    runtime: RuntimeFileStore,
+    sensor: str,
+    profile: str,
+    values: dict[str, str],
+) -> None:
+    """Every declared certificate-and-key pair the variant already holds."""
+    for field in schema.files:
+        if not field.pairs_with:
+            continue
+        key_bytes = _stored(runtime, sensor, profile, field.name)
+        if key_bytes is None:
+            continue
+        _judge_pair(
+            field,
+            _stored(runtime, sensor, profile, field.pairs_with),
+            key_bytes,
+            values.get(field.passphrase_from) if field.passphrase_from else None,
+        )
 
 
 @router.put(
@@ -471,6 +500,8 @@ async def upload_profile_file(
     if not content:
         raise ValidationFailedError(params={"key": key}, details="the file is empty")
 
+    content = _checked_file(schema, runtime, definition.name, profile, field, content)
+
     filename = f"{key}{field.extension}"
     runtime.write_sensor_profile_file(definition.name, profile, key, filename, content)
     audit.record(
@@ -487,6 +518,137 @@ async def upload_profile_file(
         sha256=hashlib.sha256(content).hexdigest(),
         probe_path=probe_profile_file_path(definition.name, profile, filename),
     )
+
+
+def _checked_file(
+    schema: SensorSchema,
+    runtime: RuntimeFileStore,
+    sensor: str,
+    profile: str,
+    field: FileField,
+    content: bytes,
+) -> bytes:
+    """What goes into the slot, refused here rather than on the probe.
+
+    A slot named after a certificate takes a certificate and nothing else, and
+    a key is checked against the certificate it is declared to belong to. Both
+    mistakes were made in the field and both surfaced minutes later as a
+    verdict on the network - "RADIUS certificate rejected" for a revocation
+    list, "credentials rejected by RADIUS" for a key from another pair.
+
+    A certificate comes back as PEM whatever it arrived as, because a Windows
+    CA hands out DER and wpa_supplicant reads PEM.
+    """
+    if field.kind == "certificate":
+        certificate = variant_files.load_certificate(content)
+        if certificate is None:
+            raise ValidationFailedError(
+                params={"key": field.name, "found": variant_files.describe(content)},
+                details=(
+                    f"{field.name} takes a certificate, "
+                    f"but this is {variant_files.describe(content)}"
+                ),
+            )
+        content = variant_files.as_pem(certificate)
+    elif field.kind == "key" and not variant_files.is_encrypted_key(content):
+        if variant_files.load_private_key(content) is None:
+            raise ValidationFailedError(
+                params={"key": field.name, "found": variant_files.describe(content)},
+                details=(
+                    f"{field.name} takes a private key, "
+                    f"but this is {variant_files.describe(content)}"
+                ),
+            )
+
+    _check_pair(schema, runtime, sensor, profile, field, content)
+    return content
+
+
+def _check_pair(
+    schema: SensorSchema,
+    runtime: RuntimeFileStore,
+    sensor: str,
+    profile: str,
+    field: FileField,
+    content: bytes,
+) -> None:
+    """Certificate and key have to be two halves of one pair."""
+    key_field = field
+    if field.kind == "certificate":
+        key_field = next(
+            (entry for entry in schema.files if entry.pairs_with == field.name),
+            field,
+        )
+        if key_field is field:
+            return
+        certificate_bytes: bytes | None = content
+        key_bytes = _stored(runtime, sensor, profile, key_field.name)
+    else:
+        if not field.pairs_with:
+            return
+        key_bytes = content
+        certificate_bytes = _stored(runtime, sensor, profile, field.pairs_with)
+    if certificate_bytes is None or key_bytes is None:
+        # The other half is not there yet; the pair is checked once it is.
+        return
+
+    values = (
+        runtime.read_sensor_profile(sensor, profile)
+        if runtime.sensor_profile_exists(sensor, profile)
+        else {}
+    )
+    _judge_pair(
+        key_field,
+        certificate_bytes,
+        key_bytes,
+        values.get(key_field.passphrase_from) if key_field.passphrase_from else None,
+    )
+
+
+def _judge_pair(
+    key_field: FileField,
+    certificate_bytes: bytes | None,
+    key_bytes: bytes,
+    passphrase: str | None,
+) -> None:
+    """Whether these two are halves of one pair, as far as can be told."""
+    certificate = (
+        variant_files.load_certificate(certificate_bytes) if certificate_bytes else None
+    )
+    key = variant_files.load_private_key(key_bytes, passphrase)
+    if key is None:
+        if passphrase and variant_files.is_encrypted_key(key_bytes):
+            # Not a verdict on the pair: the passphrase the variant holds does
+            # not open the key, and that is worth saying before a probe does.
+            # Without a stored passphrase nothing can be said, and the file is
+            # taken - a variant is often filled in file by file.
+            raise ValidationFailedError(
+                params={"key": key_field.name},
+                details=(
+                    f"{key_field.name} is encrypted and "
+                    f"{key_field.passphrase_from or 'its passphrase'} does not open it"
+                ),
+            )
+        return
+    if certificate is None:
+        return
+    if not variant_files.public_keys_match(certificate, key):
+        raise ValidationFailedError(
+            params={"key": key_field.name, "certificate": key_field.pairs_with or ""},
+            details=(
+                f"{key_field.name} does not belong to {key_field.pairs_with}; "
+                "they are from different pairs"
+            ),
+        )
+
+
+def _stored(
+    runtime: RuntimeFileStore, sensor: str, profile: str, key: str
+) -> bytes | None:
+    try:
+        return runtime.read_sensor_profile_file(sensor, profile, key)
+    except NotFoundError:
+        return None
 
 
 @router.delete(

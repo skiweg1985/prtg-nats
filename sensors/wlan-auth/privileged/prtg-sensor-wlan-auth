@@ -255,7 +255,30 @@ FAILURE_EVENTS = (
 # left" (17), "come back later" (30) and "denied for a reason outside the
 # standard" (12, typical for MAC filters and client blocks) is readable from
 # the sensor message alone.
+# Faults in what the sensor was handed, not in the network. wpa_supplicant
+# reports them while it builds the TLS context, before a single byte reaches
+# the RADIUS server - and what follows reads like a verdict on the network:
+# an EAP-FAILURE, which the table above calls "credentials rejected by
+# RADIUS", or, when the timing falls the other way, a key negotiation that
+# ran out of time. Both were measured with a key that did not belong to the
+# client certificate. They are sensor errors: the test never took place, so
+# it says nothing about the Wi-Fi.
+CONFIG_FAULTS = (
+    ("Failed to load private key", "client-key-unusable",
+     "The private key does not belong to the client certificate, or its "
+     "passphrase is wrong"),
+    ("Failed to load client certificate", "client-cert-unusable",
+     "The client certificate could not be read"),
+    ("Failed to load root certificates", "ca-cert-unusable",
+     "The CA certificate could not be read"),
+)
+
 STATUS_CODE = re.compile(r"status_code=(\d+)")
+# Why wpa_supplicant refused a certificate. Without it the message says only
+# that the RADIUS certificate was rejected, which reads like a fault on the
+# server - "unable to get issuer certificate" says instead that the CA on
+# the probe does not match it.
+CERT_ERROR = re.compile(r"err='([^']+)'")
 
 
 def with_status_code(message, line):
@@ -264,6 +287,14 @@ def with_status_code(message, line):
     if not found:
         return message
     return "%s (status %s)" % (message, found.group(1))
+
+
+def with_cert_error(message, line):
+    """The reason the event gives for refusing a certificate."""
+    found = CERT_ERROR.search(line)
+    if not found:
+        return message
+    return "%s (%s)" % (message, found.group(1))
 
 
 class Blocked(Exception):
@@ -516,7 +547,18 @@ class SupplicantRun:
         for _, line in snapshot:
             for marker, detail, code, message in FAILURE_EVENTS:
                 if marker in line and (detail is None or detail in line):
-                    return code, with_status_code(message, line)
+                    return code, with_cert_error(
+                        with_status_code(message, line), line)
+        return None
+
+    def config_fault(self):
+        """The first line that blames the configuration rather than the net."""
+        with self.lock:
+            snapshot = list(self.events)
+        for _, line in snapshot:
+            for marker, code, message in CONFIG_FAULTS:
+                if marker in line:
+                    return code, message
         return None
 
     def control(self, *arguments):
@@ -826,6 +868,9 @@ def wait_for_connection(run, deadline):
     """
     associated = None
     while time.monotonic() < deadline:
+        fault = run.config_fault()
+        if fault is not None:
+            raise Blocked(*fault)
         cause = run.failure()
         if cause is not None:
             raise Failed(*cause)
@@ -837,6 +882,9 @@ def wait_for_connection(run, deadline):
             raise Blocked("internal-error", "wpa_supplicant stopped unexpectedly")
         time.sleep(0.05)
 
+    fault = run.config_fault()
+    if fault is not None:
+        raise Blocked(*fault)
     cause = run.failure()
     if cause is not None:
         raise Failed(*cause)

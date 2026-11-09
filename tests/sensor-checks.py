@@ -1788,6 +1788,63 @@ def check_wlan_auth_sensor_log():
     shutil.rmtree(lock_directory, ignore_errors=True)
 
 
+def check_wlan_auth_config_faults():
+    """A fault in the files is a sensor error, not a verdict on the network.
+
+    Measured with a key that did not belong to the client certificate:
+    wpa_supplicant never built its TLS context, nothing reached the RADIUS
+    server, and the sensor said "credentials rejected by RADIUS" - once, and
+    "key negotiation timed out" the next time, depending on which line the
+    run got to first. Both sent the search to the wrong place.
+    """
+    print("\n== wlan-auth: faults in the files ==")
+    module = wlan_auth_helper()
+
+    class FakeRun:
+        def __init__(self, *lines):
+            self.events = [(0.0, line) for line in lines]
+            self.lock = threading.Lock()
+
+        config_fault = module.SupplicantRun.config_fault
+        failure = module.SupplicantRun.failure
+
+    mismatch = FakeRun(
+        "OpenSSL: tls_read_pkcs12 - Failed to use PKCS#12 file error:05800074:"
+        "x509 certificate routines::key values mismatch",
+        "TLS: Failed to load private key '/etc/prtg-nats/.../PRIVATE_KEY.pem'",
+        "EAP-TLS: Failed to initialize SSL.",
+        "wlan0: CTRL-EVENT-EAP-FAILURE EAP authentication failed",
+    )
+    fault = mismatch.config_fault()
+    check("an unusable private key is recognised", fault is not None, True)
+    check("and has its own code", fault[0], "client-key-unusable")
+    check("the message names the two candidates",
+          "passphrase" in fault[1] and "client certificate" in fault[1], True)
+    # The EAP failure is in the same transcript and would otherwise win.
+    check("the network verdict is still there to be overruled",
+          mismatch.failure()[0], "auth-failed-eap")
+
+    healthy = FakeRun(
+        "wlan0: CTRL-EVENT-EAP-STARTED EAP authentication started",
+        "wlan0: CTRL-EVENT-EAP-FAILURE EAP authentication failed",
+    )
+    check("a plain rejection is no configuration fault",
+          healthy.config_fault(), None)
+
+    # The CA on the probe that does not match the server's issuer reads as a
+    # rejected server certificate; the reason wpa_supplicant gives turns that
+    # into something to act on.
+    cert_error = FakeRun(
+        "wlan0: CTRL-EVENT-EAP-TLS-CERT-ERROR reason=1 depth=1 "
+        "subject='/CN=Example CA' err='unable to get issuer certificate'",
+    )
+    code, message = cert_error.failure()
+    check("a refused server certificate keeps its code", code,
+          "server-cert-rejected")
+    check("and carries the reason", "unable to get issuer certificate" in message,
+          True)
+
+
 def check_wlan_auth_profile_switch():
     """A variant can decide not to verify the RADIUS server.
 
@@ -4355,6 +4412,7 @@ if __name__ == "__main__":
     check_wlan_auth_output()
     check_wlan_auth_configuration()
     check_wlan_auth_profile_switch()
+    check_wlan_auth_config_faults()
     check_wlan_auth_scheduler()
     check_wlan_auth_sensor_log()
     check_internet_speed_output()

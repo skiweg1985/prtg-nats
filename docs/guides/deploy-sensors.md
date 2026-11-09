@@ -556,6 +556,19 @@ with `bad-request` on the probe rather than in the browser. That was the
 shape of the EAP-TLS variant that could not be built at all until the user
 name was declared for both methods.
 
+**What goes into a file slot is checked here.** A slot declared as a
+certificate takes a certificate and nothing else, and the refusal names what
+the file turned out to be - a revocation list, a request, a key. A
+certificate is stored as PEM whatever it arrived as, because a Windows CA
+hands out DER and `wpa_supplicant` reads PEM. A key slot may name the
+certificate it belongs to with `pairs_with`, and the credential that opens it
+with `passphrase_from`; the two are then compared, on the upload and again
+when the values are written, because the interface sends the files first and
+the passphrase after them. Both mistakes behind this were made in one
+afternoon, and both surfaced minutes later on a probe as a verdict on the
+network: *RADIUS certificate rejected* for a revocation list, *credentials
+rejected by RADIUS* for a key from another pair.
+
 A field may also name `required_unless`, the key whose being switched on
 lifts the requirement from it. `wlan-auth` uses it for the CA certificate:
 it verifies the RADIUS server, and `NO_VERIFY_SERVER` is the decision not
