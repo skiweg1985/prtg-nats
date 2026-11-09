@@ -338,22 +338,61 @@ RUN_LINK = re.compile(r"https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])"
 RUN_LINK_LENGTH = 320
 
 
-def with_run_link(message: str, record_id: Any, record_link: Any = None) -> str:
-    """The message, cut to PRTG's limit, ending on the run in the log.
+def run_link(record_id: Any, record_link: Any = None) -> str:
+    """The closing "; log ..." part pointing at one run, or nothing.
 
-    The link goes last and is never the part that is cut: on a failed run
-    it is the way to the raw supplicant and DHCP output. A full link is
-    used only when it points at this very run.
+    A full link is used only when it points at this very run.
     """
     if not isinstance(record_id, str) or not RECORD_ID.fullmatch(record_id):
-        return message[:MESSAGE_LIMIT]
+        return ""
     target = RUN_PATH % record_id
     if isinstance(record_link, str) and len(record_link) <= RUN_LINK_LENGTH:
         matched = RUN_LINK.fullmatch(record_link)
         if matched and matched.group("id") == record_id:
             target = record_link
-    link = "; log " + target
+    return "; log " + target
+
+
+def with_run_link(message: str, record_id: Any, record_link: Any = None) -> str:
+    """The message, cut to PRTG's limit, ending on the run in the log.
+
+    The link goes last and is never the part that is cut: on a failed run
+    it is the way to the raw supplicant and DHCP output.
+    """
+    link = run_link(record_id, record_link)
     return message[:MESSAGE_LIMIT - len(link)] + link
+
+
+# What is left of a part that had to be shortened.
+ELLIPSIS = "..."
+
+
+def fit_parts(parts: list[str], keep: int, budget: int) -> str:
+    """The parts joined into one line of at most budget characters.
+
+    The first keep parts are what a reader needs - the verdict and who
+    signed in - so the parts after them give way first, the last one
+    first: shortened where that is enough, dropped where it is not. Only
+    when the kept parts alone are too long is the first of them, the
+    verdict with a text the helper wrote, shortened as well; the identity
+    after it stays whole.
+    """
+    parts = list(parts)
+    while len(parts) > keep and len("; ".join(parts)) > budget:
+        excess = len("; ".join(parts)) - budget
+        last = parts[-1]
+        if len(last) - excess > len(ELLIPSIS) + 8:
+            parts[-1] = last[:len(last) - excess - len(ELLIPSIS)] + ELLIPSIS
+        else:
+            parts.pop()
+    message = "; ".join(parts)
+    if len(message) > budget and parts:
+        excess = len(message) - budget
+        head = parts[0]
+        room = max(len(head) - excess - len(ELLIPSIS), 0)
+        parts[0] = head[:room] + ELLIPSIS
+        message = "; ".join(parts)
+    return message[:budget]
 
 
 # What counts as stale when the helper does not say - one from before
@@ -560,6 +599,15 @@ def work(args: dict[str, Any]):
     # credentials, the SSID among them, stay on the probe.
     network = details.get("ssid") or args["ssid"] or "WLAN"
 
+    # Who signed in, right after the verdict: the name a failed sign-in is
+    # looked up by in the RADIUS log. With --profile only the helper knows
+    # it, so it comes back with the details; a pre-shared key has none.
+    # A helper from before version 21 does not return it; the parameter
+    # stands in for it then, where there is one.
+    identity = details.get("identity") or (
+        args["identity"] if args["auth"] in ("peap", "eap-tls") else "") or ""
+    identity_part = ["identity %s" % identity] if identity else []
+
     def link_parts() -> list[str]:
         parts = []
         # The address the run signed in with is what to look for in the
@@ -595,7 +643,7 @@ def work(args: dict[str, Any]):
                  % (network, span(age), span(round_seconds), sharing,
                     "job" if sharing == 1 else "jobs", args["interface"])]
     elif outcome == "ok":
-        parts = ["%s: OK" % network] + link_parts()
+        parts = ["%s: OK" % network] + identity_part + link_parts()
         # The address says a server answered; this says the network
         # carries traffic. Named once when it is the DHCP server, since
         # the same address twice reads like two machines.
@@ -610,12 +658,19 @@ def work(args: dict[str, Any]):
         parts += age_part(age)
     else:
         parts = ["%s: %s" % (network, answer.get("message") or "failed")]
-        parts += link_parts() + ["code %s" % observed] + age_part(age)
+        parts += (identity_part + link_parts() + ["code %s" % observed]
+                  + age_part(age))
+
+    # The verdict and the identity after it are kept whole when the line
+    # has to be shortened; see fit_parts.
+    keep = 1 + (len(identity_part) if outcome in ("ok", "failed")
+                and not stale else 0)
 
     # First in the line, because it is the one thing an operator can act
     # on: the setting asks for more than the radio has. Removing it hands
     # the schedule to the probe.
     if cannot_keep:
+        keep += 1
         parts.insert(0, "--max-age %d s cannot be kept, the radio needs "
                         "%d s for %d %s on %s" % (
                             explicit, reachable, sharing,
@@ -623,14 +678,13 @@ def work(args: dict[str, Any]):
                             args["interface"]))
     if ignored_sensor_id:
         parts.append("--sensor-id ignored, not a number")
-    message = "; ".join(parts)
     # Only a failed run carries the way to its record: a green sensor sends
     # nobody looking, and a stored result that is too old or not there yet
-    # says nothing about a run.
+    # says nothing about a run. The link is never what gives way.
     failed = outcome == "failed" and not stale
-    message = with_run_link(message,
-                            answer.get("record_id") if failed else None,
-                            answer.get("record_link"))
+    link = run_link(answer.get("record_id") if failed else None,
+                    answer.get("record_link"))
+    message = fit_parts(parts, keep, MESSAGE_LIMIT - len(link)) + link
 
     # A failed sign-in remains a valid measurement: the sensor keeps
     # delivering values and the "Auth Result" channel carries the alarm.

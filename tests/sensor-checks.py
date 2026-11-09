@@ -17,6 +17,7 @@ fails.
 import argparse
 import contextlib
 import datetime
+import hashlib
 import importlib.machinery
 import importlib.util
 import io
@@ -894,7 +895,8 @@ def check_wlan_auth_output():
     }
     message = module.work(dict(arguments))["message"]
     check("a successful run reads as short parts", message,
-          "Guest: OK; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; "
+          "Guest: OK; identity monitor; client 02:3f:a1:9c:44:e7; "
+          "AP 00:00:5e:00:53:c2; "
           "IP 198.51.100.19 from 198.51.100.1; ping 7 ms; age 12 s")
     module.call_helper = lambda job, timeout: {
         "result": "ok", "code": "ok", "message": "OK", "timings": {},
@@ -912,7 +914,7 @@ def check_wlan_auth_output():
     }
     check("a failure names the client too",
           module.work(dict(arguments))["message"],
-          "Guest: no DHCP answer; client 02:3f:a1:9c:44:e7; "
+          "Guest: no DHCP answer; identity monitor; client 02:3f:a1:9c:44:e7; "
           "code dhcp-timeout; age 20 s")
 
     # A failed run points at its record in the sensor log, where the raw
@@ -927,7 +929,8 @@ def check_wlan_auth_output():
     }
     check("a failed run names its record in the sensor log",
           module.work(dict(arguments))["message"],
-          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "Guest: no DHCP answer; identity monitor; code dhcp-timeout; "
+          "age 20 s; "
           "log /sensor-logs/%s" % run)
     module.call_helper = lambda job, timeout: {
         "result": "failed", "code": "auth-failed-eap",
@@ -947,7 +950,8 @@ def check_wlan_auth_output():
     }
     check("with the platform's address it is a full link",
           module.work(dict(arguments))["message"],
-          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; log %s" % link)
+          "Guest: no DHCP answer; identity monitor; code dhcp-timeout; "
+          "age 20 s; log %s" % link)
     module.call_helper = lambda job, timeout: {
         "result": "failed", "code": "auth-failed-eap",
         "message": "x" * 3000, "timings": {}, "details": {"ssid": "Guest"},
@@ -967,8 +971,10 @@ def check_wlan_auth_output():
     }
     check("a link to another run falls back to the path",
           module.work(dict(arguments))["message"],
-          "Guest: no DHCP answer; code dhcp-timeout; age 20 s; "
+          "Guest: no DHCP answer; identity monitor; code dhcp-timeout; "
+          "age 20 s; "
           "log /sensor-logs/%s" % run)
+    check_identity_in_message(module, arguments, run, link)
     module.call_helper = lambda job, timeout: {
         "result": "ok", "code": "ok", "message": "OK", "timings": {},
         "details": {"ssid": "Guest"}, "age": 5.0, "record_id": run,
@@ -1045,6 +1051,77 @@ def check_wlan_auth_output():
           channels[18]["value"], 10)
     check("and never reports an address",
           "DHCP offered" in result["message"], False)
+
+
+def check_identity_in_message(module, arguments, run, link):
+    """Who signed in stands right after the verdict (#238)."""
+    # With --profile the identity lives in the variant on the probe, so
+    # only the helper's details can name it.
+    profiled = dict(arguments, ssid=None, profile="corp-certauth", auth=None,
+                    identity=None, password=None)
+    for outcome, verdict in (("ok", "OK"), ("failed", "no DHCP answer")):
+        module.call_helper = lambda job, timeout, outcome=outcome: {
+            "result": outcome,
+            "code": "ok" if outcome == "ok" else "dhcp-timeout",
+            "message": "OK" if outcome == "ok" else "no DHCP answer",
+            "timings": {}, "age": 4.0,
+            "details": {"ssid": "corp-wifi", "profile": "corp-certauth",
+                        "identity": "probe01@example.test"},
+        }
+        message = module.work(dict(profiled))["message"]
+        check("a %s run with --profile names the identity" % outcome,
+              message.startswith("corp-wifi: %s; identity "
+                                 "probe01@example.test; " % verdict), True)
+    # EAP-TLS without a profile: the helper names it as well.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK", "timings": {},
+        "age": 4.0, "details": {"ssid": "corp-wifi",
+                                "identity": "probe-01.example.test"},
+    }
+    message = module.work(dict(arguments, auth="eap-tls", password=None,
+                               identity="probe-01.example.test"))["message"]
+    check("an EAP-TLS run names its identity",
+          message, "corp-wifi: OK; identity probe-01.example.test; age 4 s")
+    # A pre-shared key has no identity, and a stray --identity does not
+    # make one.
+    module.call_helper = lambda job, timeout: {
+        "result": "ok", "code": "ok", "message": "OK", "timings": {},
+        "age": 4.0, "details": {"ssid": "Guest"},
+    }
+    message = module.work(dict(arguments, auth="psk", psk="passphrase123",
+                               identity="monitor", password=None))["message"]
+    check("a PSK run names no identity", "identity" in message, False)
+
+    # Shortened to PRTG's limit, the parts after the identity give way
+    # first; the identity and the link to the run stay.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout",
+        "message": "no DHCP answer", "timings": {}, "age": 20.0,
+        "details": {"ssid": "Guest", "identity": "probe01@example.test",
+                    "mac": "02:3f:a1:9c:44:e7", "bssid": "y" * 1900,
+                    "ip_address": "198.51.100.19"},
+        "record_id": run, "record_link": link,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("a crowded line stays within what PRTG shows",
+               len(message) <= module.MESSAGE_LIMIT)
+    check_true("and keeps the identity whole",
+               "; identity probe01@example.test; " in message)
+    check_true("and ends on the link", message.endswith("; log %s" % link))
+    # A verdict that alone is too long gives way itself, behind the
+    # identity's back.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "auth-failed-eap",
+        "message": "x" * 3000, "timings": {},
+        "details": {"ssid": "Guest", "identity": "probe01@example.test"},
+        "record_id": run, "record_link": link,
+    }
+    message = module.work(dict(arguments))["message"]
+    check_true("an overlong verdict keeps the line within the limit",
+               len(message) <= module.MESSAGE_LIMIT)
+    check_true("and the identity after it",
+               "; identity probe01@example.test" in message)
+    check_true("and the link", message.endswith("; log %s" % link))
 
 
 def check_wlan_auth_scheduler():
@@ -1453,6 +1530,50 @@ def check_wlan_auth_scheduler():
     check("the password never leaves the service",
           "secret" in serialised, False)
     check("nor does the identity", "monitor" in serialised, False)
+
+    # Two configurations of one SSID - one with PEAP, one with an EAP-TLS
+    # variant pinned to an access point - are told apart on the platform by
+    # what the job list says about them (#229). The secrets of such a job
+    # stay out of it, and so does any hash over them.
+    secrets = {"password": "pw-Kq81zz", "psk": "psk-Vb22yy",
+               "private_key_passwd": "key-Lm93xx",
+               "anonymous_identity": "anon@example.test"}
+    variant = dict(job, auth="eap-tls", profile="corp-certauth",
+                   bssid="00:00:5e:00:53:c2", identity="probe01@example.test",
+                   **secrets)
+    scheduler._jobs = {"peap": entry(300, 12),
+                       "tls": dict(entry(300, 12), job=variant)}
+    listed = {row["auth"]: row for row in scheduler.snapshot()["jobs"]}
+    check("the job list names the method", sorted(listed), ["eap-tls", "peap"])
+    check("and the variant", listed["eap-tls"]["profile"], "corp-certauth")
+    check("a job without one names none", listed["peap"]["profile"], "")
+    check("and the access point it is pinned to",
+          listed["eap-tls"]["bssid"], "00:00:5e:00:53:c2")
+    serialised = json.dumps(scheduler.snapshot())
+    for field, value in secrets.items():
+        check("the job list holds no %s" % field, value in serialised, False)
+        for digest in (hashlib.sha256, hashlib.sha1, hashlib.md5):
+            check_true("nor a %s over it" % digest().name,
+                       digest(value.encode()).hexdigest()[:12]
+                       not in serialised)
+    check("nor the derived key",
+          module.wpa_psk(secrets["psk"], "Corporate") in serialised, False)
+    check("its label does not change with the secrets",
+          listed["eap-tls"]["job"],
+          module.job_label(dict(variant, password="other", psk="other",
+                                private_key_passwd="other")))
+
+    # Every result of a job carries its variant and, for PEAP and EAP-TLS,
+    # the identity (#229, #238). Nothing else of the credentials.
+    details = module.run_details(variant)
+    check("a result names the variant and the identity", details,
+          {"profile": "corp-certauth", "identity": "probe01@example.test"})
+    check_true("and no secret",
+               not any(value in json.dumps(details)
+                       for value in secrets.values()))
+    check("a PSK result names no identity",
+          module.run_details(dict(job, auth="psk", psk="psk-Vb22yy",
+                                  identity="monitor")), {})
 
     # Registering through collect: the requests are what the rate is read
     # from, and a measurement is what the durations are read from.

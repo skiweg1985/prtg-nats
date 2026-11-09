@@ -168,6 +168,10 @@ class SensorJobOut(ApiModel):
     label: str
     interface: str | None = None
     ssid: str | None = None
+    auth: str | None = None
+    # The variant the sensor names with --profile.
+    profile: str | None = None
+    bssid: str | None = None
     stage: str | None = None
     result: str | None = None
     code: str | None = None

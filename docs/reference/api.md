@@ -611,8 +611,12 @@ credentials, the value a sensor log record carries as `job` - with
 `interface`, `ssid`, `stage`, the last `result` and `code` and their `age`,
 `asked_every` and `asked_ago` in seconds, `idle` for a paused one,
 `expires_in`, and the `sensor_id` from `--sensor-id` where the sensor sets
-it. Credentials never leave the probe. Reading needs `sensor.read`,
-removing needs `sensor.configure`; both require helper version 17.
+it. `auth` (`psk`, `peap` or `eap-tls`), `profile` - the variant the sensor
+names with `--profile` - and `bssid` tell two configurations of one SSID
+apart; a probe helper below version 18 leaves all three `null`. Credentials
+never leave the probe, and neither does any hash over them. Reading needs
+`sensor.read`, removing needs `sensor.configure`; both require helper
+version 17.
 
 #### Variants
 
@@ -695,6 +699,7 @@ Every route needs `sensor_log.read`, which every role holds.
 | `probe` | the probe's NATS account |
 | `sensor` | the sensor name, e.g. `wlan-auth` |
 | `ssid` | the network the run was about, from the body |
+| `variant` | the variant the run was measured with - `profile` in the body |
 | `result` | `ok`, `error` or `gap` |
 | `since`, `until` | ISO 8601 times; without `since` the last 24 hours |
 | `q` | case-insensitive text in the summary, the error code and the values in the body, as the sensor wrote them (quotes and backslashes included, field names not) |
@@ -702,7 +707,8 @@ Every route needs `sensor_log.read`, which every role holds.
 
 The answer is `{"items": [...], "total": n, "limit": n, "offset": n}`.
 `total` counts every match, not only the page. An item carries the envelope
-of the record and the `ssid` from its body:
+of the record, and the `ssid` and the `variant` (`profile`) from its body;
+`variant` is `null` for a run that named none:
 
 ```json
 {
@@ -714,7 +720,8 @@ of the record and the `ssid` from its body:
   "result": "error",
   "code": "eap_failure",
   "summary": "EAP authentication failed",
-  "ssid": "Example-Corp"
+  "ssid": "Example-Corp",
+  "variant": "corp-certauth"
 }
 ```
 
@@ -753,8 +760,11 @@ at `GET /sensor-logs`.
 `GET /sensor-logs/timeline?probe=` is what the interface draws its timelines
 from: with `sensor=` for that sensor's page on the probe, without it for the
 small bar per sensor on the probe page. It slices the runs into buckets of
-`bucket` seconds (default 900, from 300 to 86400), one row per sensor and
-network; `sensor` in the answer is `null` when none was asked for:
+`bucket` seconds (default 900, from 300 to 86400), one row per sensor,
+network and variant; `sensor` in the answer is `null` when none was asked
+for. Two configurations of one SSID - PEAP and an EAP-TLS variant, say - are
+two rows with their own figures. Runs that named no variant, older records
+among them, stay in the network's row with `variant` `null`:
 
 ```json
 {
@@ -768,6 +778,7 @@ network; `sensor` in the answer is `null` when none was asked for:
     {
       "sensor": "wlan-auth",
       "ssid": "Example-Corp",
+      "variant": "corp-certauth",
       "ok": 1076,
       "error": 22,
       "success_rate": 0.98,

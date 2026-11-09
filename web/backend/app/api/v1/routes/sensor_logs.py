@@ -50,6 +50,7 @@ async def list_sensor_logs(
     probe: Annotated[str | None, Query()] = None,
     sensor: Annotated[str | None, Query()] = None,
     ssid: Annotated[str | None, Query()] = None,
+    variant: Annotated[str | None, Query()] = None,
     result: Annotated[RecordResult | None, Query()] = None,
     since: Annotated[datetime | None, Query()] = None,
     until: Annotated[datetime | None, Query()] = None,
@@ -70,6 +71,7 @@ async def list_sensor_logs(
         probe=probe or None,
         sensor=sensor or None,
         ssid=ssid or None,
+        variant=variant or None,
         result=result,
         text=q or None,
     )
@@ -168,6 +170,7 @@ async def sensor_log_timeline(
             SensorLogTimelineStreamOut(
                 sensor=stream.sensor,
                 ssid=stream.ssid,
+                variant=stream.variant,
                 ok=stream.ok,
                 error=stream.error,
                 success_rate=stream.success_rate,

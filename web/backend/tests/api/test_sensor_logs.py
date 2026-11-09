@@ -708,3 +708,83 @@ async def test_a_probe_that_went_quiet_has_not_ended_its_networks(
         params={**DAY, "probe": PROBE, "sensor": "wlan-auth", "bucket": 900},
     )
     assert [s["ended"] for s in response.json()["streams"]] == [False, False]
+
+
+def variant_run(n: int, result: str, variant: str | None) -> dict[str, Any]:
+    """A run of "corp-wifi" at 10:nn, with or without a variant (--profile)."""
+    entry = record(
+        f"cccccccc-0000-4000-8000-{n:012d}",
+        time=f"2025-03-08T10:{n:02d}:00Z",
+        result=result,
+        ssid="corp-wifi",
+    )
+    if variant is not None:
+        entry["body"]["profile"] = variant
+    return entry
+
+
+async def test_two_variants_of_one_ssid_are_rows_of_their_own(
+    client: AsyncClient, as_probe: None
+) -> None:
+    # The same SSID twice on one probe: signing in with PEAP never fails,
+    # the EAP-TLS variant fails every second run. Folded into one row the
+    # success rate would read 75 % and hide which configuration is broken.
+    # Runs from before the variant was recorded stay in the plain row.
+    batch = [variant_run(n, "ok", "corp-peap") for n in range(0, 20, 2)]
+    batch += [
+        variant_run(n, "error" if n % 4 == 1 else "ok", "corp-certauth")
+        for n in range(1, 21, 2)
+    ]
+    batch += [variant_run(n, "ok", None) for n in (40, 41)]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={**DAY, "probe": PROBE, "sensor": "wlan-auth", "bucket": 900},
+    )
+    assert response.status_code == 200, response.text
+    streams = response.json()["streams"]
+    assert [(s["ssid"], s["variant"]) for s in streams] == [
+        ("corp-wifi", None),
+        ("corp-wifi", "corp-certauth"),
+        ("corp-wifi", "corp-peap"),
+    ]
+    plain, certauth, peap = streams
+    assert (plain["ok"], plain["error"]) == (2, 0)
+    assert (certauth["ok"], certauth["error"]) == (5, 5)
+    assert certauth["success_rate"] == pytest.approx(0.5)
+    assert certauth["last_failure"]["variant"] == "corp-certauth"
+    assert certauth["last_failure"]["time"].startswith("2025-03-08T10:17")
+    assert (peap["ok"], peap["error"]) == (10, 0)
+    assert peap["success_rate"] == pytest.approx(1.0)
+    assert peap["last_failure"] is None
+    # One run every two minutes per variant, not one a minute for the SSID.
+    assert peap["runs_per_hour"] == pytest.approx(10 / 0.5)
+
+
+async def test_the_list_filters_by_variant_and_names_it(
+    client: AsyncClient, as_probe: None
+) -> None:
+    batch = [
+        variant_run(0, "ok", "corp-peap"),
+        variant_run(1, "error", "corp-certauth"),
+        variant_run(2, "ok", None),
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+
+    response = await client.get(
+        "/api/v1/sensor-logs",
+        params={**DAY, "probe": PROBE, "variant": "corp-certauth"},
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert [item["variant"] for item in items] == ["corp-certauth"]
+
+    everything = await client.get("/api/v1/sensor-logs", params={**DAY, "probe": PROBE})
+    assert sorted((item["variant"] or "") for item in everything.json()["items"]) == [
+        "",
+        "corp-certauth",
+        "corp-peap",
+    ]

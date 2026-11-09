@@ -44,6 +44,20 @@ function lookOf(bucket: SensorTimelineBucket, timeline: SensorTimeline): SliceLo
   return expired(bucket, timeline) ? 'expired' : bucket.state
 }
 
+/**
+ * A row is one sensor, one network and one variant: two configurations of
+ * the same SSID - PEAP and an EAP-TLS variant, say - would otherwise mix
+ * their success rates in one bar.
+ */
+export function streamKey(stream: SensorTimelineStream): string {
+  return `${stream.sensor}|${stream.ssid ?? ''}|${stream.variant ?? ''}`
+}
+
+export function streamLabel(stream: SensorTimelineStream): string {
+  const network = stream.ssid ?? stream.sensor
+  return stream.variant ? `${network} · ${stream.variant}` : network
+}
+
 export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
   const { t } = useTranslation()
   const signIns = timeline.sensor === 'wlan-auth'
@@ -57,10 +71,10 @@ export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
           whatever the figures above them need. */}
       {timeline.streams.map((stream) => (
         <TimelineRow
-          key={`${stream.sensor}|${stream.ssid ?? ''}`}
+          key={streamKey(stream)}
           timeline={timeline}
           stream={stream}
-          label={stream.ssid ?? stream.sensor}
+          label={streamLabel(stream)}
           signIns={signIns}
         />
       ))}
@@ -108,6 +122,7 @@ function TimelineRow({
       probe: timeline.probe,
       sensor: stream.sensor,
       ssid: stream.ssid ?? undefined,
+      variant: stream.variant ?? undefined,
       since: new Date(start).toISOString(),
       until: new Date(start + timeline.bucket_seconds * 1000).toISOString(),
     })
@@ -378,7 +393,9 @@ export function summariseSensor(timeline: SensorTimeline, sensor: string) {
   return {
     states,
     rate: ok + error ? ok / (ok + error) : null,
-    networks: streams.filter((stream) => stream.ssid !== null).length,
+    // Two variants of one SSID are still one network.
+    networks: new Set(streams.flatMap((stream) => (stream.ssid === null ? [] : [stream.ssid])))
+      .size,
   }
 }
 

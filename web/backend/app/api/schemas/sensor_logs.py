@@ -70,6 +70,8 @@ class SensorLogSummaryOut(ApiModel):
     # From the body, because filtering and grouping by network is what the
     # list is for and the body itself stays out of it.
     ssid: str | None = None
+    # The variant (wlan-auth's --profile) the run was measured with.
+    variant: str | None = None
 
 
 class SensorLogRecordOut(SensorLogSummaryOut):
@@ -113,6 +115,7 @@ class SensorLogBucketOut(ApiModel):
 class SensorLogTimelineStreamOut(ApiModel):
     sensor: str
     ssid: str | None = None
+    variant: str | None = None
     ok: int
     error: int
     success_rate: float | None = None
