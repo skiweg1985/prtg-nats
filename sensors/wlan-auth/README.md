@@ -315,11 +315,21 @@ was rejected.
 
 The message line is a row of short parts, the network and its verdict
 first — in a list of sensors it is everything visible without opening one.
-After that, in a fixed order: the client address, the access point, the
-leased address and its DHCP server, the gateway ping, on failure the code,
-and the age of the measurement. A part without a value is left out.
+After that, in a fixed order: the identity that signed in, the client
+address, the access point, the leased address and its DHCP server, the
+gateway ping, on failure the code, and the age of the measurement. A part
+without a value is left out.
+
+The identity follows the verdict on success and on failure alike, because
+it is the name a sign-in is looked up by in the RADIUS log. PEAP and EAP-TLS
+have one, a pre-shared key has none. With `--profile` the identity lives
+only in the variant on the probe, so the privileged service returns it with
+the measurement. The passwords, the key passphrase and the anonymous
+identity never come back.
 
 ```text
+corp-wifi: OK; identity probe01@example.test; client 02:5e:9a:31:44:07; AP 00:00:5e:00:53:c2; IP 192.0.2.80 from 192.0.2.1; ping 5 ms; age 8 s
+corp-wifi: credentials rejected by RADIUS; identity probe01@example.test; client 02:5e:9a:31:44:07; code auth-failed-eap; age 14 s
 Office: OK; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; IP 192.0.2.75 from 192.0.2.1; ping 7 ms; age 12 s
 Office: OK; client 02:91:0b:7e:12:c4; AP 00:00:5e:00:53:c0; IP 198.51.100.26 from 198.51.100.1; router 198.51.100.254 ping 4 ms; age 31 s
 Office: no DHCP answer; client 02:3f:a1:9c:44:e7; AP 00:00:5e:00:53:c2; code dhcp-timeout; age 20 s
@@ -464,7 +474,9 @@ A record carries:
   job without its credentials, so a record never carries anything derived
   from a password
 - the network, the authentication method, the interface, the stage, the
-  identity and the profile name
+  identity and the variant (`profile`, the name given with `--profile`). The
+  platform draws two configurations of one SSID as two rows of the timeline
+  by it
 - what the run saw: access point, client address, leased address, DHCP
   server, gateway, frequency, signal, and the stage timings
 - the raw lines of `wpa_supplicant`
@@ -496,8 +508,9 @@ builds the link and hands it to the sensor script with the result. A probe
 whose channel has no interface address yet — an older helper, or a platform
 without `WEB_FQDN` and `NATS_FQDN` — gets the path alone
 (`log /sensor-logs/<id>`); put it after the address you open the platform
-with. The message stays within PRTG's 2000 characters; the link is never
-the part that is cut.
+with. The message stays within PRTG's 2000 characters. When it has to be
+shortened, the parts after the identity give way first, the last one first;
+the verdict, the identity and the link to the run stay.
 
 ## How the test runs
 
@@ -644,7 +657,11 @@ PY
 It names every registered job with how often it is asked for, how often
 it is measured, what a run is expected to take, the age it holds, when it
 counts as stale and when it expires unasked — and the round over the
-radio. Never the credentials it signs in with.
+radio. Each job names its authentication method (`auth`), its variant
+(`profile`) and the access point it is pinned to (`bssid`), so two
+configurations of one SSID can be told apart; the platform shows the same
+list on the sensor's page under **Configurations on the probe**. Never the
+credentials it signs in with, and no hash over them.
 
 Each job also carries the address of its last run and the DHCP server that
 handed it out. On a probe with several networks on one radio that is the

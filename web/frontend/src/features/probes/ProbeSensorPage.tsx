@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Trash2, Upload } from 'lucide-react'
 
 import {
@@ -34,6 +35,7 @@ import { SensorStatusBadge } from '@/components/ui/status'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { probeName } from '@/features/probes/probeName'
 import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
+import { useCodeLabel } from '@/features/sensorLogs/RunList'
 import { sensorLogHref } from '@/features/sensorLogs/links'
 import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
 
@@ -350,6 +352,131 @@ function FailureList({
   )
 }
 
+// One template for the header and every row, so the columns line up.
+// Below lg the card is too narrow for seven columns beside the sidebar, so a
+// row falls back to label/value pairs there.
+const JOB_COLUMNS =
+  'lg:grid-cols-[minmax(8rem,1.3fr)_minmax(7rem,1fr)_5.5rem_6.5rem_7rem_minmax(10rem,1.5fr)_auto] lg:items-center lg:gap-x-4'
+
+// What a missing value shows, so a row keeps its shape.
+const MISSING = '–'
+
+const METHOD_KEYS: Record<string, string> = {
+  psk: 'probeSensor.configurations.methods.psk',
+  peap: 'probeSensor.configurations.methods.peap',
+  'eap-tls': 'probeSensor.configurations.methods.eapTls',
+}
+
+/** One configuration as a row of labelled values. */
+export function ConfigurationRow({
+  job,
+  sensor,
+  removing,
+  onRemove,
+}: {
+  job: SensorJob
+  sensor: string
+  removing: boolean
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const method = job.auth ? (METHOD_KEYS[job.auth] ? t(METHOD_KEYS[job.auth]) : job.auth) : null
+  return (
+    <li className="border-rule border-b px-4 py-2.5 text-sm last:border-0">
+      <dl className={clsx(JOB_COLUMNS, 'grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 lg:gap-y-0')}>
+        <Cell label={t('probeSensor.configurations.columns.ssid')}>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-ink truncate font-mono text-xs font-medium">
+              {job.ssid ?? MISSING}
+            </span>
+            {job.idle ? (
+              <Badge tone="neutral">{t('probeSensor.configurations.idle')}</Badge>
+            ) : (
+              <Badge tone="ok">{t('probeSensor.configurations.active')}</Badge>
+            )}
+          </span>
+          {(job.bssid || job.sensor_id) && (
+            <span className="text-ink-3 block text-xs">
+              {[
+                job.bssid && t('probeSensor.configurations.bssid', { bssid: job.bssid }),
+                job.sensor_id && t('probeSensor.configurations.sensorId', { id: job.sensor_id }),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.variant')}>
+          <span className="font-mono text-xs">{job.profile || MISSING}</span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.method')}>{method ?? MISSING}</Cell>
+        <Cell label={t('probeSensor.configurations.columns.interval')}>
+          <span className="tabular-nums">
+            {job.asked_every === null ? MISSING : formatDuration(job.asked_every)}
+          </span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.askedAgo')}>
+          <span className="tabular-nums">
+            {job.asked_ago === null
+              ? MISSING
+              : t('probeSensor.configurations.ago', { ago: formatDuration(job.asked_ago) })}
+          </span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.lastMeasurement')}>
+          <LastMeasurement job={job} sensor={sensor} />
+        </Cell>
+        <PermissionGate permission="sensor.configure">
+          <div className="col-span-2 flex justify-end lg:col-span-1">
+            <dt className="sr-only">{t('probeSensor.configurations.columns.actions')}</dt>
+            <dd>
+              <Button size="sm" variant="ghost" icon={Trash2} disabled={removing} onClick={onRemove}>
+                {t('probeSensor.configurations.remove')}
+              </Button>
+            </dd>
+          </div>
+        </PermissionGate>
+      </dl>
+    </li>
+  )
+}
+
+function Cell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="contents lg:block lg:min-w-0">
+      <dt className="text-ink-3 text-xs lg:sr-only">{label}</dt>
+      <dd className="text-ink-2 min-w-0 text-xs">{children}</dd>
+    </div>
+  )
+}
+
+/** The result of the last run as a state, with its reason when it failed. */
+function LastMeasurement({ job, sensor }: { job: SensorJob; sensor: string }) {
+  const { t } = useTranslation()
+  const codeLabel = useCodeLabel()
+  if (!job.result || job.result === 'pending' || job.age === null) {
+    return <span>{MISSING}</span>
+  }
+  const ok = job.result === 'ok'
+  const reason = ok ? null : (codeLabel(sensor, job.code) ?? job.code)
+  return (
+    <span className="block min-w-0">
+      <span className="flex items-center gap-x-2">
+        <Badge tone={ok ? 'ok' : 'danger'}>
+          {t(ok ? 'probeSensor.configurations.ok' : 'probeSensor.configurations.failed')}
+        </Badge>
+        <span className="text-ink-3 whitespace-nowrap tabular-nums">
+          {t('probeSensor.configurations.ago', { ago: formatDuration(job.age) })}
+        </span>
+      </span>
+      {reason && (
+        <span className="text-danger mt-0.5 block truncate" title={reason}>
+          {reason}
+        </span>
+      )}
+    </span>
+  )
+}
+
 // Sensors whose privileged helper plans its own measurements and can say
 // which configurations it holds.
 const SCHEDULING_SENSORS = ['wlan-auth']
@@ -376,56 +503,36 @@ function ConfigurationsCard({ probeId, sensor }: { probeId: string; sensor: stri
       ) : !data || data.length === 0 ? (
         <EmptyState title={t('probeSensor.configurations.empty')} />
       ) : (
-        <ul>
-          {data.map((job) => (
-            <li
-              key={job.label}
-              className="border-rule flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-2.5 text-sm last:border-0"
-            >
-              <span className="text-ink min-w-32 font-mono text-xs font-medium">
-                {job.ssid ?? '—'}
-              </span>
-              {job.idle ? (
-                <Badge tone="neutral">{t('probeSensor.configurations.idle')}</Badge>
-              ) : (
-                <Badge tone="ok">{t('probeSensor.configurations.active')}</Badge>
-              )}
-              <span className="text-ink-3 text-xs tabular-nums">
-                {[
-                  job.asked_every !== null &&
-                    t('probeSensor.configurations.askedEvery', {
-                      every: formatDuration(job.asked_every),
-                    }),
-                  job.asked_ago !== null &&
-                    t('probeSensor.configurations.askedAgo', {
-                      ago: formatDuration(job.asked_ago),
-                    }),
-                  job.result &&
-                    t('probeSensor.configurations.last', {
-                      result: job.code && job.code !== 'ok' ? job.code : job.result,
-                      age: job.age === null ? '—' : formatDuration(job.age),
-                    }),
-                  job.sensor_id && t('probeSensor.configurations.sensorId', { id: job.sensor_id }),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-              <PermissionGate permission="sensor.configure">
-                <span className="ml-auto">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={Trash2}
-                    disabled={forget.isPending}
-                    onClick={() => setRemoving(job)}
-                  >
-                    {t('probeSensor.configurations.remove')}
-                  </Button>
-                </span>
-              </PermissionGate>
-            </li>
-          ))}
-        </ul>
+        <div>
+          {/* The header names the columns once; on a narrow screen each row
+              carries its own labels instead, because the columns stack. */}
+          <div
+            aria-hidden
+            className={clsx(
+              JOB_COLUMNS,
+              'border-rule text-ink-3 hidden border-b px-4 py-2 text-xs font-medium lg:grid',
+            )}
+          >
+            <span>{t('probeSensor.configurations.columns.ssid')}</span>
+            <span>{t('probeSensor.configurations.columns.variant')}</span>
+            <span>{t('probeSensor.configurations.columns.method')}</span>
+            <span>{t('probeSensor.configurations.columns.interval')}</span>
+            <span>{t('probeSensor.configurations.columns.askedAgo')}</span>
+            <span>{t('probeSensor.configurations.columns.lastMeasurement')}</span>
+            <span />
+          </div>
+          <ul>
+            {data.map((job) => (
+              <ConfigurationRow
+                key={job.label}
+                job={job}
+                sensor={sensor}
+                removing={forget.isPending}
+                onRemove={() => setRemoving(job)}
+              />
+            ))}
+          </ul>
+        </div>
       )}
       {removing && (
         <ConfirmDialog

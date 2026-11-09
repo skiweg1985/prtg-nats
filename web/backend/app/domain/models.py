@@ -76,6 +76,12 @@ class SensorJob:
     label: str
     interface: str | None = None
     ssid: str | None = None
+    # What tells two configurations of one SSID apart: the method, the
+    # variant (the sensor's --profile) and an access point it is pinned to.
+    # A helper below version 18 names none of them.
+    auth: str | None = None
+    profile: str | None = None
+    bssid: str | None = None
     stage: str | None = None
     result: str | None = None
     code: str | None = None
@@ -438,6 +444,9 @@ def parse_sensor_jobs(response: HelperResponse) -> tuple[SensorJob, ...]:
                 label=record["name"],
                 interface=text(record.get("interface")),
                 ssid=ssid or None,
+                auth=text(record.get("auth")),
+                profile=text(record.get("profile")),
+                bssid=text(record.get("bssid")),
                 stage=text(record.get("stage")),
                 result=text(record.get("result")),
                 code=text(record.get("code")),

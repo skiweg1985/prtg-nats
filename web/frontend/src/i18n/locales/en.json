@@ -1651,7 +1651,8 @@
       "anyProbe": "All probes",
       "sensor": "Sensor",
       "anySensor": "All sensors",
-      "network": "Network (SSID)"
+      "network": "Network (SSID)",
+      "variant": "Variant {{variant}}"
     },
     "wlanAuth": {
       "codes": {
@@ -1786,13 +1787,28 @@
       "empty": "The probe measures no configuration of this sensor",
       "active": "Measured",
       "idle": "Paused, not asked",
-      "askedEvery": "asked every {{every}}",
-      "askedAgo": "last asked {{ago}} ago",
-      "last": "last {{result}}, {{age}} ago",
       "sensorId": "sensor {{id}}",
       "remove": "Remove",
       "removeTitle": "Remove the configuration for {{ssid}}?",
-      "removeBody": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, it is set up again on its next scan."
+      "removeBody": "The probe stops measuring it at once. If a sensor in PRTG still asks for it, it is set up again on its next scan.",
+      "columns": {
+        "ssid": "SSID",
+        "variant": "Variant",
+        "method": "Method",
+        "interval": "Polling interval",
+        "askedAgo": "Last asked",
+        "lastMeasurement": "Last measurement",
+        "actions": "Actions"
+      },
+      "methods": {
+        "psk": "WPA2-PSK",
+        "peap": "PEAP",
+        "eapTls": "EAP-TLS"
+      },
+      "ago": "{{ago}} ago",
+      "ok": "OK",
+      "failed": "Failed",
+      "bssid": "AP {{bssid}}"
     }
   }
 }

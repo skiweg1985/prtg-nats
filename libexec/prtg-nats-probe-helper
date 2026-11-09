@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=17
+HELPER_VERSION=18
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -3900,6 +3900,11 @@ for job in answer.get("jobs") or []:
         "interface": job.get("interface"),
         "ssid_hex": (job.get("ssid") or "").encode("utf-8").hex() or "-",
         "stage": job.get("stage"),
+        # What tells two configurations of one SSID apart. Never the
+        # credentials: the snapshot does not carry them in the first place.
+        "auth": job.get("auth"),
+        "profile": job.get("profile"),
+        "bssid": job.get("bssid"),
         "result": job.get("result"),
         "code": job.get("code"),
         "age": job.get("age"),
