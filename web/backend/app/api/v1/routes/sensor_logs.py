@@ -137,15 +137,16 @@ async def sensor_log_timeline(
     store: SensorLogStoreDep,
     _: ReadGuard,
     probe: Annotated[str, Query(min_length=1)],
-    sensor: Annotated[str, Query(min_length=1)],
+    sensor: Annotated[str | None, Query(min_length=1)] = None,
     since: Annotated[datetime | None, Query()] = None,
     until: Annotated[datetime | None, Query()] = None,
     bucket: Annotated[int, Query(ge=MIN_BUCKET_SECONDS, le=MAX_BUCKET_SECONDS)] = 900,
 ) -> SensorLogTimelineOut:
-    """One sensor's runs on one probe per network, sliced into buckets.
+    """A probe's runs per sensor and network, sliced into buckets.
 
-    What the sensor page on a probe draws its timeline from. Without
-    ``since`` the last 24 hours, in buckets of ``bucket`` seconds.
+    What the sensor page on a probe draws its timeline from, narrowed by
+    ``sensor``; without it every sensor, for the probe page's overview.
+    Without ``since`` the last 24 hours, in buckets of ``bucket`` seconds.
     """
     end = _aware(until) if until else datetime.now(UTC)
     start = _aware(since) if since else end - DEFAULT_WINDOW
@@ -165,6 +166,7 @@ async def sensor_log_timeline(
         retained_since=store.retained_since(),
         streams=[
             SensorLogTimelineStreamOut(
+                sensor=stream.sensor,
                 ssid=stream.ssid,
                 ok=stream.ok,
                 error=stream.error,

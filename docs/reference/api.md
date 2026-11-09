@@ -664,7 +664,7 @@ Every route needs `sensor_log.read`, which every role holds.
 | --- | --- |
 | `GET /sensor-logs` | records, newest first, without their body |
 | `GET /sensor-logs/streams` | one probe's runs per sensor and network, runs in a row folded into segments |
-| `GET /sensor-logs/timeline` | one sensor's runs on one probe per network, sliced into buckets of equal size |
+| `GET /sensor-logs/timeline` | one probe's runs per sensor and network, sliced into buckets of equal size |
 | `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
 | `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
 
@@ -702,7 +702,7 @@ of the record and the `ssid` from its body:
 had to drop older records; its body names the time range and how many were
 lost. The detail adds `body`, whose content depends on the sensor.
 
-`GET /sensor-logs/streams?probe=` is what the probe page shows. A sensor that
+`GET /sensor-logs/streams?probe=` folds one probe's runs into segments. A sensor that
 runs every minute writes over a thousand records a day; listed one by one they
 buried the single failure in between. This folds consecutive records of one
 sensor and network that ended with the same `result` and `code` into a
@@ -730,9 +730,11 @@ caps how many are returned per stream (default 8, up to 50), and
 `more_segments` counts the older ones left out. The records themselves stay
 at `GET /sensor-logs`.
 
-`GET /sensor-logs/timeline?probe=&sensor=` is what the sensor page on a probe
-draws its timeline from. It slices the runs of one sensor into buckets of
-`bucket` seconds (default 900, from 300 to 86400), one row per network:
+`GET /sensor-logs/timeline?probe=` is what the interface draws its timelines
+from: with `sensor=` for that sensor's page on the probe, without it for the
+small bar per sensor on the probe page. It slices the runs into buckets of
+`bucket` seconds (default 900, from 300 to 86400), one row per sensor and
+network; `sensor` in the answer is `null` when none was asked for:
 
 ```json
 {
@@ -744,6 +746,7 @@ draws its timeline from. It slices the runs of one sensor into buckets of
   "retained_since": "2026-10-27T00:00:00Z",
   "streams": [
     {
+      "sensor": "wlan-auth",
       "ssid": "Example-Corp",
       "ok": 1076,
       "error": 22,

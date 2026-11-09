@@ -904,26 +904,6 @@ export interface SensorLogPage {
   offset: number
 }
 
-/** Runs in a row of one stream that ended the same way; `first` is the oldest. */
-export interface SensorLogSegment {
-  result: SensorLogResult
-  code: string | null
-  count: number
-  first: SensorLogSummary
-  last: SensorLogSummary
-}
-
-/** One sensor's runs for one network, folded into segments, newest first. */
-export interface SensorLogStream {
-  sensor: string
-  ssid: string | null
-  total: number
-  results: Partial<Record<SensorLogResult, number>>
-  segments: SensorLogSegment[]
-  /** Older segments the answer left out; the full log has them. */
-  more_segments: number
-}
-
 /** What a slice of the sensor timeline looks like at a glance. */
 export type SensorTimelineState = 'none' | 'ok' | 'outlier' | 'failing'
 
@@ -937,6 +917,7 @@ export interface SensorTimelineBucket {
 
 /** One network of a sensor over the window. */
 export interface SensorTimelineStream {
+  sensor: string
   ssid: string | null
   ok: number
   error: number
@@ -948,7 +929,8 @@ export interface SensorTimelineStream {
 
 export interface SensorTimeline {
   probe: string
-  sensor: string
+  /** The sensor asked for; null when the answer covers every sensor. */
+  sensor: string | null
   start: string
   until: string
   bucket_seconds: number
@@ -965,5 +947,8 @@ export interface SensorLogFilters {
   ssid?: string
   result?: SensorLogResult
   range: SensorLogRange
+  /** An exact window, ISO times, as a timeline links it; replaces `range`. */
+  since?: string
+  until?: string
   q?: string
 }

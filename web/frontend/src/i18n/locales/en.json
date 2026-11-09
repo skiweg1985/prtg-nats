@@ -1617,7 +1617,6 @@
     "noBody": "This run carries no output",
     "output": "Output",
     "all": "Show all in the sensor log",
-    "probeCard": "Runs of the last 24 hours",
     "columns": {
       "time": "Time",
       "probe": "Probe",
@@ -1637,7 +1636,9 @@
       "1h": "Last hour",
       "24h": "Last 24 hours",
       "7d": "Last 7 days",
-      "14d": "Last 14 days"
+      "14d": "Last 14 days",
+      "custom": "{{from}} – {{to}}",
+      "now": "now"
     },
     "filters": {
       "search": "Search output",
@@ -1726,16 +1727,6 @@
       "dhcp": "DHCP client output",
       "events": "Helper events"
     },
-    "streams": {
-      "runs_one": "1 run",
-      "runs_other": "{{count}} runs",
-      "failed_one": "1 failed",
-      "failed_other": "{{count}} failed",
-      "since": "since {{time}}",
-      "span": "{{from}} to {{to}}",
-      "all_one": "Show in the sensor log",
-      "all_other": "Show all {{count}} in the sensor log"
-    },
     "pagination": "Pages",
     "previous": "Previous",
     "next": "Next",
@@ -1763,7 +1754,29 @@
       "ok": "OK",
       "outlier": "Single failure",
       "failing": "Failure",
-      "none": "No run"
-    }
+      "none": "No run",
+      "expired": "Outside retention"
+    },
+    "timelineTitle7d": "Last 7 days",
+    "window": {
+      "24h": "24 h",
+      "7d": "7 days"
+    },
+    "coveredSlice": "No run of its own, within the interval of the run before",
+    "sliceRuns_one": "{{count}} run",
+    "sliceRuns_other": "{{count}} runs",
+    "sliceSignIns_one": "{{count}} sign-in",
+    "sliceSignIns_other": "{{count}} sign-ins",
+    "sliceFailed_one": "{{count}} failed",
+    "sliceFailed_other": "{{count}} failed",
+    "retention": "Runs before {{date}} are no longer kept.",
+    "failures_one": "1 failure",
+    "failures_other": "{{count}} failures",
+    "failureCount": "{{count}}×",
+    "failuresMore_one": "1 more failure in the sensor log",
+    "failuresMore_other": "{{count}} more failures in the sensor log",
+    "last24h": "Last 24 h",
+    "networks_one": "1 network",
+    "networks_other": "{{count}} networks"
   }
 }

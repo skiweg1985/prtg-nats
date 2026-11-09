@@ -118,6 +118,7 @@ class TimelineBucket:
 class TimelineStream:
     """One sensor's runs for one network over a window, sliced into buckets."""
 
+    sensor: str
     ssid: str | None
     ok: int
     error: int
@@ -331,7 +332,10 @@ class SensorLogStore:
     def timeline(
         self, filters: SensorLogFilter, *, bucket: timedelta
     ) -> tuple[datetime, list[TimelineStream]]:
-        """One sensor's runs per network, sliced into buckets of equal size.
+        """Runs per sensor and network, sliced into buckets of equal size.
+
+        Narrowed to one sensor by the filter for a sensor's page; without one,
+        every sensor of the probe for the overview on the probe page.
 
         Buckets are aligned to multiples of their size, not to ``since``, so
         a page that refreshes a minute later gets the same slices and the bar
@@ -350,14 +354,15 @@ class SensorLogStore:
         count = max(int(-(-(filters.until - first).total_seconds() // size)), 1)
 
         page = self.query(filters, limit=sys.maxsize)
-        grouped: dict[str | None, list[dict[str, Any]]] = {}
+        grouped: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
         for item in page.items:
             if item.get("result") not in ("ok", "error"):
                 continue
-            grouped.setdefault(item.get("ssid"), []).append(item)
+            key = (str(item.get("sensor")), item.get("ssid"))
+            grouped.setdefault(key, []).append(item)
 
         out: list[TimelineStream] = []
-        for ssid, newest_first in grouped.items():
+        for (sensor, ssid), newest_first in grouped.items():
             runs = list(reversed(newest_first))
             oks = [0] * count
             errors = [0] * count
@@ -450,6 +455,7 @@ class SensorLogStore:
             )
             out.append(
                 TimelineStream(
+                    sensor=sensor,
                     ssid=ssid,
                     ok=ok,
                     error=error,
@@ -461,7 +467,7 @@ class SensorLogStore:
                     buckets=buckets,
                 )
             )
-        out.sort(key=lambda stream: stream.ssid or "")
+        out.sort(key=lambda stream: (stream.sensor, stream.ssid or ""))
         return first, out
 
     def retained_since(self, today: date | None = None) -> datetime:

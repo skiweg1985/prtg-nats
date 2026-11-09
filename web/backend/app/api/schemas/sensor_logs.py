@@ -111,6 +111,7 @@ class SensorLogBucketOut(ApiModel):
 
 
 class SensorLogTimelineStreamOut(ApiModel):
+    sensor: str
     ssid: str | None = None
     ok: int
     error: int
@@ -121,10 +122,11 @@ class SensorLogTimelineStreamOut(ApiModel):
 
 
 class SensorLogTimelineOut(ApiModel):
-    """One sensor on one probe over a window, per network, in buckets."""
+    """A probe's sensors over a window, per sensor and network, in buckets."""
 
     probe: str
-    sensor: str
+    # The sensor asked for; None when the answer covers every sensor.
+    sensor: str | None = None
     start: datetime
     until: datetime
     bucket_seconds: int

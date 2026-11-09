@@ -632,3 +632,28 @@ async def test_a_sensor_that_runs_rarely_covers_the_buckets_in_between(
     assert states[16] == "ok"  # 12:00
     # Six runs over the three hours they cover: twice an hour.
     assert corp["runs_per_hour"] == pytest.approx(2)
+
+
+async def test_without_a_sensor_the_timeline_covers_every_sensor_of_the_probe(
+    client: AsyncClient, as_probe: None
+) -> None:
+    batch = [
+        record("99999999-0000-4000-8000-000000000001", result="ok"),
+        record(
+            "99999999-0000-4000-8000-000000000002",
+            sensor="aruba-uplink",
+            ssid="",
+            result="ok",
+        ),
+    ]
+    await client.post("/probe/v1/records", json={"records": batch})
+    await sign_in(client)
+    response = await client.get(
+        "/api/v1/sensor-logs/timeline",
+        params={**DAY, "probe": PROBE, "bucket": 3600},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["sensor"] is None
+    assert [s["sensor"] for s in body["streams"]] == ["aruba-uplink", "wlan-auth"]
+    assert len(body["streams"][0]["buckets"]) == 24

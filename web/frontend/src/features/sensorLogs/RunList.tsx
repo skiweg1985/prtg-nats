@@ -3,18 +3,13 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
-import { useSensorLog, useSensorLogStream, useSensorLogStreams } from '@/api/hooks'
-import type {
-  SensorLogResult,
-  SensorLogSegment,
-  SensorLogStream,
-  SensorLogSummary,
-} from '@/api/types'
+import { useSensorLog } from '@/api/hooks'
+import type { SensorLogResult, SensorLogSummary } from '@/api/types'
 import { useIsPhone } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
-import { Badge, Card, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
-import { formatDateTime, formatNumber, formatSpanEnd } from '@/utils/format'
+import { Badge, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
+import { formatDateTime, formatNumber } from '@/utils/format'
 
 const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
   ok: 'ok',
@@ -198,148 +193,6 @@ function RunCards({ runs, showProbe }: { runs: SensorLogSummary[]; showProbe: bo
         </li>
       ))}
     </ul>
-  )
-}
-
-/**
- * The runs of one probe, one block per sensor and network.
- *
- * On the probe page an operator is looking at one network going red, and
- * the runs of another network in between would only be noise. A sensor that
- * runs every minute also made the block a thousand rows long, with the one
- * failure somewhere in the middle. Runs in a row that ended the same way
- * are one line now - "OK since 16:04, 74 runs" - so a failure stands out as
- * its own line, and every run is still one click away in the sensor log.
- */
-export function ProbeRunsCard({ probe }: { probe: string }) {
-  const { t } = useTranslation()
-  const { data, isLoading, error } = useSensorLogStreams(probe)
-  useSensorLogStream({ probe })
-
-  return (
-    <Card
-      title={t('sensorLogs.probeCard')}
-      dense
-      action={
-        <Link
-          to={`/sensor-logs?probe=${encodeURIComponent(probe)}`}
-          className="text-accent text-xs hover:underline"
-        >
-          {t('sensorLogs.all')}
-        </Link>
-      }
-    >
-      {error ? (
-        <div className="p-3">
-          <ErrorDetails error={error} />
-        </div>
-      ) : isLoading ? (
-        <Skeleton className="m-3 h-24" />
-      ) : !data || data.length === 0 ? (
-        <EmptyState title={t('sensorLogs.empty')} />
-      ) : (
-        data.map((stream) => (
-          <StreamBlock
-            key={`${stream.sensor}|${stream.ssid ?? ''}`}
-            probe={probe}
-            stream={stream}
-          />
-        ))
-      )}
-    </Card>
-  )
-}
-
-function streamHref(probe: string, stream: SensorLogStream): string {
-  const params = new URLSearchParams({ probe, sensor: stream.sensor })
-  if (stream.ssid) params.set('ssid', stream.ssid)
-  return `/sensor-logs?${params.toString()}`
-}
-
-function StreamBlock({ probe, stream }: { probe: string; stream: SensorLogStream }) {
-  const { t } = useTranslation()
-  const label = stream.ssid ? `${stream.sensor} · ${stream.ssid}` : stream.sensor
-  const failed = (stream.results.error ?? 0) + (stream.results.gap ?? 0)
-  return (
-    <section className="border-rule border-b last:border-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 px-4 pt-3 pb-1">
-        <h3 className="text-ink font-mono text-xs font-medium">{label}</h3>
-        <span className="text-ink-3 text-xs">
-          {t('sensorLogs.streams.runs', { count: stream.total })}
-          {failed > 0 && ` · ${t('sensorLogs.streams.failed', { count: failed })}`}
-        </span>
-      </div>
-      <ul>
-        {stream.segments.map((segment, index) => (
-          <SegmentRow
-            key={segment.last.id}
-            segment={segment}
-            current={index === 0}
-            sensor={stream.sensor}
-          />
-        ))}
-      </ul>
-      <div className="px-4 pt-1 pb-3">
-        <Link to={streamHref(probe, stream)} className="text-accent text-xs hover:underline">
-          {t('sensorLogs.streams.all', { count: stream.total })}
-        </Link>
-      </div>
-    </section>
-  )
-}
-
-/**
- * One segment: a single run opens onto itself, several read as a span.
- *
- * The newest segment is "since", because it is still going on; an older one
- * has a start and an end.
- */
-function SegmentRow({
-  segment,
-  current,
-  sensor,
-}: {
-  segment: SensorLogSegment
-  current: boolean
-  sensor: string
-}) {
-  const { t } = useTranslation()
-  const codeLabel = useCodeLabel()
-  const words = segment.last.summary || codeLabel(sensor, segment.code)
-  const when =
-    segment.count === 1
-      ? formatDateTime(segment.last.time)
-      : current
-        ? t('sensorLogs.streams.since', { time: formatDateTime(segment.first.time) })
-        : t('sensorLogs.streams.span', {
-            from: formatDateTime(segment.first.time),
-            to: formatSpanEnd(segment.first.time, segment.last.time),
-          })
-  return (
-    <li className="border-rule flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-2 first:border-t-0">
-      <ResultBadge result={segment.result} />
-      <Link
-        to={runHref(segment.last.id)}
-        className="text-accent text-sm whitespace-nowrap tabular-nums hover:underline"
-      >
-        {when}
-      </Link>
-      {segment.count > 1 && (
-        <span className="text-ink-2 text-sm whitespace-nowrap">
-          {t('sensorLogs.streams.runs', { count: segment.count })}
-        </span>
-      )}
-      {segment.result !== 'ok' && words && (
-        // Its own line on a phone: squeezed beside the time and the count,
-        // the sentence broke after every word.
-        <span className="text-ink-2 min-w-0 text-sm max-md:basis-full md:flex-1">
-          {words}
-          {segment.code && (
-            <Mono className="text-ink-3 ml-2 whitespace-nowrap">{segment.code}</Mono>
-          )}
-        </span>
-      )}
-    </li>
   )
 }
 

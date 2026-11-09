@@ -22,7 +22,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useProbeNames } from '@/features/probes/probeName'
-import { formatDateTime, formatNumber } from '@/utils/format'
+import { formatDateTime, formatNumber, formatSpanEnd } from '@/utils/format'
 
 import { RecordBody, ResultBadge, RunTable, networkOf, useCodeLabel } from './RunList'
 
@@ -49,9 +49,20 @@ function filtersFrom(params: URLSearchParams): SensorLogFilters {
     sensor: params.get('sensor') || undefined,
     ssid: params.get('ssid') || undefined,
     result,
+    since: validTime(params.get('since')),
+    until: validTime(params.get('until')),
     q: params.get('q') || undefined,
   }
 }
+
+/** An ISO time from the address, or nothing if it does not parse. */
+function validTime(value: string | null): string | undefined {
+  return value && !Number.isNaN(Date.parse(value)) ? value : undefined
+}
+
+// The range select's value while an exact window from a timeline applies.
+const CUSTOM_RANGE = 'custom'
+
 
 /**
  * Every run every probe reported, filtered on the server.
@@ -77,6 +88,11 @@ export function SensorLogPage() {
   function setFilter(key: keyof SensorLogFilters, value: string) {
     const next = new URLSearchParams(params)
     // The default range is no filter, so it stays out of the address.
+    if (key === 'range') {
+      // A chosen range ends the exact window a timeline link brought along.
+      next.delete('since')
+      next.delete('until')
+    }
     if (value && !(key === 'range' && value === DEFAULT_RANGE)) next.set(key, value)
     else next.delete(key)
     // Other filters, other runs: page 3 of the old list means nothing here.
@@ -107,6 +123,7 @@ export function SensorLogPage() {
       filters.ssid ||
       filters.result ||
       filters.q ||
+      filters.since ||
       filters.range !== DEFAULT_RANGE,
   )
 
@@ -135,9 +152,19 @@ export function SensorLogPage() {
           />
           <Select
             aria-label={t('sensorLogs.filters.range')}
-            value={filters.range}
+            value={filters.since ? CUSTOM_RANGE : filters.range}
             onChange={(event) => setFilter('range', event.target.value)}
           >
+            {filters.since && (
+              <option value={CUSTOM_RANGE}>
+                {t('sensorLogs.range.custom', {
+                  from: formatDateTime(filters.since),
+                  to: filters.until
+                    ? formatSpanEnd(filters.since, filters.until)
+                    : t('sensorLogs.range.now'),
+                })}
+              </option>
+            )}
             {RANGES.map((range) => (
               <option key={range} value={range}>
                 {t(`sensorLogs.range.${range}`)}
