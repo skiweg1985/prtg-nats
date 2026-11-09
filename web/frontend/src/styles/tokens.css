@@ -31,6 +31,9 @@
   --n-500: 53.5% 0.016 256;
   --n-600: 42.5% 0.018 257;
   --n-700: 34.5% 0.016 258;
+  /* Between surface and inset in the dark: the hairline and the hover fill
+     there. n-700 drew every divider as loud as a control's edge. */
+  --n-750: 29.5% 0.016 258;
   --n-800: 24.5% 0.016 259;
   --n-900: 20% 0.016 260;
   --n-950: 15% 0.016 261;
@@ -101,6 +104,7 @@
   --color-ink-3: oklch(var(--n-500)); /* meta, timestamps         */
   --color-rule: oklch(var(--n-200)); /* hairline                 */
   --color-rule-2: oklch(var(--n-300)); /* input border             */
+  --color-hover: oklch(var(--n-100)); /* hover fill of quiet rows */
   --color-accent: oklch(var(--a-500));
   --color-accent-ink: oklch(var(--n-paper));
   --color-accent-soft: oklch(var(--a-50));
@@ -159,8 +163,9 @@
   --color-ink: oklch(var(--n-50));
   --color-ink-2: oklch(var(--n-300));
   --color-ink-3: oklch(var(--n-400));
-  --color-rule: oklch(var(--n-700));
+  --color-rule: oklch(var(--n-750));
   --color-rule-2: oklch(var(--n-600));
+  --color-hover: oklch(var(--n-750));
   --color-accent: oklch(var(--a-400));
   --color-accent-ink: oklch(var(--n-950));
   --color-accent-soft: oklch(var(--a-900));

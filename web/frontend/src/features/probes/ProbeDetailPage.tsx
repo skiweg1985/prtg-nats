@@ -76,6 +76,7 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   ActionMenu,
+  AttentionTitle,
   Badge,
   Banner,
   Button,
@@ -91,11 +92,12 @@ import {
   RowActions,
   Select,
   Skeleton,
+  StatusText,
   Tabs,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { usePopover } from '@/components/ui/Popover'
-import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
+import { ProbeStatusBadge, SensorStatusText, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
 import { useUrlChoice } from '@/utils/urlState'
 
@@ -1191,7 +1193,7 @@ function ToolCell({ row }: { row: SensorState }) {
           tool: row.tool_name,
           state: verdict,
         })}
-        className="hover:bg-surface-2 rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
+        className="hover:bg-hover rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
       >
         <Dot tone={tone} />
         <span className="text-ink text-xs font-medium">{row.tool_name}</span>
@@ -1231,7 +1233,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       key: 'status',
       header: t('probes.columns.status'),
       sortValue: (row) => row.status,
-      cell: (row) => <SensorStatusBadge status={row.status} />,
+      cell: (row) => <SensorStatusText status={row.status} />,
     },
     {
       key: 'runs',
@@ -1275,11 +1277,11 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         row.helper_state === null || row.helper_state === 'none' ? (
           '—'
         ) : row.helper_state === 'listening' ? (
-          <Badge tone="ok">{t('sensors.helperState.listening')}</Badge>
+          <StatusText tone="ok">{t('sensors.helperState.listening')}</StatusText>
         ) : (
           // In PRTG this sensor reports "helper unreachable" on every scan;
           // here it used to look exactly like a healthy one.
-          <Badge tone="danger">{t('sensors.helperState.inactive')}</Badge>
+          <StatusText tone="danger">{t('sensors.helperState.inactive')}</StatusText>
         ),
     },
     {
@@ -1405,7 +1407,14 @@ function DeviationsSection({
   return (
     <div className="space-y-4">
       <Card
-        title={t('probes.deviationsTitle')}
+        title={
+          <AttentionTitle
+            count={detail.deviations.length}
+            tone={detail.deviations.some((d) => d.severity === 'critical') ? 'danger' : 'warn'}
+          >
+            {t('probes.deviationsTitle')}
+          </AttentionTitle>
+        }
         action={
           // Opens the plan, changes nothing: secondary, and gone once the
           // plan is on screen with its own button to run it.
@@ -1419,7 +1428,7 @@ function DeviationsSection({
         }
         dense
       >
-        <ul>
+        <ul className="divide-rule divide-y">
           {detail.deviations.map((deviation, index) => (
             <DeviationRow key={index} deviation={deviation} sensors={detail.sensors} />
           ))}
@@ -1542,7 +1551,7 @@ function DeviationRow({
   // comparison below says which.
   const inSentence = step?.from && step.to && step.from !== step.to ? step : null
   return (
-    <li className="border-rule flex items-start gap-3 border-b px-4 py-2.5 last:border-0">
+    <li className="flex items-start gap-3 px-4 py-2.5">
       <span className="pt-1.5">
         <Dot tone={SEVERITY_TONE[deviation.severity]} />
       </span>

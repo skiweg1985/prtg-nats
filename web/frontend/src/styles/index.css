@@ -13,6 +13,7 @@
   --color-ink-3: var(--color-ink-3);
   --color-rule: var(--color-rule);
   --color-rule-2: var(--color-rule-2);
+  --color-hover: var(--color-hover);
   --color-accent: var(--color-accent);
   --color-accent-ink: var(--color-accent-ink);
   --color-accent-soft: var(--color-accent-soft);
@@ -121,13 +122,16 @@
 }
 
 @layer components {
-  /* The uppercase mono label of table column heads - and nothing else. Set
-   * on headings and keys elsewhere it shouted over the data it named. */
-  .label-mono {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+  /* A table's column heads. Sentence case in the body face, small and
+   * muted, on the card itself with a hairline below: the grey band and the
+   * tracked mono capitals before it were the loudest thing on every list,
+   * louder than the rows they named. Meta on the card surface clears 4.5:1
+   * in both themes, which the band did not. */
+  .table-head {
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
     color: var(--color-ink-3);
   }
 

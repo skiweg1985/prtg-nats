@@ -417,7 +417,7 @@ export function DataTable<T>({
         ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
-            <thead className="bg-surface-2">
+            <thead>
               <tr>
                 {selection && (
                   <th className="w-10 px-3 py-2">
@@ -442,9 +442,7 @@ export function DataTable<T>({
                         : undefined
                     }
                     className={clsx(
-                      // ink-2, not the label default: ink-3 on the grey
-                      // header band falls under 4.5:1 in both themes.
-                      'label-mono text-ink-2 px-3 py-2 font-normal whitespace-nowrap',
+                      'table-head h-9 px-3 whitespace-nowrap',
                       column.align === 'right' && 'text-right',
                     )}
                   >
@@ -452,7 +450,7 @@ export function DataTable<T>({
                       <button
                         type="button"
                         onClick={() => toggleSort(column.key)}
-                        className="hover:text-ink rounded-inset focus-visible:outline-accent -mx-1 inline-flex min-h-6 items-center gap-1 px-1 uppercase focus-visible:outline-2"
+                        className="hover:text-ink rounded-inset focus-visible:outline-accent -mx-1 inline-flex min-h-6 items-center gap-1 px-1 focus-visible:outline-2"
                       >
                         {column.header}
                         {sort?.key === column.key &&
@@ -484,7 +482,7 @@ export function DataTable<T>({
                       onClick={href ? () => navigate(href) : undefined}
                       className={clsx(
                         'border-rule border-t',
-                        href && 'hover:bg-surface-2 cursor-pointer',
+                        href && 'hover:bg-hover cursor-pointer',
                       )}
                     >
                       {selection && (

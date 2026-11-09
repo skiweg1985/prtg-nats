@@ -17,7 +17,7 @@ import {
   Mono,
   PageHeader,
 } from '@/components/ui/primitives'
-import { ProbeStatusBadge } from '@/components/ui/status'
+import { ProbeStatusText } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 import { useUrlState } from '@/utils/urlState'
 
@@ -431,8 +431,8 @@ export function ProbeListPage() {
 function StatusBadges({ row }: { row: ProbeSummary }) {
   const { t } = useTranslation()
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <ProbeStatusBadge status={row.status} />
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      <ProbeStatusText status={row.status} />
       {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
       {/* Beside the status rather than in its own column: it decides
           whether the next job on this probe will run at all. */}

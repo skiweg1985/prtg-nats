@@ -20,7 +20,10 @@
     "system": "Maintenance",
     "overlay": "Overlay",
     "sensorLogs": "Sensor log",
-    "guide": "Guide"
+    "guide": "Guide",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "label": "Main navigation"
   },
   "breadcrumb": {
     "run": "Run",
@@ -136,7 +139,8 @@
       "prtgMissing_other": "{{count}} probes are not registered in PRTG yet",
       "more_one": "and one more",
       "more_other": "and {{count}} more"
-    }
+    },
+    "pending": "Enrollment open"
   },
   "probes": {
     "title": "Probes",

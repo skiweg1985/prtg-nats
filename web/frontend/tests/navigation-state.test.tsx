@@ -274,9 +274,8 @@ async function breadcrumb() {
 }
 
 function sidebar() {
-  const rail = screen
-    .getAllByRole('navigation')
-    .find((element) => element.getAttribute('aria-label') === null)
+  // The rail; the narrow-screen menu carries the same name but stays closed.
+  const [rail] = screen.getAllByRole('navigation', { name: /Main navigation|Hauptnavigation/ })
   if (!rail) throw new Error('no sidebar')
   return within(rail)
 }
