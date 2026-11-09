@@ -354,9 +354,11 @@ function FailureList({
 
 // One template for the header and every row, so the columns line up.
 // Below lg the card is too narrow for seven columns beside the sidebar, so a
-// row falls back to label/value pairs there.
+// row falls back to label/value pairs there. The last column has a width of
+// its own: it holds the remove button in a row and nothing in the header, and
+// an auto column would share out the rest differently in each.
 const JOB_COLUMNS =
-  'lg:grid-cols-[minmax(8rem,1.3fr)_minmax(7rem,1fr)_5.5rem_6.5rem_7rem_minmax(10rem,1.5fr)_auto] lg:items-center lg:gap-x-4'
+  'lg:grid-cols-[minmax(8rem,1.3fr)_minmax(7rem,1fr)_5.5rem_6.5rem_7rem_minmax(10rem,1.5fr)_7rem] lg:items-center lg:gap-x-4'
 
 // What a missing value shows, so a row keeps its shape.
 const MISSING = '–'
