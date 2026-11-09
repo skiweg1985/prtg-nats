@@ -658,11 +658,21 @@ async def after_start(
 # --- Sensor log ---------------------------------------------------------------
 
 
+# The configurations the demo probes measure: SSID, method and variant. Berlin
+# signs in to "Corporate" twice - with PEAP and with an EAP-TLS variant - so
+# the sensor page shows two rows for one SSID.
+WLAN_CONFIGURATIONS = {
+    "Corporate": ("Corporate", "peap", "corporate"),
+    "Corporate-TLS": ("Corporate", "eap-tls", "corporate-certauth"),
+    "Lager-WLAN": ("Lager-WLAN", "psk", "lager"),
+    "Gast": ("Gast", "psk", "gast"),
+}
+
+
 def _wlan_record(
-    probe: str, network: str, moment: datetime, outcome: str, index: int
+    probe: str, configuration: str, moment: datetime, outcome: str, index: int
 ) -> dict[str, Any]:
-    auth = {"Corporate": "peap", "Lager-WLAN": "psk", "Gast": "psk"}[network]
-    profile = {"Corporate": "corporate", "Lager-WLAN": "lager", "Gast": "gast"}[network]
+    network, auth, profile = WLAN_CONFIGURATIONS[configuration]
     octet = 20 + index % 200
     stamp = moment.strftime("%H:%M:%S")
     body: dict[str, Any] = {
@@ -670,7 +680,9 @@ def _wlan_record(
         "auth": auth,
         "interface": "wlan0",
         "stage": "dhcp",
-        "identity": "svc-wlan-monitor" if auth == "peap" else "",
+        "identity": {"peap": "svc-wlan-monitor", "eap-tls": "probe01@example.test"}.get(
+            auth, ""
+        ),
         "profile": profile,
         "bssid": f"02:00:5e:10:{index % 90 + 10:02x}:{(index * 7) % 250:02x}",
         "client_mac": "02:5e:9a:31:44:0" + str(index % 10),
@@ -772,7 +784,7 @@ def _wlan_record(
     return {
         "id": str(uuid.uuid4()),
         "sensor": "wlan-auth",
-        "job": f"{abs(hash((probe, network))) % 16**12:012x}",
+        "job": f"{abs(hash((probe, configuration))) % 16**12:012x}",
         "time": moment.isoformat(timespec="seconds"),
         "result": result,
         "code": code,
@@ -785,7 +797,7 @@ async def sensor_logs(base_url: str) -> None:
     """A day of wlan-auth runs, sent the way each probe's channel sends them."""
     now = _now()
     plan = {
-        "probe-berlin-01": ("Corporate", "Lager-WLAN"),
+        "probe-berlin-01": ("Corporate", "Corporate-TLS", "Lager-WLAN"),
         "probe-kiel-01": ("Corporate", "Lager-WLAN", "Gast"),
         "probe-hamburg-01": ("Corporate",),
     }
@@ -812,6 +824,14 @@ async def sensor_logs(base_url: str) -> None:
                             and network == "Corporate"
                             and hours_ago == 15
                             and minute == 7
+                        ):
+                            outcome = "eap"
+                        # The EAP-TLS variant has a bad morning while PEAP on
+                        # the same SSID stays green.
+                        if (
+                            probe == "probe-berlin-01"
+                            and network == "Corporate-TLS"
+                            and hours_ago in (6, 7, 8)
                         ):
                             outcome = "eap"
                         # Kiel's channel was out of reach for a while in the

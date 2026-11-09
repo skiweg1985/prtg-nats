@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Plus, Upload, X } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 
 import { useInvitations, useProbes, usePrtgProbeNames } from '@/api/hooks'
 import type { ApiError } from '@/api/client'
@@ -17,8 +17,9 @@ import {
   Mono,
   PageHeader,
 } from '@/components/ui/primitives'
-import { ProbeStatusBadge } from '@/components/ui/status'
+import { ProbeStatusText } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
+import { useUrlState } from '@/utils/urlState'
 
 import { DeployDialog } from '../deployments/DeployDialog'
 import { FleetActionBar } from './FleetActions'
@@ -57,6 +58,9 @@ function OpenInvitationsHint() {
  * with is "what is broken", and an alphabetical fleet answers it only for
  * somebody who reads every row.
  */
+// Cleared by the table's reset together with the search term.
+const PROBE_FILTER_KEYS = ['filter', 'status'] as const
+
 const STATUS_ORDER: ProbeStatus[] = [
   'unreachable',
   'degraded',
@@ -109,7 +113,7 @@ export function ProbeListPage() {
   // somebody's behalf - "probes with deviations: 3" is a link now, not a
   // label - and so the filtered list survives a reload and can be sent to a
   // colleague.
-  const [params, setParams] = useSearchParams()
+  const { params, update } = useUrlState()
   const active = new Set(params.getAll('filter'))
   const onlyHelperOutdated = active.has('helper')
   const onlyDeviations = active.has('deviations')
@@ -120,10 +124,7 @@ export function ProbeListPage() {
   // Every filter writes only its own parameter. Rebuilding the query from the
   // filters alone used to drop the search term the moment a chip was pressed.
   function setParamValues(key: string, values: Iterable<string>) {
-    const updated = new URLSearchParams(params)
-    updated.delete(key)
-    for (const value of values) updated.append(key, value)
-    setParams(updated, { replace: true })
+    update({ [key]: [...values] })
   }
 
   function toggleIn<V extends string>(set: Set<V>, value: V): Set<V> {
@@ -162,18 +163,11 @@ export function ProbeListPage() {
   const filtered =
     onlyHelperOutdated || onlyDeviations || onlyPrtgMissing || statuses.size > 0
 
-  // Leaves the search term alone: it has a clear button of its own.
+  // The empty state's way out; the toolbar has the table's own reset, which
+  // takes the search term along.
   function clearFilters() {
-    const updated = new URLSearchParams(params)
-    updated.delete('filter')
-    updated.delete('status')
-    setParams(updated, { replace: true })
+    update({ filter: null, status: null })
   }
-
-  // Carried into every row link and handed back by the detail page's own way
-  // out. Without it, opening a probe from a filtered, searched list and
-  // stepping back lands on the unfiltered fleet with the search box empty.
-  const listSearch = params.toString()
 
   const columns: Column<ProbeSummary>[] = [
     {
@@ -332,8 +326,8 @@ export function ProbeListPage() {
             </PermissionGate>
           )
         }
-        rowHref={(row) => `/probes/${row.id}${listSearch ? `?${listSearch}` : ''}`}
-        searchParamKey="q"
+        rowHref={(row) => `/probes/${row.id}`}
+        filterKeys={PROBE_FILTER_KEYS}
         defaultSort={{ key: 'status', direction: 'asc' }}
         rowLabel={nameOf}
         mobileCard={(row) => (
@@ -398,11 +392,6 @@ export function ProbeListPage() {
               active={onlyPrtgMissing}
               onToggle={() => toggleFilter('prtg')}
             />
-            {filtered && (
-              <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
-                {t('common.clearFilters')}
-              </Button>
-            )}
           </div>
         }
         selection={{
@@ -442,8 +431,8 @@ export function ProbeListPage() {
 function StatusBadges({ row }: { row: ProbeSummary }) {
   const { t } = useTranslation()
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <ProbeStatusBadge status={row.status} />
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      <ProbeStatusText status={row.status} />
       {row.running_job_id && <Badge tone="accent">{t('status.job.running')}</Badge>}
       {/* Beside the status rather than in its own column: it decides
           whether the next job on this probe will run at all. */}

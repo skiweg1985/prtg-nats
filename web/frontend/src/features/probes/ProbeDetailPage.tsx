@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -72,10 +72,11 @@ import { probeName } from '@/features/probes/probeName'
 import { ReturnChannelRow } from '@/features/probes/ReturnChannelRow'
 import { MiniTimeline } from '@/features/sensorLogs/SensorTimeline'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
   ActionMenu,
-  BackLink,
+  AttentionTitle,
   Badge,
   Banner,
   Button,
@@ -91,11 +92,14 @@ import {
   RowActions,
   Select,
   Skeleton,
+  StatusText,
   Tabs,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
-import { ProbeStatusBadge, SensorStatusBadge, StateCell } from '@/components/ui/status'
+import { usePopover } from '@/components/ui/Popover'
+import { ProbeStatusBadge, SensorStatusText, StateCell } from '@/components/ui/status'
 import { formatRelative, shortFingerprint } from '@/utils/format'
+import { useUrlChoice } from '@/utils/urlState'
 
 // Deviations are a section of the overview, not a tab: they are empty most
 // of the time, and a tab that is usually empty is a click to learn nothing.
@@ -139,22 +143,7 @@ export function ProbeDetailPage() {
   // job, and coming back from one used to put the overview in front of
   // somebody who had been reading the deviations. It also makes a tab
   // something that can be linked to and survives a reload.
-  const [params, setParams] = useSearchParams()
-  const tab: Tab = TABS.find((entry) => entry === params.get(TAB_PARAM)) ?? 'overview'
-
-  function selectTab(next: Tab) {
-    const updated = new URLSearchParams(params)
-    if (next === 'overview') updated.delete(TAB_PARAM)
-    else updated.set(TAB_PARAM, next)
-    setParams(updated, { replace: true })
-  }
-
-  // What the list was showing when this page was opened: the row link brings
-  // its filters and search term along, and the way out hands them back.
-  const listParams = new URLSearchParams(params)
-  listParams.delete(TAB_PARAM)
-  const listSearch = listParams.toString()
-  const backToList = `/probes${listSearch ? `?${listSearch}` : ''}`
+  const [tab, selectTab] = useUrlChoice<Tab>(TAB_PARAM, TABS, 'overview')
   const [confirmUnenroll, setConfirmUnenroll] = useState(false)
   const [confirmUpgrade, setConfirmUpgrade] = useState(false)
   const [finishPending, setFinishPending] = useState(false)
@@ -208,7 +197,7 @@ export function ProbeDetailPage() {
           not fit, instead of squeezing the name into two lines. */}
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-64 flex-1">
-          <BackLink to={backToList}>{t('probes.title')}</BackLink>
+          <Breadcrumb trail={[{ to: '/probes', label: t('probes.title') }]} />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{name}</h1>
             <ProbeStatusBadge status={summary.status} />
@@ -1129,9 +1118,90 @@ function InterfacesCard({
           columns={columns}
           rowKey={(row) => row.name}
           emptyTitle={t('probes.interfaces.empty')}
+          urlKey="interfaces"
         />
       )}
     </Card>
+  )
+}
+
+/**
+ * The tool a sensor drives, on one line: name, version and a dot for whether
+ * it fits. The rest - where it comes from, platform, path, installed against
+ * expected, the hash comparison - is in a hover card that opens for mouse,
+ * keyboard and tap alike. Stacked in the cell, those six facts made every
+ * row of the table five lines tall to answer a question asked rarely.
+ */
+function ToolCell({ row }: { row: SensorState }) {
+  const { t } = useTranslation()
+  const tone: 'ok' | 'danger' | 'warn' =
+    row.tool_compatible === true ? 'ok' : row.tool_compatible === false ? 'danger' : 'warn'
+  const verdict =
+    row.tool_compatible === true
+      ? t('probes.sensorTool.compatible')
+      : row.tool_compatible === false
+        ? t('probes.sensorTool.incompatible')
+        : t('probes.sensorTool.notVerified')
+  const system = row.tool_source === 'system'
+  const popover = usePopover({
+    wide: true,
+    inlineWhenNarrow: false,
+    content: (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Mono className="text-ink">{row.tool_name}</Mono>
+          <Badge tone={row.tool_source === 'managed' ? 'accent' : 'neutral'}>
+            {row.tool_source === null
+              ? t('probes.sensorTool.sourceUnknown')
+              : t(`probes.sensorTool.source.${row.tool_source}`)}
+          </Badge>
+          <Badge tone={tone}>{verdict}</Badge>
+        </div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-ink-3">{t('probes.sensorTool.platform')}</dt>
+          <dd>
+            <Mono>{row.tool_platform ?? '—'}</Mono>
+          </dd>
+          <dt className="text-ink-3">{t('probes.sensorTool.path')}</dt>
+          <dd>
+            <Mono className="break-all">{row.tool_path ?? '—'}</Mono>
+          </dd>
+          <dt className="text-ink-3">{t('probes.sensorTool.version')}</dt>
+          <dd>
+            {t(system ? 'probes.sensorTool.systemVersions' : 'probes.sensorTool.managedVersions', {
+              installed: row.installed_tool_version ?? '—',
+              expected: row.expected_tool_version ?? '—',
+            })}
+          </dd>
+          <dt className="text-ink-3">SHA-256</dt>
+          <dd>
+            <Mono>
+              {system
+                ? shortFingerprint(row.installed_tool_sha256)
+                : `${shortFingerprint(row.installed_tool_sha256)} → ${shortFingerprint(row.expected_tool_sha256)}`}
+            </Mono>
+          </dd>
+        </dl>
+      </div>
+    ),
+  })
+  return (
+    <>
+      <button
+        {...popover.triggerProps}
+        aria-label={t('probes.sensorTool.details', {
+          tool: row.tool_name,
+          state: verdict,
+        })}
+        className="hover:bg-hover rounded-inset -mx-1 inline-flex min-h-7 items-center gap-1.5 px-1 whitespace-nowrap"
+      >
+        <Dot tone={tone} />
+        <span className="text-ink text-xs font-medium">{row.tool_name}</span>
+        <Mono className="text-ink-3">{row.installed_tool_version ?? '—'}</Mono>
+      </button>
+      {popover.floating}
+      {popover.inline}
+    </>
   )
 }
 
@@ -1157,13 +1227,13 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
       header: t('sensors.columns.name'),
       sortValue: (row) => row.name,
       searchValue: (row) => row.name,
-      cell: (row) => <span className="text-ink font-medium">{row.name}</span>,
+      cell: (row) => <span className="text-ink font-medium whitespace-nowrap">{row.name}</span>,
     },
     {
       key: 'status',
       header: t('probes.columns.status'),
       sortValue: (row) => row.status,
-      cell: (row) => <SensorStatusBadge status={row.status} />,
+      cell: (row) => <SensorStatusText status={row.status} />,
     },
     {
       key: 'runs',
@@ -1192,55 +1262,7 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         [row.tool_name, row.tool_platform, row.tool_source, row.tool_path]
           .filter(Boolean)
           .join(' '),
-      cell: (row) =>
-        row.tool_name === null ? (
-          '—'
-        ) : (
-          <div className="space-y-0.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-ink text-xs font-medium">{row.tool_name}</span>
-              <Badge tone={row.tool_source === 'managed' ? 'accent' : 'neutral'}>
-                {row.tool_source === null
-                  ? t('probes.sensorTool.sourceUnknown')
-                  : t(`probes.sensorTool.source.${row.tool_source}`)}
-              </Badge>
-              {row.tool_compatible === true && (
-                <Badge tone="ok">{t('probes.sensorTool.compatible')}</Badge>
-              )}
-              {row.tool_compatible === false && (
-                <Badge tone="danger">{t('probes.sensorTool.incompatible')}</Badge>
-              )}
-              {row.tool_compatible === null && (
-                <Badge tone="warn">{t('probes.sensorTool.notVerified')}</Badge>
-              )}
-              <Mono className="text-ink-3">{row.tool_platform ?? '—'}</Mono>
-            </div>
-            <Mono className="text-ink-3 block break-all">
-              {row.tool_path ?? '—'}
-            </Mono>
-            <div className="text-ink-3 text-xs">
-              {t(
-                row.tool_source === 'system'
-                  ? 'probes.sensorTool.systemVersions'
-                  : 'probes.sensorTool.managedVersions',
-                {
-                  installed: row.installed_tool_version ?? '—',
-                  expected: row.expected_tool_version ?? '—',
-                },
-              )}
-            </div>
-            <Mono className="text-ink-3 block">
-              {row.tool_source === 'system'
-                ? t('probes.sensorTool.systemSha256', {
-                    installed: shortFingerprint(row.installed_tool_sha256),
-                  })
-                : t('probes.sensorTool.managedSha256', {
-                    installed: shortFingerprint(row.installed_tool_sha256),
-                    expected: shortFingerprint(row.expected_tool_sha256),
-                  })}
-            </Mono>
-          </div>
-        ),
+      cell: (row) => (row.tool_name === null ? '—' : <ToolCell row={row} />),
     },
     {
       key: 'interfaces',
@@ -1255,11 +1277,11 @@ function SensorsTab({ probeId, detail }: { probeId: string; detail: ProbeDetail 
         row.helper_state === null || row.helper_state === 'none' ? (
           '—'
         ) : row.helper_state === 'listening' ? (
-          <Badge tone="ok">{t('sensors.helperState.listening')}</Badge>
+          <StatusText tone="ok">{t('sensors.helperState.listening')}</StatusText>
         ) : (
           // In PRTG this sensor reports "helper unreachable" on every scan;
           // here it used to look exactly like a healthy one.
-          <Badge tone="danger">{t('sensors.helperState.inactive')}</Badge>
+          <StatusText tone="danger">{t('sensors.helperState.inactive')}</StatusText>
         ),
     },
     {
@@ -1385,7 +1407,14 @@ function DeviationsSection({
   return (
     <div className="space-y-4">
       <Card
-        title={t('probes.deviationsTitle')}
+        title={
+          <AttentionTitle
+            count={detail.deviations.length}
+            tone={detail.deviations.some((d) => d.severity === 'critical') ? 'danger' : 'warn'}
+          >
+            {t('probes.deviationsTitle')}
+          </AttentionTitle>
+        }
         action={
           // Opens the plan, changes nothing: secondary, and gone once the
           // plan is on screen with its own button to run it.
@@ -1399,7 +1428,7 @@ function DeviationsSection({
         }
         dense
       >
-        <ul>
+        <ul className="divide-rule divide-y">
           {detail.deviations.map((deviation, index) => (
             <DeviationRow key={index} deviation={deviation} sensors={detail.sensors} />
           ))}
@@ -1522,7 +1551,7 @@ function DeviationRow({
   // comparison below says which.
   const inSentence = step?.from && step.to && step.from !== step.to ? step : null
   return (
-    <li className="border-rule flex items-start gap-3 border-b px-4 py-2.5 last:border-0">
+    <li className="flex items-start gap-3 px-4 py-2.5">
       <span className="pt-1.5">
         <Dot tone={SEVERITY_TONE[deviation.severity]} />
       </span>

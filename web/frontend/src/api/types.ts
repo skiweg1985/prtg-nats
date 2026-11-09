@@ -281,6 +281,12 @@ export interface SensorJob {
   label: string
   interface: string | null
   ssid: string | null
+  /** psk, peap or eap-tls; null from a probe helper below version 18. */
+  auth?: string | null
+  /** The variant the sensor names with --profile. */
+  profile?: string | null
+  /** The access point the configuration is pinned to. */
+  bssid?: string | null
   stage: string | null
   result: string | null
   code: string | null
@@ -918,6 +924,8 @@ export interface SensorLogSummary {
   summary: string
   /** Taken from the body; null for sensors that test no network. */
   ssid: string | null
+  /** The variant (wlan-auth's --profile) the run was measured with. */
+  variant?: string | null
 }
 
 /** One record with its body: the sensor-specific detail and raw output. */
@@ -946,7 +954,11 @@ export interface SensorTimelineBucket {
 /** One network of a sensor over the window. */
 export interface SensorTimelineStream {
   sensor: string
+  /** Opaque key of the row among the sensor's others; sent back to hide it. */
+  stream: string
   ssid: string | null
+  /** One row per SSID and variant; null for runs that named none. */
+  variant?: string | null
   ok: number
   error: number
   success_rate: number | null
@@ -956,6 +968,15 @@ export interface SensorTimelineStream {
   last_run: string | null
   /** Stopped while the sensor's other networks went on: no longer asked for. */
   ended: boolean
+  /** The helper's label of the configuration behind the newest run. */
+  last_job: string | null
+}
+
+/** A run and the runs of its stream on either side, null at either end. */
+export interface SensorLogNeighbours {
+  record: SensorLogSummary
+  previous: SensorLogSummary | null
+  next: SensorLogSummary | null
 }
 
 export interface SensorTimeline {
@@ -976,6 +997,7 @@ export interface SensorLogFilters {
   probe?: string
   sensor?: string
   ssid?: string
+  variant?: string
   result?: SensorLogResult
   range: SensorLogRange
   /** An exact window, ISO times, as a timeline links it; replaces `range`. */

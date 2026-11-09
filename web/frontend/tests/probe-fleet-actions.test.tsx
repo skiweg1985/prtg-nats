@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -134,12 +135,12 @@ describe('acting on a selection of probes', () => {
 
     // A probe that reports no helper version cannot be updated over the
     // channel, so the action stays away even though the row says "outdated".
-    await user.click(screen.getByLabelText('hamburg-01'))
+    await user.click(screen.getByLabelText('hamburg-01', FIELD))
     expect(screen.queryByRole('button', { name: 'Update helper' })).toBeNull()
     // It did drift, so fixing deviations is on offer for the same selection.
     expect(screen.getByRole('button', { name: 'Fix deviations' })).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByLabelText('berlin-01', FIELD))
     expect(screen.getByRole('button', { name: 'Update helper' })).toBeInTheDocument()
   })
 
@@ -149,8 +150,8 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('berlin-01'))
-    await user.click(screen.getByLabelText('munich-01'))
+    await user.click(screen.getByLabelText('berlin-01', FIELD))
+    await user.click(screen.getByLabelText('munich-01', FIELD))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     const dialog = screen.getByRole('dialog')
@@ -172,9 +173,9 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('berlin-01'))
-    await user.click(screen.getByLabelText('hamburg-01'))
-    await user.click(screen.getByLabelText('munich-01'))
+    await user.click(screen.getByLabelText('berlin-01', FIELD))
+    await user.click(screen.getByLabelText('hamburg-01', FIELD))
+    await user.click(screen.getByLabelText('munich-01', FIELD))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     const dialog = screen.getByRole('dialog')
@@ -193,7 +194,7 @@ describe('acting on a selection of probes', () => {
     wrap()
 
     await screen.findByText('mpp-berlin-01')
-    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByLabelText('berlin-01', FIELD))
     await user.click(screen.getByRole('button', { name: 'Update helper' }))
 
     // One probe is what a single click does on the detail page; asking again
@@ -225,11 +226,11 @@ describe('acting on a selection of probes', () => {
     expect(screen.getAllByText('3.11.0-1 available').length).toBeGreaterThan(0)
 
     // Nothing to upgrade on munich-01, so the action is not offered for it.
-    await user.click(screen.getByLabelText('munich-01'))
+    await user.click(screen.getByLabelText('munich-01', FIELD))
     expect(screen.queryByRole('button', { name: 'Upgrade probe software' })).toBeNull()
-    await user.click(screen.getByLabelText('munich-01'))
+    await user.click(screen.getByLabelText('munich-01', FIELD))
 
-    await user.click(screen.getByLabelText('berlin-01'))
+    await user.click(screen.getByLabelText('berlin-01', FIELD))
     await user.click(screen.getByRole('button', { name: 'Upgrade probe software' }))
     // The probe service restarts, so even a single probe is confirmed first.
     const dialog = await screen.findByRole('dialog')
@@ -237,7 +238,7 @@ describe('acting on a selection of probes', () => {
     expect(posted).toEqual([])
 
     // Finishing a broken system update is offered, and off until ticked.
-    const finish = within(dialog).getByLabelText(/Finish the interrupted system update/)
+    const finish = within(dialog).getByLabelText(/Finish the interrupted system update/, FIELD)
     expect(finish).not.toBeChecked()
     await user.click(finish)
 
@@ -326,7 +327,7 @@ describe('what the list shows around a selection', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.click(await screen.findByLabelText('munich-01'))
+    await user.click(await screen.findByLabelText('munich-01', FIELD))
     await user.click(screen.getByRole('button', { name: 'With deviations only' }))
 
     // Still selected and still what an action would run on, so it is said.

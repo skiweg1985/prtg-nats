@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -5,6 +6,8 @@ import { HttpResponse, http } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+
+import { resetNavigationMemory, useNavigationTracking } from '@/app/navigation'
 
 import { AppProviders } from '@/app/providers'
 import { JobDetailPage } from '@/features/jobs/JobPages'
@@ -121,12 +124,19 @@ const server = setupServer(
   http.get('/api/v1/auth/state', () => HttpResponse.json(PRINCIPAL)),
   http.get('/api/v1/probes', () => HttpResponse.json(PROBES)),
   http.get('/api/v1/probes/P1', () => HttpResponse.json(PROBE_DETAIL)),
+  http.get('/api/v1/probes/P2', () =>
+    HttpResponse.json({ ...PROBE_DETAIL, summary: PROBES[1] }),
+  ),
   http.get('/api/v1/jobs/J1', () => HttpResponse.json(JOB)),
   http.get('/api/v1/jobs/J1/log', () => HttpResponse.json([])),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  window.sessionStorage.clear()
+  resetNavigationMemory()
+})
 afterAll(() => server.close())
 
 /** Prints the current address, so a test can assert on where a click led. */
@@ -135,12 +145,19 @@ function Address() {
   return <p data-testid="address">{`${location.pathname}${location.search}`}</p>
 }
 
+/** What the layout does in the app: remember the way each page was reached. */
+function Tracking() {
+  useNavigationTracking(() => false)
+  return null
+}
+
 function wrap(entry: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <AppProviders client={client}>
       <MemoryRouter initialEntries={[entry]}>
         <Address />
+        <Tracking />
         <Routes>
           <Route path="/probes" element={<ProbeListPage />} />
           <Route path="/probes/:probeId" element={<ProbeDetailPage />} />
@@ -210,10 +227,14 @@ describe('the tab of the probe detail page', () => {
 })
 
 describe('the way back to the list', () => {
-  it('carries the filter and the search term the row was opened from', async () => {
+  it('leads to the list as the row was opened from it', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
-    wrap('/probes/P1?filter=deviations&q=hamburg&tab=sensors')
+    wrap('/probes?filter=deviations&q=hamburg')
+
+    await user.click(await screen.findByRole('link', { name: /mpp-hamburg-02/ }))
+    expect(address()).toBe('/probes/P2')
+    await user.click(await screen.findByRole('tab', { name: 'Sensors' }))
 
     await user.click(await screen.findByRole('link', { name: 'Probes' }))
     // The tab belongs to the detail page and stays behind; the rest is what
@@ -221,10 +242,10 @@ describe('the way back to the list', () => {
     expect(address()).toBe('/probes?filter=deviations&q=hamburg')
   })
 
-  it('is the plain list when nothing was filtered', async () => {
+  it('is the plain list when the page was opened from a link', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
-    wrap('/probes/P1')
+    wrap('/probes/P1?tab=sensors')
 
     await user.click(await screen.findByRole('link', { name: 'Probes' }))
     expect(address()).toBe('/probes')
@@ -232,16 +253,19 @@ describe('the way back to the list', () => {
 })
 
 describe('the search box of the fleet', () => {
-  it('puts the term in the address and hands it to the row it opens', async () => {
+  it('puts the term in the address, and the way back hands it over again', async () => {
     await changeLanguage('en')
     const user = userEvent.setup()
     wrap('/probes')
 
-    await user.type(await screen.findByLabelText('Search'), 'hamburg')
+    await user.type(await screen.findByLabelText('Search', FIELD), 'hamburg')
     expect(address()).toBe('/probes?q=hamburg')
 
-    // One row left, and following it keeps the term for the way back.
+    // The probe's own address stays clean: the term is the list's, not the
+    // probe's, and comes back through the breadcrumb.
     await user.click(await screen.findByRole('link', { name: /mpp-hamburg-02/ }))
-    expect(address()).toBe('/probes/P2?q=hamburg')
+    expect(address()).toBe('/probes/P2')
+    await user.click(await screen.findByRole('link', { name: 'Probes' }))
+    expect(address()).toBe('/probes?q=hamburg')
   })
 })

@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -266,7 +267,7 @@ describe('linking a probe to its object in PRTG', () => {
     await user.click(await within(row).findByRole('button', { name: 'Link' }))
     const dialog = await screen.findByRole('dialog')
 
-    const field = within(dialog).getByLabelText(/^Object id/)
+    const field = within(dialog).getByLabelText(/^Object id/, FIELD)
     expect(within(dialog).getByText(/id=/)).toBeInTheDocument()
     await user.type(field, '2077')
     await user.click(within(dialog).getByRole('button', { name: 'Link' }))
@@ -352,7 +353,7 @@ describe('the PRTG settings', () => {
     const user = userEvent.setup()
     wrap('/settings')
 
-    const field = await screen.findByLabelText(/^API token/)
+    const field = await screen.findByLabelText(/^API token/, FIELD)
     expect(field).toHaveValue('')
     expect(field).toHaveAttribute('type', 'password')
 

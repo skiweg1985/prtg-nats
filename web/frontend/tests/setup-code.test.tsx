@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -61,9 +62,9 @@ describe('creating the first administrator', () => {
     const user = userEvent.setup()
     wrap()
 
-    await user.type(await screen.findByLabelText(/Setup code/), 'ABCD-EFGH-JKMN-PQRS')
-    await user.type(screen.getByLabelText('User name'), 'admin')
-    await user.type(screen.getByLabelText(/^Password/), 'correct-horse-battery')
+    await user.type(await screen.findByLabelText(/Setup code/, FIELD), 'ABCD-EFGH-JKMN-PQRS')
+    await user.type(screen.getByLabelText('User name', FIELD), 'admin')
+    await user.type(screen.getByLabelText(/^Password/, FIELD), 'correct-horse-battery')
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(

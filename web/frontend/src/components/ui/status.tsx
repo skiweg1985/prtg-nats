@@ -1,3 +1,13 @@
+import clsx from 'clsx'
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
+  CircleSlash,
+  CircleX,
+  LoaderCircle,
+  type LucideIcon,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import type {
@@ -10,7 +20,7 @@ import type {
   ServiceState,
 } from '@/api/types'
 
-import { Badge, Dot } from './primitives'
+import { Badge, StatusText } from './primitives'
 
 /**
  * Status rendering, in one place.
@@ -93,6 +103,82 @@ export function JobStatusBadge({ status }: { status: JobStatus }) {
   return <Badge tone={JOB_TONE[status]}>{t(`status.job.${status}`)}</Badge>
 }
 
+const JOB_ICON: Record<JobStatus, LucideIcon> = {
+  queued: CircleDashed,
+  running: LoaderCircle,
+  detached: LoaderCircle,
+  successful: CircleCheck,
+  failed: CircleX,
+  cancelled: CircleSlash,
+  partially_successful: CircleAlert,
+}
+
+const ICON_TONE: Record<Tone, string> = {
+  ok: 'text-ok',
+  warn: 'text-warn',
+  danger: 'text-danger',
+  neutral: 'text-ink-3',
+  accent: 'text-accent',
+}
+
+/**
+ * A job's state as a single icon, for a compact list where a badge per row
+ * turned the column into a stripe of colour. Same tone as the badge; the
+ * label is the accessible name and the tooltip, and a running job's circle
+ * turns, which is the one motion here that reports something.
+ */
+export function JobStatusIcon({ status }: { status: JobStatus }) {
+  const { t } = useTranslation()
+  const Icon = JOB_ICON[status]
+  const label = t(`status.job.${status}`)
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex shrink-0">
+      <Icon
+        aria-hidden
+        size={16}
+        strokeWidth={1.75}
+        className={clsx(
+          ICON_TONE[JOB_TONE[status]],
+          (status === 'running' || status === 'detached') && 'animate-spin [animation-duration:2s]',
+        )}
+      />
+    </span>
+  )
+}
+
+/** A row's state in a table, after StatusText: dot and word. */
+export function ProbeStatusText({ status }: { status: ProbeStatus }) {
+  const { t } = useTranslation()
+  return <StatusText tone={PROBE_TONE[status]}>{t(`status.probe.${status}`)}</StatusText>
+}
+
+export function SensorStatusText({ status }: { status: SensorInstallationStatus }) {
+  const { t } = useTranslation()
+  return <StatusText tone={SENSOR_TONE[status]}>{t(`status.sensor.${status}`)}</StatusText>
+}
+
+/** A job's state in a table: its icon, which turns while it runs, and the
+    word. */
+export function JobStatusText({ status }: { status: JobStatus }) {
+  const { t } = useTranslation()
+  const Icon = JOB_ICON[status]
+  return (
+    <span className="text-ink-2 inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
+      <Icon
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className={clsx(
+          'shrink-0',
+          ICON_TONE[JOB_TONE[status]],
+          (status === 'running' || status === 'detached') && 'animate-spin [animation-duration:2s]',
+        )}
+      />
+      {t(`status.job.${status}`)}
+    </span>
+  )
+}
+
 export function CertificateStatusBadge({ status }: { status: CertificateStatus }) {
   const { t } = useTranslation()
   return (
@@ -116,10 +202,5 @@ export function StateCell({
         ? CA_TONE[value as CaState]
         : NATS_TONE[value as NatsConnectionState]
 
-  return (
-    <span className="inline-flex items-center gap-1.5 text-sm">
-      <Dot tone={tone} />
-      {t(`status.${kind}.${value}`)}
-    </span>
-  )
+  return <StatusText tone={tone}>{t(`status.${kind}.${value}`)}</StatusText>
 }

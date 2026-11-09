@@ -307,6 +307,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
             <Field
               label={t('infrastructure.iperf.host')}
               hint={t('infrastructure.iperf.inviteHostHint')}
+              optional
             >
               <Input
                 value={host}
@@ -334,6 +335,7 @@ export function InviteDialog({ onClose }: { onClose: () => void }) {
           <Field
             label={t('infrastructure.iperf.sourceCidr')}
             hint={t('infrastructure.iperf.sourceCidrHint')}
+            optional
           >
             <Input
               value={sourceCidr}

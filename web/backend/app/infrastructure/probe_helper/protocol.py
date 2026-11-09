@@ -112,7 +112,11 @@ FIELD_SEPARATOR = "\t"
 #
 # Version 17 adds sensor-jobs and sensor-forget-job: what a sensor's own
 # helper is measuring, and removing a leftover job from it.
-CURRENT_HELPER_VERSION = 17
+#
+# Version 18 has sensor-jobs name each job's authentication method, variant
+# and BSSID, so two configurations of one SSID can be told apart. A probe
+# below 18 omits the fields, which reads as a job without a variant.
+CURRENT_HELPER_VERSION = 18
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not

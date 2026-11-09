@@ -23,10 +23,10 @@ import type {
 } from '@/api/types'
 import { useAuth } from '@/app/providers'
 import { CopyBlock, useCountdown } from '@/components/ui/CopyBlock'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { JobSteps, LiveLog } from '@/components/ui/JobProgress'
 import {
-  BackLink,
   Badge,
   Banner,
   Button,
@@ -42,6 +42,7 @@ import {
   Select,
   Skeleton,
   Spinner,
+  Summary,
 } from '@/components/ui/primitives'
 import { JobStatusBadge } from '@/components/ui/status'
 
@@ -111,7 +112,7 @@ export function EnrollWizard() {
       <header>
         {/* The only page under /probes without one. From step two on, the
             browser's own button was the way out. */}
-        <BackLink to="/probes">{t('probes.title')}</BackLink>
+        <Breadcrumb trail={[{ to: '/probes', label: t('probes.title') }]} />
         <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-lg">{t('probes.enroll.title')}</h1>
           <p className="text-ink-3 text-sm">{t('probes.enroll.subtitle')}</p>
@@ -364,22 +365,12 @@ function InvitationForm({
         )}
 
         {overlayEnabled ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={overlayBootstrap}
-              onChange={(event) => setOverlayBootstrap(event.target.checked)}
-            />
-            <span>
-              <span className="text-ink">
-                {t('probes.enroll.fields.overlayBootstrap')}
-              </span>
-              <span className="text-ink-3 block text-xs">
-                {t('probes.enroll.fields.overlayBootstrapHint')}
-              </span>
-            </span>
-          </label>
+          <CheckboxField
+            label={t('probes.enroll.fields.overlayBootstrap')}
+            hint={t('probes.enroll.fields.overlayBootstrapHint')}
+            checked={overlayBootstrap}
+            onChange={setOverlayBootstrap}
+          />
         ) : null}
         {overlayEnabled && overlayBootstrap ? (
           <Banner tone="warn">
@@ -388,13 +379,14 @@ function InvitationForm({
         ) : null}
 
         <details className="border-rule-2 rounded-card border p-3">
-          <summary className="text-ink cursor-pointer text-sm font-medium">
+          <Summary className="text-ink text-sm font-medium">
             {t('probes.enroll.moreOptions')}
-          </summary>
+          </Summary>
           <div className="mt-3 space-y-4">
             <Field
               label={t('probes.enroll.fields.probeName')}
               hint={t('probes.enroll.fields.probeNameHint')}
+              optional
               error={probeNameOk ? undefined : t('probes.enroll.errors.probeNameShape')}
             >
               <Input

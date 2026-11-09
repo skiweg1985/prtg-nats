@@ -1,5 +1,5 @@
-import { Fragment, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Fragment, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -7,9 +7,10 @@ import { useSensorLog } from '@/api/hooks'
 import type { SensorLogResult, SensorLogSummary } from '@/api/types'
 import { useIsPhone } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
-import { ProbeLink } from '@/components/ui/ProbeLink'
-import { Badge, EmptyState, Mono, Skeleton } from '@/components/ui/primitives'
+import { ProbeLink, ProbeSensorLink } from '@/components/ui/ProbeLink'
+import { Badge, EmptyState, Mono, Skeleton, StatusText } from '@/components/ui/primitives'
 import { formatDateTime, formatNumber } from '@/utils/format'
+import { useUrlSet } from '@/utils/urlState'
 
 const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
   ok: 'ok',
@@ -20,6 +21,12 @@ const RESULT_TONE: Record<SensorLogResult, 'ok' | 'danger' | 'warn'> = {
 export function ResultBadge({ result }: { result: SensorLogResult }) {
   const { t } = useTranslation()
   return <Badge tone={RESULT_TONE[result]}>{t(`sensorLogs.result.${result}`)}</Badge>
+}
+
+/** The result as a row of a list shows it: dot and word. */
+function ResultText({ result }: { result: SensorLogResult }) {
+  const { t } = useTranslation()
+  return <StatusText tone={RESULT_TONE[result]}>{t(`sensorLogs.result.${result}`)}</StatusText>
 }
 
 /** Where a single run can be opened and sent to a colleague. */
@@ -46,28 +53,22 @@ export function RunTable({
 }) {
   const { t } = useTranslation()
   const isPhone = useIsPhone()
-  const [open, setOpen] = useState<Set<string>>(new Set())
-
-  function toggle(id: string) {
-    const next = new Set(open)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    setOpen(next)
-  }
+  // In the address, so a reload or a link keeps the transcripts that were
+  // open in front of the reader.
+  const [open, , toggle] = useUrlSet('run')
+  const navigate = useNavigate()
 
   if (runs.length === 0) return <EmptyState title={emptyTitle} action={emptyAction} />
 
   if (isPhone) return <RunCards runs={runs} showProbe={showProbe} />
 
   const columnCount = showProbe ? 7 : 6
-  // ink-2, not the label default: ink-3 on the grey header band falls under
-  // 4.5:1 in both themes - the same call the fleet tables made.
-  const header = 'label-mono text-ink-2 px-3 py-2 font-normal whitespace-nowrap'
+  const header = 'table-head h-9 px-3 whitespace-nowrap'
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left">
-        <thead className="bg-surface-2">
+        <thead>
           <tr>
             <th className="w-11 p-0" />
             <th className={header}>{t('sensorLogs.columns.time')}</th>
@@ -83,8 +84,13 @@ export function RunTable({
             const isOpen = open.has(run.id)
             return (
               <Fragment key={run.id}>
-                <tr className="border-rule border-t align-top">
-                  <td className="p-0">
+                <tr
+                  // The mouse gets the whole row, as in every other list; the
+                  // links and the toggle inside keep their own click.
+                  onClick={() => navigate(runHref(run.id))}
+                  className="border-rule hover:bg-hover cursor-pointer border-t align-top"
+                >
+                  <td className="p-0" onClick={(event) => event.stopPropagation()}>
                     {/* A whole 44px square, not a 12px glyph: it is the
                         control used most on this page. */}
                     <button
@@ -102,25 +108,32 @@ export function RunTable({
                     </button>
                   </td>
                   <td className="px-3 py-3 text-sm whitespace-nowrap">
-                    <Link to={runHref(run.id)} className="text-accent hover:underline">
+                    <Link
+                      to={runHref(run.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="text-accent hover:underline"
+                    >
                       {formatDateTime(run.time)}
                     </Link>
                   </td>
                   {showProbe && (
-                    <td className="px-3 py-3 text-sm">
+                    <td className="px-3 py-3 text-sm" onClick={(event) => event.stopPropagation()}>
                       <ProbeLink username={run.probe} />
                     </td>
                   )}
                   {/* A name is one token: wrapped at its hyphen, "wlan-auth"
                       reads as two words. */}
-                  <td className="px-3 py-3 text-sm whitespace-nowrap">
-                    <Mono>{run.sensor}</Mono>
+                  <td
+                    className="px-3 py-3 text-sm whitespace-nowrap"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <ProbeSensorLink username={run.probe} sensor={run.sensor} />
                   </td>
                   <td className="px-3 py-3 text-sm whitespace-nowrap">
                     <Mono>{run.ssid ?? '—'}</Mono>
                   </td>
                   <td className="px-3 py-3">
-                    <ResultBadge result={run.result} />
+                    <ResultText result={run.result} />
                   </td>
                   <td className="text-ink-2 px-3 py-3 text-sm">
                     <RunSummary run={run} />
@@ -179,7 +192,7 @@ function RunCards({ runs, showProbe }: { runs: SensorLogSummary[]; showProbe: bo
               <span className="text-ink text-sm font-medium tabular-nums">
                 {formatDateTime(run.time)}
               </span>
-              <ResultBadge result={run.result} />
+              <ResultText result={run.result} />
             </div>
             <p className="text-ink-2 mt-1 text-sm break-words">
               <RunSummary run={run} />
@@ -188,7 +201,7 @@ function RunCards({ runs, showProbe }: { runs: SensorLogSummary[]; showProbe: bo
           <div className="text-ink-2 flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2 text-xs">
             {showProbe && <ProbeLink username={run.probe} />}
             {run.ssid && <Mono>{run.ssid}</Mono>}
-            {showProbe && <Mono className="text-ink-3">{run.sensor}</Mono>}
+            {showProbe && <ProbeSensorLink username={run.probe} sensor={run.sensor} />}
           </div>
         </li>
       ))}
@@ -326,7 +339,7 @@ export function useCodeLabel(): (sensor: string, code: string | null | undefined
 }
 
 /** How a field is shown: its words, if known, and its value with its unit. */
-interface Field {
+export interface Field {
   /** Null for a key this page has no words for. */
   label: string | null
   value: (value: unknown) => string
@@ -334,7 +347,7 @@ interface Field {
   worded: (value: unknown) => boolean
 }
 
-function useFields(sensor: string | undefined): (key: string) => Field {
+export function useFields(sensor: string | undefined): (key: string) => Field {
   const { t } = useTranslation()
   const fields = (sensor && FIELDS[sensor]) || {}
   return (key) => {
@@ -433,13 +446,13 @@ export function RecordBody({
       {scalars.length > 0 && <Values entries={scalars} field={field} />}
       {groups.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{label(key)}</h3>
+          <h3 className="text-sm font-semibold">{label(key)}</h3>
           <Values entries={Object.entries(value)} field={field} />
         </section>
       ))}
       {raw.map(([key, value]) => (
         <section key={key} className="space-y-1">
-          <h3 className="label-mono">{label(key)}</h3>
+          <h3 className="text-sm font-semibold">{label(key)}</h3>
           <pre className="bg-surface border-rule rounded-control max-h-96 overflow-auto border p-3 font-mono text-xs whitespace-pre-wrap">
             {isLines(value)
               ? value.join('\n')

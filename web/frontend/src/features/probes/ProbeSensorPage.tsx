@@ -1,10 +1,13 @@
-import { useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useState, type ReactNode } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Trash2, Upload } from 'lucide-react'
 
 import {
   TIMELINE_WINDOWS,
+  fetchRunAt,
+  useHideSensorStream,
   useProbe,
   useProbePrtgName,
   useRemoveSensorFromProbe,
@@ -14,28 +17,39 @@ import {
   useSensorLogs,
   type TimelineWindow,
 } from '@/api/hooks'
-import type { SensorJob, SensorLogSummary } from '@/api/types'
+import type {
+  SensorJob,
+  SensorLogSummary,
+  SensorTimelineBucket,
+  SensorTimelineStream,
+} from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { useUrlDetails } from '@/components/ui/UrlDetails'
 import {
   ActionMenu,
-  BackLink,
   Badge,
   Button,
   Card,
+  CheckboxField,
   ConfirmDialog,
   DetailRow,
   EmptyState,
   FilterChip,
   Mono,
   Skeleton,
+  StatusText,
 } from '@/components/ui/primitives'
 import { SensorStatusBadge } from '@/components/ui/status'
 import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { probeName } from '@/features/probes/probeName'
-import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
+import { RUN_PARAM, RunViewer } from '@/features/sensorLogs/RunViewer'
+import { SensorTimelineRows, streamLabel } from '@/features/sensorLogs/SensorTimeline'
+import { useCodeLabel } from '@/features/sensorLogs/RunList'
 import { sensorLogHref } from '@/features/sensorLogs/links'
 import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
+import { useUrlChoice, useUrlState } from '@/utils/urlState'
 
 /**
  * One sensor on one probe: how it is deployed and how its runs went.
@@ -73,7 +87,12 @@ export function ProbeSensorPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to={`/probes/${probeId}?tab=sensors`}>{probe}</BackLink>
+          <Breadcrumb
+            trail={[
+              { to: '/probes', label: t('probes.title') },
+              { to: `/probes/${probeId}?tab=sensors`, label: probe },
+            ]}
+          />
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="text-lg">{sensorName}</h1>
             {sensor && <SensorStatusBadge status={sensor.status} />}
@@ -130,9 +149,9 @@ export function ProbeSensorPage() {
             {sensor.helper_state !== null && sensor.helper_state !== 'none' && (
               <DetailRow label={t('probes.sensorHelper')}>
                 {sensor.helper_state === 'listening' ? (
-                  <Badge tone="ok">{t('sensors.helperState.listening')}</Badge>
+                  <StatusText tone="ok">{t('sensors.helperState.listening')}</StatusText>
                 ) : (
-                  <Badge tone="danger">{t('sensors.helperState.inactive')}</Badge>
+                  <StatusText tone="danger">{t('sensors.helperState.inactive')}</StatusText>
                 )}
               </DetailRow>
             )}
@@ -151,7 +170,7 @@ export function ProbeSensorPage() {
       )}
 
       <PermissionGate permission="sensor_log.read">
-        <RunsCard probe={data.summary.nats_username} sensor={sensorName} />
+        <RunsCard probeId={probeId} probe={data.summary.nats_username} sensor={sensorName} />
       </PermissionGate>
 
       {present && SCHEDULING_SENSORS.includes(sensorName) && (
@@ -193,18 +212,37 @@ export function ProbeSensorPage() {
 
 const WINDOWS = Object.keys(TIMELINE_WINDOWS) as TimelineWindow[]
 
-function RunsCard({ probe, sensor }: { probe: string; sensor: string }) {
+function RunsCard({ probeId, probe, sensor }: { probeId: string; probe: string; sensor: string }) {
   const { t } = useTranslation()
-  const [params, setParams] = useSearchParams()
+  const { can } = useAuth()
+  const navigate = useNavigate()
+  const { update } = useUrlState()
   // In the address, so a link opens the same window.
-  const window: TimelineWindow = params.get('window') === '7d' ? '7d' : '24h'
+  const [window, choose] = useUrlChoice<TimelineWindow>('window', WINDOWS, '24h')
   const { data, isLoading, error } = useSensorLogTimeline(probe, sensor, window)
+  const [hiding, setHiding] = useState<SensorTimelineStream | null>(null)
 
-  function choose(next: TimelineWindow) {
-    const changed = new URLSearchParams(params)
-    if (next === '24h') changed.delete('window')
-    else changed.set('window', next)
-    setParams(changed, { replace: true })
+  async function openRun(stream: SensorTimelineStream, bucket: SensorTimelineBucket) {
+    const start = Date.parse(bucket.start)
+    const since = new Date(start).toISOString()
+    const until = new Date(start + (data?.bucket_seconds ?? 900) * 1000).toISOString()
+    try {
+      const run = await fetchRunAt({ probe, sensor: stream.sensor, stream: stream.stream, since, until })
+      // Pushed, unlike the steps inside the viewer: Back closes it again.
+      update({ [RUN_PARAM]: run.id }, { push: true })
+    } catch {
+      // Nothing to open in the viewer: the log still shows the slice.
+      navigate(
+        sensorLogHref({
+          probe,
+          sensor: stream.sensor,
+          ssid: stream.ssid ?? undefined,
+          variant: stream.variant ?? undefined,
+          since,
+          until,
+        }),
+      )
+    }
   }
 
   return (
@@ -236,12 +274,101 @@ function RunsCard({ probe, sensor }: { probe: string; sensor: string }) {
         <EmptyState title={t('sensorLogs.empty')} />
       ) : (
         <div className="space-y-4">
-          <SensorTimelineRows timeline={data} />
-          <FailureList probe={probe} sensor={sensor} window={window} />
+          <SensorTimelineRows
+            timeline={data}
+            onOpen={(stream, bucket) => void openRun(stream, bucket)}
+            onHide={can('sensor.configure') ? setHiding : undefined}
+          />
+          <FailureList
+            probe={probe}
+            sensor={sensor}
+            window={window}
+            rows={data.streams.map(rowOf)}
+          />
         </div>
+      )}
+      <RunViewer />
+      {hiding && (
+        <HideRowDialog
+          probeId={probeId}
+          probe={probe}
+          stream={hiding}
+          onClose={() => setHiding(null)}
+        />
       )}
     </Card>
   )
+}
+
+/**
+ * Takes a row off the timeline until its next run. Where the configuration
+ * behind it is still on the probe, removing it there is offered with it and
+ * preselected: a network configured by mistake is usually still measured.
+ */
+function HideRowDialog({
+  probeId,
+  probe,
+  stream,
+  onClose,
+}: {
+  probeId: string
+  probe: string
+  stream: SensorTimelineStream
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const scheduling = SCHEDULING_SENSORS.includes(stream.sensor)
+  const jobs = useSensorJobs(probeId, stream.sensor, scheduling && stream.last_job !== null)
+  const job = jobs.data?.find((entry) => entry.label === stream.last_job)
+  const [removeToo, setRemoveToo] = useState(true)
+  const hide = useHideSensorStream()
+  const forget = useForgetSensorJob()
+  const label = streamLabel(stream)
+  const failure = hide.error ?? forget.error
+
+  async function confirm() {
+    try {
+      await hide.mutateAsync({ probe, sensor: stream.sensor, stream: stream.stream })
+      if (job && removeToo) {
+        await forget.mutateAsync({ id: probeId, sensor: stream.sensor, label: job.label })
+      }
+      onClose()
+    } catch {
+      // Shown in the dialog from the mutation's error.
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      title={t('probeSensor.hide.title', { network: label })}
+      tone="primary"
+      body={
+        <div className="space-y-3">
+          <p className="text-ink-2 text-sm">{t('probeSensor.hide.body')}</p>
+          {jobs.isLoading && <Skeleton className="h-10" />}
+          {job && (
+            <CheckboxField
+              label={t('probeSensor.hide.removeConfiguration')}
+              hint={t('probeSensor.hide.removeConfigurationHint')}
+              checked={removeToo}
+              onChange={setRemoveToo}
+            />
+          )}
+        </div>
+      }
+      confirmLabel={t('probeSensor.hide.confirm')}
+      cancelLabel={t('common.cancel')}
+      pending={hide.isPending || forget.isPending}
+      error={failure ? <ErrorDetails error={failure} /> : undefined}
+      onConfirm={() => void confirm()}
+      onClose={onClose}
+    />
+  )
+}
+
+/** The timeline row a run or a stream belongs to: its network and variant. */
+function rowOf(item: { ssid: string | null; variant?: string | null }): string {
+  return `${item.ssid ?? ''}|${item.variant ?? ''}`
 }
 
 interface FailureGroup {
@@ -288,27 +415,33 @@ function FailureList({
   probe,
   sensor,
   window,
+  rows,
 }: {
   probe: string
   sensor: string
   window: TimelineWindow
+  /** The rows shown, as rowOf spells them; a hidden row's failures go with it. */
+  rows: string[]
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useUrlDetails('failures')
   const range = TIMELINE_WINDOWS[window].range
   const { data } = useSensorLogs({ probe, sensor, result: 'error', range }, FAILURE_LIMIT)
-  if (!data || data.total === 0) return null
-  const groups = foldFailures(data.items)
+  if (!data) return null
+  const items = data.items.filter((run) => rows.includes(rowOf(run)))
+  const total = data.total - (data.items.length - items.length)
+  if (total === 0) return null
+  const groups = foldFailures(items)
   return (
     <section className="border-rule border-t pt-3">
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setOpen(!open)}
         className="text-ink flex items-center gap-1.5 text-sm font-medium"
       >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        {t('probeSensor.failures', { count: data.total })}
+        {t('probeSensor.failures', { count: total })}
       </button>
       {open && (
         <ul className="mt-2 space-y-1">
@@ -324,7 +457,7 @@ function FailureList({
                   since: group.first,
                   until: group.last,
                 })}
-                className="hover:bg-surface-2 -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded px-2 py-1 text-xs"
+                className="hover:bg-hover -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded px-2 py-1 text-xs"
               >
                 <span className="text-danger font-medium tabular-nums">
                   {t('probeSensor.failureCount', { count: group.count })}
@@ -339,14 +472,141 @@ function FailureList({
               </Link>
             </li>
           ))}
-          {data.total > data.items.length && (
+          {total > items.length && (
             <li className="text-ink-3 text-xs">
-              {t('probeSensor.failuresMore', { count: data.total - data.items.length })}
+              {t('probeSensor.failuresMore', { count: total - items.length })}
             </li>
           )}
         </ul>
       )}
     </section>
+  )
+}
+
+// One template for the header and every row, so the columns line up.
+// Below lg the card is too narrow for seven columns beside the sidebar, so a
+// row falls back to label/value pairs there. The last column has a width of
+// its own: it holds the remove button in a row and nothing in the header, and
+// an auto column would share out the rest differently in each.
+const JOB_COLUMNS =
+  'lg:grid-cols-[minmax(8rem,1.3fr)_minmax(7rem,1fr)_5.5rem_6.5rem_7rem_minmax(10rem,1.5fr)_7rem] lg:items-center lg:gap-x-4'
+
+// What a missing value shows, so a row keeps its shape.
+const MISSING = '–'
+
+const METHOD_KEYS: Record<string, string> = {
+  psk: 'probeSensor.configurations.methods.psk',
+  peap: 'probeSensor.configurations.methods.peap',
+  'eap-tls': 'probeSensor.configurations.methods.eapTls',
+}
+
+/** One configuration as a row of labelled values. */
+export function ConfigurationRow({
+  job,
+  sensor,
+  removing,
+  onRemove,
+}: {
+  job: SensorJob
+  sensor: string
+  removing: boolean
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const method = job.auth ? (METHOD_KEYS[job.auth] ? t(METHOD_KEYS[job.auth]) : job.auth) : null
+  return (
+    <li className="border-rule border-b px-4 py-2.5 text-sm last:border-0">
+      <dl className={clsx(JOB_COLUMNS, 'grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 lg:gap-y-0')}>
+        <Cell label={t('probeSensor.configurations.columns.ssid')}>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-ink truncate font-mono text-xs font-medium">
+              {job.ssid ?? MISSING}
+            </span>
+            {job.idle ? (
+              <Badge tone="neutral">{t('probeSensor.configurations.idle')}</Badge>
+            ) : (
+              <Badge tone="ok">{t('probeSensor.configurations.active')}</Badge>
+            )}
+          </span>
+          {(job.bssid || job.sensor_id) && (
+            <span className="text-ink-3 block text-xs">
+              {[
+                job.bssid && t('probeSensor.configurations.bssid', { bssid: job.bssid }),
+                job.sensor_id && t('probeSensor.configurations.sensorId', { id: job.sensor_id }),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.variant')}>
+          <span className="font-mono text-xs">{job.profile || MISSING}</span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.method')}>{method ?? MISSING}</Cell>
+        <Cell label={t('probeSensor.configurations.columns.interval')}>
+          <span className="tabular-nums">
+            {job.asked_every === null ? MISSING : formatDuration(job.asked_every)}
+          </span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.askedAgo')}>
+          <span className="tabular-nums">
+            {job.asked_ago === null
+              ? MISSING
+              : t('probeSensor.configurations.ago', { ago: formatDuration(job.asked_ago) })}
+          </span>
+        </Cell>
+        <Cell label={t('probeSensor.configurations.columns.lastMeasurement')}>
+          <LastMeasurement job={job} sensor={sensor} />
+        </Cell>
+        <PermissionGate permission="sensor.configure">
+          <div className="col-span-2 flex justify-end lg:col-span-1">
+            <dt className="sr-only">{t('probeSensor.configurations.columns.actions')}</dt>
+            <dd>
+              <Button size="sm" variant="ghost" icon={Trash2} disabled={removing} onClick={onRemove}>
+                {t('probeSensor.configurations.remove')}
+              </Button>
+            </dd>
+          </div>
+        </PermissionGate>
+      </dl>
+    </li>
+  )
+}
+
+function Cell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="contents lg:block lg:min-w-0">
+      <dt className="text-ink-3 text-xs lg:sr-only">{label}</dt>
+      <dd className="text-ink-2 min-w-0 text-xs">{children}</dd>
+    </div>
+  )
+}
+
+/** The result of the last run as a state, with its reason when it failed. */
+function LastMeasurement({ job, sensor }: { job: SensorJob; sensor: string }) {
+  const { t } = useTranslation()
+  const codeLabel = useCodeLabel()
+  if (!job.result || job.result === 'pending' || job.age === null) {
+    return <span>{MISSING}</span>
+  }
+  const ok = job.result === 'ok'
+  const reason = ok ? null : (codeLabel(sensor, job.code) ?? job.code)
+  return (
+    <span className="block min-w-0">
+      <span className="flex items-center gap-x-2">
+        <Badge tone={ok ? 'ok' : 'danger'}>
+          {t(ok ? 'probeSensor.configurations.ok' : 'probeSensor.configurations.failed')}
+        </Badge>
+        <span className="text-ink-3 whitespace-nowrap tabular-nums">
+          {t('probeSensor.configurations.ago', { ago: formatDuration(job.age) })}
+        </span>
+      </span>
+      {reason && (
+        <span className="text-danger mt-0.5 block truncate" title={reason}>
+          {reason}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -376,56 +636,36 @@ function ConfigurationsCard({ probeId, sensor }: { probeId: string; sensor: stri
       ) : !data || data.length === 0 ? (
         <EmptyState title={t('probeSensor.configurations.empty')} />
       ) : (
-        <ul>
-          {data.map((job) => (
-            <li
-              key={job.label}
-              className="border-rule flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-2.5 text-sm last:border-0"
-            >
-              <span className="text-ink min-w-32 font-mono text-xs font-medium">
-                {job.ssid ?? '—'}
-              </span>
-              {job.idle ? (
-                <Badge tone="neutral">{t('probeSensor.configurations.idle')}</Badge>
-              ) : (
-                <Badge tone="ok">{t('probeSensor.configurations.active')}</Badge>
-              )}
-              <span className="text-ink-3 text-xs tabular-nums">
-                {[
-                  job.asked_every !== null &&
-                    t('probeSensor.configurations.askedEvery', {
-                      every: formatDuration(job.asked_every),
-                    }),
-                  job.asked_ago !== null &&
-                    t('probeSensor.configurations.askedAgo', {
-                      ago: formatDuration(job.asked_ago),
-                    }),
-                  job.result &&
-                    t('probeSensor.configurations.last', {
-                      result: job.code && job.code !== 'ok' ? job.code : job.result,
-                      age: job.age === null ? '—' : formatDuration(job.age),
-                    }),
-                  job.sensor_id && t('probeSensor.configurations.sensorId', { id: job.sensor_id }),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-              <PermissionGate permission="sensor.configure">
-                <span className="ml-auto">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={Trash2}
-                    disabled={forget.isPending}
-                    onClick={() => setRemoving(job)}
-                  >
-                    {t('probeSensor.configurations.remove')}
-                  </Button>
-                </span>
-              </PermissionGate>
-            </li>
-          ))}
-        </ul>
+        <div>
+          {/* The header names the columns once; on a narrow screen each row
+              carries its own labels instead, because the columns stack. */}
+          <div
+            aria-hidden
+            className={clsx(
+              JOB_COLUMNS,
+              'border-rule text-ink-3 hidden border-b px-4 py-2 text-xs font-medium lg:grid',
+            )}
+          >
+            <span>{t('probeSensor.configurations.columns.ssid')}</span>
+            <span>{t('probeSensor.configurations.columns.variant')}</span>
+            <span>{t('probeSensor.configurations.columns.method')}</span>
+            <span>{t('probeSensor.configurations.columns.interval')}</span>
+            <span>{t('probeSensor.configurations.columns.askedAgo')}</span>
+            <span>{t('probeSensor.configurations.columns.lastMeasurement')}</span>
+            <span />
+          </div>
+          <ul>
+            {data.map((job) => (
+              <ConfigurationRow
+                key={job.label}
+                job={job}
+                sensor={sensor}
+                removing={forget.isPending}
+                onRemove={() => setRemoving(job)}
+              />
+            ))}
+          </ul>
+        </div>
       )}
       {removing && (
         <ConfirmDialog

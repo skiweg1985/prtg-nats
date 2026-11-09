@@ -3,19 +3,21 @@ import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, FileCode, Upload } from 'lucide-react'
 
-import { fieldDescription, fieldLabel } from './parameterFields'
+import { choiceLabel, fieldDescription, fieldLabel } from './parameterFields'
 
 import { useRenderParameters, useSensor, useSensors } from '@/api/hooks'
 import type { ParameterSchema, SensorDetail, SensorSummary } from '@/api/types'
 import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
+import { Breadcrumb } from '@/components/ui/Breadcrumb'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
+import { UrlDetails, useUrlDetails } from '@/components/ui/UrlDetails'
 import { ProbeLink } from '@/components/ui/ProbeLink'
 import {
-  BackLink,
   Badge,
   Button,
   Card,
+  CheckboxField,
   DetailRow,
   EmptyState,
   Field,
@@ -24,6 +26,7 @@ import {
   PageHeader,
   Select,
   Skeleton,
+  Summary,
 } from '@/components/ui/primitives'
 import { CopyButton, InlineCode } from '@/components/ui/CopyBlock'
 import { formatBytes, shortFingerprint } from '@/utils/format'
@@ -50,7 +53,7 @@ export function SensorListPage() {
       searchValue: (row) => `${row.name} ${row.description}`,
       cell: (row) => (
         <div className="min-w-0">
-          <p className="text-ink font-medium">{row.name}</p>
+          <p className="text-ink font-medium whitespace-nowrap">{row.name}</p>
           <SensorTraits sensor={row} />
         </div>
       ),
@@ -168,7 +171,7 @@ export function SensorDetailPage() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <BackLink to="/sensors">{t('sensors.title')}</BackLink>
+          <Breadcrumb trail={[{ to: '/sensors', label: t('sensors.title') }]} />
           <div className="mt-1 flex items-center gap-2">
             <h1 className="text-lg">{data.name}</h1>
             <Badge tone="accent">v{data.version}</Badge>
@@ -216,7 +219,7 @@ export function SensorDetailPage() {
             <ul className="space-y-1">
               {data.installations.map((entry) => (
                 <li key={entry.probe} className="flex items-center gap-2">
-                  <ProbeLink username={entry.probe} />
+                  <ProbeLink username={entry.probe} sensor={data.name} />
                   <Mono className="text-ink-3 text-xs">v{entry.version}</Mono>
                   {!entry.current && (
                     <Badge tone="warn">{t('sensors.outdatedBadge')}</Badge>
@@ -238,8 +241,8 @@ export function SensorDetailPage() {
       {/* Reference, last and folded: paths and checksums are what somebody
           comparing a probe against the catalog looks up, not what somebody
           rolling the sensor out reads on the way to the button. */}
-      <details className="surface-card group overflow-hidden">
-        <summary className="hover:bg-surface-2 flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+      <UrlDetails param="files" className="surface-card group overflow-hidden">
+        <summary className="hover:bg-hover flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
           <ChevronRight
             aria-hidden
             size={16}
@@ -259,7 +262,7 @@ export function SensorDetailPage() {
             </DetailRow>
           ))}
         </dl>
-      </details>
+      </UrlDetails>
 
       {deploying && (
         <DeployDialog
@@ -282,7 +285,7 @@ export function SensorDetailPage() {
  */
 export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
   const { t } = useTranslation()
-  const [readmeOpen, setReadmeOpen] = useState(false)
+  const [readmeOpen, setReadmeOpen] = useUrlDetails('readme')
 
   const script = sensor.files.find((file) => file.slot === 'script')
   const basename = script?.relative_path.split('/').pop() ?? null
@@ -301,10 +304,15 @@ export function PrtgCard({ sensor }: { sensor: SensorDetail }) {
         )}
         <p className="text-ink-3 text-xs">{t('sensors.prtg.parametersHint')}</p>
         {sensor.readme && (
-          <details onToggle={(event) => setReadmeOpen(event.currentTarget.open)}>
-            <summary className="text-ink-3 cursor-pointer text-xs">
+          <details
+            open={readmeOpen}
+            onToggle={(event) => {
+              if (event.currentTarget.open !== readmeOpen) setReadmeOpen(event.currentTarget.open)
+            }}
+          >
+            <Summary className="text-ink-3 text-xs">
               {t('sensors.prtg.readme')}
-            </summary>
+            </Summary>
             {readmeOpen && (
               <div className="border-rule bg-surface rounded-inset mt-2 max-h-96 overflow-auto border p-3">
                 <Suspense
@@ -363,7 +371,8 @@ export function ParameterCard({
     schema &&
       schema.settings.length + schema.credentials.length + schema.files.length > 0,
   )
-  const [formOpen, setFormOpen] = useState(
+  const [formOpen, setFormOpen] = useUrlDetails(
+    'form',
     !schema?.default_parameter_line && !hasVariants,
   )
 
@@ -378,11 +387,11 @@ export function ParameterCard({
   )
   // Which parameters a variant can supply instead, so the row can say "you
   // may leave this out once a variant carries it".
-  const suppliedBy = new Map<string, string>()
+  const suppliedBy = new Set<string>()
   for (const entry of schema
     ? [...schema.settings, ...schema.credentials, ...schema.files]
     : []) {
-    if (entry.maps_to) suppliedBy.set(entry.maps_to, entry.name)
+    if (entry.maps_to) suppliedBy.add(entry.maps_to)
   }
   const fromPrtg = (schema?.parameters ?? []).filter(
     (field) => field.source === 'prtg',
@@ -424,7 +433,9 @@ export function ParameterCard({
 
       <details
         open={formOpen}
-        onToggle={(event) => setFormOpen(event.currentTarget.open)}
+        onToggle={(event) => {
+          if (event.currentTarget.open !== formOpen) setFormOpen(event.currentTarget.open)
+        }}
         className="group"
       >
         <summary className="text-ink-2 hover:text-ink -mx-1 flex min-h-11 cursor-pointer list-none items-center gap-2 px-1 text-sm [&::-webkit-details-marker]:hidden">
@@ -437,60 +448,69 @@ export function ParameterCard({
           {t('sensors.parametersBuild', { count: fields.length })}
         </summary>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          {fields.map((field) => (
-            <Field
-              key={field.name}
-              label={fieldLabel(t, field) + (field.required ? ' *' : '')}
-              hint={
-                [
-                  fieldDescription(t, field),
-                  suppliedBy.has(field.name)
-                    ? t('sensors.reference.fromVariant', {
-                        key: suppliedBy.get(field.name),
-                      })
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || undefined
-              }
-            >
-              {field.type === 'boolean' ? (
-                <input
-                  type="checkbox"
+          {fields.map((field) => {
+            const description = fieldDescription(t, field, sensorName)
+            const hint =
+              description || suppliedBy.has(field.name) ? (
+                <>
+                  {description && <p>{description}</p>}
+                  {suppliedBy.has(field.name) && (
+                    <p className={description ? 'mt-1.5' : undefined}>
+                      {t('sensors.reference.fromVariant')}
+                    </p>
+                  )}
+                </>
+              ) : undefined
+            const label = fieldLabel(t, field, sensorName)
+            if (field.type === 'boolean') {
+              return (
+                <CheckboxField
+                  key={field.name}
+                  label={label}
+                  technicalName={field.name}
+                  hint={hint}
                   checked={Boolean(values[field.name])}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.checked })
-                  }
+                  onChange={(checked) => setValues({ ...values, [field.name]: checked })}
                 />
-              ) : field.type === 'choice' ? (
-                <Select
-                  value={String(values[field.name] ?? '')}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.value })
-                  }
-                  className="rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm"
-                >
-                  <option value="">—</option>
-                  {field.choices?.map((choice) => (
-                    <option key={choice} value={choice}>
-                      {choice}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  type={field.type === 'integer' ? 'number' : 'text'}
-                  value={String(values[field.name] ?? '')}
-                  min={field.minimum}
-                  max={field.maximum}
-                  placeholder={field.placeholder ?? String(field.default ?? '')}
-                  onChange={(event) =>
-                    setValues({ ...values, [field.name]: event.target.value })
-                  }
-                />
-              )}
-            </Field>
-          ))}
+              )
+            }
+            return (
+              <Field
+                key={field.name}
+                label={label}
+                technicalName={field.name}
+                optional={!field.required}
+                hint={hint}
+              >
+                {field.type === 'choice' ? (
+                  <Select
+                    value={String(values[field.name] ?? '')}
+                    onChange={(event) =>
+                      setValues({ ...values, [field.name]: event.target.value })
+                    }
+                  >
+                    <option value="">—</option>
+                    {field.choices?.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choiceLabel(t, field, choice, sensorName)}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    type={field.type === 'integer' ? 'number' : 'text'}
+                    value={String(values[field.name] ?? '')}
+                    min={field.minimum}
+                    max={field.maximum}
+                    placeholder={field.placeholder ?? String(field.default ?? '')}
+                    onChange={(event) =>
+                      setValues({ ...values, [field.name]: event.target.value })
+                    }
+                  />
+                )}
+              </Field>
+            )
+          })}
         </div>
 
         <div className="mt-4 flex items-center gap-2">
@@ -501,7 +521,9 @@ export function ParameterCard({
           {missing.length > 0 && (
             <span className="text-ink-3 text-xs">
               {t('sensors.parametersMissing', {
-                fields: missing.map((field) => field.name).join(', '),
+                fields: missing
+                  .map((field) => fieldLabel(t, field, sensorName))
+                  .join(', '),
               })}
             </span>
           )}
@@ -520,15 +542,18 @@ export function ParameterCard({
 
       {fromPrtg.length > 0 && (
         <details className="mt-4">
-          <summary className="text-ink-3 cursor-pointer text-xs">
+          <Summary className="text-ink-3 text-xs">
             {t('sensors.reference.fromPrtgSection')}
-          </summary>
+          </Summary>
           <ul className="text-ink-2 mt-2 space-y-1.5 text-xs">
             {fromPrtg.map((field) => (
               <li key={field.name} className="flex flex-wrap items-baseline gap-2">
-                <Mono>{fieldLabel(t, field)}</Mono>
+                <span className="text-ink font-medium">
+                  {fieldLabel(t, field, sensorName)}
+                </span>
+                <Mono className="text-ink-3">{field.name}</Mono>
                 {field.prtg_placeholder && <Mono>{field.prtg_placeholder}</Mono>}
-                <span>{fieldDescription(t, field)}</span>
+                <span>{fieldDescription(t, field, sensorName)}</span>
               </li>
             ))}
           </ul>
@@ -537,13 +562,13 @@ export function ParameterCard({
 
       {moved.length > 0 && (
         <details className="mt-3">
-          <summary className="text-ink-3 cursor-pointer text-xs">
+          <Summary className="text-ink-3 text-xs">
             {t('sensors.reference.movedSection')}
-          </summary>
+          </Summary>
           <ul className="text-ink-3 mt-2 space-y-1 text-xs">
             {moved.map((field) => (
               <li key={field.name}>
-                <Mono>{field.name}</Mono> · {fieldDescription(t, field)}
+                <Mono>{field.name}</Mono> · {fieldDescription(t, field, sensorName)}
               </li>
             ))}
           </ul>

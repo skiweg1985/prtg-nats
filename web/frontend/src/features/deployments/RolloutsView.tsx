@@ -18,7 +18,7 @@ import { PermissionGate } from '@/app/providers'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import { Badge, Button, Mono } from '@/components/ui/primitives'
-import { JobStatusBadge } from '@/components/ui/status'
+import { JobStatusText } from '@/components/ui/status'
 import { formatRelative } from '@/utils/format'
 
 import { DeployDialog } from './DeployDialog'
@@ -40,7 +40,8 @@ export function RolloutsView() {
       searchValue: (row) => row.sensor_name,
       cell: (row) => (
         <span className="text-ink font-medium">
-          {row.sensor_name} <Mono className="text-ink-3">v{row.sensor_version}</Mono>
+          <span className="whitespace-nowrap">{row.sensor_name}</span>{' '}
+          <Mono className="text-ink-3">v{row.sensor_version}</Mono>
         </span>
       ),
     },
@@ -54,7 +55,7 @@ export function RolloutsView() {
           // succeeded was only the rehearsal.
           <Badge tone="neutral">{t('deployments.dryRunBadge')}</Badge>
         ) : (
-          <JobStatusBadge status={row.status} />
+          <JobStatusText status={row.status} />
         ),
     },
     {
@@ -168,7 +169,7 @@ function DeploymentTargets({
         {targets.map((target) => (
           <li key={target.probe_id} className="text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <JobStatusBadge status={target.status} />
+              <JobStatusText status={target.status} />
               <Mono className="text-ink-2">{target.probe_label}</Mono>
               {/* Was v3, is v4 - the column existed since the initial schema
                   and is finally written by the worker. */}

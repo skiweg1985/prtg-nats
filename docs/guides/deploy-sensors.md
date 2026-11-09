@@ -1,7 +1,7 @@
 ---
 title: Deploy sensors
 role: deployer
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Manage sensor scripts centrally
@@ -519,6 +519,12 @@ placeholder instead of asking for a value.
 `tests/sensor-checks.py` compares the declaration against the script's own
 argparse - names, types, defaults, choices and help texts - so the reference
 cannot quietly drift from the sensor it describes.
+
+The interface labels each field with a human name in the chosen language -
+"Server domain" rather than `DOMAIN_SUFFIX_MATCH` - and keeps the technical
+name small beside it. Those names and the translated help live in the
+locale files, not in `parameters.json`; a new parameter needs an entry there,
+see [Languages and translation](../web/i18n.md#sensor-fields).
 
 ## Variants
 

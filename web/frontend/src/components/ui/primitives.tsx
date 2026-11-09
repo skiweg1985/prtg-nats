@@ -1,7 +1,16 @@
 import clsx from 'clsx'
-import { ArrowLeft, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
+import {
+  ArrowRight,
+  ChevronRight,
+  MoreHorizontal,
+  TriangleAlert,
+  Upload,
+  type LucideIcon,
+} from 'lucide-react'
 import { Link, type LinkProps } from 'react-router-dom'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -10,6 +19,10 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
+
+import { formatDateTime, formatRelative } from '@/utils/format'
+
+import { InfoButton, usePopover } from './Popover'
 
 /**
  * The small set of primitives everything else is built from.
@@ -88,6 +101,21 @@ export function Dot({ tone = 'neutral' }: { tone?: Tone }) {
 }
 
 /**
+ * The state of a row in a table: a dot and the word. A badge per row turned
+ * a status column into a stripe of tinted boxes; the dot carries the colour,
+ * the word the meaning. Badges stay for the flags beside it and for the
+ * state of the one object a page is about.
+ */
+export function StatusText({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
+  return (
+    <span className="text-ink-2 inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
+      <Dot tone={tone} />
+      {children}
+    </span>
+  )
+}
+
+/**
  * Four meanings, one geometry.
  *
  * primary   the one thing the screen is for, at most once per view
@@ -107,7 +135,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   secondary:
     'bg-surface text-ink border-rule-2 hover:bg-surface-2 active:bg-surface-2/70',
   ghost:
-    'bg-transparent text-ink-2 border-transparent hover:bg-surface-2 hover:text-ink active:bg-surface-2/70',
+    'bg-transparent text-ink-2 border-transparent hover:bg-hover hover:text-ink active:bg-surface-2',
   danger: 'bg-danger text-accent-ink border-transparent hover:bg-danger/90 active:bg-danger/80',
 }
 
@@ -129,7 +157,28 @@ function buttonClasses(variant: ButtonVariant, size: ButtonSize, className?: str
   )
 }
 
-function ButtonIcon({ icon: Icon, size }: { icon?: LucideIcon; size: ButtonSize }) {
+function ButtonIcon({
+  icon: Icon,
+  size,
+  loading,
+}: {
+  icon?: LucideIcon
+  size: ButtonSize
+  loading?: boolean
+}) {
+  // The spinner takes the icon's place, so the label does not move when the
+  // request starts and the button keeps its width.
+  if (loading) {
+    return (
+      <span
+        aria-hidden
+        className={clsx(
+          'inline-block shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent',
+          size === 'sm' ? 'size-3' : 'size-3.5',
+        )}
+      />
+    )
+  }
   if (!Icon) return null
   return <Icon aria-hidden size={ICON_SIZE[size]} strokeWidth={1.75} className="shrink-0" />
 }
@@ -138,6 +187,8 @@ export function Button({
   variant = 'secondary',
   size = 'md',
   icon,
+  loading,
+  disabled,
   className,
   children,
   ...rest
@@ -146,13 +197,46 @@ export function Button({
   size?: ButtonSize
   /** A Lucide icon, drawn before the label at the size's icon size. */
   icon?: LucideIcon
+  /** The request behind the button is running: a spinner in the icon's
+      place, and no second click. */
+  loading?: boolean
 }) {
   return (
     // No default type: buttons inside forms rely on the browser's submit.
-    <button className={buttonClasses(variant, size, className)} {...rest}>
-      <ButtonIcon icon={icon} size={size} />
+    <button
+      className={buttonClasses(variant, size, className)}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      <ButtonIcon icon={icon} size={size} loading={loading} />
       {children}
     </button>
+  )
+}
+
+/**
+ * The way from a summary to the full list behind it, such as "Show all" in a
+ * card header. Quiet text with a trailing arrow: it navigates, it does not
+ * act, so it carries neither a fill nor the signal colour at rest.
+ */
+export function MoreLink({ to, children }: { to: LinkProps['to']; children: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      className={clsx(
+        'group text-ink-3 hover:text-ink rounded-inset inline-flex shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap',
+        'transition-colors duration-(--dur-instant) ease-(--ease-out)',
+      )}
+    >
+      {children}
+      <ArrowRight
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className="shrink-0 transition-transform duration-(--dur-instant) ease-(--ease-out) group-hover:translate-x-0.5"
+      />
+    </Link>
   )
 }
 
@@ -181,7 +265,7 @@ export function FilterChip({
         'transition-colors duration-(--dur-instant) ease-(--ease-out)',
         pressed
           ? 'border-rule-2 bg-surface-2 text-ink'
-          : 'text-ink-2 hover:text-ink hover:bg-surface-2 border-transparent bg-transparent',
+          : 'text-ink-2 hover:text-ink hover:bg-hover border-transparent bg-transparent',
       )}
     >
       {children}
@@ -387,7 +471,7 @@ export function ActionMenu({
                 }}
                 className={clsx(
                   'flex h-8 w-full items-center gap-2 px-3 text-left text-sm whitespace-nowrap',
-                  'hover:bg-surface-2 focus-visible:bg-surface-2 disabled:pointer-events-none disabled:opacity-45',
+                  'hover:bg-hover focus-visible:bg-hover disabled:pointer-events-none disabled:opacity-45',
                   action.tone === 'danger' ? 'text-danger' : 'text-ink',
                 )}
               >
@@ -408,20 +492,6 @@ export function RowActions({ children }: { children: ReactNode }) {
   return <div className="-mr-1 flex shrink-0 items-center gap-1">{children}</div>
 }
 
-/** The way back to the list a detail page belongs to. A drawn arrow, not a
-    "←" glyph, and one shape for the six pages that had each typed their own. */
-export function BackLink({ to, children }: { to: string; children: ReactNode }) {
-  return (
-    <Link
-      to={to}
-      className="text-ink-3 hover:text-ink inline-flex items-center gap-1 text-xs transition-colors duration-(--dur-instant)"
-    >
-      <ArrowLeft aria-hidden size={14} strokeWidth={1.75} />
-      {children}
-    </Link>
-  )
-}
-
 /** Every page's first line: title, subtitle, actions - one shape.
 
     Four different header idioms had grown across the pages, and one page had
@@ -431,19 +501,18 @@ export function PageHeader({
   title,
   subtitle,
   action,
-  backTo,
-  backLabel,
+  breadcrumb,
 }: {
   title: ReactNode
   subtitle?: ReactNode
   action?: ReactNode
-  backTo?: string
-  backLabel?: ReactNode
+  /** The way back, for a detail page: a Breadcrumb. */
+  breadcrumb?: ReactNode
 }) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
       <div className="min-w-0">
-        {backTo && <BackLink to={backTo}>{backLabel}</BackLink>}
+        {breadcrumb}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-lg">{title}</h1>
           {subtitle && <p className="text-ink-3 text-sm">{subtitle}</p>}
@@ -531,6 +600,35 @@ export function Tabs<T extends string>({
   )
 }
 
+/** The line that opens a <details>, with a drawn chevron in place of the
+    browser's own triangle - a typed glyph in a font nobody chose. The chevron
+    turns through CSS on the details it belongs to (index.css), so a summary
+    nested in another open one does not turn with it. */
+export function Summary({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <summary
+      className={clsx(
+        'flex w-fit cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden',
+        className,
+      )}
+    >
+      <ChevronRight
+        aria-hidden
+        size={14}
+        strokeWidth={1.75}
+        className="disclosure-chevron text-ink-3 shrink-0 transition-transform duration-(--dur-instant) ease-(--ease-out)"
+      />
+      {children}
+    </summary>
+  )
+}
+
 /** One spinner. Two features had grown their own, in two sizes. */
 export function Spinner({ className }: { className?: string }) {
   return (
@@ -544,14 +642,46 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
+/**
+ * The title of a card that lists what wants somebody to act: a warning icon
+ * in the colour of the worst entry, the words, and how many there are. The
+ * entries themselves carry their own dots; nothing here fills a surface red.
+ */
+export function AttentionTitle({
+  children,
+  count,
+  tone,
+}: {
+  children: ReactNode
+  count: number
+  tone: 'danger' | 'warn'
+}) {
+  return (
+    <>
+      <TriangleAlert
+        aria-hidden
+        size={16}
+        strokeWidth={1.75}
+        className={clsx('shrink-0', tone === 'danger' ? 'text-danger' : 'text-warn')}
+      />
+      {children}
+      <Badge tone={tone}>{count}</Badge>
+    </>
+  )
+}
+
 export function Card({
   title,
+  icon: Icon,
   action,
   children,
   className,
   dense,
 }: {
   title?: ReactNode
+  /** What the card is about, as a Lucide icon before the title. Functional,
+      never a coloured tile: it sits in the title's muted tone. */
+  icon?: LucideIcon
   action?: ReactNode
   children: ReactNode
   className?: string
@@ -560,8 +690,13 @@ export function Card({
   return (
     <section className={clsx('surface-card overflow-hidden', className)}>
       {(title || action) && (
-        <header className="border-rule flex items-center justify-between gap-3 border-b px-4 py-2.5">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <header className="border-rule flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2">
+          <h2 className="flex min-w-0 items-center gap-2 text-base font-semibold">
+            {Icon && (
+              <Icon aria-hidden size={16} strokeWidth={1.75} className="text-ink-3 shrink-0" />
+            )}
+            {title}
+          </h2>
           {action}
         </header>
       )}
@@ -570,27 +705,181 @@ export function Card({
   )
 }
 
+/**
+ * What a control inside a Field reads to wire itself to its label, its help
+ * and its message, so no caller has to thread ids through by hand.
+ */
+interface FieldWiring {
+  id: string
+  describedBy: string | undefined
+  invalid: boolean
+}
+
+const FieldContext = createContext<FieldWiring | null>(null)
+
+/** The id and descriptions of the surrounding Field, merged under what the
+    control was given itself. */
+function useFieldWiring(props: {
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: InputHTMLAttributes<HTMLInputElement>['aria-invalid']
+}) {
+  const field = useContext(FieldContext)
+  return {
+    id: props.id ?? field?.id,
+    'aria-describedby': props['aria-describedby'] ?? field?.describedBy,
+    'aria-invalid': props['aria-invalid'] ?? (field?.invalid ? true : undefined),
+  }
+}
+
+function joinIds(...ids: (string | false | undefined)[]) {
+  return ids.filter(Boolean).join(' ') || undefined
+}
+
+/**
+ * The help of a field: the (i) button, its popover, and a hidden copy of the
+ * text the control points at with aria-describedby. A screen reader hears the
+ * help with the field itself and never has to find the button.
+ */
+function useFieldHelp(label: string, hint: ReactNode | undefined) {
+  const { t } = useTranslation()
+  const popover = usePopover({ content: hint })
+  const hintId = useId()
+  if (!hint) return { hintId: undefined, button: null, inline: null, hidden: null }
+  return {
+    hintId,
+    button: <InfoButton label={t('common.helpFor', { label })} popover={popover} />,
+    inline: popover.inline,
+    hidden: (
+      <span id={hintId} className="sr-only">
+        {hint}
+      </span>
+    ),
+  }
+}
+
+/** Label, the parameter name behind it, "optional", and the (i). */
+function FieldHead({
+  htmlFor,
+  label,
+  technicalName,
+  optional,
+  help,
+}: {
+  htmlFor: string
+  label: string
+  technicalName?: string
+  optional?: boolean
+  help: ReactNode
+}) {
+  const { t } = useTranslation()
+  return (
+    // One line, whatever the column width: a wrapped row pushed its control
+    // below the neighbour's in a two-column grid. The technical name gives
+    // way first; label, "optional" and the (i) always stay whole.
+    <div className="flex min-h-5 min-w-0 items-center gap-1.5">
+      <label htmlFor={htmlFor} className="text-ink shrink-0 text-sm font-medium">
+        {label}
+      </label>
+      {technicalName && (
+        <span className="text-ink-3 min-w-0 truncate font-mono text-xs" title={technicalName}>
+          {technicalName}
+        </span>
+      )}
+      {optional && (
+        <span className="text-ink-3 shrink-0 text-xs">{t('common.optional')}</span>
+      )}
+      {help}
+    </div>
+  )
+}
+
+/** The line under a control: an error first, else a fact about the value. */
+function FieldMessage({
+  id,
+  error,
+  note,
+}: {
+  id: string
+  error?: ReactNode
+  note?: ReactNode
+}) {
+  if (error) {
+    return (
+      <span id={id} className="text-danger text-xs">
+        {error}
+      </span>
+    )
+  }
+  if (note) {
+    return (
+      <span id={id} className="text-ink-3 text-xs">
+        {note}
+      </span>
+    )
+  }
+  return null
+}
+
+/**
+ * A labelled control.
+ *
+ * The explanation of a field sits behind the (i) next to its label, not in a
+ * paragraph underneath: 33 of 53 fields carried one, which doubled the height
+ * of every dialog on a phone and made two-column grids jump wherever two
+ * hints differed in length. What stays below the control is only about the
+ * value - an error, or the state of what is stored.
+ *
+ * Required is the norm and carries no mark; the exception says "optional".
+ */
 export function Field({
   label,
   hint,
+  note,
   error,
+  optional,
+  technicalName,
   children,
 }: {
   label: string
-  hint?: string
+  /** What the field is for, behind the (i). */
+  hint?: ReactNode
+  /** A fact about the current value - "stored, leave empty to keep it" - in
+      the line below the control. An error takes its place. */
+  note?: ReactNode
   error?: string
+  /** Marks the field "optional" beside its label. */
+  optional?: boolean
+  /** The name the machine knows it by, set small and muted after the label. */
+  technicalName?: string
   children: ReactNode
 }) {
+  const id = useId()
+  const messageId = useId()
+  const help = useFieldHelp(label, hint)
+  const hasMessage = Boolean(error || note)
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-ink text-sm font-medium">{label}</span>
-      {children}
-      {error ? (
-        <span className="text-danger text-xs">{error}</span>
-      ) : hint ? (
-        <span className="text-ink-3 text-xs">{hint}</span>
-      ) : null}
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <FieldHead
+        htmlFor={id}
+        label={label}
+        technicalName={technicalName}
+        optional={optional}
+        help={help.button}
+      />
+      <FieldContext.Provider
+        value={{
+          id,
+          describedBy: joinIds(help.hintId, hasMessage && messageId),
+          invalid: Boolean(error),
+        }}
+      >
+        {children}
+      </FieldContext.Provider>
+      {help.inline}
+      <FieldMessage id={messageId} error={error} note={note} />
+      {help.hidden}
+    </div>
   )
 }
 
@@ -605,14 +894,22 @@ export function Field({
 export function FilePicker({
   label,
   hint,
+  note,
   error,
+  optional,
+  technicalName,
   fileName,
   prompt,
   onSelect,
 }: {
   label: string
-  hint?: string
+  /** What the file is for, behind the (i). */
+  hint?: ReactNode
+  /** A fact about what is stored - its fingerprint - below the box. */
+  note?: ReactNode
   error?: string
+  optional?: boolean
+  technicalName?: string
   /** The file chosen in this form, shown in place of the prompt. */
   fileName?: string
   /** What the empty box says - "Choose file", in the caller's wording. */
@@ -623,15 +920,23 @@ export function FilePicker({
   // the box is what the pointer aims at. The input itself comes before the
   // box so its focus ring can be drawn on the box through "peer".
   const id = useId()
+  const messageId = useId()
+  const help = useFieldHelp(label, hint)
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-ink text-sm font-medium">
-        {label}
-      </label>
+      <FieldHead
+        htmlFor={id}
+        label={label}
+        technicalName={technicalName}
+        optional={optional}
+        help={help.button}
+      />
       <input
         id={id}
         type="file"
         className="peer sr-only"
+        aria-describedby={joinIds(help.hintId, Boolean(error || note) && messageId)}
+        aria-invalid={error ? true : undefined}
         onChange={(event) => {
           const file = event.target.files?.[0]
           if (file) onSelect(file)
@@ -639,6 +944,10 @@ export function FilePicker({
       />
       <label
         htmlFor={id}
+        // The field name above is the accessible name; this box only repeats
+        // the prompt or the file name, which a screen reader gets from the
+        // input's value.
+        aria-hidden
         className={clsx(
           'rounded-control border-rule-2 bg-surface text-ink flex cursor-pointer items-center gap-2 border px-2.5 py-1.5 text-sm',
           'transition-colors duration-(--dur-instant) ease-(--ease-out)',
@@ -655,11 +964,9 @@ export function FilePicker({
           {fileName ?? prompt}
         </span>
       </label>
-      {error ? (
-        <span className="text-danger text-xs">{error}</span>
-      ) : hint ? (
-        <span className="text-ink-3 text-xs">{hint}</span>
-      ) : null}
+      {help.inline}
+      <FieldMessage id={messageId} error={error} note={note} />
+      {help.hidden}
     </div>
   )
 }
@@ -672,14 +979,16 @@ export function Select({
   className,
   ...rest
 }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <select
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm',
         'disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }
@@ -688,49 +997,71 @@ export function Textarea({
   className,
   ...rest
 }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <textarea
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 font-mono text-xs',
         'placeholder:text-ink-3 disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }
 
-/** A labelled checkbox with an optional hint underneath the label.
+/** A labelled checkbox, its help behind the (i) beside the label.
 
     The raw pattern existed seven times with two different top margins on the
-    box; the alignment is decided here once. */
+    box; the alignment is decided here once. The (i) sits outside the label:
+    a button inside a label would tick the box on every press of the help. */
 export function CheckboxField({
   label,
   hint,
   checked,
   onChange,
   disabled,
+  technicalName,
 }: {
   label: ReactNode
   hint?: ReactNode
   checked: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
+  technicalName?: string
 }) {
+  const id = useId()
+  const help = useFieldHelp(typeof label === 'string' ? label : '', hint)
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>
-        <span className="text-ink">{label}</span>
-        {hint && <span className="text-ink-3 block text-xs">{hint}</span>}
-      </span>
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-start gap-2 text-sm">
+        <input
+          id={id}
+          type="checkbox"
+          className="mt-0.5"
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={help.hintId}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <div className="flex min-w-0 items-center gap-1.5">
+          {/* A checkbox label can be a sentence; it wraps, the (i) stays
+              beside its last line. */}
+          <label htmlFor={id} className="text-ink min-w-0">
+            {label}
+          </label>
+          {technicalName && (
+            <span className="text-ink-3 min-w-0 truncate font-mono text-xs" title={technicalName}>
+              {technicalName}
+            </span>
+          )}
+          {help.button}
+        </div>
+      </div>
+      {help.inline}
+      {help.hidden}
+    </div>
   )
 }
 
@@ -738,14 +1069,16 @@ export function Input({
   className,
   ...rest
 }: InputHTMLAttributes<HTMLInputElement>) {
+  const wiring = useFieldWiring(rest)
   return (
     <input
+      {...rest}
+      {...wiring}
       className={clsx(
         'rounded-control border-rule-2 bg-surface text-ink border px-2.5 py-1.5 text-sm',
         'placeholder:text-ink-3 disabled:opacity-50',
         className,
       )}
-      {...rest}
     />
   )
 }
@@ -773,8 +1106,76 @@ export function Mono({
   )
 }
 
+/** A point in time as people say it ("3 minutes ago"), with the exact
+    moment in the tooltip and for the machine. */
+export function RelativeTime({ value, className }: { value: string; className?: string }) {
+  return (
+    <time
+      dateTime={value}
+      title={formatDateTime(value)}
+      className={clsx('text-ink-3 text-xs whitespace-nowrap tabular-nums', className)}
+    >
+      {formatRelative(value)}
+    </time>
+  )
+}
+
+/**
+ * A short column of figures in a card: name on the left, value on the right,
+ * so the values line up and read as one column. A tone puts a status dot
+ * before the name; a link makes the whole row the way to the rows behind the
+ * number.
+ */
+export function MetricList({ children, className }: { children: ReactNode; className?: string }) {
+  return <ul className={clsx('space-y-px', className)}>{children}</ul>
+}
+
+export function MetricRow({
+  label,
+  value,
+  tone,
+  to,
+}: {
+  label: ReactNode
+  value: ReactNode
+  tone?: Tone
+  /** Where the rows behind the number are. Leave it out when there is
+      nothing to look at: a link onto an empty list is worse than a nought. */
+  to?: LinkProps['to']
+}) {
+  const body = (
+    <>
+      <span className="text-ink-2 flex min-w-0 items-center gap-2 text-sm">
+        {tone && <Dot tone={tone} />}
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="text-ink text-sm font-medium tabular-nums">{value}</span>
+    </>
+  )
+  const row = 'flex h-8 items-center justify-between gap-3'
+  return (
+    <li>
+      {to ? (
+        <Link
+          to={to}
+          className={clsx(
+            row,
+            'rounded-control hover:bg-hover -mx-2 px-2 transition-colors duration-(--dur-instant)',
+          )}
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className={row}>{body}</div>
+      )}
+    </li>
+  )
+}
+
+/** The name of a value outside a table: small, muted, sentence case. The
+    column heads of a table have their own style, .table-head. */
 export function Label({ children }: { children: ReactNode }) {
-  return <span className="label-mono">{children}</span>
+  return <span className="text-ink-3 text-xs">{children}</span>
 }
 
 export function EmptyState({
@@ -842,9 +1243,11 @@ export function Banner({
  * decoration - a dialog the keyboard can leave but not re-enter is one an
  * operator has to reach for the mouse to answer.
  *
- * Deliberately not a portal: the overlay is fixed to the viewport and carries
- * the dialog z-index, so where it sits in the tree changes nothing about where
- * it is drawn.
+ * Rendered into the body through a portal. Fixed positioning alone was not
+ * enough: a dialog opened from inside a card sat in that card's stacking
+ * context and in its accessibility subtree, so a screen reader announced it
+ * as part of the card it covered. React still bubbles its events through the
+ * component tree, so callers notice nothing.
  */
 
 // Everything the browser would stop at on the way through, which is what the
@@ -916,7 +1319,7 @@ export function Dialog({
     }
   }, [])
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/40 p-4"
       onClick={(event) => {
@@ -938,7 +1341,8 @@ export function Dialog({
       >
         <Card title={title}>{children}</Card>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

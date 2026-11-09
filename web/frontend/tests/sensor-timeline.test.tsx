@@ -35,6 +35,7 @@ const TIMELINE: SensorTimeline = {
   streams: [
     {
       sensor: 'wlan-auth',
+      stream: 'Example-Corp',
       ssid: 'Example-Corp',
       ok: 98,
       error: 2,
@@ -54,9 +55,11 @@ const TIMELINE: SensorTimeline = {
       buckets: buckets(['ok', 'outlier', 'failing', 'none']),
       last_run: '2025-03-08T00:50:00Z',
       ended: false,
+      last_job: 'a1b2c3d4e5f6',
     },
     {
       sensor: 'wlan-auth',
+      stream: 'Example-Guest',
       ssid: 'Example-Guest',
       ok: 40,
       error: 0,
@@ -66,6 +69,7 @@ const TIMELINE: SensorTimeline = {
       buckets: buckets(['ok', 'ok', 'ok', 'ok']),
       last_run: '2025-03-08T00:55:00Z',
       ended: false,
+      last_job: '0f0e0d0c0b0a',
     },
   ],
 }
@@ -156,6 +160,36 @@ describe('sensor timeline', () => {
       since: '2025-03-08T00:30:00.000Z',
       until: '2025-03-08T00:45:00.000Z',
     })
+  })
+
+  it('gives each variant of one SSID a row of its own', () => {
+    // PEAP and an EAP-TLS variant on the same SSID: one row each, labelled
+    // with the variant, and a slice opens only that variant's runs.
+    const corp = TIMELINE.streams[0]
+    show({
+      ...TIMELINE,
+      streams: [
+        { ...corp, ssid: 'corp-wifi', variant: null, ok: 40, error: 0 },
+        { ...corp, ssid: 'corp-wifi', variant: 'corp-certauth', ok: 20, error: 20 },
+      ],
+    })
+    expect(screen.getByRole('group', { name: 'corp-wifi: 40 OK, 0 failed' })).toBeInTheDocument()
+    const certauth = screen.getByRole('group', {
+      name: 'corp-wifi · corp-certauth: 20 OK, 20 failed',
+    })
+    fireEvent.click(certauth.children[2])
+    const where = new URL(screen.getByTestId('where').textContent ?? '', 'http://x')
+    expect(where.searchParams.get('ssid')).toBe('corp-wifi')
+    expect(where.searchParams.get('variant')).toBe('corp-certauth')
+  })
+
+  it('counts two variants of one SSID as one network', () => {
+    const corp = TIMELINE.streams[0]
+    const summary = summariseSensor(
+      { ...TIMELINE, streams: [corp, { ...corp, variant: 'corp-certauth' }] },
+      'wlan-auth',
+    )
+    expect(summary?.networks).toBe(1)
   })
 
   it('moves along the bar with the arrow keys', () => {

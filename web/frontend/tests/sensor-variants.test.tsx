@@ -1,3 +1,4 @@
+import { FIELD } from './field-query'
 import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -227,7 +228,7 @@ describe('SensorVariants', () => {
     await user.click(await screen.findByRole('button', { name: /bearbeiten|edit/i }))
 
     await waitFor(() => expect(screen.getByDisplayValue('Corporate')).toBeInTheDocument())
-    const password = screen.getByLabelText(/PASSWORD/i) as HTMLInputElement
+    const password = screen.getByLabelText(/^Password/, FIELD) as HTMLInputElement
     expect(password.value).toBe('')
     expect(password.type).toBe('password')
   })
@@ -237,11 +238,11 @@ describe('SensorVariants', () => {
     wrap()
     await user.click(await screen.findByRole('button', { name: /variante anlegen|add variant/i }))
 
-    await user.type(screen.getByLabelText(/name/i), 'gaeste')
-    await user.type(screen.getByLabelText(/SSID/i), 'Guest')
-    await user.selectOptions(screen.getByLabelText(/AUTH/i), 'psk')
+    await user.type(screen.getByLabelText(/^Name of the variant/, FIELD), 'gaeste')
+    await user.type(screen.getByLabelText(/^Network name/, FIELD), 'Guest')
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'psk')
     await user.upload(
-      screen.getByLabelText(/CA_CERT/i),
+      screen.getByLabelText(/^CA certificate/, FIELD),
       new File(['cert!'], 'radius-ca.pem', { type: 'application/x-pem-file' }),
     )
     // The file is read asynchronously; the hint changes once it is in hand.
@@ -262,9 +263,28 @@ describe('SensorVariants', () => {
     const user = userEvent.setup()
     wrap()
     await user.click(await screen.findByRole('button', { name: /variante anlegen|add variant/i }))
-    await user.type(screen.getByLabelText(/name/i), 'gaeste')
+    await user.type(screen.getByLabelText(/^Name of the variant/, FIELD), 'gaeste')
 
     expect(screen.getByRole('button', { name: /speichern|save/i })).toBeDisabled()
+    // Named the way the form names them, not by their profile keys.
+    expect(
+      screen.getByText('Required fields are still missing: Network name, Sign-in method'),
+    ).toBeInTheDocument()
+  })
+
+  it('labels the fields for a person, the profile key muted beside them', async () => {
+    const user = userEvent.setup()
+    wrapGrouped()
+    await user.click(
+      await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
+    )
+    const method = screen.getByRole('combobox', { name: 'Sign-in method' })
+    expect(screen.getByText('auth')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'PEAP/MSCHAPv2' })).toHaveValue('peap')
+    // The help is the translated one, read with the field.
+    expect(method).toHaveAccessibleDescription(
+      'Decides which of the other fields are needed.',
+    )
   })
 
   it('shows only the fields of the chosen auth kind', async () => {
@@ -276,17 +296,17 @@ describe('SensorVariants', () => {
 
     // A PSK variant has no business seeing the PEAP password or the client
     // certificate - the schema says so via groups, and now the dialog reads it.
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
-    expect(screen.getByLabelText(/^PSK/)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/^PASSWORD/)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/^CLIENT_CERT/)).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'psk')
+    expect(screen.getByLabelText(/^WPA2 passphrase/, FIELD)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^Password/, FIELD)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^Client certificate/, FIELD)).not.toBeInTheDocument()
     // The CA certificate verifies the RADIUS server, so a PSK variant has
     // no use for it either.
-    expect(screen.queryByLabelText(/^CA_CERT/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^CA certificate/, FIELD)).not.toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
-    expect(screen.queryByLabelText(/^PSK/)).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/^PASSWORD/)).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'peap')
+    expect(screen.queryByLabelText(/^WPA2 passphrase/, FIELD)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^Password/, FIELD)).toBeInTheDocument()
   })
 
   it('stops asking for the CA once the variant waives the check', async () => {
@@ -295,16 +315,19 @@ describe('SensorVariants', () => {
     await user.click(
       await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
     )
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'peap')
 
     // The CA certificate is what verifies the RADIUS server. Asking for it
     // while the variant has just said not to verify leaves a form that
     // cannot be submitted and a file that the run would ignore.
-    const ca = screen.getByLabelText(/^CA_CERT/) as HTMLInputElement
-    expect(ca.labels?.[0]).toHaveTextContent('CA_CERT *')
+    const ca = screen.getByLabelText(/^CA certificate/, FIELD) as HTMLInputElement
+    // Required is the norm and carries no mark; the exception says so.
+    const head = ca.labels?.[0].parentElement
+    expect(head).toHaveTextContent('CA certificate')
+    expect(head).not.toHaveTextContent(/optional/)
 
-    await user.click(screen.getByLabelText(/^NO_VERIFY_SERVER/))
-    expect(ca.labels?.[0]).toHaveTextContent(/^CA_CERT$/)
+    await user.click(screen.getByLabelText(/^Skip server check/, FIELD))
+    expect(head).toHaveTextContent(/optional/)
     // Still offered, because a variant may verify and name no authority
     // only by saying so - the field just stops being demanded.
     expect(ca).toBeInTheDocument()
@@ -316,13 +339,13 @@ describe('SensorVariants', () => {
     await user.click(
       await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
     )
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'eap-tls')
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'eap-tls')
 
     // The box is the whole control: the native input draws a grey button and
     // "no file chosen", which was read as text rather than as something to
     // click. It prompts while empty and carries the file name once there is
     // one - and the field name stays its accessible name either way.
-    const picker = screen.getByLabelText(/^CLIENT_CERT/) as HTMLInputElement
+    const picker = screen.getByLabelText(/^Client certificate/, FIELD) as HTMLInputElement
     const box = picker.labels?.[1]
     expect(box).toHaveTextContent(/datei w\u00e4hlen|choose file/i)
 
@@ -345,14 +368,14 @@ describe('SensorVariants', () => {
     // The user name reaches the RADIUS server under PEAP and under EAP-TLS
     // alike. Declared for one kind only, the form hid it from the other, and
     // the variant then failed on the probe with "requires an identity".
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'peap')
-    expect(screen.getByLabelText(/^IDENTITY/)).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'peap')
+    expect(screen.getByLabelText(/^Identity/, FIELD)).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'eap-tls')
-    expect(screen.getByLabelText(/^IDENTITY/)).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'eap-tls')
+    expect(screen.getByLabelText(/^Identity/, FIELD)).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
-    expect(screen.queryByLabelText(/^IDENTITY/)).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'psk')
+    expect(screen.queryByLabelText(/^Identity/, FIELD)).not.toBeInTheDocument()
   })
 
   it('treats a grouped credential as required only while its group applies', async () => {
@@ -361,14 +384,14 @@ describe('SensorVariants', () => {
     await user.click(
       await screen.findByRole('button', { name: /variante anlegen|add variant/i }),
     )
-    await user.type(screen.getByLabelText(/name/i), 'gaeste')
-    await user.type(screen.getByLabelText(/^SSID/), 'Guest')
-    await user.selectOptions(screen.getByLabelText(/^AUTH/), 'psk')
+    await user.type(screen.getByLabelText(/^Name of the variant/, FIELD), 'gaeste')
+    await user.type(screen.getByLabelText(/^Network name/, FIELD), 'Guest')
+    await user.selectOptions(screen.getByLabelText(/^Sign-in method/, FIELD), 'psk')
 
     // The PSK is the whole credential of this kind - without it the variant
     // fails on every run, which used to surface only in PRTG.
     expect(screen.getByRole('button', { name: /speichern|save/i })).toBeDisabled()
-    await user.type(screen.getByLabelText(/^PSK/), 'wpa2-passphrase')
+    await user.type(screen.getByLabelText(/^WPA2 passphrase/, FIELD), 'wpa2-passphrase')
     expect(screen.getByRole('button', { name: /speichern|save/i })).toBeEnabled()
   })
 

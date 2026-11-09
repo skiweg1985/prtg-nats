@@ -1,8 +1,10 @@
 import clsx from 'clsx'
 import { Fragment, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react'
+
+import { useUrlState } from '@/utils/urlState'
 
 import { Button, EmptyState, Input, Skeleton } from './primitives'
 
@@ -46,6 +48,26 @@ export interface Column<T> {
   width?: string
 }
 
+type SortState = { key: string; direction: 'asc' | 'desc' }
+
+/**
+ * The sort order from the address: `name` ascending, `-name` descending,
+ * `none` for the unsorted order of a list that has a default. A column that
+ * does not exist or cannot be sorted - an old link - is the default.
+ */
+export function sortFrom<T>(
+  value: string | null,
+  columns: Column<T>[],
+  defaultSort: SortState | undefined,
+): SortState | null {
+  if (value === null) return defaultSort ?? null
+  if (value === 'none') return null
+  const direction = value.startsWith('-') ? 'desc' : 'asc'
+  const key = direction === 'desc' ? value.slice(1) : value
+  const column = columns.find((entry) => entry.key === key)
+  return column?.sortValue ? { key, direction } : (defaultSort ?? null)
+}
+
 interface DataTableProps<T> {
   rows: T[] | undefined
   columns: Column<T>[]
@@ -73,16 +95,21 @@ interface DataTableProps<T> {
   filters?: ReactNode
   searchPlaceholder?: string
   /**
-   * Query parameter the search box reads and writes, for the lists whose rows
-   * lead somewhere.
+   * Where the table keeps its search term, sort order and open rows.
    *
-   * Without it the term lives in this component and is gone the moment
-   * somebody opens a row and steps back - which is most of what searching a
-   * fleet is for. With it the term survives the trip, a reload and a link sent
-   * to a colleague. Tables inside tabs and dialogs leave it unset; two of them
-   * on one screen would fight over the same parameter.
+   * In the address by default, under `q`, `sort` and `open`: the term has to
+   * survive opening a row and stepping back - which is most of what searching
+   * a fleet is for - as well as a reload and a link sent to a colleague. Two
+   * tables on one screen give each other a prefix (`interfaces` reads and
+   * writes `interfaces-q`), or they would fight over the same parameters.
+   * `null` keeps the state in the component, for a table inside a dialog.
    */
-  searchParamKey?: string
+  urlKey?: string | null
+  /**
+   * The page's own filter parameters, cleared together with the search term
+   * by the reset action the table shows while any of them is set.
+   */
+  filterKeys?: readonly string[]
   /**
    * Rendered under a row while it is open, with a toggle in its own column.
    *
@@ -105,7 +132,7 @@ interface DataTableProps<T> {
    */
   mobileCard?: (row: T) => ReactNode
   /** The order before anybody clicks a header. */
-  defaultSort?: { key: string; direction: 'asc' | 'desc' }
+  defaultSort?: SortState
 }
 
 export function DataTable<T>({
@@ -120,7 +147,8 @@ export function DataTable<T>({
   selection,
   filters,
   searchPlaceholder,
-  searchParamKey,
+  urlKey = '',
+  filterKeys = [],
   expandedContent,
   rowLabel,
   mobileCard,
@@ -129,27 +157,59 @@ export function DataTable<T>({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const showCards = useIsPhone() && mobileCard !== undefined
-  const [params, setParams] = useSearchParams()
+  const { params, update } = useUrlState()
+  const inUrl = urlKey !== null
+  const keyOf = (name: string) => (urlKey ? `${urlKey}-${name}` : name)
+  const queryKey = keyOf('q')
+  const sortKey = keyOf('sort')
+  const openKey = keyOf('open')
+
   const [localQuery, setLocalQuery] = useState('')
-  const query = searchParamKey ? (params.get(searchParamKey) ?? '') : localQuery
+  const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set())
+  const [localSort, setLocalSort] = useState<SortState | null>(defaultSort ?? null)
+
+  const query = inUrl ? (params.get(queryKey) ?? '') : localQuery
+  const expanded = inUrl ? new Set(params.getAll(openKey)) : localExpanded
+  const sort = inUrl ? sortFrom(params.get(sortKey), columns, defaultSort) : localSort
 
   function setQuery(next: string) {
-    if (!searchParamKey) {
-      setLocalQuery(next)
+    if (inUrl) update({ [queryKey]: next })
+    else setLocalQuery(next)
+  }
+
+  function setExpanded(next: Set<string>) {
+    if (inUrl) update({ [openKey]: [...next] })
+    else setLocalExpanded(next)
+  }
+
+  function setSort(next: SortState | null) {
+    if (!inUrl) {
+      setLocalSort(next)
       return
     }
-    const updated = new URLSearchParams(params)
-    // An empty term is no term, not an empty parameter: it would ride along
-    // into every row link and come back out as `?q=`.
-    if (next) updated.set(searchParamKey, next)
-    else updated.delete(searchParamKey)
-    // Replace, or typing a term puts one entry per keystroke into the history.
-    setParams(updated, { replace: true })
+    const isDefault =
+      next === null
+        ? defaultSort === undefined
+        : next.key === defaultSort?.key && next.direction === defaultSort.direction
+    update({
+      [sortKey]: isDefault
+        ? null
+        : next === null
+          ? 'none'
+          : `${next.direction === 'desc' ? '-' : ''}${next.key}`,
+    })
   }
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(
-    defaultSort ?? null,
-  )
+
+  const filtered =
+    query !== '' || (inUrl && filterKeys.some((key) => params.has(key)))
+
+  function resetFilters() {
+    if (!inUrl) {
+      setLocalQuery('')
+      return
+    }
+    update(Object.fromEntries([queryKey, ...filterKeys].map((key) => [key, null])))
+  }
 
   const visible = useMemo(() => {
     if (!rows) return []
@@ -222,13 +282,11 @@ export function DataTable<T>({
   }
 
   function toggleSort(key: string) {
-    setSort((current) => {
-      if (current?.key !== key) return { key, direction: 'asc' }
-      if (current.direction === 'asc') return { key, direction: 'desc' }
-      // Back to the order the list opened in, not to no order at all: for a
-      // list with a default, "unsorted" is just the backend's insertion order.
-      return defaultSort ?? null
-    })
+    if (sort?.key !== key) setSort({ key, direction: 'asc' })
+    else if (sort.direction === 'asc') setSort({ key, direction: 'desc' })
+    // Back to the order the list opened in, not to no order at all: for a
+    // list with a default, "unsorted" is just the backend's insertion order.
+    else setSort(defaultSort ?? null)
   }
 
   return (
@@ -243,6 +301,11 @@ export function DataTable<T>({
           aria-label={t('common.search')}
         />
         {filters}
+        {filtered && (
+          <Button size="sm" variant="ghost" icon={X} onClick={resetFilters}>
+            {t('common.clearFilters')}
+          </Button>
+        )}
         <span className="text-ink-2 ml-auto text-xs tabular-nums">
           {visible.length} {t('common.of')} {rows?.length ?? 0}
         </span>
@@ -354,7 +417,7 @@ export function DataTable<T>({
         ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
-            <thead className="bg-surface-2">
+            <thead>
               <tr>
                 {selection && (
                   <th className="w-10 px-3 py-2">
@@ -379,9 +442,7 @@ export function DataTable<T>({
                         : undefined
                     }
                     className={clsx(
-                      // ink-2, not the label default: ink-3 on the grey
-                      // header band falls under 4.5:1 in both themes.
-                      'label-mono text-ink-2 px-3 py-2 font-normal whitespace-nowrap',
+                      'table-head h-9 px-3 whitespace-nowrap',
                       column.align === 'right' && 'text-right',
                     )}
                   >
@@ -389,7 +450,7 @@ export function DataTable<T>({
                       <button
                         type="button"
                         onClick={() => toggleSort(column.key)}
-                        className="hover:text-ink rounded-inset focus-visible:outline-accent -mx-1 inline-flex min-h-6 items-center gap-1 px-1 uppercase focus-visible:outline-2"
+                        className="hover:text-ink rounded-inset focus-visible:outline-accent -mx-1 inline-flex min-h-6 items-center gap-1 px-1 focus-visible:outline-2"
                       >
                         {column.header}
                         {sort?.key === column.key &&
@@ -421,7 +482,7 @@ export function DataTable<T>({
                       onClick={href ? () => navigate(href) : undefined}
                       className={clsx(
                         'border-rule border-t',
-                        href && 'hover:bg-surface-2 cursor-pointer',
+                        href && 'hover:bg-hover cursor-pointer',
                       )}
                     >
                       {selection && (

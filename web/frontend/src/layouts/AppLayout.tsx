@@ -2,10 +2,20 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import {
+  ArrowUpRight,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  type LucideIcon,
+} from 'lucide-react'
 
 import { useLogout } from '@/api/hooks'
+import { OBJECT_ICONS } from '@/app/icons'
+import { useLastSearch, useNavigationTracking } from '@/app/navigation'
 import { useAuth } from '@/app/providers'
-import { Badge, Button } from '@/components/ui/primitives'
+import { Badge, Button, IconButton } from '@/components/ui/primitives'
 import { guideHref } from '@/utils/guide'
 
 /**
@@ -19,28 +29,46 @@ import { guideHref } from '@/utils/guide'
 interface NavEntry {
   to: string
   labelKey: string
+  icon: LucideIcon
   permission?: string
 }
 
 const PRIMARY: NavEntry[] = [
-  { to: '/', labelKey: 'nav.dashboard', permission: 'system.read' },
-  { to: '/probes', labelKey: 'nav.probes', permission: 'probe.read' },
-  { to: '/sensors', labelKey: 'nav.sensors', permission: 'sensor.read' },
-  { to: '/jobs', labelKey: 'nav.jobs', permission: 'job.read' },
-  { to: '/sensor-logs', labelKey: 'nav.sensorLogs', permission: 'sensor_log.read' },
+  { to: '/', labelKey: 'nav.dashboard', icon: OBJECT_ICONS.dashboard, permission: 'system.read' },
+  { to: '/probes', labelKey: 'nav.probes', icon: OBJECT_ICONS.probe, permission: 'probe.read' },
+  { to: '/sensors', labelKey: 'nav.sensors', icon: OBJECT_ICONS.sensor, permission: 'sensor.read' },
+  { to: '/jobs', labelKey: 'nav.jobs', icon: OBJECT_ICONS.job, permission: 'job.read' },
+  {
+    to: '/sensor-logs',
+    labelKey: 'nav.sensorLogs',
+    icon: OBJECT_ICONS.sensorLog,
+    permission: 'sensor_log.read',
+  },
 ]
 
 const INFRASTRUCTURE: NavEntry[] = [
-  { to: '/infrastructure/nats', labelKey: 'nav.nats', permission: 'system.read' },
+  {
+    to: '/infrastructure/nats',
+    labelKey: 'nav.nats',
+    icon: OBJECT_ICONS.nats,
+    permission: 'system.read',
+  },
   {
     to: '/infrastructure/certificates',
     labelKey: 'nav.certificates',
+    icon: OBJECT_ICONS.certificate,
     permission: 'certificate.read',
   },
-  { to: '/infrastructure/iperf', labelKey: 'nav.iperf', permission: 'iperf.read' },
+  {
+    to: '/infrastructure/iperf',
+    labelKey: 'nav.iperf',
+    icon: OBJECT_ICONS.iperf,
+    permission: 'iperf.read',
+  },
   {
     to: '/infrastructure/overlay',
     labelKey: 'nav.overlay',
+    icon: OBJECT_ICONS.overlay,
     permission: 'overlay.read',
   },
   // Reached from the NATS page before, and from nowhere else: an account
@@ -48,29 +76,68 @@ const INFRASTRUCTURE: NavEntry[] = [
   {
     to: '/infrastructure/credentials',
     labelKey: 'nav.credentials',
+    icon: OBJECT_ICONS.credential,
     permission: 'credential.read',
   },
   {
     to: '/infrastructure/maintenance',
     labelKey: 'nav.system',
+    icon: OBJECT_ICONS.system,
     permission: 'system.read',
   },
 ]
 
 const SECONDARY: NavEntry[] = [
-  { to: '/audit', labelKey: 'nav.audit', permission: 'audit.read' },
+  { to: '/audit', labelKey: 'nav.audit', icon: OBJECT_ICONS.audit, permission: 'audit.read' },
   // Visible to anyone who may read the system: knowing which version is
   // installed is not a privileged question. Only the button behind it is.
-  { to: '/updates', labelKey: 'nav.updates', permission: 'system.read' },
-  { to: '/settings', labelKey: 'nav.settings' },
+  {
+    to: '/updates',
+    labelKey: 'nav.updates',
+    icon: OBJECT_ICONS.update,
+    permission: 'system.read',
+  },
+  { to: '/settings', labelKey: 'nav.settings', icon: OBJECT_ICONS.settings },
 ]
+
+// The pages the sidebar opens, whose last address it restores.
+const NAV_PATHS = new Set([...PRIMARY, ...INFRASTRUCTURE, ...SECONDARY].map((entry) => entry.to))
+const isNavPath = (pathname: string) => NAV_PATHS.has(pathname)
+
+// Per browser, not per tab: how wide someone likes the rail is a habit of
+// theirs, not a state of one visit.
+const COLLAPSED_KEY = 'prtg-nats.sidebar-collapsed'
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function useCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  function toggle() {
+    const next = !collapsed
+    setCollapsed(next)
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0')
+    } catch {
+      // Blocked storage: the rail still folds, it just forgets on reload.
+    }
+  }
+  return [collapsed, toggle]
+}
 
 export function AppLayout() {
   const { t } = useTranslation()
   const { principal } = useAuth()
   const logout = useLogout()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [collapsed, toggleCollapsed] = useCollapsed()
   const location = useLocation()
+  useNavigationTracking(isNavPath)
 
   // Arriving somewhere is the end of navigating there.
   useEffect(() => setMenuOpen(false), [location.pathname])
@@ -86,21 +153,46 @@ export function AppLayout() {
 
   return (
     <div className="bg-paper flex min-h-screen">
-      <aside className="border-rule bg-surface sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r md:flex">
-        <div className="border-rule border-b px-4 py-3.5">
-          <p className="font-display text-ink text-sm font-semibold tracking-(--tracking-display)">
-            {t('app.name')}
-          </p>
-          <p className="text-ink-3 text-xs">{t('app.tagline')}</p>
+      <aside
+        className={clsx(
+          'border-rule bg-surface sticky top-0 hidden h-screen shrink-0 flex-col border-r md:flex',
+          collapsed ? 'w-14' : 'w-56',
+        )}
+      >
+        <div
+          className={clsx(
+            'border-rule flex h-12 shrink-0 items-center border-b',
+            collapsed ? 'justify-center' : 'justify-between gap-2 pr-2 pl-4',
+          )}
+        >
+          {!collapsed && (
+            <div className="min-w-0 leading-tight">
+              <p className="font-display text-ink truncate text-sm font-semibold tracking-(--tracking-display)">
+                {t('app.name')}
+              </p>
+              <p className="text-ink-3 truncate text-xs">{t('app.tagline')}</p>
+            </div>
+          )}
+          <IconButton
+            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+            label={collapsed ? t('nav.expand') : t('nav.collapse')}
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+          />
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 py-3">
-          <NavSections />
+        {/* Folded, the rail is short enough to need no scrolling, and must
+            not clip the labels that float out of it. */}
+        <nav
+          aria-label={t('nav.label')}
+          className={clsx('flex-1 py-3', collapsed ? 'px-2' : 'overflow-y-auto px-2')}
+        >
+          <NavSections collapsed={collapsed} />
         </nav>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-rule bg-surface sticky top-0 z-(--z-header) flex items-center gap-3 border-b px-4 py-2">
+        <header className="border-rule bg-surface sticky top-0 z-(--z-header) flex h-12 shrink-0 items-center gap-3 border-b px-4">
           {/* Everything below md: reaches its destinations through here. The
               rail is hidden at that width, and the row of primary entries this
               replaces left infrastructure, the audit trail, updates and the
@@ -108,12 +200,13 @@ export function AppLayout() {
           <Button
             size="sm"
             variant="ghost"
-            className="md:hidden"
+            icon={Menu}
+            className="-ml-2 md:hidden"
             onClick={() => setMenuOpen(!menuOpen)}
             aria-expanded={menuOpen}
             aria-controls="app-menu"
           >
-            <span aria-hidden>☰</span> {t('nav.menu')}
+            {t('nav.menu')}
           </Button>
 
           <div className="ml-auto flex items-center gap-2">
@@ -126,6 +219,8 @@ export function AppLayout() {
                 <Button
                   size="sm"
                   variant="ghost"
+                  icon={LogOut}
+                  className="-mr-2"
                   onClick={() => logout.mutate()}
                   disabled={principal.is_development}
                 >
@@ -139,9 +234,10 @@ export function AppLayout() {
         {menuOpen && (
           <nav
             id="app-menu"
+            aria-label={t('nav.label')}
             className="border-rule bg-surface border-b px-2 py-3 md:hidden"
           >
-            <NavSections />
+            <NavSections collapsed={false} />
           </nav>
         )}
 
@@ -164,7 +260,7 @@ export function AppLayout() {
  * menu alike. Two copies of this list is how one of them ends up missing half
  * the destinations, which is exactly what happened.
  */
-function NavSections() {
+function NavSections({ collapsed }: { collapsed: boolean }) {
   const { t } = useTranslation()
   const { can } = useAuth()
   const visible = (entries: NavEntry[]) =>
@@ -172,20 +268,47 @@ function NavSections() {
 
   return (
     <>
-      <NavGroup entries={visible(PRIMARY)} />
+      <NavGroup entries={visible(PRIMARY)} collapsed={collapsed} />
 
       {visible(INFRASTRUCTURE).length > 0 && (
         <>
-          <p className="label-mono mt-5 mb-1.5 px-2">{t('nav.infrastructure')}</p>
-          <NavGroup entries={visible(INFRASTRUCTURE)} />
+          {/* Folded, the heading has no room; a rule keeps the grouping. */}
+          {collapsed ? (
+            <hr className="border-rule mx-1.5 my-3" />
+          ) : (
+            <p className="text-ink-3 mt-5 mb-1 px-2.5 text-xs font-medium">
+              {t('nav.infrastructure')}
+            </p>
+          )}
+          <NavGroup entries={visible(INFRASTRUCTURE)} collapsed={collapsed} />
         </>
       )}
 
-      <div className="border-rule mt-5 border-t pt-3">
-        <NavGroup entries={visible(SECONDARY)} />
-        <GuideLink />
+      <div className={clsx('border-rule border-t', collapsed ? 'mx-1.5 mt-3 pt-3' : 'mt-5 pt-3')}>
+        <NavGroup entries={visible(SECONDARY)} collapsed={collapsed} />
+        <GuideLink collapsed={collapsed} />
       </div>
     </>
+  )
+}
+
+const NAV_ITEM =
+  'group rounded-control relative flex h-10 items-center gap-2.5 md:h-8 text-sm transition-colors duration-(--dur-instant) ease-(--ease-out)'
+
+/** The entry's name beside a folded rail, on hover and keyboard focus. The
+    accessible name is the label inside the link; this copy is for the eye. */
+function NavTooltip({ label }: { label: string }) {
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        'border-rule bg-surface text-ink rounded-control pointer-events-none absolute top-1/2 left-full z-(--z-popover) ml-2 -translate-y-1/2',
+        'border px-2 py-1 text-xs font-medium whitespace-nowrap opacity-0 shadow-md',
+        'transition-opacity duration-(--dur-instant) group-hover:opacity-100 group-focus-visible:opacity-100',
+      )}
+    >
+      {label}
+    </span>
   )
 }
 
@@ -194,49 +317,81 @@ function NavSections() {
  * application, so it is a plain link in a new tab rather than a NavLink: the
  * reader keeps the page they were on and reads beside it.
  */
-function GuideLink() {
+function GuideLink({ collapsed }: { collapsed: boolean }) {
   const { t, i18n } = useTranslation()
   const location = useLocation()
+  const Icon = OBJECT_ICONS.guide
   return (
     <a
       href={guideHref(location.pathname, i18n.resolvedLanguage)}
       target="_blank"
       rel="noopener"
-      className="rounded-control text-ink-2 hover:bg-surface-2 hover:text-ink mt-0.5 block px-2.5 py-1.5 text-sm transition-colors duration-100"
+      className={clsx(
+        NAV_ITEM,
+        'text-ink-2 hover:bg-hover hover:text-ink mt-0.5',
+        collapsed ? 'justify-center' : 'px-2.5',
+      )}
     >
-      {t('nav.guide')} <span aria-hidden>↗</span>
+      <Icon aria-hidden size={16} strokeWidth={1.75} className="text-ink-3 group-hover:text-ink-2 shrink-0" />
+      <span className={collapsed ? 'sr-only' : 'min-w-0 flex-1 truncate'}>{t('nav.guide')}</span>
+      {!collapsed && (
+        <ArrowUpRight aria-hidden size={14} strokeWidth={1.75} className="text-ink-3 shrink-0" />
+      )}
+      {collapsed && <NavTooltip label={t('nav.guide')} />}
     </a>
   )
 }
 
-function NavGroup({ entries }: { entries: NavEntry[] }) {
+function NavGroup({ entries, collapsed }: { entries: NavEntry[]; collapsed: boolean }) {
   return (
     <ul className="space-y-0.5">
       {entries.map((entry) => (
         <li key={entry.to}>
-          <NavItem entry={entry} />
+          <NavItem entry={entry} collapsed={collapsed} />
         </li>
       ))}
     </ul>
   )
 }
 
-function NavItem({ entry }: { entry: NavEntry }) {
+function NavItem({ entry, collapsed }: { entry: NavEntry; collapsed: boolean }) {
   const { t } = useTranslation()
+  // The page as it was last left in this browser tab: coming back to the
+  // probe list after a look at one probe keeps its filter.
+  const lastSearch = useLastSearch(entry.to)
+  const label = t(entry.labelKey)
+  const Icon = entry.icon
   return (
     <NavLink
-      to={entry.to}
+      to={`${entry.to}${lastSearch}`}
       end={entry.to === '/'}
       className={({ isActive }) =>
         clsx(
-          'rounded-control block px-2.5 py-1.5 text-sm transition-colors duration-100',
+          NAV_ITEM,
+          collapsed ? 'justify-center' : 'px-2.5',
+          // The wash and the blue icon mark where you are; the label stays
+          // ink, so the active entry reads as a place, not as a button.
           isActive
-            ? 'bg-accent-soft text-accent font-medium'
-            : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
+            ? 'bg-accent-soft text-ink font-medium'
+            : 'text-ink-2 hover:bg-hover hover:text-ink',
         )
       }
     >
-      {t(entry.labelKey)}
+      {({ isActive }) => (
+        <>
+          <Icon
+            aria-hidden
+            size={16}
+            strokeWidth={1.75}
+            className={clsx(
+              'shrink-0',
+              isActive ? 'text-accent' : 'text-ink-3 group-hover:text-ink-2',
+            )}
+          />
+          <span className={collapsed ? 'sr-only' : 'min-w-0 truncate'}>{label}</span>
+          {collapsed && <NavTooltip label={label} />}
+        </>
+      )}
     </NavLink>
   )
 }

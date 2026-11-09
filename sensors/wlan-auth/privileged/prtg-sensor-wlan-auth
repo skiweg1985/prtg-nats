@@ -650,6 +650,7 @@ UDHCPC_LEASE = re.compile(
 
 # "rtt min/avg/max/mdev = 1.234/..." - the average is the reading.
 PING_TIME = re.compile(r"= [\d.]+/([\d.]+)/")
+PING_SENT = re.compile(r"(\d+) packets transmitted")
 
 def dhcp_command(interface, seconds):
     """The DHCP client to run, and how to ask it for one lease.
@@ -791,6 +792,10 @@ def reach_gateway(interface, address, target, budget):
         raise Blocked("ping-missing",
                       "This probe has no ping, so the gateway cannot be "
                       "tested; use --gateway none")
+    # One echo request every half second until the first reply, for ten
+    # seconds at most. A gateway that needs a moment after the lease is
+    # caught by a later request, and a healthy one ends the check after a
+    # single round trip instead of waiting out a fixed count.
     seconds = max(2, min(10, int(budget)))
     added_address = added_route = False
     started = time.monotonic()
@@ -807,8 +812,9 @@ def reach_gateway(interface, address, target, budget):
                           "Could not put the leased address on %s"
                           % interface)
         done = subprocess.run(
-            ["ping", "-c", "2", "-W", str(seconds), "-I", address, target],
-            capture_output=True, timeout=seconds * 2 + 5, check=False,
+            ["ping", "-c", "1", "-i", "0.5", "-W", "1", "-w", str(seconds),
+             "-I", address, target],
+            capture_output=True, timeout=seconds + 5, check=False,
             text=True)
     except subprocess.TimeoutExpired:
         raise Failed("gateway-unreachable", "gateway %s no reply" % target)
@@ -823,10 +829,12 @@ def reach_gateway(interface, address, target, budget):
                            capture_output=True, timeout=10, check=False)
     if done.returncode != 0:
         raise Failed("gateway-unreachable", "gateway %s no reply" % target)
+    sent = PING_SENT.search(done.stdout)
+    attempts = int(sent.group(1)) if sent else 1
     found = PING_TIME.search(done.stdout)
     if found:
-        return int(float(found.group(1)))
-    return int((time.monotonic() - started) * 1000)
+        return int(float(found.group(1))), attempts
+    return int((time.monotonic() - started) * 1000), attempts
 
 
 def dhcp_failure(command, returncode, output):
@@ -1015,6 +1023,23 @@ def read_flag(path):
         return False
 
 
+def run_details(job):
+    """Who signed in, and with which variant, for every result of a job.
+
+    With --profile both live only here on the probe. The sensor script names
+    the identity in the message, and the platform tells two configurations
+    of one SSID apart by the variant. The identity is no secret - it is what
+    RADIUS logs a sign-in under. The anonymous identity is left out: it says
+    nothing about the run. A pre-shared key has no identity at all.
+    """
+    details = {}
+    if job.get("profile"):
+        details["profile"] = job["profile"]
+    if job.get("auth") in ("peap", "eap-tls") and job.get("identity"):
+        details["identity"] = job["identity"]
+    return details
+
+
 def perform_test(job, log=None):
     log = log if log is not None else RunLog()
     interface = job["interface"]
@@ -1036,6 +1061,7 @@ def perform_test(job, log=None):
         "timings": {},
         "details": {},
     }
+    result["details"].update(run_details(job))
 
     try:
         config_path = os.path.join(workdir, "wpa.conf")
@@ -1107,11 +1133,13 @@ def perform_test(job, log=None):
                 result["details"]["gateway"] = target
                 result["details"]["gateway_kind"] = kind
                 log.event("pinging %s %s" % (kind, target))
-                result["timings"]["gateway_ms"] = reach_gateway(
+                took, attempts = reach_gateway(
                     interface, lease["new_ip_address"], target,
                     deadline - time.monotonic())
-                log.event("%s answered in %d ms" % (
-                    target, result["timings"]["gateway_ms"]))
+                result["timings"]["gateway_ms"] = took
+                log.event("%s answered in %d ms after %d %s" % (
+                    target, took, attempts,
+                    "ping" if attempts == 1 else "pings"))
 
         result["message"] = "OK"
     except Failed as failure:
@@ -1859,6 +1887,11 @@ class Scheduler:
                     "job": job_label(entry["job"]),
                     "interface": entry["job"]["interface"],
                     "ssid": entry["job"].get("ssid") or "",
+                    # What tells two configurations of one SSID apart: a
+                    # PEAP and an EAP-TLS variant, or one pinned to an AP.
+                    "auth": entry["job"]["auth"],
+                    "profile": entry["job"].get("profile") or "",
+                    "bssid": entry["job"].get("bssid") or "",
                     "stage": entry["job"]["stage"],
                     "timeout": entry["job"]["timeout"],
                     "max_age": entry.get("max_age"),
