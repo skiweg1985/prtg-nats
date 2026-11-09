@@ -1819,6 +1819,14 @@
       "ok": "OK",
       "failed": "Fehlgeschlagen",
       "bssid": "AP {{bssid}}"
+    },
+    "hide": {
+      "action": "{{network}} ausblenden",
+      "title": "{{network}} ausblenden?",
+      "body": "Die Zeile verschwindet aus der Zeitleiste, bis wieder ein Lauf dafür eingeht. Die Läufe bleiben im Sensor-Log.",
+      "removeConfiguration": "Konfiguration auch auf der Probe entfernen",
+      "removeConfigurationHint": "Die Probe hört sofort auf, sie zu messen. Fragt ein Sensor in PRTG sie noch ab, wird sie bei seinem nächsten Scan neu angelegt.",
+      "confirm": "Ausblenden"
     }
   },
   "sensorFields": {
@@ -2105,6 +2113,33 @@
         "label": "Selbsttest",
         "hint": "Prüft nur, ob der privilegierte Helper erreichbar ist."
       }
+    }
+  },
+  "runViewer": {
+    "title": "Lauf",
+    "navigation": "Läufe dieser Zeile",
+    "older": "Vorheriger",
+    "newer": "Nächster",
+    "failuresOnly": "Nur Fehler",
+    "noOlderRun": "Kein älterer Lauf",
+    "noNewerRun": "Kein neuerer Lauf",
+    "noOlderFailure": "Kein älterer Fehler",
+    "noNewerFailure": "Kein neuerer Fehler",
+    "openPage": "Lauf als eigene Seite öffnen",
+    "total": "Gesamt {{duration}}",
+    "raw": "Rohausgabe",
+    "phases": "Stufen des Laufs",
+    "phase": {
+      "prepare": "Vorbereitung",
+      "assoc": "Assoziierung",
+      "auth": "Authentifizierung ({{method}})",
+      "dhcp": "DHCP",
+      "gateway": "Gateway"
+    },
+    "state": {
+      "ok": "OK",
+      "failed": "Fehlgeschlagen",
+      "skipped": "Nicht erreicht"
     }
   }
 }

@@ -682,14 +682,18 @@ of leaving them queued forever.
 
 What probes report over their return channel, one record per finished sensor
 run ([ADR 0013](../architecture/decisions/0013-probes-report-back-over-a-channel-of-their-own.md)).
-Every route needs `sensor_log.read`, which every role holds.
+Every route needs `sensor_log.read`, which every role holds; hiding a
+timeline row needs `sensor.configure`.
 
 | | |
 | --- | --- |
 | `GET /sensor-logs` | records, newest first, without their body |
 | `GET /sensor-logs/streams` | one probe's runs per sensor and network, runs in a row folded into segments |
 | `GET /sensor-logs/timeline` | one probe's runs per sensor and network, sliced into buckets of equal size |
+| `GET /sensor-logs/timeline/run` | the run a click on one bucket of a timeline row opens |
+| `POST /sensor-logs/hidden-streams` | take a timeline row off the page until its next run |
 | `GET /sensor-logs/{id}` | one record with its body - the raw output of that run |
+| `GET /sensor-logs/{id}/neighbours` | the previous and next run of the same stream |
 | `GET /sensor-logs/events` | server-sent events, one `sensor_log.record` per newly stored record |
 
 `GET /sensor-logs` takes these filters, all optional and combined with AND:
@@ -777,6 +781,7 @@ among them, stay in the network's row with `variant` `null`:
   "streams": [
     {
       "sensor": "wlan-auth",
+      "stream": "[\"Example-Corp\",\"corp-certauth\"]",
       "ssid": "Example-Corp",
       "variant": "corp-certauth",
       "ok": 1076,
@@ -784,6 +789,7 @@ among them, stay in the network's row with `variant` `null`:
       "success_rate": 0.98,
       "runs_per_hour": 52.3,
       "last_failure": {...},
+      "last_job": "a1b2c3d4e5f6",
       "buckets": [
         {"start": "2026-11-08T09:15:00Z", "ok": 13, "error": 0, "state": "ok", "code": null}
       ]
@@ -810,6 +816,45 @@ measuring less often. `last_failure` has the shape of a list item. Older than
 `retained_since` the retention has removed the records, so an empty bucket
 there says nothing about the probe. A window of more than 1000 buckets is cut
 to the newest 1000.
+
+`stream` is the row's key among the sensor's other rows: its network and
+variant. Treat it as opaque and send it back as is to the routes below; it is
+spelled as a JSON list today, which may change. `last_job` is the helper's
+label of the configuration behind the newest run, the `label` of
+[the configurations a sensor's helper holds](#configurations-a-sensors-helper-holds).
+A row somebody hid is left out until a run newer than the moment it was hidden
+arrives.
+
+`GET /sensor-logs/timeline/run?probe=&sensor=&stream=&since=&until=` answers
+with the run a click on one bucket opens, in the shape of a list item: the
+first failure between `since` and `until`, otherwise the first run there, and
+for a bucket without a run of its own the run before it, whose state the
+bucket is drawn in. 404 when the stream has no run up to `until`.
+
+`GET /sensor-logs/{id}/neighbours` answers with the runs of the same probe,
+sensor and stream on either side of a record, over the whole retention:
+
+```json
+{"record": {...}, "previous": {...}, "next": null}
+```
+
+All three have the shape of a list item; `previous` or `next` is `null` at
+the end of the history. With `failures_only=true` passed runs are skipped on
+both sides, while the record itself may be one that passed. Gaps are not runs
+and never a neighbour.
+
+`POST /sensor-logs/hidden-streams` takes a row off the sensor's timeline:
+
+```json
+{"probe": "mpp-probe-01", "sensor": "wlan-auth", "stream": "[\"Example-Guest\",null]"}
+```
+
+The answer repeats the row with `hidden_at`. The row comes back by itself with
+the first run newer than that; hiding it again moves the moment forward. The
+records stay in the sensor log, and there is no list of hidden rows. The
+action is audited as `sensor_log.hide_stream` on the probe. To stop the probe
+measuring the configuration as well, remove it with
+`DELETE /probes/{id}/sensors/{sensor}/jobs/{label}`.
 
 The event stream sends only what arrives while it is open - a page loads the
 list first and adds what the stream announces. `?probe=` and `?sensor=` narrow

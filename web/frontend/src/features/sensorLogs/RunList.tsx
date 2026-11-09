@@ -332,7 +332,7 @@ export function useCodeLabel(): (sensor: string, code: string | null | undefined
 }
 
 /** How a field is shown: its words, if known, and its value with its unit. */
-interface Field {
+export interface Field {
   /** Null for a key this page has no words for. */
   label: string | null
   value: (value: unknown) => string
@@ -340,7 +340,7 @@ interface Field {
   worded: (value: unknown) => boolean
 }
 
-function useFields(sensor: string | undefined): (key: string) => Field {
+export function useFields(sensor: string | undefined): (key: string) => Field {
   const { t } = useTranslation()
   const fields = (sensor && FIELDS[sensor]) || {}
   return (key) => {

@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
+import { EyeOff } from 'lucide-react'
 
 import type {
   SensorTimeline,
@@ -9,7 +10,7 @@ import type {
   SensorTimelineState,
   SensorTimelineStream,
 } from '@/api/types'
-import { Badge } from '@/components/ui/primitives'
+import { Badge, IconButton } from '@/components/ui/primitives'
 import { formatDateTime, formatSpanEnd } from '@/utils/format'
 
 import { sensorLogHref } from './links'
@@ -58,7 +59,19 @@ export function streamLabel(stream: SensorTimelineStream): string {
   return stream.variant ? `${network} · ${stream.variant}` : network
 }
 
-export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
+/** What a slice opens, and what a row offers, where the page wires it up. */
+export interface TimelineActions {
+  /** A click on a slice; without it the slice opens its runs in the log. */
+  onOpen?: (stream: SensorTimelineStream, bucket: SensorTimelineBucket) => void
+  /** Offered per row where the user may hide one. */
+  onHide?: (stream: SensorTimelineStream) => void
+}
+
+export function SensorTimelineRows({
+  timeline,
+  onOpen,
+  onHide,
+}: { timeline: SensorTimeline } & TimelineActions) {
   const { t } = useTranslation()
   const signIns = timeline.sensor === 'wlan-auth'
   const buckets = timeline.streams[0]?.buckets ?? []
@@ -76,6 +89,8 @@ export function SensorTimelineRows({ timeline }: { timeline: SensorTimeline }) {
           stream={stream}
           label={streamLabel(stream)}
           signIns={signIns}
+          onOpen={onOpen}
+          onHide={onHide}
         />
       ))}
       <Axis buckets={buckets} bucketSeconds={timeline.bucket_seconds} />
@@ -101,12 +116,14 @@ function TimelineRow({
   stream,
   label,
   signIns,
+  onOpen,
+  onHide,
 }: {
   timeline: SensorTimeline
   stream: SensorTimelineStream
   label: string
   signIns: boolean
-}) {
+} & TimelineActions) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   // The slice under the pointer or the keyboard; one tab stop per bar, the
@@ -130,7 +147,9 @@ function TimelineRow({
 
   function open(index: number) {
     const href = hrefOf(index)
-    if (href) navigate(href)
+    if (!href) return
+    if (onOpen) onOpen(stream, stream.buckets[index])
+    else navigate(href)
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -160,7 +179,16 @@ function TimelineRow({
             </Badge>
           )}
         </span>
-        <Figures stream={stream} signIns={signIns} />
+        <span className="flex items-center gap-2">
+          <Figures stream={stream} signIns={signIns} />
+          {onHide && (
+            <IconButton
+              icon={EyeOff}
+              label={t('probeSensor.hide.action', { network: label })}
+              onClick={() => onHide(stream)}
+            />
+          )}
+        </span>
       </div>
       <div className="relative">
         <div
@@ -310,15 +338,14 @@ export function Slice({
     <span
       onMouseEnter={onMouseEnter}
       onClick={onClick}
-      className={clsx(
-        'relative block',
-        LOOK_CLASS[look],
-        active && 'brightness-90 dark:brightness-125',
-        className,
-      )}
+      className={clsx('relative block', LOOK_CLASS[look], className)}
     >
       {look === 'outlier' && <span className="bg-danger absolute inset-x-0 bottom-0 h-1/3" />}
-      {active && <span className="bg-ink absolute inset-x-0 -top-px h-0.5" />}
+      {/* A frame drawn inside the slice and over its marks: the bar clips
+          anything outside it, and a slice is only a few pixels wide. */}
+      {active && (
+        <span className="ring-ink absolute inset-0 rounded-[2px] ring-2 ring-inset" />
+      )}
     </span>
   )
 }

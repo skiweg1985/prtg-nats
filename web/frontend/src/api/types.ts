@@ -954,6 +954,8 @@ export interface SensorTimelineBucket {
 /** One network of a sensor over the window. */
 export interface SensorTimelineStream {
   sensor: string
+  /** Opaque key of the row among the sensor's others; sent back to hide it. */
+  stream: string
   ssid: string | null
   /** One row per SSID and variant; null for runs that named none. */
   variant?: string | null
@@ -966,6 +968,15 @@ export interface SensorTimelineStream {
   last_run: string | null
   /** Stopped while the sensor's other networks went on: no longer asked for. */
   ended: boolean
+  /** The helper's label of the configuration behind the newest run. */
+  last_job: string | null
+}
+
+/** A run and the runs of its stream on either side, null at either end. */
+export interface SensorLogNeighbours {
+  record: SensorLogSummary
+  previous: SensorLogSummary | null
+  next: SensorLogSummary | null
 }
 
 export interface SensorTimeline {

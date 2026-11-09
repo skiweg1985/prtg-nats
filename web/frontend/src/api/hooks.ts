@@ -46,6 +46,7 @@ import type {
   RevealedAccessKey,
   SensorDetail,
   SensorLogFilters,
+  SensorLogNeighbours,
   SensorLogPage,
   SensorLogRange,
   SensorLogRecord,
@@ -101,6 +102,9 @@ export const keys = {
   sensorLogList: (filters: SensorLogFilters, limit: number, offset: number) =>
     ['sensor-logs', 'list', filters, limit, offset] as const,
   sensorLog: (id: string) => ['sensor-logs', 'record', id] as const,
+  sensorLogNeighbours: (id: string, failuresOnly: boolean) =>
+    ['sensor-logs', 'neighbours', id, failuresOnly] as const,
+  sensorLogTimelines: ['sensor-logs', 'timeline'] as const,
   sensorLogTimeline: (probe: string, sensor: string, window: string) =>
     ['sensor-logs', 'timeline', probe, sensor, window] as const,
 }
@@ -1351,6 +1355,44 @@ export function useSensorLog(id: string | undefined) {
     enabled: Boolean(id),
     // A record never changes once stored.
     staleTime: Infinity,
+  })
+}
+
+/**
+ * The previous and next run of the stream a run belongs to. Not cached for
+ * long: a new run makes the newest one's "next" exist.
+ */
+export function useSensorLogNeighbours(id: string | undefined, failuresOnly: boolean) {
+  return useQuery({
+    queryKey: keys.sensorLogNeighbours(id ?? '', failuresOnly),
+    queryFn: () =>
+      api.get<SensorLogNeighbours>(`/sensor-logs/${id}/neighbours`, {
+        failures_only: failuresOnly,
+      }),
+    enabled: Boolean(id),
+    staleTime: 30_000,
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** The run a click on one slice of a timeline row opens. */
+export function fetchRunAt(params: {
+  probe: string
+  sensor: string
+  stream: string
+  since: string
+  until: string
+}): Promise<SensorLogSummary> {
+  return api.get<SensorLogSummary>('/sensor-logs/timeline/run', params)
+}
+
+/** Take a row off a sensor's timeline until its next run. */
+export function useHideSensorStream() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (row: { probe: string; sensor: string; stream: string }) =>
+      api.post<{ hidden_at: string }>('/sensor-logs/hidden-streams', row),
+    onSuccess: () => void client.invalidateQueries({ queryKey: keys.sensorLogTimelines }),
   })
 }
 
