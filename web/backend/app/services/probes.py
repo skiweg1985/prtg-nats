@@ -35,10 +35,12 @@ from app.domain.models import (
     ObservedProbeState,
     ProbeSummary,
     ReturnChannelState,
+    SensorJob,
     WirelessInterface,
     nats_route,
     newer_package_version,
     parse_probe_info,
+    parse_sensor_jobs,
     parse_sensor_list,
     parse_wireless_interfaces,
 )
@@ -486,6 +488,33 @@ class ProbeService:
             self.connection_for(inventory)
         )
         return parse_wireless_interfaces(response)
+
+    async def sensor_jobs(
+        self, nats_username: str, sensor: str
+    ) -> tuple[SensorJob, ...]:
+        """What a sensor's own helper on the probe is measuring, asked live.
+
+        Live for the same reason as the interfaces: it is read to clean up,
+        and a cached list would offer to remove a job that is already gone.
+        """
+        inventory = self._runtime.read_probe(nats_username)
+        response = await self._helper.sensor_jobs(
+            self.connection_for(inventory), sensor
+        )
+        return parse_sensor_jobs(response)
+
+    async def forget_sensor_job(
+        self, nats_username: str, sensor: str, label: str
+    ) -> int:
+        """Remove one job from a sensor's helper; how many went with it."""
+        inventory = self._runtime.read_probe(nats_username)
+        response = await self._helper.sensor_forget_job(
+            self.connection_for(inventory), sensor, label
+        )
+        try:
+            return int(response.header_fields.get("removed", "0"))
+        except ValueError:
+            return 0
 
     async def refresh_after_job(self, nats_username: str) -> bool:
         """Bring the cache in line with what a job just did, or leave it be.

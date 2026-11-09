@@ -8,11 +8,13 @@ import {
   useProbe,
   useProbePrtgName,
   useRemoveSensorFromProbe,
+  useForgetSensorJob,
+  useSensorJobs,
   useSensorLogTimeline,
   useSensorLogs,
   type TimelineWindow,
 } from '@/api/hooks'
-import type { SensorLogSummary } from '@/api/types'
+import type { SensorJob, SensorLogSummary } from '@/api/types'
 import { PermissionGate, useAuth } from '@/app/providers'
 import { ErrorDetails } from '@/components/ui/ErrorDetails'
 import {
@@ -33,7 +35,7 @@ import { DeployDialog } from '@/features/deployments/DeployDialog'
 import { probeName } from '@/features/probes/probeName'
 import { SensorTimelineRows } from '@/features/sensorLogs/SensorTimeline'
 import { sensorLogHref } from '@/features/sensorLogs/links'
-import { formatDateTime, formatSpanEnd } from '@/utils/format'
+import { formatDateTime, formatDuration, formatSpanEnd } from '@/utils/format'
 
 /**
  * One sensor on one probe: how it is deployed and how its runs went.
@@ -151,6 +153,10 @@ export function ProbeSensorPage() {
       <PermissionGate permission="sensor_log.read">
         <RunsCard probe={data.summary.nats_username} sensor={sensorName} />
       </PermissionGate>
+
+      {present && SCHEDULING_SENSORS.includes(sensorName) && (
+        <ConfigurationsCard probeId={probeId} sensor={sensorName} />
+      )}
 
       {dialog === 'deploy' && (
         <DeployDialog
@@ -341,5 +347,103 @@ function FailureList({
         </ul>
       )}
     </section>
+  )
+}
+
+// Sensors whose privileged helper plans its own measurements and can say
+// which configurations it holds.
+const SCHEDULING_SENSORS = ['wlan-auth']
+
+/**
+ * What the sensor's helper on the probe measures right now - one entry per
+ * configuration a sensor in PRTG asked for. A changed parameter makes a new
+ * one; the old one goes idle after three intervals unasked and can be
+ * removed here at once instead of waiting for it to expire.
+ */
+function ConfigurationsCard({ probeId, sensor }: { probeId: string; sensor: string }) {
+  const { t } = useTranslation()
+  const { data, isLoading, error } = useSensorJobs(probeId, sensor)
+  const forget = useForgetSensorJob()
+  const [removing, setRemoving] = useState<SensorJob | null>(null)
+  return (
+    <Card title={t('probeSensor.configurations.title')} dense>
+      {error ? (
+        <div className="p-3">
+          <ErrorDetails error={error} />
+        </div>
+      ) : isLoading ? (
+        <Skeleton className="m-3 h-16" />
+      ) : !data || data.length === 0 ? (
+        <EmptyState title={t('probeSensor.configurations.empty')} />
+      ) : (
+        <ul>
+          {data.map((job) => (
+            <li
+              key={job.label}
+              className="border-rule flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-2.5 text-sm last:border-0"
+            >
+              <span className="text-ink min-w-32 font-mono text-xs font-medium">
+                {job.ssid ?? '—'}
+              </span>
+              {job.idle ? (
+                <Badge tone="neutral">{t('probeSensor.configurations.idle')}</Badge>
+              ) : (
+                <Badge tone="ok">{t('probeSensor.configurations.active')}</Badge>
+              )}
+              <span className="text-ink-3 text-xs tabular-nums">
+                {[
+                  job.asked_every !== null &&
+                    t('probeSensor.configurations.askedEvery', {
+                      every: formatDuration(job.asked_every),
+                    }),
+                  job.asked_ago !== null &&
+                    t('probeSensor.configurations.askedAgo', {
+                      ago: formatDuration(job.asked_ago),
+                    }),
+                  job.result &&
+                    t('probeSensor.configurations.last', {
+                      result: job.code && job.code !== 'ok' ? job.code : job.result,
+                      age: job.age === null ? '—' : formatDuration(job.age),
+                    }),
+                  job.sensor_id && t('probeSensor.configurations.sensorId', { id: job.sensor_id }),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              <PermissionGate permission="sensor.configure">
+                <span className="ml-auto">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={Trash2}
+                    disabled={forget.isPending}
+                    onClick={() => setRemoving(job)}
+                  >
+                    {t('probeSensor.configurations.remove')}
+                  </Button>
+                </span>
+              </PermissionGate>
+            </li>
+          ))}
+        </ul>
+      )}
+      {removing && (
+        <ConfirmDialog
+          title={t('probeSensor.configurations.removeTitle', { ssid: removing.ssid ?? '—' })}
+          body={t('probeSensor.configurations.removeBody')}
+          confirmLabel={t('probeSensor.configurations.remove')}
+          cancelLabel={t('common.cancel')}
+          pending={forget.isPending}
+          error={forget.error ? <ErrorDetails error={forget.error} /> : undefined}
+          onConfirm={() =>
+            forget.mutate(
+              { id: probeId, sensor, label: removing.label },
+              { onSuccess: () => setRemoving(null) },
+            )
+          }
+          onClose={() => setRemoving(null)}
+        />
+      )}
+    </Card>
   )
 }

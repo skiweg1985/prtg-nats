@@ -175,6 +175,8 @@ async def sensor_log_timeline(
                 last_failure=SensorLogSummaryOut.model_validate(stream.last_failure)
                 if stream.last_failure
                 else None,
+                last_run=stream.last_run,
+                ended=stream.ended,
                 buckets=[
                     SensorLogBucketOut(
                         start=b.start,

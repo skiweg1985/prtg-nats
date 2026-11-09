@@ -275,6 +275,25 @@ export interface WirelessInterface {
   connection: string | null
 }
 
+/** One job a sensor's own helper measures on a probe (wlan-auth). */
+export interface SensorJob {
+  /** The configuration without its credentials; records carry it as `job`. */
+  label: string
+  interface: string | null
+  ssid: string | null
+  stage: string | null
+  result: string | null
+  code: string | null
+  age: number | null
+  asked_every: number | null
+  asked_ago: number | null
+  interval: number | null
+  /** Not asked for a while: no longer measured, kept until it expires. */
+  idle: boolean
+  expires_in: number | null
+  sensor_id: string | null
+}
+
 export interface PlannedAction {
   kind: string
   target: string
@@ -930,6 +949,9 @@ export interface SensorTimelineStream {
   runs_per_hour: number | null
   last_failure: SensorLogSummary | null
   buckets: SensorTimelineBucket[]
+  last_run: string | null
+  /** Stopped while the sensor's other networks went on: no longer asked for. */
+  ended: boolean
 }
 
 export interface SensorTimeline {

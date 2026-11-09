@@ -32,9 +32,11 @@ from typing import Any, NoReturn
 
 HELPER_SOCKET = "/run/prtg-sensor-wlan-auth.sock"
 
-# Patience for collecting a result. The helper answers out of memory, so
-# this covers a service under load, not a measurement.
-COLLECT_TIMEOUT = 30
+# Patience for collecting a result. The helper answers out of memory,
+# except on a job's first request, where it waits up to 20 seconds for the
+# first measurement; the rest covers a service under load. Still inside
+# the 60 seconds PRTG gives a Script v2 sensor by default.
+COLLECT_TIMEOUT = 40
 
 # Stable numbers for the "Failure Code" channel. They allow targeted
 # alerting on a specific cause without parsing the message text.
@@ -210,6 +212,8 @@ def setup():
                            help="The client address: auto for one per network, permanent for the radio's own, or a fixed address.")
     argparser.add_argument("--timeout", type=int, default=45,
                            help="The time budget for the whole test in seconds.")
+    argparser.add_argument("--sensor-id", default="",
+                           help="The PRTG sensor ID, as %sensorid; lets a changed configuration replace the old one at once.")
     argparser.add_argument("--max-age", type=int, default=None,
                            help="Optional upper bound for the measurement age in seconds; unset, the probe plans by itself.")
     argparser.add_argument("--measure-now", action="store_true",
@@ -394,6 +398,15 @@ def work(args: dict[str, Any]):
     if not args["ssid"] and not args["profile"]:
         fail("Either --ssid or --profile is required.")
 
+    # A placeholder PRTG did not replace arrives as written. It cannot name
+    # a sensor, so it is left out and said in the message rather than
+    # turning the sensor red over an optional parameter.
+    sensor_id = (args.get("sensor_id") or "").strip()
+    ignored_sensor_id = bool(sensor_id) and not re.fullmatch(r"[0-9]{1,12}",
+                                                             sensor_id)
+    if ignored_sensor_id:
+        sensor_id = ""
+
     job = {
         "action": "test",
         "interface": args["interface"],
@@ -427,6 +440,7 @@ def work(args: dict[str, Any]):
     else:
         job["action"] = "collect"
         job["max_age"] = args["max_age"]
+        job["sensor_id"] = sensor_id
         answer = call_helper(job, COLLECT_TIMEOUT)
 
     # "blocked" means the test never ran - missing interface, missing
@@ -607,6 +621,8 @@ def work(args: dict[str, Any]):
                             explicit, reachable, sharing,
                             "job" if sharing == 1 else "jobs",
                             args["interface"]))
+    if ignored_sensor_id:
+        parts.append("--sensor-id ignored, not a number")
     message = "; ".join(parts)
     # Only a failed run carries the way to its record: a green sensor sends
     # nobody looking, and a stored result that is too old or not there yet

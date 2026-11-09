@@ -109,7 +109,10 @@ FIELD_SEPARATOR = "\t"
 # own error on, instead of a bare "could not upgrade".
 #
 # Version 16 lets mpp-upgrade finish such an update first ("finish-pending").
-CURRENT_HELPER_VERSION = 16
+#
+# Version 17 adds sensor-jobs and sensor-forget-job: what a sensor's own
+# helper is measuring, and removing a leftover job from it.
+CURRENT_HELPER_VERSION = 17
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not
@@ -171,6 +174,10 @@ class HelperCommand(StrEnum):
     SENSOR_PREPARE = "sensor-prepare"
     SENSOR_REMOVE = "sensor-remove"
     WIRELESS_INTERFACES = "wireless-interfaces"
+    # What a sensor's privileged helper measures (wlan-auth), and removing
+    # one of its jobs by label.
+    SENSOR_JOBS = "sensor-jobs"
+    SENSOR_FORGET_JOB = "sensor-forget-job"
     SENSOR_RESERVE_INTERFACE = "sensor-reserve-interface"
     SENSOR_RELEASE_INTERFACE = "sensor-release-interface"
     SENSOR_WRITE_PROFILE = "sensor-write-profile"

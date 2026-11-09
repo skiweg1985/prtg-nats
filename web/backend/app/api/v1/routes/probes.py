@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
@@ -41,7 +41,7 @@ from app.api.schemas.probes import (
     ReturnChannelOut,
     SensorStateOut,
 )
-from app.api.schemas.system import WirelessInterfaceOut
+from app.api.schemas.system import SensorJobOut, WirelessInterfaceOut
 from app.core.errors import NotFoundError, PermissionDeniedError
 from app.core.permissions import Permission
 from app.domain.models import DesiredProbeState, DesiredSensor, ProbeSummary
@@ -50,6 +50,7 @@ from app.services.audit import AuditWriter
 from app.services.auth import Principal
 from app.services.jobs import JobRequest, JobService, ResourceRef
 from app.services.probes import ProbeDetail, ProbeService
+from app.services.sensor_logs import SENSOR_NAME_PATTERN
 from app.services.system import SystemService
 from app.workers.handlers import (
     channel_repair,
@@ -884,6 +885,60 @@ async def list_wireless_interfaces(
     record = await probes.get_record(probe_id)
     interfaces = await probes.wireless_interfaces(record.nats_username)
     return [WirelessInterfaceOut.model_validate(entry) for entry in interfaces]
+
+
+@router.get(
+    "/{probe_id}/sensors/{sensor_name}/jobs",
+    response_model=list[SensorJobOut],
+)
+async def list_sensor_jobs(
+    probe_id: str,
+    sensor_name: Annotated[str, Path(pattern=SENSOR_NAME_PATTERN.pattern)],
+    probes: ProbeServiceDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_READ))
+    ],
+) -> list[SensorJobOut]:
+    """What a sensor's own helper on the probe is measuring, asked live.
+
+    Only a sensor that schedules its own work answers - wlan-auth. Every
+    configuration a sensor in PRTG asked for is a job of its own, and one
+    nobody asks for any more goes idle before it expires.
+    """
+    record = await probes.get_record(probe_id)
+    jobs = await probes.sensor_jobs(record.nats_username, sensor_name)
+    return [SensorJobOut.model_validate(entry) for entry in jobs]
+
+
+@router.delete(
+    "/{probe_id}/sensors/{sensor_name}/jobs/{label}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def forget_sensor_job(
+    probe_id: str,
+    sensor_name: Annotated[str, Path(pattern=SENSOR_NAME_PATTERN.pattern)],
+    label: Annotated[str, Path(pattern=r"^[0-9a-f]{12}$")],
+    probes: ProbeServiceDep,
+    audit: AuditDep,
+    principal: Annotated[
+        PrincipalDep, Depends(require_permission(Permission.SENSOR_CONFIGURE))
+    ],
+) -> None:
+    """Remove a leftover job from a sensor's helper on the probe.
+
+    Immediate rather than a job: it is one request to a running service and
+    takes nothing from the probe that its sensor could not register again by
+    asking.
+    """
+    record = await probes.get_record(probe_id)
+    removed = await probes.forget_sensor_job(record.nats_username, sensor_name, label)
+    audit.record(
+        action="sensor.forget_job",
+        object_type="probe",
+        object_id=record.id,
+        object_label=record.nats_username,
+        before={"sensor": sensor_name, "job": label, "removed": removed},
+    )
 
 
 @router.post(

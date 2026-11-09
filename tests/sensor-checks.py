@@ -573,6 +573,27 @@ def check_wlan_auth_output():
     # address, because a channel that comes and goes tears its history
     # apart in PRTG.
     check("with a DHCP stage the DHCP channel is present", 14 in channels, True)
+
+    # The PRTG sensor ID travels with every collect, so the helper can let a
+    # new configuration of the sensor replace the old. A placeholder PRTG
+    # did not replace is left out and said, not a red sensor.
+    sent = []
+    module.call_helper = lambda job, timeout: sent.append(job) or {
+        "result": "ok", "code": "ok", "message": "", "age": 5,
+        "timings": {}, "details": {}}
+    module.work(dict(arguments, sensor_id="2041"))
+    check("the sensor id goes to the helper", sent[-1].get("sensor_id"), "2041")
+    ignored = module.work(dict(arguments, sensor_id="%sensorid"))
+    check("a placeholder is not sent", sent[-1].get("sensor_id"), "")
+    check("and the message says it was ignored",
+          "--sensor-id ignored" in ignored["message"], True)
+    module.call_helper = lambda job, timeout: {
+        "result": "failed",
+        "code": "auth-failed-eap",
+        "message": "The RADIUS server rejected the credentials",
+        "timings": {"total_ms": 4200, "assoc_ms": 2700},
+        "details": {"signal_dbm": -61, "frequency_mhz": 5320},
+    }
     check("and reads zero where nothing was measured",
           channels[14]["value"], 0)
     assoc_only = {entry["id"]: entry for entry
@@ -1312,6 +1333,106 @@ def check_wlan_auth_scheduler():
           snapshot["jobs"][0]["expected"], 12.0)
     check("and the round over the radio", snapshot["round_time"], 22.0)
 
+    # A changed parameter in PRTG is a different job. The old one used to be
+    # measured on for an hour; now it goes idle after three of its intervals
+    # unasked, takes no airtime and no part in the round, and is measured
+    # again the moment its sensor asks.
+    abandoned = entry(60, 30, asked=181, runs=[12.0])
+    asked = entry(60, 30, asked=10, runs=[12.0])
+    check("a job unasked for three intervals is idle",
+          module.is_idle(abandoned, now), True)
+    check("one asked for recently is not", module.is_idle(asked, now), False)
+    check("a late scan does not make a job idle",
+          module.is_idle(entry(60, 30, asked=150, runs=[12.0]), now), False)
+    scheduler._jobs = {"old": dict(abandoned, measured=now - 600),
+                       "new": asked}
+    check("an idle job is not measured however old its result",
+          scheduler._due(), None)
+    check("and is no part of the round",
+          scheduler._answer(asked, now)["job_count"], 1)
+    idle_view = scheduler.snapshot()
+    check("the snapshot says which job is idle",
+          sorted(job["idle"] for job in idle_view["jobs"]), [False, True])
+    check("and counts them in its message",
+          "1 idle" in idle_view["message"], True)
+    check("an idle job still expires only after its time to live",
+          module.ask_ttl(abandoned) > module.idle_after(abandoned), True)
+
+    # With the PRTG sensor ID, a new configuration of the same sensor
+    # replaces the old job at once instead of waiting for it to go idle.
+    replacing = module.Scheduler()
+    first = module.validate_job(dict(job, sensor_id="2041"))
+    replacing.collect(first, None, wait=0)
+    second = module.validate_job(dict(job, ssid="Corporate-5G",
+                                      sensor_id="2041"))
+    replacing.collect(second, None, wait=0)
+    check("a new configuration of the same sensor replaces the old",
+          [entry_["job"]["ssid"] for entry_ in replacing._jobs.values()],
+          ["Corporate-5G"])
+    other = module.validate_job(dict(job, ssid="Guest", sensor_id="2042"))
+    replacing.collect(other, None, wait=0)
+    check("another sensor keeps its own job", len(replacing._jobs), 2)
+
+    # The first request of a new job waits for its first measurement, so a
+    # new or changed sensor shows values on its first scan rather than
+    # "not measured yet". The measurement here is the scheduler's thread.
+    waiting = module.Scheduler()
+    import threading as _threading
+
+    def measure_soon():
+        time.sleep(0.2)
+        with waiting._guard:
+            entry_ = next(iter(waiting._jobs.values()))
+            entry_["result"] = {"result": "ok", "code": "ok", "message": "",
+                                "timings": {}, "details": {}}
+            entry_["measured"] = time.monotonic()
+            entry_["first_result"].set()
+
+    _threading.Thread(target=measure_soon).start()
+    first_answer = waiting.collect(module.validate_job(dict(job)), None, wait=5)
+    check("the first request waits for the first measurement",
+          first_answer["result"], "ok")
+    patient = module.Scheduler()
+    started = time.monotonic()
+    pending = patient.collect(module.validate_job(dict(job)), None, wait=0.3)
+    check("and gives up after its wait with not measured yet",
+          (pending["result"], round(time.monotonic() - started) < 2),
+          ("pending", True))
+    check("the wait stays well inside the script's patience",
+          module.FIRST_RESULT_WAIT < 40, True)
+    check("the sensor id is not part of the identity",
+          module.job_identity(dict(first, sensor_id="9")),
+          module.job_identity(first))
+    try:
+        module.validate_job(dict(job, sensor_id="%sensorid"))
+        check("a placeholder PRTG did not replace is refused", False, True)
+    except module.Blocked as blocked:
+        check("a placeholder PRTG did not replace is refused", blocked.code,
+              "bad-request")
+
+    # Removing a job is for root - the platform through the probe helper.
+    # A sensor runs as the probe's own user and may not end the others'.
+    label = module.job_label(replacing._jobs[module.job_identity(other)]["job"])
+    previous = module.SCHEDULER
+    module.SCHEDULER = replacing
+    try:
+        refused = module.handle_request(
+            json.dumps({"action": "forget", "job": label}), peer_uid=1000)
+        check("only root may remove a job", refused["code"], "forbidden")
+        removed = module.handle_request(
+            json.dumps({"action": "forget", "job": label}), peer_uid=0)
+        check("root removes it by its label", removed["removed"], 1)
+        check("and it is gone", len(replacing._jobs), 1)
+        again = module.handle_request(
+            json.dumps({"action": "forget", "job": label}), peer_uid=0)
+        check("a label nobody holds says so", again["code"], "unknown-job")
+        bad = module.handle_request(
+            json.dumps({"action": "forget", "job": "../x"}), peer_uid=0)
+        check("and a label that is none is refused", bad["code"],
+              "bad-request")
+    finally:
+        module.SCHEDULER = previous
+
     # Which network answered is what a probe with several SSIDs on one
     # radio is debugged with. The address alone does not say it: a lease
     # from the wrong VLAN reads like a healthy result, and only the DHCP
@@ -1336,8 +1457,8 @@ def check_wlan_auth_scheduler():
     # Registering through collect: the requests are what the rate is read
     # from, and a measurement is what the durations are read from.
     sharing = module.Scheduler()
-    sharing.collect(dict(job), None)
-    answer = sharing.collect(dict(job, ssid="Guest"), None)
+    sharing.collect(dict(job), None, wait=0)
+    answer = sharing.collect(dict(job, ssid="Guest"), None, wait=0)
     check("two jobs share the radio", answer["job_count"], 2)
     check("planned with their worst case until measured",
           answer["round_time"], (45 + 15 + 10) * 2.0)
@@ -1352,7 +1473,7 @@ def check_wlan_auth_scheduler():
         module.report_run = keep_report
     check("a measurement records how long it took",
           len(sharing._jobs[identity]["durations"]), 1)
-    answer = sharing.collect(dict(job, ssid="Guest"), None)
+    answer = sharing.collect(dict(job, ssid="Guest"), None, wait=0)
     check("and the round shrinks to what it really took",
           answer["round_time"] < (45 + 15 + 10) * 2.0, True)
     check("a request is remembered for the rate",
@@ -1453,7 +1574,7 @@ def check_wlan_auth_sensor_log():
                  "obtained from 198.51.100.1, lease time 28800\n",
             events=["dhcp started"])
         scheduler = module.Scheduler()
-        scheduler.collect(dict(job), 300)
+        scheduler.collect(dict(job), 300, wait=0)
         entry = scheduler._due()
         scheduler.measure(entry)
         records = stored()
@@ -1642,7 +1763,7 @@ def check_wlan_auth_sensor_log():
     module.perform_test = measured(dict(success))
     module.RETURN_CHANNEL_SOCKET = os.path.join(lock_directory, "absent")
     alone = module.Scheduler()
-    alone.collect(dict(job), 300)
+    alone.collect(dict(job), 300, wait=0)
     entry = alone._due()
     alone.measure(entry)
     check("without the service the result is still stored",

@@ -594,6 +594,26 @@ Reading needs `sensor.read`, reserving and releasing need `sensor.configure`.
 Both require helper version 5; an older probe answers that it does not know
 the request, and the reservation stays a shell command there.
 
+#### Configurations a sensor's helper holds
+
+`wlan-auth` plans its measurements in a helper of its own on the probe, and
+every configuration a sensor in PRTG asks for is a job there. A changed
+parameter makes a new one; the old one pauses after three intervals
+unasked and expires after an hour.
+
+| | |
+| --- | --- |
+| `GET /probes/{id}/sensors/{name}/jobs` | the configurations the helper holds, asked live |
+| `DELETE /probes/{id}/sensors/{name}/jobs/{label}` | remove one at once; `204`, audited as `sensor.forget_job` |
+
+An entry names the job by `label` - the configuration without its
+credentials, the value a sensor log record carries as `job` - with
+`interface`, `ssid`, `stage`, the last `result` and `code` and their `age`,
+`asked_every` and `asked_ago` in seconds, `idle` for a paused one,
+`expires_in`, and the `sensor_id` from `--sensor-id` where the sensor sets
+it. Credentials never leave the probe. Reading needs `sensor.read`,
+removing needs `sensor.configure`; both require helper version 17.
+
 #### Variants
 
 A variant is the settings, credentials and files a sensor needs for one
@@ -766,7 +786,10 @@ Buckets are aligned to multiples of their size, so `start` can lie before
 passed, `outlier` when its only failures were single runs between passing
 ones, and `failing` when a failure lasted more than one run - or is the
 newest run, since nothing has cleared it yet. `code` is the most frequent
-error code in the bucket. A bucket without a run of its own that is still
+error code in the bucket. A stream is `ended`, with its `last_run`, when it
+has had no run for three of its usual intervals while another network of
+the same sensor went on - a configuration PRTG no longer asks for, not a
+probe that went offline. A bucket without a run of its own that is still
 within one and a half of the stream's usual intervals after the run before it
 carries that run's state, so a sensor that runs every half hour does not leave
 every other bucket empty; only a longer pause shows as `none`. `success_rate` counts passed runs over all runs and

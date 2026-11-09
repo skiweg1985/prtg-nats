@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=16
+HELPER_VERSION=17
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -3857,6 +3857,100 @@ wireless_interfaces() {
   shopt -u nullglob
 }
 
+# What a sensor's privileged helper is measuring, for the platform. Only a
+# helper that schedules work of its own answers it - wlan-auth today - and
+# the answer is its snapshot: one line per job, never the credentials. The
+# SSID goes out as hex, because a network name may hold a tab or an equals
+# sign and these lines are split on both.
+sensor_jobs() {
+  local name="$1"
+  local socket_path="/run/prtg-sensor-${name}.sock"
+  validate_token "${name}" || die "Invalid sensor name"
+  [[ -S "${socket_path}" ]] ||
+    die "The sensor ${name} has no privileged helper listening on this probe"
+  printf 'OK sensor-jobs\n'
+  python3 - "${socket_path}" <<'PYEOF' || die "The helper of ${name} did not answer"
+import json
+import socket
+import sys
+
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(15)
+connection.connect(sys.argv[1])
+connection.sendall(json.dumps({"action": "status"}).encode())
+connection.shutdown(socket.SHUT_WR)
+payload = b""
+while True:
+    chunk = connection.recv(65536)
+    if not chunk:
+        break
+    payload += chunk
+answer = json.loads(payload.decode("utf-8", "replace") or "{}")
+if answer.get("result") != "ok":
+    sys.exit(1)
+
+
+def clean(value):
+    text = "" if value is None else str(value)
+    return "".join(c for c in text if c.isprintable() and c not in "\t=") or "-"
+
+
+for job in answer.get("jobs") or []:
+    fields = {
+        "interface": job.get("interface"),
+        "ssid_hex": (job.get("ssid") or "").encode("utf-8").hex() or "-",
+        "stage": job.get("stage"),
+        "result": job.get("result"),
+        "code": job.get("code"),
+        "age": job.get("age"),
+        "asked_every": job.get("asked_every"),
+        "asked_ago": job.get("asked_ago"),
+        "interval": job.get("interval"),
+        "idle": "yes" if job.get("idle") else "no",
+        "expires_in": job.get("expires_in"),
+        "sensor_id": job.get("sensor_id"),
+    }
+    print(clean(job.get("job")) + "".join(
+        "\t%s=%s" % (key, clean(value)) for key, value in fields.items()))
+PYEOF
+}
+
+# Drops a job from a sensor's privileged helper by the label sensor-jobs
+# shows. The helper accepts it from root only, which is who runs this.
+sensor_forget_job() {
+  local name="$1"
+  local label="$2"
+  local socket_path="/run/prtg-sensor-${name}.sock"
+  validate_token "${name}" || die "Invalid sensor name"
+  [[ "${label}" =~ ^[0-9a-f]{12}$ ]] || die "Invalid job label"
+  [[ -S "${socket_path}" ]] ||
+    die "The sensor ${name} has no privileged helper listening on this probe"
+  local removed=""
+  removed="$(python3 - "${socket_path}" "${label}" <<'PYEOF'
+import json
+import socket
+import sys
+
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(15)
+connection.connect(sys.argv[1])
+connection.sendall(json.dumps({"action": "forget", "job": sys.argv[2]}).encode())
+connection.shutdown(socket.SHUT_WR)
+payload = b""
+while True:
+    chunk = connection.recv(65536)
+    if not chunk:
+        break
+    payload += chunk
+answer = json.loads(payload.decode("utf-8", "replace") or "{}")
+if answer.get("result") != "ok":
+    sys.exit(1)
+print(int(answer.get("removed") or 0))
+PYEOF
+)" || die "The helper of ${name} refused to remove the job"
+  printf 'OK sensor-job-forgotten removed=%s\n' "${removed}"
+}
+
 # Reserves a Wi-Fi interface as the test interface.
 #
 # The check deliberately allows an interface that still carries a default
@@ -4978,6 +5072,17 @@ case "${command_name}" in
     [[ -z "${argument_one:-}" ]] ||
       die "wireless-interfaces takes no arguments"
     wireless_interfaces
+    ;;
+  sensor-jobs)
+    [[ -n "${argument_one:-}" && -z "${argument_two:-}" ]] ||
+      die "sensor-jobs requires one sensor name"
+    sensor_jobs "${argument_one}"
+    ;;
+  sensor-forget-job)
+    [[ -n "${argument_one:-}" && -n "${argument_two:-}" &&
+       -z "${argument_three:-}" ]] ||
+      die "sensor-forget-job requires a sensor name and a job label"
+    sensor_forget_job "${argument_one}" "${argument_two}"
     ;;
   sensor-prepare)
     [[ -z "${argument_one:-}" ]] || die "sensor-prepare takes no arguments"

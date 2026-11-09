@@ -84,6 +84,7 @@ For a Script v2 sensor they go into the **Parameters** field.
 | `--gateway ADDRESS\|none` | which address to ping after DHCP; empty means the one from the lease |
 | `--mac auto\|permanent\|ADDRESS` | client address: one per network (default), the radio's own, or a fixed one |
 | `--timeout SECONDS` | time budget for the whole test, default 45 |
+| `--sensor-id %sensorid` | the PRTG sensor ID; a changed configuration of the sensor then replaces the old one on the probe at once |
 | `--max-age SECONDS` | optional upper bound for the measurement age; unset (default), the probe plans by itself |
 | `--measure-now` | measure on the spot instead of collecting (diagnosis) |
 
@@ -382,9 +383,12 @@ exactly the unusable certificate above when nothing is supplied.
 4. Set the scanning interval to how often this network should be
    measured — five minutes is a sound default. The probe measures the
    network about that often, never more than once a minute.
-5. Leave the timeout at its default. Collecting needs no patience — the
-   script gives up after 30 seconds of its own.
-6. Leave `--max-age` unset. A result that is too old already turns the
+5. Leave the timeout at its default. Collecting needs little patience —
+   the script gives up after 40 seconds of its own, 20 of which are the
+   wait for a new job's first measurement.
+6. Add `--sensor-id %sensorid` to the parameters, so a changed
+   configuration replaces the old one on the probe at once.
+7. Leave `--max-age` unset. A result that is too old already turns the
    failure code to 12; a limit on **Round Time** warns earlier, when the
    radio is getting crowded.
 
@@ -504,22 +508,34 @@ is the place where the order is decided. See
 
 A sensor registers by asking, and nothing else:
 
-1. The first request registers the job and is answered with "not measured
-   yet" — `Auth Result` reads 3, which alarms on nothing.
-2. The service measures it as soon as the radio is free.
-3. Every further request is answered with that measurement and its age. The
-   service reads off the requests how often PRTG asks, and measures the
-   job about that often.
-4. A job nobody asks for any more expires, after three of its intervals and
-   at least an hour - long enough that a sensor polled every half hour, or
-   one whose interval was just raised, never loses its job between two
-   scans. Deleting or pausing the sensor in PRTG therefore
-   ends the measuring, and leaves nothing to clean up on the probe.
+1. The first request registers the job, and the service measures it at
+   once. The request waits up to 20 seconds for that first measurement, so
+   a new or changed sensor shows values on its first scan. Only when the
+   radio is busy with another run does it answer "not measured yet" —
+   `Auth Result` reads 3, which alarms on nothing.
+2. Every further request is answered with the latest measurement and its
+   age. The service reads off the requests how often PRTG asks, and
+   measures the job about that often.
+3. A job nobody asks for any more pauses after three of its intervals: it
+   is no longer measured and takes no part in the round. If its sensor asks
+   again, it is measured at once.
+4. A paused job expires after three of its intervals and at least an hour -
+   long enough that a sensor polled every half hour, or one whose interval
+   was just raised, never loses its job between two scans. Deleting or
+   pausing the sensor in PRTG therefore ends the measuring, and leaves
+   nothing to clean up on the probe.
 
 The credentials live in the memory of that service and nowhere else. They
-are part of what identifies a job, so a changed password is a different job:
-the old one stops being asked for and expires, instead of the radio going on
-measuring with credentials nobody uses any more.
+are part of what identifies a job, so any changed parameter makes a
+different job. Without more to go on, the old one pauses once it has missed
+three scans - a few minutes at the one-minute interval. With
+`--sensor-id %sensorid` in the parameters, the service knows which sensor in
+PRTG asks, and a new configuration of the same sensor replaces the old job
+at once. A placeholder PRTG did not replace arrives as written; the sensor
+then says `--sensor-id ignored` in its message and works as without it.
+
+The sensor page of a probe in the web interface lists the configurations
+the service holds, which of them are paused, and removes one on request.
 
 One measurement then runs like this:
 
