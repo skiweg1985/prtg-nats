@@ -1868,7 +1868,11 @@
       },
       "backup_share": {
         "label": "Backup threshold (%)",
-        "hint": "From this share of traffic on the backup, the traffic counts as moved over."
+        "hint": "Highest share of traffic on the backup per interval before it counts as moved over."
+      },
+      "backup_min_mb": {
+        "label": "Minimum traffic (MB)",
+        "hint": "Below this much traffic per interval the share is not judged. 0 judges every run."
       },
       "billing_day": {
         "label": "Billing day",

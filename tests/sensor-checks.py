@@ -3579,7 +3579,8 @@ def aruba_arguments(**overrides):
     arguments = {
         "self_check": False, "host": "192.0.2.1", "user": "monitoring",
         "password": "s3cr3t-value", "primary": "wired", "backup": "cellular",
-        "backup_share": 25, "billing_day": 1, "timeout_ms": 10000,
+        "backup_share": 25, "backup_min_mb": 5, "billing_day": 1,
+        "timeout_ms": 10000,
     }
     arguments.update(overrides)
     return arguments
@@ -3740,6 +3741,7 @@ def check_aruba_uplink_output():
 
     check_aruba_uplink_parsers(module)
     check_aruba_uplink_channels(module)
+    check_aruba_uplink_interval(module)
     check_aruba_uplink_volume(module)
     check_aruba_uplink_secrets(module)
 
@@ -3925,10 +3927,87 @@ def check_aruba_uplink_channels(module):
           module.summarise(aruba_arguments(backup="none"), uplinks,
                            rates)["on_primary"], True)
 
+    # The share over the interval rather than the rates of one moment. A
+    # gateway that balances by sessions, 100 to 1, put 62 % of a quiet
+    # site's rate on LTE in one reading and 37 % over the minute around it.
+    mb = module.BYTES_PER_MB
+    calm = module.summarise(aruba_arguments(), uplinks,
+                            {"wired": 100, "cellular": 10000},
+                            {"wired": 60 * mb, "cellular": 2 * mb})
+    check("the interval decides, not the rates of this moment",
+          (round(calm["backup_share"], 1), calm["on_primary"]), (3.2, True))
+    check("and says how much it measured",
+          round(calm["interval_mb"], 1), 62.0)
+
+    # Below the minimum the share is reported but not judged: half of almost
+    # nothing is no changeover.
+    trickle = module.summarise(aruba_arguments(), uplinks, rates,
+                               {"wired": mb, "cellular": 2 * mb})
+    check("a share of too little traffic is not judged",
+          (round(trickle["backup_share"], 1), trickle["share_judged"],
+           trickle["on_primary"]), (66.7, False, True))
+    described = module.describe(aruba_arguments(), trickle, {}, {}, "ok", "")
+    check("and the message says why the share is not an alarm",
+          "not judged at 3.0 MB" in described, True)
+    check("a minimum of 0 judges every run",
+          module.summarise(aruba_arguments(backup_min_mb=0), uplinks, rates,
+                           {"wired": mb, "cellular": 2 * mb})["on_primary"],
+          False)
+    heavy = module.summarise(aruba_arguments(), uplinks, rates,
+                             {"wired": 30 * mb, "cellular": 20 * mb})
+    check("enough traffic on the backup is a changeover",
+          (heavy["share_judged"], heavy["on_primary"]), (True, False))
+    check("the threshold is the parameter",
+          module.summarise(aruba_arguments(backup_share=50), uplinks, rates,
+                           {"wired": 30 * mb, "cellular": 20 * mb}
+                           )["on_primary"], True)
+    # Without an interval the rates still decide, so a sensor deployed onto
+    # a site that is already on its backup says so on its first run.
+    first = module.summarise(aruba_arguments(), uplinks,
+                             {"wired": 100, "cellular": 10000}, None)
+    check("the first run falls back to the rates",
+          (first["share_judged"], first["on_primary"]), (True, False))
+
     empty = module.summarise(aruba_arguments(), {}, {})
     check("a gateway without uplinks yields zeros, not missing channels",
           (empty["connected"], empty["primary_up"], empty["backup_share"]),
           (0, False, 0.0))
+
+
+def check_aruba_uplink_interval(module):
+    """What crossed each uplink between two runs, from the counters."""
+    print("\n== aruba-uplink: traffic per interval ==")
+
+    nothing, kept = module.interval_traffic(
+        None, {"wired": 1000, "cellular": 50}, "wired", "cellular")
+    check("the first run has no interval", nothing, None)
+    check("but keeps the readings for the next one", kept,
+          {"wired": 1000, "cellular": 50})
+    delta, kept = module.interval_traffic(
+        kept, {"wired": 4000, "cellular": 250}, "wired", "cellular")
+    check("the next run counts the difference per uplink", delta,
+          {"wired": 3000, "cellular": 200})
+    check("a restarted gateway starts a new interval",
+          module.interval_traffic(kept, {"wired": 10, "cellular": 300},
+                                  "wired", "cellular")[0], None)
+    check("readings of other uplinks are no interval",
+          module.interval_traffic({"wired": 1}, {"wired": 5, "cellular": 5},
+                                  "wired", "cellular")[0], None)
+    check("without a backup only the primary is counted",
+          module.interval_traffic({"wired": 1}, {"wired": 5, "cellular": 9},
+                                  "wired", "none"), ({"wired": 4},
+                                                     {"wired": 5}))
+    check("a stored value that is not a number is no interval",
+          module.interval_traffic({"wired": "1", "cellular": True},
+                                  {"wired": 5, "cellular": 5},
+                                  "wired", "cellular")[0], None)
+    try:
+        module.validate(aruba_arguments(backup_min_mb=-1))
+        refused = ""
+    except module.ConfigError as problem:
+        refused = str(problem)
+    check("the minimum is validated like the share", refused,
+          "--backup-min-mb must be between 0 and 100000, not -1.")
 
 
 def check_aruba_uplink_volume(module):
