@@ -1868,7 +1868,11 @@
       },
       "backup_share": {
         "label": "Schwelle Ersatzleitung (%)",
-        "hint": "Ab diesem Anteil des Verkehrs auf der Ersatzleitung gilt er als umgeschwenkt."
+        "hint": "Höchster Anteil des Verkehrs auf der Ersatzleitung je Intervall, bevor er als umgeschwenkt gilt."
+      },
+      "backup_min_mb": {
+        "label": "Mindestverkehr (MB)",
+        "hint": "Unter dieser Menge je Intervall wird der Anteil nicht bewertet. 0 bewertet jeden Lauf."
       },
       "billing_day": {
         "label": "Abrechnungstag",
