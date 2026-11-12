@@ -127,6 +127,10 @@ MIN_TIMEOUT_MS = 2000
 MAX_TIMEOUT_MS = 60000
 MIN_SHARE = 1
 MAX_SHARE = 99
+# 0 judges every run, however little traffic there was. The upper end is
+# only there to catch a value typed in bytes or kilobytes.
+MIN_BACKUP_MB = 0
+MAX_BACKUP_MB = 100000
 # 0 means "never reset". A site without a billing period wants a plain
 # counter, and asking it to invent a day it does not have would be worse.
 MIN_BILLING_DAY = 0
@@ -283,8 +287,16 @@ def setup():
                            help="The alternative path: cellular, wired or "
                                 "none. Left out there is none.")
     argparser.add_argument("--backup-share", type=int, default=25,
-                           help="Percentage of traffic on the backup from "
-                                "which the traffic counts as moved over.")
+                           help="Highest share of the traffic on the backup, "
+                                "in percent per interval, before it counts "
+                                "as moved over.")
+    # Below this volume per interval a share says nothing: at a quiet site a
+    # handful of sessions the gateway balanced onto the backup make up half
+    # of almost nothing.
+    argparser.add_argument("--backup-min-mb", type=int, default=5,
+                           help="Traffic in MB per interval below which the "
+                                "share on the backup is not judged, 0 to "
+                                "judge every run.")
     argparser.add_argument("--billing-day", type=int, default=1,
                            help="Day of the month the mobile data volume "
                                 "starts over on, 0 for a counter that never "
@@ -354,6 +366,8 @@ def validate(args: dict[str, Any]) -> None:
 
     for name, value, lowest, highest in (
         ("--backup-share", args["backup_share"], MIN_SHARE, MAX_SHARE),
+        ("--backup-min-mb", args["backup_min_mb"], MIN_BACKUP_MB,
+         MAX_BACKUP_MB),
         ("--billing-day", args["billing_day"], MIN_BILLING_DAY,
          MAX_BILLING_DAY),
         ("--timeout-ms", args["timeout_ms"], MIN_TIMEOUT_MS, MAX_TIMEOUT_MS),
@@ -785,8 +799,39 @@ def write_state(path: str, state: dict[str, Any]) -> None:
             pass
 
 
+def interval_traffic(previous, totals: dict[str, int], primary: str,
+                     backup: str):
+    """Bytes per role since the previous run, and the readings to keep.
+
+    The gateway's byte rates are a short average it refreshes when it likes:
+    one reading per run is a snapshot of a few seconds, and at a site whose
+    gateway balances by sessions a single download on the backup in that
+    moment reads as the whole site having moved. The cumulative counters
+    say what actually crossed each line between two runs.
+
+    None while there is nothing to compare: the first run, a previous run
+    that stored other uplinks, and a counter that went backwards because the
+    gateway restarted. The caller falls back to the rates for that one run.
+    """
+    current = {primary: totals.get(primary, 0)}
+    if backup != KIND_NONE:
+        current[backup] = totals.get(backup, 0)
+    if not isinstance(previous, dict) or set(previous) != set(current):
+        return None, current
+    delta = {}
+    for kind, reading in current.items():
+        before = previous.get(kind)
+        if not isinstance(before, int) or isinstance(before, bool):
+            return None, current
+        if reading < before:
+            return None, current
+        delta[kind] = reading - before
+    return delta, current
+
+
 def track_state(summary: dict[str, Any], counter: int, billing_day: int,
-                now: float):
+                now: float, stored: dict[str, Any] | None = None,
+                traffic: dict[str, int] | None = None):
     """The changeovers of the last 24 hours and the mobile data volume.
 
     A single changeover is an event and needs no alarm; twenty of them are a
@@ -800,7 +845,8 @@ def track_state(summary: dict[str, Any], counter: int, billing_day: int,
     """
     marker = [bool(summary["primary_up"]), bool(summary["backup_up"]),
               bool(summary["on_primary"])]
-    stored = read_state(CACHE_PATH) or {}
+    if stored is None:
+        stored = read_state(CACHE_PATH) or {}
     history = [stamp for stamp in stored.get("history") or []
                if isinstance(stamp, (int, float))
                and not isinstance(stamp, bool)
@@ -814,23 +860,38 @@ def track_state(summary: dict[str, Any], counter: int, billing_day: int,
     usage, usage_state = usage_since(stored.get("usage"), counter,
                                      billing_day,
                                      datetime.date.fromtimestamp(now))
-    write_state(CACHE_PATH, {"marker": marker, "history": history[-100:],
-                             "usage": usage_state})
+    state = {"marker": marker, "history": history[-100:],
+             "usage": usage_state}
+    if traffic is not None:
+        state["traffic"] = traffic
+    write_state(CACHE_PATH, state)
     return len(history), usage
 
 
 def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
-              rates: dict[str, int]) -> dict[str, Any]:
-    """Turn the readings into the statements the channels make."""
+              rates: dict[str, int],
+              traffic: dict[str, int] | None = None) -> dict[str, Any]:
+    """Turn the readings into the statements the channels make.
+
+    traffic is what crossed each uplink since the previous run. With it the
+    share is the share of that interval; without it - the first run, or the
+    one after the gateway restarted - it is the rates of this moment.
+    """
     primary = uplinks.get(args["primary"]) or {}
     backup = (uplinks.get(args["backup"]) or {}
               if args["backup"] != KIND_NONE else {})
 
-    primary_rate = rates.get(args["primary"], 0)
-    backup_rate = (rates.get(args["backup"], 0)
-                   if args["backup"] != KIND_NONE else 0)
-    total = primary_rate + backup_rate
-    backup_share = (backup_rate * 100.0 / total) if total else 0.0
+    source = traffic if traffic is not None else rates
+    primary_amount = source.get(args["primary"], 0)
+    backup_amount = (source.get(args["backup"], 0)
+                     if args["backup"] != KIND_NONE else 0)
+    total = primary_amount + backup_amount
+    backup_share = (backup_amount * 100.0 / total) if total else 0.0
+    # Only an interval has a volume to hold against the minimum. A snapshot
+    # of rates is judged as before, so a sensor that has just been deployed
+    # still reports a site that is on its backup.
+    judged = (traffic is None
+              or total >= args["backup_min_mb"] * BYTES_PER_MB)
 
     # Without a backup the question is simply whether the primary stands and
     # carries. With one it is a threshold: a gateway that load-balances puts
@@ -840,7 +901,7 @@ def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
         on_primary = bool(primary.get("up"))
     else:
         on_primary = (bool(primary.get("up"))
-                      and backup_share < args["backup_share"])
+                      and (not judged or backup_share < args["backup_share"]))
 
     return {
         "primary_up": bool(primary.get("up")),
@@ -848,6 +909,8 @@ def summarise(args: dict[str, Any], uplinks: dict[str, dict[str, Any]],
         "backup_used": args["backup"] != KIND_NONE,
         "on_primary": on_primary,
         "backup_share": backup_share,
+        "share_judged": judged,
+        "interval_mb": total / BYTES_PER_MB if traffic is not None else None,
         "utilisation": float(primary.get("utilisation", 0.0)),
         "connected": sum(1 for entry in uplinks.values() if entry.get("up")),
         # Filled in by work() once the state of the previous run is read.
@@ -991,6 +1054,14 @@ def describe(args: dict[str, Any], summary: dict[str, Any],
                      % (args["primary"], summary["backup_share"]))
     else:
         parts.append("%s carries the traffic" % args["primary"].capitalize())
+        if (args["backup"] != KIND_NONE
+                and not summary.get("share_judged", True)):
+            # Otherwise a share of 60 % next to a green channel looks like a
+            # sensor that cannot count.
+            parts.append("%.1f %% on the backup, not judged at %.1f MB in "
+                         "this interval"
+                         % (summary["backup_share"],
+                            summary.get("interval_mb") or 0.0))
 
     if args["backup"] == KIND_NONE:
         # Without this line the quiet backup channel reads like a healthy
@@ -1036,7 +1107,8 @@ def failure_result(args: dict[str, Any], code: str,
         fail("%s (%s)" % (message, code))
     empty = {"primary_up": False, "backup_up": False,
              "backup_used": args["backup"] != KIND_NONE, "on_primary": False,
-             "backup_share": 0.0, "utilisation": 0.0, "connected": 0,
+             "backup_share": 0.0, "share_judged": True, "interval_mb": None,
+             "utilisation": 0.0, "connected": 0,
              "data_usage_mb": 0.0, "data_usage_known": False}
     return present(args, empty, {}, {}, 0, 0, code, message)
 
@@ -1143,9 +1215,13 @@ def work(args: dict[str, Any]):
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
 
-    summary = summarise(args, uplinks, rates)
+    stored = read_state(CACHE_PATH) or {}
+    traffic, readings = interval_traffic(stored.get("traffic"), totals,
+                                         args["primary"], args["backup"])
+    summary = summarise(args, uplinks, rates, traffic)
     changes, usage = track_state(summary, totals.get(KIND_CELLULAR, 0),
-                                 args["billing_day"], time.time())
+                                 args["billing_day"], time.time(), stored,
+                                 readings)
     if usage is not None:
         summary["data_usage_mb"] = usage / BYTES_PER_MB
         summary["data_usage_known"] = True

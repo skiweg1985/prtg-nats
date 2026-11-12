@@ -90,7 +90,8 @@ the sensor configuration.
 | `--password` | — | required, its password |
 | `--primary` | `wired` | which uplink kind is the main path: `wired` or `cellular` |
 | `--backup` | `none` | the alternative path: `cellular`, `wired` or `none` |
-| `--backup-share` | `25` | percentage of traffic on the backup from which it counts as moved over |
+| `--backup-share` | `25` | highest share of the traffic on the backup, in percent per interval, before it counts as moved over |
+| `--backup-min-mb` | `5` | traffic in MB per interval below which that share is not judged, `0` to judge every run |
 | `--billing-day` | `1` | day of the month the mobile data volume starts over on, `0` for a counter that never resets |
 | `--timeout-ms` | `10000` | milliseconds to wait for a single answer |
 | `--self-check` | — | only verify the ability to run |
@@ -164,6 +165,24 @@ decides on a threshold, not on equality: a gateway that load-balances puts
 a little traffic on the backup permanently, and comparing against zero
 would alarm forever at such a site. Without a backup the channel simply
 reports whether the primary stands and carries.
+
+The share is that of the **interval since the previous run**, taken from
+the gateway's byte counters, not from its byte rates. A gateway that
+balances by weight - `weight 100` on the line, `weight 1` on LTE - spreads
+sessions, not bytes: roughly one new connection in a hundred goes over the
+backup, and when that one is a download, it is a large part of the volume
+for a few seconds. One reading of the rates catches exactly such a moment;
+at a quiet site it read 62 % on LTE while the minute around it was 37 %,
+and the interval of a whole run is lower still. Only the first run after
+deployment, and the one after the gateway restarted, have no interval and
+use the rates.
+
+`--backup-min-mb` keeps the night out of it. Below that much traffic in an
+interval the share is still reported in **Traffic on Backup**, but **On
+Primary Uplink** stays green and the message says the share was not
+judged. A site that has really moved over does not stay below 5 MB in five
+minutes for long, and a dead primary is reported by **Primary Uplink
+State** regardless.
 
 **Primary Uplink State** and **Backup Uplink State** know three answers:
 *Healthy*, *Unhealthy*, and *Not Available* for a path the site does not

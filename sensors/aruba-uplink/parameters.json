@@ -44,7 +44,15 @@
       "default": 25,
       "minimum": 0,
       "maximum": 100,
-      "description": "Percentage of traffic on the backup from which the traffic counts as moved over."
+      "description": "Highest share of the traffic on the backup, in percent per interval, before it counts as moved over."
+    },
+    {
+      "name": "--backup-min-mb",
+      "type": "integer",
+      "default": 5,
+      "minimum": 0,
+      "maximum": 100000,
+      "description": "Traffic in MB per interval below which the share on the backup is not judged, 0 to judge every run."
     },
     {
       "name": "--billing-day",
