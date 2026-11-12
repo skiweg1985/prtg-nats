@@ -245,3 +245,93 @@ async def test_a_fresh_probe_nobody_flagged_is_left_alone(
     await build_sync(settings, transport).run_once()
 
     assert len(transport.calls) == asked_before
+
+
+# --- The hub's view of the tunnels ------------------------------------------
+
+OVERLAY_KEY = "A" * 43 + "="
+
+
+def _put_on_overlay(project_dir: Path, settings: Settings, mode: str) -> None:
+    from app.infrastructure.overlay import OverlayRuntime, OverlaySettings
+
+    write_probe_inventory(project_dir, PROBE)
+    inventory = project_dir / "runtime" / "probes" / f"{PROBE}.env"
+    with inventory.open("a", encoding="utf-8") as handle:
+        handle.write(
+            f"OVERLAY_ADDRESS=10.83.1.1\nOVERLAY_PUBLIC_KEY={OVERLAY_KEY}\n"
+            f"OVERLAY_MODE={mode}\n"
+        )
+    OverlayRuntime(settings).write_settings(
+        OverlaySettings(
+            enabled=True,
+            endpoint_host="nats.example.test",
+            subnet="10.83.0.0/16",
+            default_mode="auto",
+        )
+    )
+
+
+async def _tunnel_alerts(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> list[tuple[str, str]]:
+    from sqlalchemy import select
+
+    from app.persistence.models.inventory import Alert
+
+    async with session_factory() as db:
+        return [
+            (alert.object_ref, alert.severity.value)
+            for alert in await db.scalars(select(Alert))
+            if alert.kind == "overlay.tunnel_stale"
+        ]
+
+
+async def test_a_tunnel_that_stopped_handshaking_raises_an_alert_from_the_hub(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """The probe is unreachable exactly when this matters, so the hub tells."""
+    _put_on_overlay(project_dir, settings, "on")
+    answer: dict[str, dict[str, int] | None] = {
+        "table": {OVERLAY_KEY: int(time.time()) - 40_000}
+    }
+
+    async def handshakes(self: DockerAdapter) -> dict[str, int] | None:
+        return answer["table"]
+
+    monkeypatch.setattr(DockerAdapter, "overlay_handshakes", handshakes)
+    sync = build_sync(settings, SlowTransport(0.0, fail=True))
+
+    await sync.run_once()
+    assert await _tunnel_alerts(session_factory) == [(PROBE, "critical")]
+
+    # A hub that cannot be asked for a moment has not fixed the tunnel.
+    answer["table"] = None
+    await sync.run_once()
+    assert await _tunnel_alerts(session_factory) == [(PROBE, "critical")]
+
+    # A fresh handshake clears it.
+    answer["table"] = {OVERLAY_KEY: int(time.time()) - 10}
+    await sync.run_once()
+    assert await _tunnel_alerts(session_factory) == []
+
+
+async def test_in_auto_a_dead_tunnel_is_a_warning_not_an_outage(
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    project_dir: Path,
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    _put_on_overlay(project_dir, settings, "auto")
+
+    async def handshakes(self: DockerAdapter) -> dict[str, int] | None:
+        return {OVERLAY_KEY: int(time.time()) - 600}
+
+    monkeypatch.setattr(DockerAdapter, "overlay_handshakes", handshakes)
+
+    await build_sync(settings, SlowTransport(0.0)).run_once()
+
+    assert await _tunnel_alerts(session_factory) == [(PROBE, "warning")]

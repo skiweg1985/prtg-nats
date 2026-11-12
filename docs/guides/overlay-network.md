@@ -1,7 +1,7 @@
 ---
 title: Connect probes over the overlay
 role: operator
-updated: 2026-11-08
+updated: 2026-11-12
 ---
 
 # Connect probes over the overlay
@@ -108,7 +108,25 @@ another achieves nothing.
 
 `on` never falls back. A tunnel that stops handshaking in that mode is
 reported as a problem rather than worked around, because `on` that quietly
-fell back would be `auto` under a different name.
+fell back would be `auto` under a different name. It also takes the
+management channel with it: the probe answers the platform through the
+tunnel, so a dead tunnel in `on` leaves the probe unreachable from here as
+well. Keep `on` for probes that have no direct path at all.
+
+### A site that switches uplinks
+
+WireGuard sends from one source port to one endpoint, which a NAT gateway
+treats as a single flow, and the keepalive refreshes that flow's entry every
+25 seconds so it never expires. When a site falls over from DSL to LTE, or
+back, the entry can stay bound to the line that is gone. Every handshake then
+leaves through it, while everything else on the site opens new flows and
+works.
+
+The probe handles this itself. When a tunnel that had a handshake has gone
+without one for more than three minutes, the watcher moves it to a new source
+port, which is a new flow and a new NAT entry; the interface and its routes
+stay up. The probe's journal records each move under the tag
+`prtg-nats-overlay`. A tunnel that never had a handshake is left alone.
 
 ## 4. Read what it is doing
 
@@ -119,6 +137,12 @@ The row worth noticing is a probe in `auto` that reports `tunnel`. It is
 working - and it means that probe's ordinary route is down and the overlay is
 the only reason you are still getting measurements. Nothing else in the
 interface would have told you.
+
+`Handshake stale` means the tunnel worked and has had no handshake for more
+than three minutes. The hub reports the same thing on its own, without asking
+the probe, and the dashboard shows it as an alert: critical for a probe in
+`on`, which has lost NATS with it, and a warning for one in `auto`, which has
+fallen back to the direct path.
 
 ```bash
 sudo ./prtg-nats overlay show mpp-berlin-01

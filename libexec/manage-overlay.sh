@@ -62,6 +62,15 @@ require_probe_name() {
     die "No probe is enrolled as ${username}"
 }
 
+# Checked here as well as in app.ops so a typo is refused before a container
+# is asked, and with the list of modes the operator was looking for.
+validate_overlay_mode() {
+  case "$1" in
+    off | auto | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 command_name="${1:-}"
 shift || true
 

@@ -900,8 +900,9 @@ network-admin rights in this host's network namespace.
 Every peer carries both a `mode` and a `last_state`, and they answer
 different questions. The mode is what the probe was told: `off`, `auto` or
 `on`. The state is what it last reported doing - `direct`, `tunnel`, `down`,
-`no_handshake`. A probe in `auto` reporting `tunnel` is working, and it also
-means its ordinary route is down.
+`no_handshake`, or `stale` for a tunnel whose last handshake is more than
+three minutes old. A probe in `auto` reporting `tunnel` is working, and it
+also means its ordinary route is down.
 
 The four actions all take `probe_ids`, a list, because moving a site onto the
 tunnel is the realistic operation. `POST /overlay/peers/mode` additionally

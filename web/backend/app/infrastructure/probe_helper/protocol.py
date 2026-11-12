@@ -116,7 +116,12 @@ FIELD_SEPARATOR = "\t"
 # Version 18 has sensor-jobs name each job's authentication method, variant
 # and BSSID, so two configurations of one SSID can be told apart. A probe
 # below 18 omits the fields, which reads as a job without a variant.
-CURRENT_HELPER_VERSION = 18
+#
+# Version 19 gives the overlay watcher a new source port when a tunnel that
+# had a handshake loses it, so a site that switches uplinks does not keep
+# sending into a NAT entry of the line that is gone. helper-update rewrites
+# the watcher, and overlay-refresh does that on its own.
+CURRENT_HELPER_VERSION = 19
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not

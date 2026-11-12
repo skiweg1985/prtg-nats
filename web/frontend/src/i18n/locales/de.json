@@ -1196,6 +1196,7 @@
         "tunnelFallback": "Tunnel - direkter Weg gestört",
         "down": "Interface unten",
         "no_handshake": "Kein Handshake",
+        "stale": "Handshake veraltet",
         "off": "Aus",
         "unknown": "Unbekannt"
       },
@@ -1504,7 +1505,8 @@
     "certificate.expired": "Das Zertifikat {{certificate}} ist abgelaufen",
     "certificate.expiring_soon": "Das Zertifikat {{certificate}} läuft in {{days_remaining}} Tagen ab",
     "certificate.mismatched": "Das Zertifikat {{certificate}} passt nicht zu seinem Schlüssel",
-    "probe.channel_silent": "{{probe}} hat seit mehr als {{minutes}} Minuten nichts über den Rückkanal geliefert"
+    "probe.channel_silent": "{{probe}} hat seit mehr als {{minutes}} Minuten nichts über den Rückkanal geliefert",
+    "overlay.tunnel_stale": "Der Tunnel zu {{probe}} hat seit mehr als {{minutes}} Minuten keinen Handshake"
   },
   "credentials": {
     "title": "Konten ohne Probe",
