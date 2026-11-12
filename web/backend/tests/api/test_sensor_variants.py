@@ -13,11 +13,16 @@ cannot send it back.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import json
 import shutil
 from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -89,6 +94,59 @@ async def write_variant(
     body.update(overrides)
     written = await client.put(f"/api/v1/sensors/wlan-auth/profiles/{name}", json=body)
     assert written.status_code == 202, written.text
+
+
+def _pair(encrypt: str | None = None) -> tuple[bytes, bytes]:
+    """A certificate and the key it was made for, both as PEM."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "probe")])
+    now = dt.datetime.now(dt.UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + dt.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    protection: serialization.KeySerializationEncryption = serialization.NoEncryption()
+    if encrypt is not None:
+        protection = serialization.BestAvailableEncryption(encrypt.encode("utf-8"))
+    return (
+        certificate.public_bytes(serialization.Encoding.PEM),
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            protection,
+        ),
+    )
+
+
+def _revocation_list() -> bytes:
+    """What a Windows certificate names beside its issuer, and gets mistaken
+    for it often enough that the refusal has to say what it is."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Example CA")])
+    now = dt.datetime.now(dt.UTC)
+    crl = (
+        x509.CertificateRevocationListBuilder()
+        .issuer_name(name)
+        .last_update(now)
+        .next_update(now + dt.timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    return crl.public_bytes(serialization.Encoding.PEM)
+
+
+async def upload(
+    client: AsyncClient, key: str, content: bytes, profile: str = "standort-nord"
+):
+    return await client.put(
+        f"/api/v1/sensors/wlan-auth/profiles/{profile}/files/{key}",
+        json={"content_base64": base64.b64encode(content).decode()},
+    )
 
 
 async def test_a_variant_lands_in_the_runtime_directory(
@@ -217,9 +275,7 @@ async def test_an_uploaded_certificate_becomes_a_path_in_the_profile(
     await sign_in(client)
     uploaded = await client.put(
         "/api/v1/sensors/wlan-auth/profiles/standort-nord/files/CA_CERT",
-        json={
-            "content_base64": base64.b64encode(b"-----BEGIN CERTIFICATE-----").decode()
-        },
+        json={"content_base64": base64.b64encode(_pair()[0]).decode()},
     )
     assert uploaded.status_code == 200, uploaded.text
     assert uploaded.json()["probe_path"] == (
@@ -283,3 +339,117 @@ async def test_only_a_role_with_sensor_configure_may_write_one(
     )
     allowed = Permission.SENSOR_CONFIGURE in ROLE_PERMISSIONS[role]
     assert (written.status_code == 202) is allowed, written.text
+
+
+async def test_a_certificate_slot_refuses_what_is_not_a_certificate(
+    client: AsyncClient,
+) -> None:
+    """The revocation list instead of the issuing CA.
+
+    A Windows certificate names its CRL in the same extension block as its
+    issuer, so the wrong link is easy to follow. Taken without a word, the
+    probe answered minutes later with "RADIUS certificate rejected" - a
+    verdict on the server for a file on this side.
+    """
+    await sign_in(client)
+    refused = await upload(client, "CA_CERT", _revocation_list())
+    assert refused.status_code == 422, refused.text
+    assert "revocation list" in refused.json()["error"]["details"]
+
+    certificate, _ = _pair()
+    assert (await upload(client, "CA_CERT", certificate)).status_code == 200
+
+
+async def test_a_certificate_is_stored_as_pem_whatever_it_arrived_as(
+    client: AsyncClient, project_dir: Path
+) -> None:
+    """A Windows CA hands out DER, and wpa_supplicant reads PEM."""
+    await sign_in(client)
+    certificate, _ = _pair()
+    der = x509.load_pem_x509_certificate(certificate).public_bytes(
+        serialization.Encoding.DER
+    )
+    assert (await upload(client, "CA_CERT", der)).status_code == 200
+
+    stored = (
+        project_dir
+        / "runtime"
+        / "sensor-profiles"
+        / "wlan-auth"
+        / "files"
+        / "standort-nord"
+        / "CA_CERT.pem"
+    ).read_bytes()
+    assert stored.startswith(b"-----BEGIN CERTIFICATE-----")
+
+
+async def test_a_key_from_another_pair_is_refused(client: AsyncClient) -> None:
+    """The fault that reads like a rejected sign-in.
+
+    wpa_supplicant cannot build its TLS context, the EAP exchange ends before
+    anything reaches the RADIUS server, and the sensor used to report
+    "credentials rejected by RADIUS" for it.
+    """
+    await sign_in(client)
+    certificate, _ = _pair()
+    _, stranger = _pair()
+
+    assert (await upload(client, "CLIENT_CERT", certificate)).status_code == 200
+    refused = await upload(client, "PRIVATE_KEY", stranger)
+    assert refused.status_code == 422, refused.text
+    assert "different pairs" in refused.json()["error"]["details"]
+
+
+async def test_the_pair_is_checked_whichever_half_arrives_second(
+    client: AsyncClient,
+) -> None:
+    await sign_in(client)
+    certificate, key = _pair()
+    _, stranger = _pair()
+
+    assert (await upload(client, "PRIVATE_KEY", stranger)).status_code == 200
+    refused = await upload(client, "CLIENT_CERT", certificate)
+    assert refused.status_code == 422, refused.text
+
+    assert (await upload(client, "PRIVATE_KEY", key)).status_code == 200
+    assert (await upload(client, "CLIENT_CERT", certificate)).status_code == 200
+
+
+async def test_an_encrypted_key_is_judged_by_the_passphrase_of_the_variant(
+    client: AsyncClient,
+) -> None:
+    """The passphrase arrives after the files, so the pair is judged twice.
+
+    The interface writes the uploads first and the values after them, so at
+    upload time there is often nothing to open the key with. Saying nothing
+    then and refusing at the write is what turns a typo in a password field
+    into a message, instead of a probe reporting a rejected sign-in a scan
+    later.
+    """
+    await sign_in(client)
+    certificate, key = _pair(encrypt="geheim")
+
+    assert (await upload(client, "CLIENT_CERT", certificate)).status_code == 200
+    assert (await upload(client, "PRIVATE_KEY", key)).status_code == 200
+
+    body = {
+        "values": {
+            "SSID": "Corporate",
+            "AUTH": "eap-tls",
+            "IDENTITY": "probe",
+            "PRIVATE_KEY_PASSWD": "falsch",
+            "NO_VERIFY_SERVER": "true",
+        },
+        "probes": [],
+    }
+    refused = await client.put(
+        "/api/v1/sensors/wlan-auth/profiles/standort-nord", json=body
+    )
+    assert refused.status_code == 422, refused.text
+    assert "does not open it" in refused.json()["error"]["details"]
+
+    body["values"]["PRIVATE_KEY_PASSWD"] = "geheim"  # type: ignore[index]
+    written = await client.put(
+        "/api/v1/sensors/wlan-auth/profiles/standort-nord", json=body
+    )
+    assert written.status_code == 202, written.text
