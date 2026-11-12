@@ -40,6 +40,10 @@ COLLECT_TIMEOUT = 40
 
 # Stable numbers for the "Failure Code" channel. They allow targeted
 # alerting on a specific cause without parsing the message text.
+# Failures that happen once the sign-in is done. They fail the run but not
+# the sign-in, so Auth Result stays "yes" and their own channel alarms.
+AFTER_SIGN_IN = ("dhcp-timeout", "assoc-lost", "gateway-unreachable")
+
 FAILURE_CODES = {
     "ok": 0,
     "assoc-timeout": 1,
@@ -536,7 +540,12 @@ def work(args: dict[str, Any]):
     # in. The result keeps its channel and its history, and the cause
     # travels in the message and the failure code instead.
     measured = outcome in ("ok", "failed") and not stale
-    state = lookup_value(outcome == "ok") if measured else LOOKUP_NONE
+    # Each stage answers its own question. A sign-in that worked stays a
+    # sign-in that worked when the lease or the gateway fails afterwards;
+    # reporting it as failed sent people to the RADIUS server for a
+    # network that was simply the wrong VLAN.
+    signed_in = outcome == "ok" or code in AFTER_SIGN_IN
+    state = lookup_value(signed_in) if measured else LOOKUP_NONE
 
     # The channel structure follows the parameters, never the result. A
     # channel that is missing while nothing has been measured and appears
@@ -568,6 +577,14 @@ def work(args: dict[str, Any]):
         channels.append(channel(14, "DHCP Time",
                                 int(timings.get("dhcp_ms", 0)),
                                 kind="time_milliseconds"))
+        # The lease has a verdict of its own now that Auth Result stops at
+        # the sign-in; without it a DHCP timeout would alarm nowhere. A
+        # run that never got past the sign-in did not ask for a lease.
+        leased = outcome == "ok" or code == "gateway-unreachable"
+        channels.append(channel(
+            23, "DHCP Result",
+            lookup_value(leased) if measured and signed_in else LOOKUP_NONE,
+            type="lookup", lookup_name=RESULT_LOOKUP))
     # An address proves that a DHCP server answered, not that the network
     # carries traffic. A client put in the wrong network can hold a valid
     # lease and reach nothing at all, and only this channel tells the two
@@ -581,9 +598,14 @@ def work(args: dict[str, Any]):
             else lookup_value(False) if measured and code == "gateway-unreachable"
             else LOOKUP_NONE,
             type="lookup", lookup_name=RESULT_LOOKUP))
-        channels.append(channel(20, "Gateway Time",
-                                int(timings.get("gateway_ms", 0)),
-                                kind="time_milliseconds"))
+        # No answer has no answer time. A 0 here read like the fastest
+        # gateway on the network, so the value is left out and PRTG shows
+        # a gap. It keeps the channel, and the first scan of a new sensor
+        # is "not measured yet", which still sends one.
+        if reached or not measured:
+            channels.append(channel(20, "Gateway Time",
+                                    int(timings.get("gateway_ms", 0)),
+                                    kind="time_milliseconds"))
     # Ascending, so the channel list in PRTG has the same order no matter
     # which parameters are set.
     channels.sort(key=lambda entry: entry["id"])
