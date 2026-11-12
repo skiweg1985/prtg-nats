@@ -569,6 +569,7 @@ def check_wlan_auth_output():
     check("the association time survives a failure",
           channels[12]["value"], 2700)
     check("the failure cause is machine-readable", channels[18]["value"], 3)
+    check("a failed sign-in asked for no lease", channels[23]["value"], 3)
     # The channel structure follows the parameters, never the answer: with
     # --stage dhcp the channel is there even when this run never got an
     # address, because a channel that comes and goes tears its history
@@ -644,6 +645,7 @@ def check_wlan_auth_output():
     result = module.work(dict(arguments))
     channels = {entry["id"]: entry for entry in result["channels"]}
     check("a reachable gateway is its own channel", channels[19]["value"], 1)
+    check("the lease has a verdict of its own", channels[23]["value"], 1)
     check("and carries the standard lookup", channels[19]["lookup_name"],
           "prtg.standardlookups.netapp.nichealth")
     check("the answer time is reported", channels[20]["value"], 4)
@@ -709,6 +711,22 @@ def check_wlan_auth_output():
     check("an unreachable gateway reads as a failure", channels[19]["value"],
           2)
     check("and has its own failure code", channels[18]["value"], 14)
+    check("the sign-in that worked still reads as one", channels[10]["value"],
+          1)
+    check("and so does the lease", channels[23]["value"], 1)
+    check("no answer reports no answer time", 20 in channels, False)
+
+    # A lease that never came: the sign-in worked, DHCP is what alarms.
+    module.call_helper = lambda job, timeout: {
+        "result": "failed", "code": "dhcp-timeout",
+        "message": "no lease", "timings": {"total_ms": 9000},
+        "details": {"ssid": "Guest"}, "age": 3.0,
+    }
+    channels = {entry["id"]: entry for entry in
+                module.work(dict(arguments))["channels"]}
+    check("a DHCP timeout leaves the sign-in green", channels[10]["value"], 1)
+    check("and fails the lease", channels[23]["value"], 2)
+    check("the gateway was never asked", channels[19]["value"], 3)
     check("the message keeps the address apart from the reachability",
           "gateway 198.51.100.1 no reply" in result["message"], True)
 

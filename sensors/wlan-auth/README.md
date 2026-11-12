@@ -178,7 +178,7 @@ paths.
 
 | ID | Channel | Unit |
 | --- | --- | --- |
-| 10 | Auth Result | 1 = succeeded, 2 = failed, 3 = nothing measured |
+| 10 | Auth Result | the sign-in alone: 1 = succeeded, 2 = failed, 3 = nothing measured |
 | 11 | Total Time | ms |
 | 12 | Association Time | ms |
 | 13 | Auth Time | ms |
@@ -188,14 +188,19 @@ paths.
 | 17 | Measurement Age | s |
 | 18 | Failure Code | see the table below |
 | 19 | Gateway Reachable | lookup, absent with `--gateway none` |
-| 20 | Gateway Time | ms, absent with `--gateway none` |
+| 20 | Gateway Time | ms, absent with `--gateway none`, no value when the gateway did not answer |
 | 21 | Round Time | s, one pass over every job on the radio |
 | 22 | Jobs on Radio | count |
+| 23 | DHCP Result | lookup, only with `--stage dhcp`; 3 when the sign-in failed |
 
-**Auth Result** works well as the primary channel; it can be set in the
-sensor settings. A failed sign-in does not set the sensor to *Down*; it sets
-this channel — that keeps the history of the timing channels readable. The
-alarm is set up through a limit on the channel.
+Every stage has a verdict of its own: **Auth Result** for the sign-in,
+**DHCP Result** for the lease, **Gateway Reachable** for traffic. A
+failure in a later stage leaves the earlier ones green, so a client in the
+wrong VLAN reads as *signed in, leased, gateway unreachable* rather than
+as a failed sign-in. A failed run does not set the sensor to *Down*; it
+sets the channel of its stage, which keeps the history of the timing
+channels readable. The *OK* PRTG shows as the sensor's own status only
+means the script delivered values.
 
 The third value is neither: `3` means nothing was measured, either because
 the job was only just registered or because the last measurement is
