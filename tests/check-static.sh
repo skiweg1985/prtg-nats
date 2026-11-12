@@ -501,6 +501,25 @@ check "the overlay help names every mode" \
 check "the entry point offers the overlay" \
   "$(./prtg-nats help | grep -c '^  overlay \.\.\.')" "1"
 
+# bash finds a missing function only when the line runs. `overlay mode` lost
+# its validator in a refactor and failed for every mode, including the valid
+# ones, which no syntax check notices - so every validate_ and require_ a
+# command script calls has to be defined by it or by what it sources.
+undefined_helpers() {
+  local script="" name=""
+
+  for script in libexec/manage-*.sh; do
+    for name in $(grep -oE '\b(validate|require)_[a-z_]+\b' "${script}" |
+      sort -u); do
+      grep -qE "^${name}\(\)" "${script}" libexec/common.sh libexec/ops.sh \
+        libexec/runtime-dir.sh 2>/dev/null ||
+        printf '%s:%s ' "${script##*/}" "${name}"
+    done
+  done
+}
+check "every helper a command script calls is defined" \
+  "$(undefined_helpers)" ""
+
 # Every reservation has to be revocable without tearing down the whole
 # sensor - otherwise there is no way back from a wrong pick.
 check "reserve has a counterpart" \

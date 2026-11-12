@@ -509,3 +509,71 @@ def test_retiring_a_probe_takes_its_peer_with_it(
     # actually reads, which is the only thing that revokes anything.
     assert public_key not in overlay.config_path.read_text(encoding="utf-8")
     assert overlay.peers() == ()
+
+
+# --- A tunnel that worked and stopped ---------------------------------------
+
+
+def _peer_state(**overrides: object):  # type: ignore[no-untyped-def]
+    from app.services.overlay import PeerState
+
+    values: dict[str, object] = {
+        "nats_username": "mpp-berlin-01",
+        "mode": "on",
+        "address": "10.83.1.1",
+        "public_key": None,
+        "endpoint": "nats.example.test:51820",
+        "interface_up": True,
+        "handshake_age": 30,
+        "route_active": True,
+        "direct_ok": "",
+    }
+    values.update(overrides)
+    return PeerState(**values)  # type: ignore[arg-type]
+
+
+def test_a_tunnel_without_a_recent_handshake_is_not_reported_as_the_tunnel() -> None:
+    # The site that prompted this: mode "on", routed into the tunnel, last
+    # handshake eleven hours ago - and the list said "tunnel".
+    assert _peer_state(handshake_age=40_000).summary == "stale"
+    assert _peer_state(handshake_age=40_000, route_active=False).summary == "stale"
+    assert _peer_state(handshake_age=30).summary == "tunnel"
+    assert _peer_state(handshake_age=30, route_active=False).summary == "direct"
+    assert _peer_state(handshake_age=None).summary == "no_handshake"
+
+
+def test_the_hub_names_the_tunnels_that_had_a_handshake_and_lost_it() -> None:
+    from app.infrastructure.overlay import OverlayPeer
+    from app.services.overlay import stale_tunnels
+
+    now = 1_800_000_000
+    peers = (
+        OverlayPeer("site-on", "10.83.1.1", "key-on", "on"),
+        OverlayPeer("site-auto", "10.83.1.2", "key-auto", "auto"),
+        OverlayPeer("site-fresh", "10.83.1.3", "key-fresh", "on"),
+        OverlayPeer("site-never", "10.83.1.4", "key-never", "on"),
+        OverlayPeer("site-off", "10.83.1.5", "key-off", "off"),
+        OverlayPeer("invited", "10.83.1.6", "key-invited", "on", pending=True),
+    )
+    handshakes = {
+        "key-on": now - 40_000,
+        "key-auto": now - 600,
+        "key-fresh": now - 20,
+        "key-never": 0,
+        "key-off": now - 40_000,
+        "key-invited": now - 40_000,
+    }
+
+    found = stale_tunnels(peers, handshakes, now)
+
+    assert [(t.nats_username, t.mode, t.age) for t in found] == [
+        ("site-on", "on", 40_000),
+        ("site-auto", "auto", 600),
+    ]
+
+
+def test_the_handshake_table_is_read_line_by_line() -> None:
+    from app.infrastructure.docker import parse_handshakes
+
+    output = "keyA=\t1800000000\r\nkeyB=\t0\r\n\r\nnot a line\n"
+    assert parse_handshakes(output) == {"keyA=": 1_800_000_000, "keyB=": 0}

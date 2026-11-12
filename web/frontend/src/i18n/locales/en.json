@@ -1196,6 +1196,7 @@
         "tunnelFallback": "Tunnel - direct path disrupted",
         "down": "Interface down",
         "no_handshake": "No handshake",
+        "stale": "Handshake stale",
         "off": "Off",
         "unknown": "Unknown"
       },
@@ -1504,7 +1505,8 @@
     "certificate.expired": "The {{certificate}} certificate has expired",
     "certificate.expiring_soon": "The {{certificate}} certificate expires in {{days_remaining}} days",
     "certificate.mismatched": "The {{certificate}} certificate does not match its key",
-    "probe.channel_silent": "{{probe}} has not delivered over its return channel for more than {{minutes}} minutes"
+    "probe.channel_silent": "{{probe}} has not delivered over its return channel for more than {{minutes}} minutes",
+    "overlay.tunnel_stale": "The tunnel to {{probe}} has had no handshake for more than {{minutes}} minutes"
   },
   "credentials": {
     "title": "Accounts without a probe",

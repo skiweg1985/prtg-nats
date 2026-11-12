@@ -142,7 +142,7 @@ export function OverlayAttachDialog({
  */
 export function pathTone(mode: OverlayMode, state: string): 'warn' | 'danger' | 'neutral' {
   if (mode === 'off') return 'neutral'
-  if (state === 'down' || state === 'no_handshake') {
+  if (state === 'down' || state === 'no_handshake' || state === 'stale') {
     return mode === 'on' ? 'danger' : 'warn'
   }
   if (state === 'tunnel' && mode === 'auto') return 'warn'

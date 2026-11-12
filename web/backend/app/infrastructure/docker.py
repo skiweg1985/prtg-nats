@@ -422,6 +422,48 @@ class DockerAdapter:
             running: bool = response.json()["State"]["Running"]
             return running
 
+    async def overlay_handshakes(self) -> dict[str, int] | None:
+        """The hub's last handshake per peer key, as Unix time, 0 for never.
+
+        Asked of the hub rather than of the probes, because the probe whose
+        tunnel is dead is often the one the platform cannot reach any more -
+        a site in mode "on" sends its management answers into the tunnel as
+        well. The hub is the side that always knows.
+
+        None when there is no answer: no Docker, no hub, or a hub without its
+        interface. An empty table is an answer; a missing one is not, and the
+        caller must not read "nobody has a handshake" into it.
+        """
+        if not self.available:
+            return None
+        async with self._client() as client:
+            created = await client.post(
+                f"/containers/{OVERLAY_CONTAINER}/exec",
+                json={
+                    "Cmd": ["wg", "show", OVERLAY_INTERFACE, "latest-handshakes"],
+                    "AttachStdout": True,
+                    "AttachStderr": False,
+                    # A terminal keeps the output a plain stream instead of
+                    # Docker's multiplexed frames, which this would otherwise
+                    # have to take apart.
+                    "Tty": True,
+                },
+            )
+            if created.status_code in (404, 409):
+                return None
+            created.raise_for_status()
+            exec_id = created.json()["Id"]
+            started = await client.post(
+                f"/exec/{exec_id}/start", json={"Detach": False, "Tty": True}
+            )
+            started.raise_for_status()
+            output = started.text
+            inspected = await client.get(f"/exec/{exec_id}/json")
+            inspected.raise_for_status()
+            if inspected.json().get("ExitCode") != 0:
+                return None
+        return parse_handshakes(output)
+
     async def remove_overlay_hub(self) -> None:
         """Stop and remove the hub. Absent is success - this is how "off" is
         reached from any state, including one nobody expected."""
@@ -614,3 +656,13 @@ def _strip_stream_header(payload: bytes) -> str:
     if not lines:
         return payload.decode("utf-8", errors="replace")
     return "".join(lines)
+
+
+def parse_handshakes(output: str) -> dict[str, int]:
+    """``wg show IFACE latest-handshakes``: one "key<TAB>epoch" per line."""
+    found: dict[str, int] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            found[parts[0]] = int(parts[1])
+    return found

@@ -142,7 +142,7 @@ async def _warn_if_degraded(
     down - both look healthy in a list of green rows, which is exactly why
     they are worth a line.
     """
-    if mode == "on" and summary in {"down", "no_handshake"}:
+    if mode == "on" and summary in {"down", "no_handshake", "stale"}:
         await context.log(
             "jobs.overlay.tunnel_only_without_tunnel",
             level=LogLevel.WARNING,

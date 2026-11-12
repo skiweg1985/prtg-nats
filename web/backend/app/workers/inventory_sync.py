@@ -28,6 +28,7 @@ from app.domain.enums import (
 from app.domain.models import ProbeSummary
 from app.infrastructure.docker import DockerAdapter
 from app.infrastructure.nats import NatsMonitoringClient
+from app.infrastructure.overlay import OverlayRuntime
 from app.infrastructure.probe_helper import ProbeHelperClient
 from app.infrastructure.runtime_files import RuntimeFileStore
 from app.infrastructure.sensor_catalog import SensorCatalog
@@ -36,6 +37,7 @@ from app.persistence.models.jobs import Job
 from app.persistence.session import session_scope
 from app.services.events import get_broadcaster
 from app.services.jobs import JobRequest, JobService, ResourceRef
+from app.services.overlay import StaleTunnel, stale_tunnels
 from app.services.probes import ProbeService
 from app.services.system import SystemService
 from app.workers.handlers import channel_repair
@@ -126,6 +128,7 @@ class InventorySync:
 
         # Asked before the transaction opens, for the same reason.
         connected = await self._nats.connected_users()
+        tunnels = await self._stale_tunnels()
 
         async with session_scope() as db:
             probes = ProbeService(
@@ -137,7 +140,7 @@ class InventorySync:
             summaries = await probes.list_summaries(
                 connected, expected_ca_sha256=system.expected_ca_fingerprint()
             )
-            await self._update_alerts(db, summaries, system)
+            await self._update_alerts(db, summaries, system, tunnels)
             await self._start_channel_repairs(db, summaries)
 
     async def _stale_usernames(self, db, usernames: list[str]) -> list[str]:  # type: ignore[no-untyped-def]
@@ -235,7 +238,32 @@ class InventorySync:
             )
             logger.info("channel repair queued", extra={"probe": summary.nats_username})
 
-    async def _update_alerts(self, db, summaries, system: SystemService) -> None:  # type: ignore[no-untyped-def]
+    async def _stale_tunnels(self) -> list[StaleTunnel] | None:
+        """Tunnels that stopped handshaking, or None when the hub did not say.
+
+        None keeps the alerts as they are rather than clearing them: a hub
+        that cannot be asked for a minute has not fixed anybody's tunnel.
+        """
+        overlay = OverlayRuntime(self._settings)
+        if not overlay.settings().enabled:
+            return []
+        try:
+            handshakes = await self._docker.overlay_handshakes()
+        except Exception:
+            logger.warning("could not ask the overlay hub for its handshakes")
+            return None
+        if handshakes is None:
+            return None
+        now = int(datetime.now(UTC).timestamp())
+        return stale_tunnels(overlay.peers(), handshakes, now)
+
+    async def _update_alerts(  # type: ignore[no-untyped-def]
+        self,
+        db,
+        summaries,
+        system: SystemService,
+        tunnels: list[StaleTunnel] | None = None,
+    ) -> None:
         """Raise what is wrong, clear what is not.
 
         Alerts are derived, never authored. Clearing them here means the
@@ -290,6 +318,20 @@ class InventorySync:
                 "params": {"days_remaining": str(certificate.days_remaining or 0)},
             }
 
+        for tunnel in tunnels or []:
+            wanted[("overlay.tunnel_stale", tunnel.nats_username)] = {
+                # In "on" the tunnel is the only way to NATS, so the probe is
+                # gone from PRTG; in "auto" it has fallen back and still works.
+                "severity": (
+                    AlertSeverity.CRITICAL
+                    if tunnel.mode == "on"
+                    else AlertSeverity.WARNING
+                ),
+                "object_type": "probe",
+                "object_label": tunnel.nats_username,
+                "params": {"minutes": str(tunnel.age // 60)},
+            }
+
         existing = {
             (alert.kind, alert.object_ref): alert
             for alert in await db.scalars(select(Alert))
@@ -317,5 +359,10 @@ class InventorySync:
                 alert.params = data["params"]
 
         for key, alert in existing.items():
-            if key not in wanted:
-                await db.delete(alert)
+            if key in wanted:
+                continue
+            # Without an answer from the hub its alerts are neither confirmed
+            # nor refuted; they stay until it answers again.
+            if tunnels is None and key[0] == "overlay.tunnel_stale":
+                continue
+            await db.delete(alert)

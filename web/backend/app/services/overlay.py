@@ -28,6 +28,7 @@ from app.core.logging import get_logger
 from app.infrastructure import known_hosts
 from app.infrastructure.docker import OVERLAY_IMAGE, DockerAdapter
 from app.infrastructure.overlay import (
+    OverlayPeer,
     OverlayRuntime,
     OverlaySettings,
     OverlayStatus,
@@ -41,6 +42,12 @@ from app.infrastructure.probe_helper.protocol import OVERLAY_HELPER_VERSION
 from app.infrastructure.runtime_files import ProbeInventory, RuntimeFileStore
 
 logger = get_logger(__name__)
+
+# WireGuard renews a session every two minutes while traffic flows, and the
+# keepalive makes sure it does. A handshake older than this is a tunnel that
+# stopped working, not a quiet one. The same number the probe's watcher uses
+# before it counts the tunnel out and moves it to a new source port.
+HANDSHAKE_MAX_AGE_SECONDS = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +78,43 @@ class PeerState:
             return "down"
         if self.handshake_age is None:
             return "no_handshake"
+        # Reported before the route: a probe in "on" whose last handshake is
+        # eleven hours old is still routed into the tunnel, and calling that
+        # "tunnel" is how a dead site looked healthy.
+        if self.handshake_age > HANDSHAKE_MAX_AGE_SECONDS:
+            return "stale"
         return "tunnel" if self.route_active else "direct"
+
+
+@dataclass(frozen=True, slots=True)
+class StaleTunnel:
+    nats_username: str
+    mode: str
+    age: int
+
+
+def stale_tunnels(
+    peers: tuple[OverlayPeer, ...], handshakes: dict[str, int], now: int
+) -> list[StaleTunnel]:
+    """Peers whose tunnel had a handshake and lost it, as the hub sees them.
+
+    A peer that never had one is left out on purpose. Right after the hub
+    starts, every peer reads "never" until it has dialled in, which takes a
+    keepalive or two; a probe that cannot reach the hub at all already shows
+    as unreachable, and a missing handshake on the probe's own report says so
+    too. What only the hub can tell is the tunnel that worked and stopped.
+    """
+    found = []
+    for peer in peers:
+        if peer.pending or peer.mode == "off":
+            continue
+        last = handshakes.get(peer.public_key, 0)
+        if last <= 0:
+            continue
+        age = now - last
+        if age > HANDSHAKE_MAX_AGE_SECONDS:
+            found.append(StaleTunnel(peer.nats_username, peer.mode, age))
+    return found
 
 
 class OverlayService:
