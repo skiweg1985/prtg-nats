@@ -36,7 +36,7 @@ MAXIMUM_TOOL_BYTES=12582912
 # Raised whenever a request is added or its meaning changes. The platform
 # compares it against what it expects and offers an update when it is behind.
 # An older helper reports no version at all, which is the same answer.
-HELPER_VERSION=19
+HELPER_VERSION=20
 # Where enroll-probe.sh puts this script and the key that authorises its
 # replacement. Written here rather than derived from $0: under the forced
 # command $0 is whatever sshd decided to call us.
@@ -4736,7 +4736,28 @@ fi
 write_state "${current}" "${streak}" "${device}" "${active}"
 WATCHEOF
   chmod 0755 "${OVERLAY_WATCH_PATH}.new"
+  # Left alone when nothing changed, which is nearly always: this runs on
+  # every request (see keep_overlay_watch_current), and a file that is
+  # replaced every minute only muddies whoever reads its timestamp.
+  if cmp -s "${OVERLAY_WATCH_PATH}.new" "${OVERLAY_WATCH_PATH}"; then
+    rm -f -- "${OVERLAY_WATCH_PATH}.new"
+    return 0
+  fi
   mv -f "${OVERLAY_WATCH_PATH}.new" "${OVERLAY_WATCH_PATH}"
+}
+
+# The watcher this helper would write, in place of whatever is there.
+#
+# helper-update runs the code of the helper being replaced, not of the one
+# arriving, so a fix to the watcher cannot rely on the update to install it:
+# version 19 brought the source port renewal and asked for a refresh that
+# version 18 - the one actually running the update - knew nothing about. The
+# probes kept the old watcher and a tunnel stuck for a week. Checking on every
+# request means the first one after an update installs it, whatever the old
+# helper did.
+keep_overlay_watch_current() {
+  [[ -f "${OVERLAY_CONFIG_ENV}" && -f "${OVERLAY_WATCH_PATH}" ]] || return 0
+  write_overlay_watch 2>/dev/null || rm -f -- "${OVERLAY_WATCH_PATH}.new"
 }
 
 write_overlay_units() {
@@ -5014,6 +5035,7 @@ install -d -o root -g root -m 0700 \
   "${TRANSACTION_DIR}" \
   "${SENSOR_TRANSACTION_STATE_DIR}" \
   "${SENSOR_COMMIT_TOMBSTONE_DIR}"
+keep_overlay_watch_current || true
 
 IFS=$'\t' read -r command_name argument_one argument_two argument_three ||
   die "Missing management request"

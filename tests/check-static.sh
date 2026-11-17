@@ -1486,6 +1486,51 @@ sensor_commit_retry_lock_order() {
 check "a tombstoned commit locks before inspecting its transaction" \
   "$(sensor_commit_retry_lock_order)" "lock-first"
 
+# helper-update runs the outgoing helper's code, so a new watcher reaches a
+# probe only if the new helper installs it itself. These run the shipped
+# functions against a sandbox: an old watcher is replaced, a current one is
+# left untouched, and a probe without the overlay gets none.
+overlay_watch_self_heal_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    OVERLAY_CONFIG_ENV="${sandbox}/overlay.env"
+    OVERLAY_WATCH_PATH="${sandbox}/watch"
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(awk '/^write_overlay_watch\(\)/ { on = 1 }
+      on { print }
+      on && /^WATCHEOF$/ { tail = 1 }
+      tail && /^}$/ { exit }' libexec/prtg-nats-probe-helper)
+    # shellcheck disable=SC1090
+    source <(sed -n '/^keep_overlay_watch_current()/,/^}/p' \
+      libexec/prtg-nats-probe-helper)
+
+    keep_overlay_watch_current
+    [[ -e "${OVERLAY_WATCH_PATH}" ]] && printf 'absent-written ' ||
+      printf 'absent-left '
+
+    : > "${OVERLAY_CONFIG_ENV}"
+    printf '#!/usr/bin/env bash\n# an older watcher\n' > "${OVERLAY_WATCH_PATH}"
+    keep_overlay_watch_current
+    grep -q renew_source_port "${OVERLAY_WATCH_PATH}" &&
+      printf 'old-replaced ' || printf 'old-kept '
+
+    touch -d '2001-01-01' "${OVERLAY_WATCH_PATH}"
+    keep_overlay_watch_current
+    [[ "$(stat -c %Y "${OVERLAY_WATCH_PATH}")" == \
+       "$(date -d '2001-01-01' +%s)" ]] &&
+      printf 'current-untouched' || printf 'current-rewritten'
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "the helper installs its own watcher in place of an old one" \
+  "$(overlay_watch_self_heal_scenario)" \
+  "absent-left old-replaced current-untouched"
+check "the watcher is kept current before every request" \
+  "$(grep -c '^keep_overlay_watch_current || true$' \
+    libexec/prtg-nats-probe-helper)" "1"
+
 commit_response_loss_wait_scenario() {
   local sandbox=""
   sandbox="$(mktemp -d)"
