@@ -1531,6 +1531,47 @@ check "the watcher is kept current before every request" \
   "$(grep -c '^keep_overlay_watch_current || true$' \
     libexec/prtg-nats-probe-helper)" "1"
 
+# prtgmpprobe 4.x no longer speaks NATS. The pin keeps a probe on 3.x, and
+# the upgrade refuses a 4.x candidate even where the pin was deleted.
+mpp_pin_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the functions sourced below
+    MPP_PACKAGE="prtgmpprobe"
+    # shellcheck disable=SC2034
+    MPP_SUPPORTED_MAJOR=3
+    MPP_APT_PIN="${sandbox}/preferences.d/prtg-nats-mpprobe"
+    MPP_REPOSITORY_FILES=("${sandbox}/paessler.sources")
+    apt-cache() { :; }
+    dpkg-query() { return 1; }
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^keep_mpp_pin()/,/^}/p
+      /^package_major()/,/^}/p' libexec/prtg-nats-probe-helper)
+
+    mkdir -p "${sandbox}/preferences.d"
+    keep_mpp_pin
+    [[ -e "${MPP_APT_PIN}" ]] && printf 'no-repo-written ' ||
+      printf 'no-repo-left '
+    : > "${MPP_REPOSITORY_FILES[0]}"
+    keep_mpp_pin
+    grep -q '^Pin: version 3\.\*$' "${MPP_APT_PIN}" &&
+      printf 'pinned ' || printf 'unpinned '
+    printf '%s/%s/%s' "$(package_major 4.2.1-1)" "$(package_major 3.11.0-1)" \
+      "$(package_major none)"
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "the probe helper pins prtgmpprobe to 3.x where the package source is" \
+  "$(mpp_pin_scenario)" "no-repo-left pinned 4/3/"
+check "the MPP upgrade refuses a candidate above the supported major" \
+  "$(grep -c 'candidate_major > MPP_SUPPORTED_MAJOR' \
+    libexec/prtg-nats-probe-helper)" "1"
+check "install-mpp.sh pins the package before it installs it" \
+  "$(awk '/^install_debian_package\(\)/,/^}/' install-mpp.sh |
+    grep -cE '^  write_mpp_pin$|^    write_mpp_pin$')" "2"
+
 commit_response_loss_wait_scenario() {
   local sandbox=""
   sandbox="$(mktemp -d)"
