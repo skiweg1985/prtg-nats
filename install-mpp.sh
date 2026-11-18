@@ -836,6 +836,27 @@ elif [[ "${package_family}" == "rhel" ]] &&
   package_installed="true"
 fi
 
+# prtgmpprobe 4.x no longer speaks NATS and would never connect to this
+# platform; the package stays on 3.x until the platform supports 4.x. The
+# probe helper writes the same pin on every request, so this only has to
+# cover the first installation.
+MPP_APT_PIN="/etc/apt/preferences.d/prtg-nats-mpprobe"
+
+write_mpp_pin() {
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    printf '+ pin prtgmpprobe to 3.x in %s\n' "${MPP_APT_PIN}"
+    return
+  fi
+  install -d -o root -g root -m 0755 "$(dirname -- "${MPP_APT_PIN}")"
+  printf '%s\n' \
+    '# Written by prtg-nats. prtgmpprobe 4.x no longer speaks NATS and would' \
+    '# stop this probe; it stays on the supported major version.' \
+    'Package: prtgmpprobe' \
+    'Pin: version 3.*' \
+    'Pin-Priority: 1000' > "${MPP_APT_PIN}"
+  chmod 0644 "${MPP_APT_PIN}"
+}
+
 install_debian_package() {
   local repository_key="/usr/share/keyrings/paessler-archive-keyring.asc"
   local repository_file="/etc/apt/sources.list.d/paessler.sources"
@@ -852,6 +873,7 @@ install_debian_package() {
     printf '+ install Paessler signing key as %s\n' "${repository_key}"
     printf '+ download and validate %s\n' "${repository_url}"
     printf '+ install repository definition as %s\n' "${repository_file}"
+    write_mpp_pin
     run apt-get update
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y prtgmpprobe
     return
@@ -880,6 +902,7 @@ install_debian_package() {
   install -o root -g root -m 0644 \
     "${download_dir}/paessler.sources" "${repository_file}"
 
+  write_mpp_pin
   apt-get update
   env DEBIAN_FRONTEND=noninteractive apt-get install -y prtgmpprobe
 }
@@ -897,7 +920,7 @@ install_rhel_package() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     printf '+ download and validate %s\n' "${repository_url}"
     printf '+ install repository definition as %s\n' "${repository_file}"
-    run dnf install -y prtgmpprobe
+    run dnf install -y 'prtgmpprobe-3.*'
     return
   fi
 
@@ -915,7 +938,7 @@ install_rhel_package() {
     die "Downloaded Paessler repository definition is invalid"
   install -o root -g root -m 0644 \
     "${download_dir}/paessler.repo" "${repository_file}"
-  dnf install -y prtgmpprobe
+  dnf install -y 'prtgmpprobe-3.*'
 }
 
 if [[ "${package_installed}" == "true" ]]; then

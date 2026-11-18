@@ -1486,6 +1486,92 @@ sensor_commit_retry_lock_order() {
 check "a tombstoned commit locks before inspecting its transaction" \
   "$(sensor_commit_retry_lock_order)" "lock-first"
 
+# helper-update runs the outgoing helper's code, so a new watcher reaches a
+# probe only if the new helper installs it itself. These run the shipped
+# functions against a sandbox: an old watcher is replaced, a current one is
+# left untouched, and a probe without the overlay gets none.
+overlay_watch_self_heal_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    OVERLAY_CONFIG_ENV="${sandbox}/overlay.env"
+    OVERLAY_WATCH_PATH="${sandbox}/watch"
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(awk '/^write_overlay_watch\(\)/ { on = 1 }
+      on { print }
+      on && /^WATCHEOF$/ { tail = 1 }
+      tail && /^}$/ { exit }' libexec/prtg-nats-probe-helper)
+    # shellcheck disable=SC1090
+    source <(sed -n '/^keep_overlay_watch_current()/,/^}/p' \
+      libexec/prtg-nats-probe-helper)
+
+    keep_overlay_watch_current
+    [[ -e "${OVERLAY_WATCH_PATH}" ]] && printf 'absent-written ' ||
+      printf 'absent-left '
+
+    : > "${OVERLAY_CONFIG_ENV}"
+    printf '#!/usr/bin/env bash\n# an older watcher\n' > "${OVERLAY_WATCH_PATH}"
+    keep_overlay_watch_current
+    grep -q renew_source_port "${OVERLAY_WATCH_PATH}" &&
+      printf 'old-replaced ' || printf 'old-kept '
+
+    touch -d '2001-01-01' "${OVERLAY_WATCH_PATH}"
+    keep_overlay_watch_current
+    [[ "$(stat -c %Y "${OVERLAY_WATCH_PATH}")" == \
+       "$(date -d '2001-01-01' +%s)" ]] &&
+      printf 'current-untouched' || printf 'current-rewritten'
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "the helper installs its own watcher in place of an old one" \
+  "$(overlay_watch_self_heal_scenario)" \
+  "absent-left old-replaced current-untouched"
+check "the watcher is kept current before every request" \
+  "$(grep -c '^keep_overlay_watch_current || true$' \
+    libexec/prtg-nats-probe-helper)" "1"
+
+# prtgmpprobe 4.x no longer speaks NATS. The pin keeps a probe on 3.x, and
+# the upgrade refuses a 4.x candidate even where the pin was deleted.
+mpp_pin_scenario() {
+  local sandbox=""
+  sandbox="$(mktemp -d)"
+  (
+    # shellcheck disable=SC2034  # read by the functions sourced below
+    MPP_PACKAGE="prtgmpprobe"
+    # shellcheck disable=SC2034
+    MPP_SUPPORTED_MAJOR=3
+    MPP_APT_PIN="${sandbox}/preferences.d/prtg-nats-mpprobe"
+    MPP_REPOSITORY_FILES=("${sandbox}/paessler.sources")
+    apt-cache() { :; }
+    dpkg-query() { return 1; }
+    # shellcheck disable=SC1090  # process substitution selects shipped code
+    source <(sed -n '/^keep_mpp_pin()/,/^}/p
+      /^package_major()/,/^}/p' libexec/prtg-nats-probe-helper)
+
+    mkdir -p "${sandbox}/preferences.d"
+    keep_mpp_pin
+    [[ -e "${MPP_APT_PIN}" ]] && printf 'no-repo-written ' ||
+      printf 'no-repo-left '
+    : > "${MPP_REPOSITORY_FILES[0]}"
+    keep_mpp_pin
+    grep -q '^Pin: version 3\.\*$' "${MPP_APT_PIN}" &&
+      printf 'pinned ' || printf 'unpinned '
+    printf '%s/%s/%s' "$(package_major 4.2.1-1)" "$(package_major 3.11.0-1)" \
+      "$(package_major none)"
+  )
+  rm -rf -- "${sandbox}"
+}
+
+check "the probe helper pins prtgmpprobe to 3.x where the package source is" \
+  "$(mpp_pin_scenario)" "no-repo-left pinned 4/3/"
+check "the MPP upgrade refuses a candidate above the supported major" \
+  "$(grep -c 'candidate_major > MPP_SUPPORTED_MAJOR' \
+    libexec/prtg-nats-probe-helper)" "1"
+check "install-mpp.sh pins the package before it installs it" \
+  "$(awk '/^install_debian_package\(\)/,/^}/' install-mpp.sh |
+    grep -cE '^  write_mpp_pin$|^    write_mpp_pin$')" "2"
+
 commit_response_loss_wait_scenario() {
   local sandbox=""
   sandbox="$(mktemp -d)"

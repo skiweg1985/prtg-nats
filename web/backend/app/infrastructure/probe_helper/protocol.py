@@ -121,7 +121,11 @@ FIELD_SEPARATOR = "\t"
 # had a handshake loses it, so a site that switches uplinks does not keep
 # sending into a NAT entry of the line that is gone. helper-update rewrites
 # the watcher, and overlay-refresh does that on its own.
-CURRENT_HELPER_VERSION = 19
+#
+# Version 20 replaces an outdated overlay watcher on every request. The
+# refresh that 19 added to helper-update never ran on the update to 19
+# itself, since an update runs the outgoing helper's code.
+CURRENT_HELPER_VERSION = 20
 MINIMUM_HELPER_VERSION = 1
 # The overlay requests arrived with version 9. Asked for separately from the
 # current version so a probe that is merely a version or two behind is not

@@ -1,7 +1,7 @@
 ---
 title: Operations and maintenance
 role: operator
-updated: 2026-11-08
+updated: 2026-11-18
 ---
 
 # Operations and maintenance
@@ -353,6 +353,15 @@ offers on that day and leaves it there, so probes set up at different times
 run different versions. Where another probe of the same platform reports a
 newer version than the one a probe carries, the probe list and the probe's page show it
 beside the version, as "3.11.0-1 available".
+
+**The probes stay on `prtgmpprobe` 3.x.** Version 4 no longer speaks NATS: it
+connects to the PRTG core directly, reads a configuration of its own and does
+not start while one still carries NATS settings, so an upgrade to it takes the
+probe off this platform. The probe helper keeps an APT pin in
+`/etc/apt/preferences.d/prtg-nats-mpprobe` that makes the newest 3.x the
+candidate, writes it again on every request, and the upgrade refuses a 4.x
+even where the pin was removed. A plain `apt upgrade` on the probe respects
+the pin as well.
 
 "Upgrade probe software" sits in a probe's menu and, for a selection, in the
 bar above the probe list. It always asks first, because the probe service
