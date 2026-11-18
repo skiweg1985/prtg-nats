@@ -151,6 +151,11 @@ class FileField:
     description_key: str | None = None
     groups: tuple[str, ...] = ()
     required_unless: str | None = None
+    # The certificate slot this key belongs to, and the credential that opens
+    # it. Declared, because only the sensor knows which of its certificates a
+    # key is meant for - wlan-auth carries two, and only one has a key.
+    pairs_with: str | None = None
+    passphrase_from: str | None = None
     maps_to: str | None = None
 
 
@@ -554,6 +559,8 @@ def _parse_file_field(entry: Any) -> FileField:
         description_key=_optional_string(values, "description_key"),
         groups=_groups(values, name),
         required_unless=_optional_string(values, "required_unless"),
+        pairs_with=_optional_string(values, "pairs_with"),
+        passphrase_from=_optional_string(values, "passphrase_from"),
         maps_to=_optional_string(values, "maps_to"),
     )
 

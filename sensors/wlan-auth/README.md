@@ -369,6 +369,29 @@ privileges, invalid parameters — the sensor reports a sensor error instead,
 with the cause in the message text. That separation is deliberate: such a
 state says nothing about the Wi-Fi.
 
+**A file the sensor cannot use is one of those.** `wpa_supplicant` reports
+it while it builds the TLS context, before a single byte reaches the RADIUS
+server, and what follows looks like a verdict on the network: an EAP failure
+that reads as *credentials rejected by RADIUS*, or — depending on which line
+the run reaches first — a key negotiation that ran out of time. Both were
+measured with a key that did not belong to the client certificate. Three
+causes get a sensor error of their own instead:
+
+| Cause | Meaning |
+| --- | --- |
+| `client-key-unusable` | the private key does not belong to the client certificate, or its passphrase is wrong |
+| `client-cert-unusable` | the client certificate could not be read |
+| `ca-cert-unusable` | the CA certificate could not be read |
+
+The web platform refuses all three when the file is uploaded, so a variant
+built there cannot carry them. A sensor configured by hand in PRTG still
+can, and then the message names the file rather than the network.
+
+Where a rejected certificate carries a reason, it is carried through:
+*RADIUS certificate rejected (unable to get issuer certificate)* is a CA on
+the probe that does not match the server's issuer — not a fault on the
+server.
+
 ### EAP-TLS against a Windows NPS
 
 Two messages under code 3 mean different things, and the difference is

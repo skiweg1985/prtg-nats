@@ -234,6 +234,8 @@
       "required": true,
       "kind": "key",
       "secret": true,
+      "pairs_with": "CLIENT_CERT",
+      "passphrase_from": "PRIVATE_KEY_PASSWD",
       "extension": ".pem",
       "maps_to": "--private-key",
       "group": "eap-tls",
